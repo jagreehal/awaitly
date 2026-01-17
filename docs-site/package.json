@@ -1,0 +1,26 @@
+{
+  "name": "awaitly-docs",
+  "type": "module",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Documentation for awaitly",
+  "scripts": {
+    "dev": "BASE=/ astro dev",
+    "start": "BASE=/ astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.37.1",
+    "@fontsource/geist-mono": "^5.1.0",
+    "@fontsource/geist-sans": "^5.1.0",
+    "@tailwindcss/vite": "^4.1.18",
+    "astro": "^5.16.6",
+    "astro-mermaid": "^1.2.0",
+    "mermaid": "^11.12.2",
+    "sharp": "^0.34.5",
+    "starlight-theme-next": "^0.3.3",
+    "tailwindcss": "^4.1.18"
+  }
+}

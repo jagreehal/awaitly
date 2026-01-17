@@ -5,8 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'docs/**'
-      - 'README.md'
+      - 'docs-site/**'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -25,77 +24,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: docs-site/pnpm-lock.yaml
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
-        with:
-          enablement: true
 
-      - name: Create docs site structure
-        run: |
-          mkdir -p _site
-          cp README.md _site/index.md
-          cp -r docs/* _site/
+      - name: Install dependencies
+        working-directory: docs-site
+        run: pnpm install --frozen-lockfile
 
-      - name: Create HTML wrapper
-        run: |
-          cat > _site/index.html << 'HTMLEOF'
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>awaitly - Typed Async Workflows</title>
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5/github-markdown-light.min.css">
-            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-            <style>
-              body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; background: #fff; }
-              .markdown-body { font-size: 16px; }
-              nav { margin-bottom: 2rem; padding: 1rem; background: #f6f8fa; border-radius: 6px; display: flex; flex-wrap: wrap; gap: 0.5rem; }
-              nav a { text-decoration: none; color: #0969da; padding: 0.25rem 0.5rem; border-radius: 4px; }
-              nav a:hover { background: #ddf4ff; }
-              @media (max-width: 767px) { body { padding: 15px; } }
-            </style>
-          </head>
-          <body class="markdown-body">
-            <nav>
-              <a href="index.html">Home</a>
-              <a href="advanced.html">Advanced</a>
-              <a href="api.html">API</a>
-              <a href="duration.html">Duration</a>
-              <a href="circuit-breaker.html">Circuit Breaker</a>
-              <a href="rate-limiter.html">Rate Limiter</a>
-              <a href="saga.html">Saga</a>
-              <a href="persistence.html">Persistence</a>
-              <a href="hitl.html">HITL</a>
-              <a href="testing.html">Testing</a>
-              <a href="devtools.html">Devtools</a>
-              <a href="otel.html">OpenTelemetry</a>
-              <a href="conditional.html">Conditional</a>
-            </nav>
-            <div id="content"></div>
-            <script>
-              const page = window.location.pathname.split('/').pop().replace('.html', '') || 'index';
-              const mdFile = page === 'index' ? 'index.md' : page + '.md';
-              fetch(mdFile)
-                .then(r => r.ok ? r.text() : fetch('index.md').then(r => r.text()))
-                .then(md => { document.getElementById('content').innerHTML = marked.parse(md); })
-                .catch(() => { document.getElementById('content').innerHTML = '<p>Error loading documentation.</p>'; });
-            </script>
-          </body>
-          </html>
-          HTMLEOF
-
-      - name: Create HTML pages for each doc
-        run: |
-          for file in _site/*.md; do
-            name=$(basename "$file" .md)
-            if [ "$name" != "index" ]; then
-              cp _site/index.html "_site/${name}.html"
-            fi
-          done
+      - name: Build docs
+        working-directory: docs-site
+        run: pnpm build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-site/dist
 
   deploy:
     environment:
