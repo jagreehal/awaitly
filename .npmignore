@@ -1,0 +1,49 @@
+# Source files
+src/
+*.ts
+!*.d.ts
+
+# Test files
+*.test.ts
+*.spec.ts
+**/__tests__/
+**/__mocks__/
+
+# Config files
+tsconfig.json
+tsup.config.ts
+vitest.config.ts
+eslint.config.mjs
+prettier.config.js
+.prettierignore
+
+# Build artifacts (keep dist/)
+lib/
+*.tsbuildinfo
+
+# Development files
+.vscode/
+.idea/
+*.log
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Dependencies
+node_modules/
+
+# CI/CD
+.github/
+
+# Documentation (README.md is included via package.json files field)
+*.md
+!README.md
+
+
+
+
+
+
+

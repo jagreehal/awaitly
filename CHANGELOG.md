@@ -1,0 +1,88 @@
+# awaitly
+
+## 1.0.0
+
+### Initial Release
+
+A TypeScript-first workflow orchestration library with type-safe error handling, visualization, and production-ready features.
+
+#### Core Features
+
+- **Result Type** (`ok`, `err`, `Result<T, E, C>`): Type-safe error handling with `Ok<T>` and `Err<E, C>` types, type guards (`isOk`, `isErr`), and comprehensive utilities (`map`, `andThen`, `match`, `all`, `allSettled`, `from`, `fromPromise`)
+
+- **Workflow Engine** (`createWorkflow`, `run`): Build complex async workflows with typed steps, automatic error aggregation, and context propagation
+
+- **Step API**:
+  - `step()` - Execute async operations with automatic error capture
+  - `step.try()` - Try/catch with custom error mapping
+  - `step.fromResult()` - Map typed Result errors with preserved types
+  - Retry support (fixed, linear, exponential backoff with jitter)
+  - Timeout support with AbortSignal integration
+
+#### Advanced Workflow Features
+
+- **Circuit Breaker** (`createCircuitBreaker`): Prevent cascading failures with configurable failure thresholds and recovery
+- **Saga/Compensation** (`createSagaWorkflow`, `runSaga`): Define compensating actions for automatic rollback on downstream failures
+- **Rate Limiting** (`createRateLimiter`, `createConcurrencyLimiter`): Control throughput with token bucket and concurrency limiters
+- **Workflow Versioning** (`migrateState`, `createVersionedStateLoader`): Handle schema migrations when resuming persisted workflows
+- **Conditional Execution** (`when`, `unless`, `whenOr`, `unlessOr`): Declarative guards for conditional step execution
+- **Webhook Adapters** (`createWebhookHandler`, `createEventHandler`): Expose workflows as HTTP endpoints or queue consumers
+- **Policy Middleware** (`withPolicy`, `servicePolicies`): Reusable bundles of retry/timeout options
+
+#### Persistence & Resume
+
+- **Step Collector** (`createStepCollector`): Capture and restore workflow state for save/resume patterns
+- **Persistence Adapters** (`createMemoryCache`, `createFileCache`, `createKVCache`): Pluggable storage for step cache and resume state
+- Database integration patterns (PostgreSQL, DynamoDB, Redis)
+
+#### Visualization & Debugging
+
+- **Visualizer** (`createVisualizer`): Multiple output formats:
+  - ASCII diagrams
+  - Mermaid flowcharts with retry loops, error paths, and timeout edges
+  - Interactive HTML with WebSocket support
+  - JSON export (`renderAs('json')`, `renderAs('logger')`)
+- **Decision Tracking**: `trackDecision`, `trackIf`, `trackSwitch` for visualizing conditional logic
+- **Devtools** (`createDevtools`): Debugging, timeline rendering, and run diffing
+
+#### Utilities
+
+- **Batch Processing** (`processInBatches`): Process items in batches with bounded concurrency, progress tracking, and checkpoint hooks. Includes preset configurations (conservative, balanced, aggressive)
+
+- **Resource Management** (`withScope`, `createResourceScope`, `createResource`): RAII-style resource cleanup with automatic guarantees and LIFO cleanup order
+
+- **Match API** (`Match`): Exhaustive pattern matching for discriminated unions
+  - `Match.value()`, `Match.tag()`, `Match.tags()`, `Match.when()` for pattern matching
+  - `Match.exhaustive`, `Match.orElse()`, `Match.orElseValue()` for completion
+  - `Match.is()`, `Match.isOneOf()` for type guards
+
+- **Schedule API** (`Schedule`): Composable scheduling primitives for retry and polling strategies
+  - Base schedules: `forever()`, `recurs(n)`, `once()`, `stop()`
+  - Delay-based: `spaced()`, `exponential()`, `linear()`, `fibonacci()`
+  - Combinators: `upTo(n)`, `maxDelay()`, `jittered()`, `andThen()`, `union()`, `intersect()`
+
+- **Duration API** (`Duration`): Type-safe duration handling
+  - Constructors: `millis()`, `seconds()`, `minutes()`, `hours()`, `days()`
+  - Operations: `add()`, `subtract()`, `multiply()`, `divide()`
+  - Formatting: `format()`, `parse()`
+
+- **TaggedError**: Factory function for structured error types with exhaustive pattern matching
+  - `TaggedError.match()` for exhaustive handling
+  - `TaggedError.matchPartial()` for partial matching with fallback
+  - `TaggedError.isTaggedError()` type guard
+
+#### Production Features
+
+- **HITL Orchestration** (`createHITLOrchestrator`): Human-in-the-loop approval workflows with polling and webhooks
+- **Testing Harness** (`createWorkflowHarness`, `createMockFn`): Deterministic testing with scripted step outcomes
+- **OpenTelemetry** (`createAutotelAdapter`): First-class metrics and tracing integration
+- **Workflow Hooks**: `shouldRun`, `onBeforeStart`, `onAfterStep` for distributed locking, rate limiting, checkpointing, and more
+
+#### Entry Points
+
+- `awaitly` - Core Result type and Duration
+- `awaitly/workflow` - Workflow engine and step API
+- `awaitly/match` - Pattern matching utilities
+- `awaitly/retry` - Schedule API for retry strategies
+- `awaitly/batch` - Batch processing utilities
+- `awaitly/resource` - Resource management utilities
