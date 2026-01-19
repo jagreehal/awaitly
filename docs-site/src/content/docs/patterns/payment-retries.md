@@ -23,12 +23,8 @@ async function processPayment(order: Order) {
 Use step keys and persistence to make the workflow resumable:
 
 ```typescript
-import {
-  createWorkflow,
-  createStepCollector,
-  stringifyState,
-  parseState,
-} from 'awaitly';
+import { createWorkflow, createStepCollector } from 'awaitly/workflow';
+import { stringifyState, parseState } from 'awaitly/persistence';
 
 const processPayment = createWorkflow({
   validateCard,
@@ -137,15 +133,9 @@ const idempotencyKey = `payment:${Date.now()}`;
 ## Full example
 
 ```typescript
-import {
-  createWorkflow,
-  createStepCollector,
-  stringifyState,
-  parseState,
-  ok,
-  err,
-  type AsyncResult,
-} from 'awaitly';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow, createStepCollector } from 'awaitly/workflow';
+import { stringifyState, parseState } from 'awaitly/persistence';
 
 const validateCard = async (
   cardToken: string

@@ -72,3 +72,23 @@ export {
   isStepComplete,
   createStepCollector,
 } from "./workflow";
+
+// =============================================================================
+// Duration - Re-exported for convenience (timeouts/delays)
+// =============================================================================
+
+export {
+  type Duration as DurationType,
+  Duration,
+  millis,
+  seconds,
+  minutes,
+  hours,
+  days,
+  toMillis,
+  toSeconds,
+  toMinutes,
+  toHours,
+  toDays,
+  isDuration,
+} from "./duration";

@@ -34,14 +34,15 @@ The library requires TypeScript 4.7 or later. Enable strict mode for best result
 Import from the main entry point:
 
 ```typescript
-import { createWorkflow, ok, err, type AsyncResult } from 'awaitly';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 ```
 
 Or use tree-shakable imports for smaller bundles:
 
 ```typescript
-// Core Result types only (~3KB)
-import { ok, err, map, andThen } from 'awaitly/core';
+// Result types only (~3KB)
+import { ok, err, map, andThen } from 'awaitly';
 
 // Workflow features (~8KB)
 import { createWorkflow, run } from 'awaitly/workflow';

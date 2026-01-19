@@ -3,13 +3,8 @@
  * Tests for conditional.ts - when/unless helpers
  */
 import { describe, it, expect, vi } from "vitest";
-import {
-  AsyncResult,
-  createWorkflow,
-  err,
-  ok,
-  run,
-} from "./index";
+import { AsyncResult, err, ok } from "./index";
+import { createWorkflow, run } from "./workflow-entry";
 import {
   when,
   unless,

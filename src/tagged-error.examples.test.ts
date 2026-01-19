@@ -6,7 +6,6 @@
 import { describe, it, expect } from "vitest";
 import {
   TaggedError,
-  createWorkflow,
   ok,
   err,
   type AsyncResult,
@@ -15,6 +14,7 @@ import {
   type ErrorByTag,
   type PropsOf,
 } from "./index";
+import { createWorkflow } from "./workflow-entry";
 
 // ============================================================================
 // Basic Usage Examples

@@ -10,13 +10,13 @@ Expose workflows as HTTP endpoints or event consumers with built-in validation a
 Create HTTP handlers for workflows:
 
 ```typescript
+import { ok } from 'awaitly';
 import {
   createWebhookHandler,
   createResultMapper,
   createExpressHandler,
   requireFields,
-  ok,
-} from 'awaitly';
+} from 'awaitly/webhook';
 
 // Create a webhook handler
 const handler = createWebhookHandler(
@@ -44,7 +44,7 @@ const handler = createWebhookHandler(
 
 ```typescript
 import express from 'express';
-import { createExpressHandler } from 'awaitly';
+import { createExpressHandler } from 'awaitly/webhook';
 
 const app = express();
 app.use(express.json());
@@ -71,7 +71,8 @@ app.post('/checkout', async (req, res) => {
 Use built-in validators or write your own:
 
 ```typescript
-import { requireFields, validationError, ok, err } from 'awaitly';
+import { ok, err } from 'awaitly';
+import { requireFields, validationError } from 'awaitly/webhook';
 
 // Built-in field checker
 const validate = requireFields(['amount', 'email', 'items']);
@@ -96,7 +97,7 @@ const validateInput = (req) => {
 Map workflow errors to HTTP responses:
 
 ```typescript
-import { createResultMapper } from 'awaitly';
+import { createResultMapper } from 'awaitly/webhook';
 
 const mapResult = createResultMapper([
   { error: 'NOT_FOUND', status: 404, message: 'Resource not found' },
@@ -113,7 +114,7 @@ const mapResult = createResultMapper([
 For message queues (SQS, RabbitMQ, etc.):
 
 ```typescript
-import { createEventHandler } from 'awaitly';
+import { createEventHandler } from 'awaitly/webhook';
 
 const handler = createEventHandler(
   checkoutWorkflow,
@@ -153,7 +154,8 @@ queue.consume(async (message) => {
 For straightforward use cases without workflow context:
 
 ```typescript
-import { createSimpleHandler, ok } from 'awaitly';
+import { ok } from 'awaitly';
+import { createSimpleHandler } from 'awaitly/webhook';
 
 const handler = createSimpleHandler(
   async (input: { userId: string }) => {

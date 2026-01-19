@@ -32,7 +32,8 @@ import {
   // Fluent builder
   stepOptions,
 } from "./policies";
-import { createWorkflow, ok, type AsyncResult } from "./index";
+import { ok, type AsyncResult } from "./index";
+import { createWorkflow } from "./workflow-entry";
 
 // ============================================================================
 // Mock Dependencies

@@ -10,19 +10,14 @@ Save workflow state to a database and resume later. Completed steps return their
 **Option 1: Import from main package** (recommended for most use cases)
 
 ```typescript
-import {
-  createWorkflow,
-  createStepCollector,
-  isStepComplete,
-  stringifyState,
-  parseState,
-} from 'awaitly';
+import { createWorkflow, createStepCollector, isStepComplete } from 'awaitly/workflow';
+import { stringifyState, parseState } from 'awaitly/persistence';
 ```
 
 **Option 2: Import from persistence submodule** (for full persistence API)
 
 ```typescript
-import { createWorkflow, createStepCollector, isStepComplete } from 'awaitly';
+import { createWorkflow, createStepCollector, isStepComplete } from 'awaitly/workflow';
 import { stringifyState, parseState, createStatePersistence } from 'awaitly/persistence';
 ```
 
@@ -31,7 +26,7 @@ import { stringifyState, parseState, createStatePersistence } from 'awaitly/pers
 Use `createStepCollector` to automatically capture step results:
 
 ```typescript
-import { createWorkflow, createStepCollector } from 'awaitly';
+import { createWorkflow, createStepCollector } from 'awaitly/workflow';
 
 const collector = createStepCollector();
 
@@ -127,7 +122,7 @@ const workflow = createWorkflow(deps, { resumeState: savedState });
 Use `isStepComplete` to check state before execution:
 
 ```typescript
-import { isStepComplete } from 'awaitly';
+import { isStepComplete } from 'awaitly/workflow';
 
 const state = await persistence.load('wf-123');
 

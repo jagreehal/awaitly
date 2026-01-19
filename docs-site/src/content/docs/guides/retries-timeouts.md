@@ -30,7 +30,7 @@ If it times out, you get a `StepTimeoutError` with the name.
 ### Checking for timeout errors
 
 ```typescript
-import { isStepTimeoutError, getStepTimeoutMeta } from 'awaitly';
+import { isStepTimeoutError, getStepTimeoutMeta } from 'awaitly/workflow';
 
 if (!result.ok && isStepTimeoutError(result.error)) {
   const meta = getStepTimeoutMeta(result.error);

@@ -5,25 +5,27 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   AsyncResult,
-  createWorkflow,
   err,
   isErr,
   isOk,
-  isStepComplete,
   isUnexpectedError,
-  isStepTimeoutError,
-  getStepTimeoutMeta,
   ok,
   Result,
+  UnexpectedError,
+} from "./index";
+import {
+  createWorkflow,
+  isStepComplete,
+  isStepTimeoutError,
+  getStepTimeoutMeta,
   run,
   RunStep,
   ResumeState,
   ResumeStateEntry,
-  UnexpectedError,
   WorkflowEvent,
   createStepCollector,
   StepTimeoutError,
-} from "./index";
+} from "./workflow-entry";
 
 describe("run() - do-notation style", () => {
   it("executes steps sequentially and returns final value", async () => {

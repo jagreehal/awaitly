@@ -275,7 +275,7 @@ const workflow = createWorkflow(deps, {
 For interactive debugging, run comparison, and timeline analysis:
 
 ```typescript
-import { createDevtools, quickVisualize, createConsoleLogger } from 'awaitly';
+import { createDevtools, quickVisualize, createConsoleLogger } from 'awaitly/workflow';
 
 const devtools = createDevtools({ workflowName: 'checkout' });
 
@@ -311,7 +311,7 @@ const imported = devtools.importRun(json);
 Use `createConsoleLogger` for pretty console output:
 
 ```typescript
-import { createConsoleLogger } from 'awaitly';
+import { createConsoleLogger } from 'awaitly/workflow';
 
 const logger = createConsoleLogger({ prefix: '[workflow]', colors: true });
 
@@ -332,7 +332,7 @@ await workflow(async (step) => { ... });
 Visualize a workflow run without setting up a visualizer:
 
 ```typescript
-import { quickVisualize } from 'awaitly';
+import { quickVisualize } from 'awaitly/workflow';
 
 const result = await quickVisualize(
   async (handleEvent) => {

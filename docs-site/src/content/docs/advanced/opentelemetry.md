@@ -10,7 +10,8 @@ First-class OpenTelemetry metrics from the workflow event stream.
 Create an adapter that tracks metrics and optionally creates spans:
 
 ```typescript
-import { createAutotelAdapter } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+import { createAutotelAdapter } from 'awaitly/otel';
 
 const autotel = createAutotelAdapter({
   serviceName: 'checkout-service',
@@ -54,7 +55,8 @@ console.log(metrics.cacheMisses);    // Cache miss count
 For debug logging without full metrics collection:
 
 ```typescript
-import { createAutotelEventHandler } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+import { createAutotelEventHandler } from 'awaitly/otel';
 
 const workflow = createWorkflow(deps, {
   onEvent: createAutotelEventHandler({
@@ -71,7 +73,7 @@ const workflow = createWorkflow(deps, {
 Wrap workflows with actual OpenTelemetry spans:
 
 ```typescript
-import { withAutotelTracing } from 'awaitly';
+import { withAutotelTracing } from 'awaitly/otel';
 import { trace } from 'autotel';
 
 const traced = withAutotelTracing(trace, { serviceName: 'checkout' });
@@ -139,7 +141,8 @@ const inventoryWorkflow = createWorkflow(inventoryDeps, {
 ## Combining with other event handlers
 
 ```typescript
-import { createAutotelAdapter, createVisualizer } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+import { createAutotelAdapter, createVisualizer } from 'awaitly/otel';
 
 const autotel = createAutotelAdapter({ serviceName: 'checkout' });
 const viz = createVisualizer({ workflowName: 'checkout' });

@@ -5,11 +5,11 @@
 
 import { describe, it, expect, } from "vitest";
 import {
-  createWorkflow,
   ok,
   err,
   type AsyncResult,
 } from "../index";
+import { createWorkflow } from "../workflow-entry";
 import {
   createVisualizer,
   createEventCollector,
