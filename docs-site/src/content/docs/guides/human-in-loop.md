@@ -44,7 +44,7 @@ if (!result.ok && isPendingApproval(result.error)) {
   await notifySlack(`Refund ${orderId} needs approval`);
   await db.workflowStates.create({
     id: orderId,
-    state: stringifyState(collector.getState()),
+    state: stringifyState(collector.getResumeState()),
   });
 }
 ```
@@ -97,7 +97,7 @@ if (!result.ok && isApprovalRejected(result.error)) {
 ```typescript
 import { getPendingApprovals } from 'awaitly/hitl';
 
-const state = collector.getState();
+const state = collector.getResumeState();
 const pending = getPendingApprovals(state);
 // [{ stepKey: 'approve:refund', ... }]
 ```
@@ -167,7 +167,7 @@ app.post('/webhooks/approve', async (req, res) => {
 ## Full example
 
 ```typescript
-import { createWorkflow, createStepCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 import {
   createApprovalStep,
   isPendingApproval,
@@ -194,7 +194,7 @@ const expenseWorkflow = createWorkflow({
   requireManagerApproval,
 });
 
-const collector = createStepCollector();
+const collector = createResumeStateCollector();
 const workflow = createWorkflow(deps, { onEvent: collector.handleEvent });
 
 const result = await workflow(async (step) => {
@@ -207,7 +207,7 @@ if (!result.ok && isPendingApproval(result.error)) {
   // Save for later
   await db.pendingWorkflows.create({
     id: 'expense-123',
-    state: stringifyState(collector.getState()),
+    state: stringifyState(collector.getResumeState()),
   });
   await sendSlackMessage('Expense needs approval: expense-123');
 }

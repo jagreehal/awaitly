@@ -66,10 +66,10 @@ if (migratedState.ok) {
 Always save state with version information:
 
 ```typescript
-import { createStepCollector } from 'awaitly/workflow';
+import { createResumeStateCollector } from 'awaitly/workflow';
 import { createVersionedState, stringifyVersionedState } from 'awaitly/persistence';
 
-const collector = createStepCollector();
+const collector = createResumeStateCollector();
 const workflow = createWorkflow(deps, {
   onEvent: collector.handleEvent,
 });
@@ -79,7 +79,7 @@ await workflow(async (step) => {
 });
 
 // Save with version
-const state = collector.getState();
+const state = collector.getResumeState();
 const versionedState = createVersionedState(state, 2); // Current version
 const json = stringifyVersionedState(versionedState);
 await db.saveWorkflowState(workflowId, json);
@@ -154,7 +154,7 @@ const migrations = {
 
 ```typescript
 import { ok } from 'awaitly';
-import { createWorkflow, createStepCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 import {
   createVersionedStateLoader,
   createVersionedState,
@@ -229,13 +229,13 @@ const workflow = createWorkflow(deps, {
   },
 });
 
-const collector = createStepCollector();
+const collector = createResumeStateCollector();
 const result = await workflow(async (step) => {
   // ...
 });
 
 // Save state after execution
-await saveWorkflowState(workflowId, collector.getState());
+await saveWorkflowState(workflowId, collector.getResumeState());
 ```
 
 ## Error handling

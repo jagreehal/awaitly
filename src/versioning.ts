@@ -270,10 +270,10 @@ export function createVersionedStateLoader(
  *
  * @example
  * ```typescript
- * const collector = createStepCollector();
+ * const collector = createResumeStateCollector();
  * // ... run workflow ...
  *
- * const versionedState = createVersionedState(collector.getState(), 2);
+ * const versionedState = createVersionedState(collector.getResumeState(), 2);
  * await db.saveWorkflowState(workflowId, versionedState);
  * ```
  */

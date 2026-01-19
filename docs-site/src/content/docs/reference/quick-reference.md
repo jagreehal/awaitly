@@ -118,15 +118,15 @@ if (!result.ok && isPendingApproval(result.error)) {
 ### Persist and resume workflow state
 
 ```typescript
-import { createStepCollector, createWorkflow } from 'awaitly/workflow';
+import { createResumeStateCollector, createWorkflow } from 'awaitly/workflow';
 import { stringifyState, parseState } from 'awaitly/persistence';
 
 // Capture state as workflow executes
-const collector = createStepCollector();
+const collector = createResumeStateCollector();
 await workflow(fn, { onEvent: collector.handleEvent });
 
 // Persist state
-const json = stringifyState(collector.getState());
+const json = stringifyState(collector.getResumeState());
 await db.save(workflowId, json);
 
 // Resume later
@@ -221,7 +221,7 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 | Need | Import from |
 |------|-------------|
 | Result types + composition (`ok`, `err`, `isOk`, `isErr`, `map`, `mapError`, `andThen`, `tap`, `from`, `fromPromise`, `all`, `allAsync`, `partition`, `match`, `run`, `TaggedError`) | `awaitly` |
-| Workflow engine (`createWorkflow`, `Duration`, `isStepComplete`, `createStepCollector`, step types, `ResumeState`) | `awaitly/workflow` |
+| Workflow engine (`createWorkflow`, `Duration`, `isStepComplete`, `createResumeStateCollector`, step types, `ResumeState`) | `awaitly/workflow` |
 | Saga pattern (`createSagaWorkflow`) | `awaitly/workflow` |
 | Parallel ops (`allAsync`, `allSettledAsync`, `zip`, `zipAsync`) | `awaitly` |
 | HITL (`pendingApproval`, `createApprovalStep`, `gatedStep`, `injectApproval`, `isPendingApproval`) | `awaitly/hitl` |

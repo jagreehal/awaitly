@@ -45,7 +45,7 @@ export {
   clearStep,
   hasPendingApproval,
   getPendingApprovals,
-  createHITLCollector,
+  createApprovalStateCollector,
 } from "./workflow";
 
 // =============================================================================

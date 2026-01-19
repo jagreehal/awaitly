@@ -10,25 +10,25 @@ Save workflow state to a database and resume later. Completed steps return their
 **Option 1: Import from main package** (recommended for most use cases)
 
 ```typescript
-import { createWorkflow, createStepCollector, isStepComplete } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector, isStepComplete } from 'awaitly/workflow';
 import { stringifyState, parseState } from 'awaitly/persistence';
 ```
 
 **Option 2: Import from persistence submodule** (for full persistence API)
 
 ```typescript
-import { createWorkflow, createStepCollector, isStepComplete } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector, isStepComplete } from 'awaitly/workflow';
 import { stringifyState, parseState, createStatePersistence } from 'awaitly/persistence';
 ```
 
 ## Collect state during execution
 
-Use `createStepCollector` to automatically capture step results:
+Use `createResumeStateCollector` to automatically capture step results:
 
 ```typescript
-import { createWorkflow, createStepCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 
-const collector = createStepCollector();
+const collector = createResumeStateCollector();
 
 const workflow = createWorkflow(
   { fetchUser, fetchPosts },
@@ -42,7 +42,7 @@ await workflow(async (step) => {
 });
 
 // Get collected state
-const state = collector.getState();
+const state = collector.getResumeState();
 ```
 
 Only steps with `key` are saved.
@@ -136,21 +136,21 @@ if (isStepComplete(state, 'user:1')) {
 Save state after each batch of work:
 
 ```typescript
-const collector = createStepCollector();
+const collector = createResumeStateCollector();
 const workflow = createWorkflow(deps, { onEvent: collector.handleEvent });
 
 const result = await workflow(async (step) => {
   const user = await step(() => fetchUser('1'), { key: 'user:1' });
 
   // Save after critical step
-  await saveCheckpoint(collector.getState());
+  await saveCheckpoint(collector.getResumeState());
 
   const posts = await step(() => fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
 
 // Final save
-await saveCheckpoint(collector.getState());
+await saveCheckpoint(collector.getResumeState());
 ```
 
 If the workflow crashes, resume from the last checkpoint:

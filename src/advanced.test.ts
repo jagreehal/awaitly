@@ -34,7 +34,7 @@ import {
 } from '../src/workflow-entry';
 import {
   createApprovalStep,
-  createHITLCollector,
+  createApprovalStateCollector,
   isPendingApproval,
   injectApproval,
   hasPendingApproval,
@@ -391,7 +391,7 @@ describe('Advanced Examples', () => {
   });
 
   describe('Human-in-the-loop (HITL)', () => {
-    it('should work with createApprovalStep and createHITLCollector', async () => {
+    it('should work with createApprovalStep and createApprovalStateCollector', async () => {
       const fetchData = async (id: string): AsyncResult<{ data: string }, 'NOT_FOUND'> =>
         ok({ data: 'test data' });
 
@@ -404,7 +404,7 @@ describe('Advanced Examples', () => {
         pendingReason: 'Waiting for manager approval',
       });
 
-      const collector = createHITLCollector();
+      const collector = createApprovalStateCollector();
       const workflow = createWorkflow(
         { fetchData, requireManagerApproval },
         { onEvent: collector.handleEvent }
@@ -439,7 +439,7 @@ describe('Advanced Examples', () => {
         },
       });
 
-      const collector = createHITLCollector();
+      const collector = createApprovalStateCollector();
       const workflow1 = createWorkflow(
         { fetchData, requireManagerApproval },
         { onEvent: collector.handleEvent }
@@ -455,7 +455,7 @@ describe('Advanced Examples', () => {
       expect(isPendingApproval(result1.error)).toBe(true);
 
       // Save state
-      const savedState = collector.getState();
+      const savedState = collector.getResumeState();
 
       // Inject approval
       const resumeState = injectApproval(savedState, {
