@@ -8,12 +8,12 @@ Prevent cascading failures by tracking step failure rates and short-circuiting c
 ## Basic usage
 
 ```typescript
+import { ok } from 'awaitly';
 import {
   createCircuitBreaker,
   isCircuitOpenError,
   circuitBreakerPresets,
-  ok,
-} from 'awaitly';
+} from 'awaitly/circuit-breaker';
 
 // Create a circuit breaker (name is required)
 const breaker = createCircuitBreaker('external-api', {
@@ -41,7 +41,7 @@ try {
 ## Using presets
 
 ```typescript
-import { createCircuitBreaker, circuitBreakerPresets } from 'awaitly';
+import { createCircuitBreaker, circuitBreakerPresets } from 'awaitly/circuit-breaker';
 
 // For critical services - opens quickly, recovers slowly
 const criticalBreaker = createCircuitBreaker(

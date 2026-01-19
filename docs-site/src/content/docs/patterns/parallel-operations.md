@@ -10,7 +10,8 @@ Execute multiple operations in parallel while maintaining typed error handling.
 Use `allAsync` to run operations concurrently:
 
 ```typescript
-import { allAsync, createWorkflow } from 'awaitly';
+import { allAsync } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow({ fetchUser, fetchPosts, fetchComments });
 
@@ -208,13 +209,13 @@ const result = await workflow(async (step) => {
 
 ```typescript
 import {
-  createWorkflow,
   allAsync,
   partition,
   ok,
   err,
   type AsyncResult,
 } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 type User = { id: string; name: string };
 type Notification = { id: string; message: string };

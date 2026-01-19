@@ -10,7 +10,8 @@ There are two ways to run workflows: `createWorkflow` for reusable workflows wit
 Creates a reusable workflow with automatic error type inference from dependencies:
 
 ```typescript
-import { createWorkflow, ok, err, type AsyncResult } from 'awaitly';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { ... };
 const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { ... };
@@ -44,7 +45,7 @@ const workflow = createWorkflow(
 For one-off workflows where you specify error types manually:
 
 ```typescript
-import { run } from 'awaitly';
+import { run } from 'awaitly/workflow';
 
 const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED'>(
   async (step) => {

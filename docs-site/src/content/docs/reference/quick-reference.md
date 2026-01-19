@@ -19,7 +19,7 @@ async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
 ### Compose multiple Result-returning functions
 
 ```typescript
-import { createWorkflow } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow({ fetchUser, chargeCard });
 const result = await workflow(async (step) => {
@@ -71,7 +71,7 @@ const dashboard = andThen(
 ### Undo completed steps when one fails
 
 ```typescript
-import { createSagaWorkflow } from 'awaitly';
+import { createSagaWorkflow } from 'awaitly/workflow';
 
 const saga = createSagaWorkflow({ charge, refund, reserve, release });
 const result = await saga(async (s) => {
@@ -91,7 +91,7 @@ const result = await saga(async (s) => {
 ### Wait for human approval
 
 ```typescript
-import { createApprovalStep, isPendingApproval, injectApproval } from 'awaitly';
+import { createApprovalStep, isPendingApproval, injectApproval } from 'awaitly/hitl';
 import { stringifyState, parseState } from 'awaitly/persistence';
 
 const approvalStep = createApprovalStep({
@@ -118,7 +118,7 @@ if (!result.ok && isPendingApproval(result.error)) {
 ### Persist and resume workflow state
 
 ```typescript
-import { createStepCollector, createWorkflow } from 'awaitly';
+import { createStepCollector, createWorkflow } from 'awaitly/workflow';
 import { stringifyState, parseState } from 'awaitly/persistence';
 
 // Capture state as workflow executes
@@ -138,7 +138,7 @@ const workflow = createWorkflow(deps, { resumeState });
 ### Retry failed operations
 
 ```typescript
-import { createWorkflow } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow(deps);
 const result = await workflow(async (step) => {
@@ -220,20 +220,20 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 
 | Need | Import from |
 |------|-------------|
-| Result types (`ok`, `err`, `isOk`, `isErr`) | `awaitly` or `awaitly/core` |
-| Workflow engine (`createWorkflow`, `step`) | `awaitly` |
-| Saga pattern (`createSagaWorkflow`) | `awaitly` |
+| Result types (`ok`, `err`, `isOk`, `isErr`, `map`, `mapError`, `andThen`, `tap`, `from`, `fromPromise`, `all`, `allAsync`, `partition`, `match`, `TaggedError`) | `awaitly` |
+| Workflow engine (`createWorkflow`, `run`, `Duration`, `isStepComplete`, `createStepCollector`, step types, `ResumeState`) | `awaitly/workflow` |
+| Saga pattern (`createSagaWorkflow`) | `awaitly/workflow` |
 | Parallel ops (`allAsync`, `allSettledAsync`, `zip`, `zipAsync`) | `awaitly` |
-| HITL (`createApprovalStep`, `isPendingApproval`) | `awaitly` |
-| State persistence (`stringifyState`, `parseState`) | `awaitly` or `awaitly/persistence` |
+| HITL (`pendingApproval`, `createApprovalStep`, `gatedStep`, `injectApproval`, `isPendingApproval`) | `awaitly/hitl` |
+| State persistence (`stringifyState`, `parseState`) | `awaitly/persistence` |
 | Batch processing (`processInBatches`) | `awaitly/batch` |
 | Circuit breaker | `awaitly/circuit-breaker` |
 | Rate limiting | `awaitly/ratelimit` |
 | Testing utilities | `awaitly/testing` |
 | Visualization | `awaitly/visualize` |
-| Duration helpers | `awaitly/duration` |
-| Tagged errors | `awaitly/tagged-error` or `awaitly/core` |
-| Pattern matching | `awaitly/match` or `awaitly/core` |
+| Duration helpers | `awaitly/workflow` |
+| Tagged errors | `awaitly` |
+| Pattern matching | `awaitly` |
 
 ---
 
@@ -243,11 +243,11 @@ For optimal bundle size, import from specific entry points:
 
 | Entry Point | Use Case |
 |-------------|----------|
-| `awaitly` | Full workflow engine + result primitives |
-| `awaitly/core` | Just result types and transforms (no workflow) |
-| `awaitly/workflow` | Just workflow engine (minimal) |
+| `awaitly` | Result types and transforms only |
+| `awaitly/workflow` | Workflow engine (`createWorkflow`, `run`, `Duration`, etc.) |
+| `awaitly/hitl` | Human-in-the-loop (`createApprovalStep`, `isPendingApproval`, etc.) |
+| `awaitly/persistence` | State serialization (`stringifyState`, `parseState`) |
 | `awaitly/batch` | Batch processing only |
-| `awaitly/persistence` | State serialization only |
 
 ---
 

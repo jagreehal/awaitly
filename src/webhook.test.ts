@@ -17,7 +17,8 @@ import {
   type ValidationError,
   type EventMessage,
 } from "./webhook";
-import { createWorkflow, ok, err, type AsyncResult, type UnexpectedError } from "./index";
+import { ok, err, type AsyncResult, type UnexpectedError } from "./index";
+import { createWorkflow } from "./workflow-entry";
 
 // =============================================================================
 // Test Fixtures

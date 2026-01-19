@@ -8,7 +8,7 @@ Define compensating actions for steps that need rollback on downstream failures.
 ## Basic usage
 
 ```typescript
-import { createSagaWorkflow, isSagaCompensationError } from 'awaitly';
+import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/saga';
 
 // Create saga with deps (error types inferred automatically)
 const checkoutSaga = createSagaWorkflow(
@@ -107,7 +107,7 @@ const result = await checkoutSaga(async (saga, deps) => {
 Use `tryStep` to catch exceptions from external libraries:
 
 ```typescript
-import { runSaga } from 'awaitly';
+import { runSaga } from 'awaitly/saga';
 
 const result = await runSaga<OrderResult, OrderError>(async (saga) => {
   const reservation = await saga.step(
@@ -133,7 +133,7 @@ const result = await runSaga<OrderResult, OrderError>(async (saga) => {
 For explicit error typing without deps-based inference:
 
 ```typescript
-import { runSaga } from 'awaitly';
+import { runSaga } from 'awaitly/saga';
 
 type CheckoutResult = { orderId: string; chargeId: string };
 type CheckoutError = 'INVENTORY_UNAVAILABLE' | 'PAYMENT_FAILED' | 'SEND_FAILED';

@@ -12,7 +12,8 @@ import {
   type Resource,
   type ResourceCleanupError,
 } from "./resource";
-import { ok, err, createWorkflow, type AsyncResult } from "./index";
+import { ok, err, type AsyncResult } from "./index";
+import { createWorkflow } from "./workflow-entry";
 
 // ============================================================================
 // Mock Resources

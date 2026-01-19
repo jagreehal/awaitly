@@ -13,7 +13,6 @@ import {
   any,
   anyAsync,
   AsyncResult,
-  createWorkflow,
   err,
   ErrorOf,
   Errors,
@@ -34,7 +33,6 @@ import {
   partition,
   PromiseRejectedError,
   Result,
-  run,
   tap,
   tapError,
   tryAsync,
@@ -51,6 +49,7 @@ import {
   zip,
   zipAsync,
 } from "./index";
+import { createWorkflow, run } from "./workflow-entry";
 
 describe("Result Core", () => {
   describe("ok()", () => {

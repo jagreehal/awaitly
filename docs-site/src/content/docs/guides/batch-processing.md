@@ -156,13 +156,12 @@ if (!result.ok && isInvalidBatchConfigError(result.error)) {
 ## Full example
 
 ```typescript
+import { ok, err } from 'awaitly';
 import {
   processInBatches,
   batchPresets,
   isBatchProcessingError,
-  ok,
-  err,
-} from 'awaitly';
+} from 'awaitly/batch';
 
 // Generate embeddings for documents
 const generateEmbeddings = async (documents: Document[]) => {

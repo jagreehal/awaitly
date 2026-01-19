@@ -3,15 +3,13 @@
  * Tests for hitl.ts - Human-in-the-Loop support
  */
 import { describe, it, expect, vi } from "vitest";
+import { AsyncResult, err, isErr, isOk, ok, Result } from "./index";
 import {
-  AsyncResult,
   createWorkflow,
-  err,
-  isErr,
-  isOk,
-  ok,
-  Result,
   ResumeState,
+  createStepCollector,
+} from "./workflow-entry";
+import {
   PendingApproval,
   ApprovalRejected,
   isPendingApproval,
@@ -23,8 +21,7 @@ import {
   hasPendingApproval,
   getPendingApprovals,
   createHITLCollector,
-  createStepCollector,
-} from "./index";
+} from "./hitl-entry";
 
 describe("HITL - Human-in-the-Loop Support", () => {
   describe("Type guards", () => {

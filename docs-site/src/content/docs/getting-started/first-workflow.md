@@ -35,7 +35,7 @@ const fetchPosts = async (userId: string): AsyncResult<Post[], 'FETCH_ERROR'> =>
 Pass your operations to `createWorkflow`. Error types are inferred automatically:
 
 ```typescript
-import { createWorkflow } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 const loadUserData = createWorkflow({ fetchUser, fetchPosts });
 ```
@@ -79,7 +79,8 @@ if (result.ok) {
 ## Complete example
 
 ```typescript
-import { createWorkflow, ok, err, type AsyncResult } from 'awaitly';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 type User = { id: string; name: string };
 type Post = { id: number; title: string };

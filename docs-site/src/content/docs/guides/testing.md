@@ -8,7 +8,7 @@ Use the test harness to control step execution and verify workflow behavior.
 ## Basic testing
 
 ```typescript
-import { createWorkflowHarness, okOutcome, errOutcome } from 'awaitly';
+import { createWorkflowHarness, okOutcome, errOutcome } from 'awaitly/workflow';
 import { describe, it, expect } from 'vitest';
 
 describe('checkout workflow', () => {
@@ -81,7 +81,7 @@ const harness = createWorkflowHarness({
 Track calls and change behavior:
 
 ```typescript
-import { createMockFn } from 'awaitly';
+import { createMockFn } from 'awaitly/workflow';
 
 const mockFetchUser = createMockFn<typeof fetchUser>();
 
@@ -129,7 +129,7 @@ expect(mockFetch.calls.length).toBe(3);
 Compare workflow behavior across changes:
 
 ```typescript
-import { createSnapshot, compareSnapshots } from 'awaitly';
+import { createSnapshot, compareSnapshots } from 'awaitly/workflow';
 
 const harness = createWorkflowHarness(mocks);
 
@@ -145,7 +145,7 @@ expect(snapshot).toMatchSnapshot();
 Control time in tests:
 
 ```typescript
-import { createTestClock } from 'awaitly';
+import { createTestClock } from 'awaitly/workflow';
 
 const clock = createTestClock();
 
@@ -185,7 +185,7 @@ import {
   createMockFn,
   okOutcome,
   errOutcome,
-} from 'awaitly';
+} from 'awaitly/workflow';
 
 describe('refund workflow', () => {
   let mockCalculateRefund: ReturnType<typeof createMockFn>;

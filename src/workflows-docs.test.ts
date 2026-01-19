@@ -5,8 +5,6 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import {
-  createWorkflow,
-  createStepCollector,
   ok,
   err,
   allAsync,
@@ -14,10 +12,16 @@ import {
   anyAsync,
   type AsyncResult,
   isUnexpectedError,
+} from "./index";
+import {
+  createWorkflow,
+  createStepCollector,
+} from "./workflow-entry";
+import {
   isPendingApproval,
   createApprovalStep,
   injectApproval,
-} from "./index";
+} from "./hitl-entry";
 import {
   createSagaWorkflow,
   isSagaCompensationError,

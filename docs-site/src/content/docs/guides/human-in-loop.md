@@ -8,7 +8,7 @@ Pause workflows for human approval (large transfers, deployments, refunds) and r
 ## Create an approval step
 
 ```typescript
-import { createApprovalStep, isPendingApproval } from 'awaitly';
+import { createApprovalStep, isPendingApproval } from 'awaitly/hitl';
 
 const requireApproval = createApprovalStep({
   key: 'approve:refund',
@@ -54,7 +54,8 @@ if (!result.ok && isPendingApproval(result.error)) {
 When approval is granted:
 
 ```typescript
-import { injectApproval, parseState } from 'awaitly';
+import { injectApproval } from 'awaitly/hitl';
+import { parseState } from 'awaitly/persistence';
 
 // Load saved state
 const saved = await db.workflowStates.findUnique({ where: { id: orderId } });
@@ -83,7 +84,7 @@ const result = await workflow(async (step) => {
 ## Handle rejection
 
 ```typescript
-import { isApprovalRejected } from 'awaitly';
+import { isApprovalRejected } from 'awaitly/hitl';
 
 if (!result.ok && isApprovalRejected(result.error)) {
   console.log('Rejected:', result.error.reason);
@@ -94,7 +95,7 @@ if (!result.ok && isApprovalRejected(result.error)) {
 ## List pending approvals
 
 ```typescript
-import { getPendingApprovals } from 'awaitly';
+import { getPendingApprovals } from 'awaitly/hitl';
 
 const state = collector.getState();
 const pending = getPendingApprovals(state);
@@ -110,7 +111,7 @@ import {
   createHITLOrchestrator,
   createMemoryApprovalStore,
   createMemoryWorkflowStateStore,
-} from 'awaitly';
+} from 'awaitly/hitl';
 
 const orchestrator = createHITLOrchestrator({
   approvalStore: createMemoryApprovalStore(),
@@ -166,15 +167,13 @@ app.post('/webhooks/approve', async (req, res) => {
 ## Full example
 
 ```typescript
+import { createWorkflow, createStepCollector } from 'awaitly/workflow';
 import {
-  createWorkflow,
   createApprovalStep,
-  createStepCollector,
   isPendingApproval,
   injectApproval,
-  stringifyState,
-  parseState,
-} from 'awaitly';
+} from 'awaitly/hitl';
+import { stringifyState, parseState } from 'awaitly/persistence';
 
 // Define approval step
 const requireManagerApproval = createApprovalStep({
@@ -283,7 +282,7 @@ if (status.status === 'edited') {
 Gate operations *before* they execute, showing args for approval:
 
 ```typescript
-import { gatedStep, isPendingApproval } from 'awaitly';
+import { gatedStep, isPendingApproval } from 'awaitly/hitl';
 
 // Gate external email sends
 const gatedSendEmail = gatedStep(

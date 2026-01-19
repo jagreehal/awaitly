@@ -10,7 +10,7 @@ Reusable bundles of `StepOptions` (retry, timeout, cache keys) that can be compo
 Apply pre-built policies for common scenarios:
 
 ```typescript
-import { withPolicy, servicePolicies } from 'awaitly';
+import { withPolicy, servicePolicies } from 'awaitly/policies';
 
 const result = await workflow(async (step) => {
   // HTTP API: 5s timeout, 3 retries
@@ -40,7 +40,7 @@ const result = await workflow(async (step) => {
 Merge multiple policies together:
 
 ```typescript
-import { withPolicies, timeoutPolicies, retryPolicies } from 'awaitly';
+import { withPolicies, timeoutPolicies, retryPolicies } from 'awaitly/policies';
 
 const data = await step(
   () => fetchData(),
@@ -53,7 +53,7 @@ const data = await step(
 Create a reusable applier for consistent defaults:
 
 ```typescript
-import { createPolicyApplier, timeoutPolicies, retryPolicies } from 'awaitly';
+import { createPolicyApplier, timeoutPolicies, retryPolicies } from 'awaitly/policies';
 
 const applyPolicy = createPolicyApplier(
   timeoutPolicies.api,
@@ -71,7 +71,7 @@ const result = await step(
 Build step options with a fluent API:
 
 ```typescript
-import { stepOptions } from 'awaitly';
+import { stepOptions } from 'awaitly/policies';
 
 const options = stepOptions()
   .name('fetch-user')
@@ -88,7 +88,7 @@ const user = await step(() => fetchUser('123'), options);
 Create organization-wide policy standards:
 
 ```typescript
-import { createPolicyRegistry, servicePolicies } from 'awaitly';
+import { createPolicyRegistry, servicePolicies } from 'awaitly/policies';
 
 const registry = createPolicyRegistry();
 registry.register('api', servicePolicies.httpApi);
@@ -113,7 +113,7 @@ const data = await step(
 ### Retry policies
 
 ```typescript
-import { retryPolicies } from 'awaitly';
+import { retryPolicies } from 'awaitly/policies';
 
 retryPolicies.none           // No retry
 retryPolicies.transient      // 3 attempts, fast backoff
@@ -126,7 +126,7 @@ retryPolicies.linear(3, 100) // 3 attempts, linear backoff
 ### Timeout policies
 
 ```typescript
-import { timeoutPolicies } from 'awaitly';
+import { timeoutPolicies } from 'awaitly/policies';
 
 timeoutPolicies.fast         // 1 second
 timeoutPolicies.api          // 5 seconds
@@ -140,7 +140,7 @@ timeoutPolicies.ms(3000)     // Custom milliseconds
 Combined retry + timeout for specific scenarios:
 
 ```typescript
-import { servicePolicies } from 'awaitly';
+import { servicePolicies } from 'awaitly/policies';
 
 servicePolicies.httpApi      // 5s timeout, 3 retries
 servicePolicies.database     // 30s timeout, 2 retries
@@ -155,7 +155,7 @@ servicePolicies.rateLimited  // 10s timeout, 5 linear retries
 Create your own policies:
 
 ```typescript
-import { mergePolicies } from 'awaitly';
+import { mergePolicies } from 'awaitly/policies';
 
 const myApiPolicy = {
   timeout: { ms: 10000 },

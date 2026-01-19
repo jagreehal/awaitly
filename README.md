@@ -84,7 +84,8 @@ async function executeTransfer(
 **With workflow: typed errors, automatic inference, clean code**
 
 ```typescript
-import { ok, err, createWorkflow, type AsyncResult } from 'awaitly';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 // Define typed error types (explicit and type-safe!)
 type UserNotFound = { type: 'USER_NOT_FOUND'; userId: string };
@@ -175,7 +176,7 @@ const chargeCard = async (amount: number): AsyncResult<Payment, 'CARD_DECLINED'>
 `createWorkflow` handles the type magic. `step()` unwraps results or exits early on failure.
 
 ```typescript
-import { createWorkflow } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 const checkout = createWorkflow({ fetchOrder, chargeCard });
 
@@ -252,7 +253,7 @@ Save workflow state to a database and resume later from exactly where you left o
 **Step 1: Collect state during execution**
 
 ```typescript
-import { createWorkflow, createStepCollector } from 'awaitly';
+import { createWorkflow, createStepCollector } from 'awaitly/workflow';
 
 // Create a collector to automatically capture step results
 const collector = createStepCollector();
@@ -424,7 +425,7 @@ const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
 `createWorkflow` collects dependencies once so the library can infer the total error union.
 
 ```typescript
-import { createWorkflow } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow({ fetchUser });
 ```
@@ -477,7 +478,7 @@ Save workflow state to a database and resume later. Perfect for crash recovery, 
 ### Basic Save & Resume
 
 ```typescript
-import { createWorkflow, createStepCollector } from 'awaitly';
+import { createWorkflow, createStepCollector } from 'awaitly/workflow';
 import { stringifyState, parseState } from 'awaitly/persistence';
 
 // 1. Collect state during execution
@@ -624,13 +625,12 @@ const result = await resilientWorkflow(async (step) => {
 Pause long-running workflows until an operator approves, then resume using persisted step results.
 
 ```typescript
+import { createWorkflow, createStepCollector } from 'awaitly/workflow';
 import {
   createApprovalStep,
-  createWorkflow,
-  createStepCollector,
   injectApproval,
   isPendingApproval,
-} from 'awaitly';
+} from 'awaitly/hitl';
 
 // Use collector to automatically capture state
 const collector = createStepCollector();
@@ -826,7 +826,7 @@ const result = await validateAndCheckout(async (step) => {
 - **State save & resume** - Persist step completions and resume later.
 
   ```typescript
-  import { createWorkflow, createStepCollector } from 'awaitly';
+  import { createWorkflow, createStepCollector } from 'awaitly/workflow';
 
   // Collect state during execution
   const collector = createStepCollector();
@@ -849,7 +849,7 @@ const result = await validateAndCheckout(async (step) => {
 - **Human-in-the-loop approvals** - Pause a workflow until someone approves.
 
   ```typescript
-  import { createApprovalStep, isPendingApproval, injectApproval } from 'awaitly';
+  import { createApprovalStep, isPendingApproval, injectApproval } from 'awaitly/hitl';
 
   const requireApproval = createApprovalStep({ key: 'approval:deploy', checkApproval: async () => {/* ... */} });
   const result = await workflow(async (step) => step(requireApproval, { key: 'approval:deploy' }));
@@ -900,7 +900,7 @@ The scariest failure mode in payments: **charge succeeded, but persistence faile
 Step keys + persistence solve this. Save state to a database, and if the workflow crashes, resume from the last successful step:
 
 ```typescript
-import { createWorkflow, createStepCollector } from 'awaitly';
+import { createWorkflow, createStepCollector } from 'awaitly/workflow';
 import { stringifyState, parseState } from 'awaitly/persistence';
 
 const processPayment = createWorkflow({ validateCard, chargeProvider, persistResult });
@@ -1125,7 +1125,7 @@ const result = await pipeline(async (step) => {
 **`run()`** - Best for dynamic dependencies, testing, or lightweight workflows where you know the error types:
 
 ```typescript
-import { run } from 'awaitly';
+import { run } from 'awaitly/workflow';
 
 const result = await run<Output, 'NOT_FOUND' | 'FETCH_ERROR'>(
   async (step) => {
@@ -1146,14 +1146,14 @@ const loadUser = createWorkflow({ fetchUser, fetchPosts });
 ### Import paths
 
 ```typescript
-// Main entry - workflow engine + result primitives
-import { createWorkflow, ok, err, map, all, Duration } from 'awaitly';
+// Main entry - result primitives only
+import { ok, err, map, all } from 'awaitly';
 
 // Core layer - Result primitives + tagged errors + pattern matching
 import { ok, err, map, TaggedError, Match } from 'awaitly/core';
 
-// Workflow layer - orchestration only
-import { createWorkflow, run } from 'awaitly/workflow';
+// Workflow layer - orchestration, Duration, step collector
+import { createWorkflow, run, Duration, createStepCollector, isStepComplete } from 'awaitly/workflow';
 
 // Visualization tools
 import { createVisualizer } from 'awaitly/visualize';

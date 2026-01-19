@@ -26,8 +26,13 @@ import {
   err,
   type AsyncResult,
   type Result,
+} from '../src/index';
+import {
   run,
   createWorkflow,
+  isStepComplete,
+} from '../src/workflow-entry';
+import {
   createApprovalStep,
   createHITLCollector,
   isPendingApproval,
@@ -35,8 +40,7 @@ import {
   hasPendingApproval,
   getPendingApprovals,
   clearStep,
-  isStepComplete,
-} from '../src/index';
+} from '../src/hitl-entry';
 
 // Types for examples
 type User = { id: string; name: string };

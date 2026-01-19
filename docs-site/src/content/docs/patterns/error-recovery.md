@@ -20,7 +20,7 @@ Different error recovery patterns solve different problems. Choosing the wrong o
 **Use when:** Failures are transient and likely to self-resolve.
 
 ```typescript
-import { createWorkflow } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow(deps);
 const result = await workflow(async (step) => {
@@ -89,7 +89,7 @@ if (!result.ok && isCircuitOpenError(result.error)) {
 **Use when:** A multi-step operation fails partway through and you need to undo completed steps.
 
 ```typescript
-import { createSagaWorkflow } from 'awaitly';
+import { createSagaWorkflow } from 'awaitly/workflow';
 
 const checkout = createSagaWorkflow(deps);
 const result = await checkout(async (saga) => {
@@ -238,7 +238,7 @@ Before choosing a pattern, ask:
 ```typescript
 import { createCircuitBreaker } from 'awaitly/circuit-breaker';
 import { createRateLimiter } from 'awaitly/ratelimit';
-import { createSagaWorkflow } from 'awaitly';
+import { createSagaWorkflow } from 'awaitly/workflow';
 
 const paymentBreaker = createCircuitBreaker('payment-api', { failureThreshold: 5 });
 const paymentLimiter = createRateLimiter('payment-api', { maxRequests: 100, windowMs: 60000 });
