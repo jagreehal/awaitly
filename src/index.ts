@@ -7,25 +7,29 @@
  * ## Quick Start
  *
  * ```typescript
- * import { ok, err, map, andThen, from, type AsyncResult } from 'awaitly';
+ * import { ok, err, run, type AsyncResult } from 'awaitly';
  *
- * // Typed error handling with Result types
- * async function getUser(id: string): AsyncResult<User, 'NOT_FOUND' | 'DB_ERROR'> {
+ * // Define Result-returning functions
+ * async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
  *   const user = await db.find(id);
  *   return user ? ok(user) : err('NOT_FOUND');
  * }
  *
- * // Wrap throwing code
- * const parsed = from(() => JSON.parse(str), () => 'PARSE_ERROR');
+ * // Compose with run() - clean do-notation style
+ * const result = await run(async (step) => {
+ *   const user = await step(getUser(id));
+ *   const posts = await step(getPosts(user.id));
+ *   return { user, posts };
+ * });
  * ```
  *
  * ## Entry Points
  *
  * **Core (this package):**
- * - `awaitly` - Result types, transformers, tagged errors (~3 KB gzipped)
+ * - `awaitly` - Result types, run(), transformers, tagged errors
  *
  * **Workflow Engine:**
- * - `awaitly/workflow` - Orchestration with retry, timeout, caching
+ * - `awaitly/workflow` - createWorkflow, Duration, state management
  * - `awaitly/hitl` - Human-in-the-loop approval flows
  *
  * **Reliability:**
@@ -66,6 +70,23 @@ export {
   type ExtractCause,
   type CauseOf,
 
+  // Step types (for run())
+  type RunStep,
+  type StepOptions,
+  type WorkflowEvent,
+  type ScopeType,
+  type RunOptions,
+  type RunOptionsWithCatch,
+  type RunOptionsWithoutCatch,
+
+  // Retry and timeout types
+  type BackoffStrategy,
+  type RetryOptions,
+  type TimeoutOptions,
+  type StepTimeoutError,
+  type StepTimeoutMarkerMeta,
+  STEP_TIMEOUT_MARKER,
+
   // Constructors
   ok,
   err,
@@ -74,6 +95,8 @@ export {
   isOk,
   isErr,
   isUnexpectedError,
+  isStepTimeoutError,
+  getStepTimeoutMeta,
 
   // Unwrap
   UnwrapError,
@@ -113,6 +136,9 @@ export {
   partition,
   zip,
   zipAsync,
+
+  // Run (do-notation for composing Results)
+  run,
 
   // Hydration / Serialization
   hydrate,

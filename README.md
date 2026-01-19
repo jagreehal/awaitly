@@ -1125,7 +1125,7 @@ const result = await pipeline(async (step) => {
 **`run()`** - Best for dynamic dependencies, testing, or lightweight workflows where you know the error types:
 
 ```typescript
-import { run } from 'awaitly/workflow';
+import { run } from 'awaitly';
 
 const result = await run<Output, 'NOT_FOUND' | 'FETCH_ERROR'>(
   async (step) => {
@@ -1146,14 +1146,14 @@ const loadUser = createWorkflow({ fetchUser, fetchPosts });
 ### Import paths
 
 ```typescript
-// Main entry - result primitives only
-import { ok, err, map, all } from 'awaitly';
+// Main entry - result primitives + run() for composition
+import { ok, err, map, all, run } from 'awaitly';
 
 // Core layer - Result primitives + tagged errors + pattern matching
 import { ok, err, map, TaggedError, Match } from 'awaitly/core';
 
 // Workflow layer - orchestration, Duration, step collector
-import { createWorkflow, run, Duration, createStepCollector, isStepComplete } from 'awaitly/workflow';
+import { createWorkflow, Duration, createStepCollector, isStepComplete } from 'awaitly/workflow';
 
 // Visualization tools
 import { createVisualizer } from 'awaitly/visualize';

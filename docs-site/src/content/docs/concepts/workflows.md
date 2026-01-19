@@ -45,7 +45,7 @@ const workflow = createWorkflow(
 For one-off workflows where you specify error types manually:
 
 ```typescript
-import { run } from 'awaitly/workflow';
+import { run } from 'awaitly';
 
 const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED'>(
   async (step) => {
