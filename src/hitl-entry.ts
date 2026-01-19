@@ -33,12 +33,14 @@ export {
   type PendingApproval,
   type ApprovalRejected,
   type ApprovalStepOptions,
+  type GatedStepOptions,
 
   // Functions
   isPendingApproval,
   isApprovalRejected,
   pendingApproval,
   createApprovalStep,
+  gatedStep,
   injectApproval,
   clearStep,
   hasPendingApproval,
@@ -62,6 +64,11 @@ export {
   type HITLWorkflowFactoryOptions,
   type ApprovalWebhookRequest,
   type ApprovalWebhookResponse,
+
+  // Notification channel types (for integrations)
+  type NotificationChannel,
+  type ApprovalNeededContext,
+  type ApprovalResolvedContext,
 
   // Functions
   createMemoryApprovalStore,

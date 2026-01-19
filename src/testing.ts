@@ -6,7 +6,7 @@
  */
 
 import type { Result, AsyncResult, StepOptions, WorkflowEvent } from "./core";
-import { ok, err } from "./core";
+import { ok, err, isOk, isErr, isUnexpectedError } from "./core";
 import type { AnyResultFn, ErrorsOfDeps } from "./workflow";
 
 // =============================================================================
@@ -724,4 +724,651 @@ export function errOutcome<E>(error: E): ScriptedOutcome<never, E> {
  */
 export function throwOutcome(error: unknown): ScriptedOutcome<never, never> {
   return { type: "throw", error };
+}
+
+// =============================================================================
+// Saga Testing Harness
+// =============================================================================
+
+/**
+ * Compensation invocation record.
+ */
+export interface CompensationInvocation {
+  /** Step name that was compensated */
+  stepName: string;
+  /** Order in which compensation ran (0 = first) */
+  order: number;
+  /** The value passed to the compensation function */
+  value: unknown;
+  /** Timestamp when compensation was invoked */
+  timestamp: number;
+}
+
+/**
+ * Saga test harness interface.
+ */
+export interface SagaHarness<E, Deps> extends WorkflowHarness<E, Deps> {
+  /**
+   * Get the recorded compensation invocations (in execution order).
+   */
+  getCompensations(): CompensationInvocation[];
+
+  /**
+   * Assert that compensations ran in the expected order (LIFO).
+   */
+  assertCompensationOrder(expectedStepNames: string[]): AssertionResult;
+
+  /**
+   * Assert that a specific step was compensated.
+   */
+  assertCompensated(stepName: string): AssertionResult;
+
+  /**
+   * Assert that a step was NOT compensated.
+   */
+  assertNotCompensated(stepName: string): AssertionResult;
+
+  /**
+   * Run a saga workflow with compensation tracking.
+   */
+  runSaga<T>(
+    fn: (
+      saga: MockSagaContext<E>,
+      deps: Deps
+    ) => Promise<T>
+  ): Promise<Result<T, E | unknown>>;
+}
+
+/**
+ * Mock saga context for testing.
+ */
+export interface MockSagaContext<E> {
+  step: <T, StepE extends E>(
+    operation: () => Result<T, StepE> | AsyncResult<T, StepE>,
+    options: SagaStepOptions<T>
+  ) => Promise<T>;
+}
+
+/**
+ * Saga step options with compensation.
+ */
+export interface SagaStepOptions<T> {
+  name: string;
+  compensate?: (value: T) => void | Promise<void>;
+}
+
+/**
+ * Create a test harness for saga workflows.
+ *
+ * @example
+ * ```typescript
+ * const harness = createSagaHarness({ chargePayment, refundPayment, reserveInventory, releaseInventory });
+ *
+ * harness.script([
+ *   okOutcome({ id: 'pay_1', amount: 100 }),        // chargePayment succeeds
+ *   errOutcome('OUT_OF_STOCK'),                      // reserveInventory fails
+ * ]);
+ *
+ * const result = await harness.runSaga(async (saga, deps) => {
+ *   const payment = await saga.step(
+ *     () => deps.chargePayment({ amount: 100 }),
+ *     { name: 'charge-payment', compensate: (p) => deps.refundPayment({ id: p.id }) }
+ *   );
+ *
+ *   const reservation = await saga.step(
+ *     () => deps.reserveInventory({ items: [] }),
+ *     { name: 'reserve-inventory', compensate: (r) => deps.releaseInventory({ id: r.id }) }
+ *   );
+ *
+ *   return { payment, reservation };
+ * });
+ *
+ * // Assert compensation ran (LIFO order)
+ * harness.assertCompensationOrder(['charge-payment']);
+ * harness.assertCompensated('charge-payment');
+ * harness.assertNotCompensated('reserve-inventory'); // Failed step isn't compensated
+ * ```
+ */
+export function createSagaHarness<
+  Deps extends Record<string, AnyResultFn>
+>(
+  deps: Deps,
+  options: TestHarnessOptions = {}
+): SagaHarness<ErrorsOfDeps<Deps>, Deps> {
+  type E = ErrorsOfDeps<Deps>;
+
+  const { clock = Date.now } = options;
+
+  // Reuse the workflow harness for basic functionality
+  const baseHarness = createWorkflowHarness(deps, options);
+
+  // Track compensations
+  let compensations: CompensationInvocation[] = [];
+  let compensationStack: Array<{ name: string; value: unknown; compensate: (value: unknown) => void | Promise<void> }> = [];
+
+  async function runSaga<T>(
+    fn: (saga: MockSagaContext<E>, deps: Deps) => Promise<T>
+  ): Promise<Result<T, E | unknown>> {
+    // Reset compensation tracking
+    compensations = [];
+    compensationStack = [];
+
+    const sagaContext: MockSagaContext<E> = {
+      step: async <StepT, StepE extends E>(
+        operation: () => Result<StepT, StepE> | AsyncResult<StepT, StepE>,
+        stepOptions: SagaStepOptions<StepT>
+      ): Promise<StepT> => {
+        // Use the base harness step mechanism
+        try {
+          const result = await (baseHarness as unknown as { run: (fn: (step: MockStep<E>, deps: Deps) => Promise<StepT>) => Promise<Result<StepT, E | unknown>> }).run(
+            async (step) => step(operation, { name: stepOptions.name })
+          );
+
+          if (!result.ok) {
+            // Step failed - run compensations
+            await runCompensations();
+            throw { __earlyExit: true, error: result.error };
+          }
+
+          // Step succeeded - add to compensation stack if compensation provided
+          if (stepOptions.compensate) {
+            compensationStack.push({
+              name: stepOptions.name,
+              value: result.value,
+              compensate: stepOptions.compensate as (value: unknown) => void | Promise<void>,
+            });
+          }
+
+          return result.value;
+        } catch (error) {
+          // Re-run compensations if we haven't already
+          if (compensationStack.length > 0) {
+            await runCompensations();
+          }
+          throw error;
+        }
+      },
+    };
+
+    async function runCompensations(): Promise<void> {
+      // Run compensations in LIFO order
+      const toCompensate = [...compensationStack].reverse();
+      compensationStack = [];
+
+      for (const { name, value, compensate } of toCompensate) {
+        try {
+          await compensate(value);
+          compensations.push({
+            stepName: name,
+            order: compensations.length,
+            value,
+            timestamp: clock(),
+          });
+        } catch (error) {
+          // Log compensation error but continue with remaining compensations
+          console.error(`Compensation failed for step "${name}":`, error);
+        }
+      }
+    }
+
+    try {
+      const value = await fn(sagaContext, deps);
+      return ok(value);
+    } catch (error) {
+      if (isTestEarlyExit(error)) {
+        return err(error.error);
+      }
+      // Run compensations for unexpected errors
+      await runCompensations();
+      return err({ type: "UNEXPECTED_ERROR", cause: error });
+    }
+  }
+
+  function getCompensations(): CompensationInvocation[] {
+    return [...compensations];
+  }
+
+  function assertCompensationOrder(expectedStepNames: string[]): AssertionResult {
+    const actualNames = compensations.map((c) => c.stepName);
+    const passed = JSON.stringify(actualNames) === JSON.stringify(expectedStepNames);
+
+    return {
+      passed,
+      message: passed
+        ? `Compensations ran in order: ${expectedStepNames.join(" → ")}`
+        : `Expected compensations [${expectedStepNames.join(" → ")}] but got [${actualNames.join(" → ")}]`,
+      expected: expectedStepNames,
+      actual: actualNames,
+    };
+  }
+
+  function assertCompensated(stepName: string): AssertionResult {
+    const found = compensations.some((c) => c.stepName === stepName);
+
+    return {
+      passed: found,
+      message: found
+        ? `Step "${stepName}" was compensated`
+        : `Step "${stepName}" was NOT compensated`,
+      expected: stepName,
+      actual: found,
+    };
+  }
+
+  function assertNotCompensated(stepName: string): AssertionResult {
+    const found = compensations.some((c) => c.stepName === stepName);
+
+    return {
+      passed: !found,
+      message: !found
+        ? `Step "${stepName}" was correctly NOT compensated`
+        : `Step "${stepName}" was compensated but should not have been`,
+      expected: "not compensated",
+      actual: found ? "compensated" : "not compensated",
+    };
+  }
+
+  // Reset also clears compensation state
+  const originalReset = baseHarness.reset;
+  function reset(): void {
+    originalReset();
+    compensations = [];
+    compensationStack = [];
+  }
+
+  return {
+    ...baseHarness,
+    reset,
+    getCompensations,
+    assertCompensationOrder,
+    assertCompensated,
+    assertNotCompensated,
+    runSaga,
+  };
+}
+
+// =============================================================================
+// Event Assertion Helpers
+// =============================================================================
+
+/**
+ * Options for event assertions.
+ */
+export interface EventAssertionOptions {
+  /** Whether order matters (if false, allows extra events between expected ones) */
+  strict?: boolean;
+}
+
+/**
+ * Assert that events were emitted in the expected sequence.
+ *
+ * @example
+ * ```typescript
+ * const events: WorkflowEvent[] = [];
+ * const workflow = createWorkflow({ fetchUser }, { onEvent: (e) => events.push(e) });
+ *
+ * await workflow(async (step) => step(() => fetchUser('1'), { name: 'fetch-user' }));
+ *
+ * const result = assertEventSequence(events, [
+ *   'workflow_start',
+ *   'step_start:fetch-user',
+ *   'step_success:fetch-user',
+ *   'workflow_end',
+ * ]);
+ *
+ * expect(result.passed).toBe(true);
+ * ```
+ */
+export function assertEventSequence(
+  events: WorkflowEvent<unknown>[],
+  expectedSequence: string[],
+  options: EventAssertionOptions = {}
+): AssertionResult {
+  const { strict = true } = options;
+
+  // Parse expected sequence into type and optional name
+  const expected = expectedSequence.map((s) => {
+    const [type, name] = s.split(":");
+    return { type, name };
+  });
+
+  // Filter events to those matching expected types
+  const relevantEvents = strict
+    ? events
+    : events.filter((e) => expected.some((exp) => e.type === exp.type));
+
+  // Build actual sequence for comparison
+  const actual: string[] = relevantEvents.map((e) => {
+    const name = "name" in e ? (e as { name?: string }).name : undefined;
+    const stepKey = "stepKey" in e ? (e as { stepKey?: string }).stepKey : undefined;
+    const identifier = name ?? stepKey;
+    return identifier ? `${e.type}:${identifier}` : e.type;
+  });
+
+  // Compare sequences
+  const passed = JSON.stringify(actual) === JSON.stringify(expectedSequence);
+
+  return {
+    passed,
+    message: passed
+      ? `Event sequence matches: ${expectedSequence.join(" → ")}`
+      : `Event sequence mismatch.\nExpected: ${expectedSequence.join(" → ")}\nActual: ${actual.join(" → ")}`,
+    expected: expectedSequence,
+    actual,
+  };
+}
+
+/**
+ * Assert that a specific event was emitted.
+ *
+ * @example
+ * ```typescript
+ * const result = assertEventEmitted(events, {
+ *   type: 'step_error',
+ *   stepKey: 'payment',
+ * });
+ * ```
+ */
+export function assertEventEmitted(
+  events: WorkflowEvent<unknown>[],
+  expected: Partial<WorkflowEvent<unknown>>
+): AssertionResult {
+  const found = events.find((e) => {
+    return Object.entries(expected).every(([key, value]) => {
+      const eventValue = (e as Record<string, unknown>)[key];
+      if (typeof value === "object" && value !== null) {
+        return JSON.stringify(eventValue) === JSON.stringify(value);
+      }
+      return eventValue === value;
+    });
+  });
+
+  return {
+    passed: !!found,
+    message: found
+      ? `Event matching ${JSON.stringify(expected)} was emitted`
+      : `No event matching ${JSON.stringify(expected)} was found`,
+    expected,
+    actual: found ?? "not found",
+  };
+}
+
+/**
+ * Assert that a specific event was NOT emitted.
+ */
+export function assertEventNotEmitted(
+  events: WorkflowEvent<unknown>[],
+  expected: Partial<WorkflowEvent<unknown>>
+): AssertionResult {
+  const result = assertEventEmitted(events, expected);
+  return {
+    passed: !result.passed,
+    message: result.passed
+      ? `Event matching ${JSON.stringify(expected)} was found but should not have been`
+      : `Correctly, no event matching ${JSON.stringify(expected)} was emitted`,
+    expected: "not emitted",
+    actual: result.actual,
+  };
+}
+
+// =============================================================================
+// Error Matcher Utilities
+// =============================================================================
+
+/**
+ * Assert that a result is an error with the expected error value.
+ *
+ * @example
+ * ```typescript
+ * const result = await workflow(...);
+ * expectError(result, 'NOT_FOUND');
+ * expectError(result, { type: 'VALIDATION_ERROR', field: 'email' });
+ * ```
+ */
+export function expectError<E>(
+  result: Result<unknown, E>,
+  expectedError: E | Partial<E>
+): AssertionResult {
+  if (isOk(result)) {
+    return {
+      passed: false,
+      message: `Expected error but got ok(${JSON.stringify(result.value)})`,
+      expected: expectedError,
+      actual: result,
+    };
+  }
+
+  const matches = typeof expectedError === "object" && expectedError !== null
+    ? Object.entries(expectedError as Record<string, unknown>).every(([key, value]) => {
+        const errorValue = (result.error as Record<string, unknown>)[key];
+        if (typeof value === "object" && value !== null) {
+          return JSON.stringify(errorValue) === JSON.stringify(value);
+        }
+        return errorValue === value;
+      })
+    : result.error === expectedError;
+
+  return {
+    passed: matches,
+    message: matches
+      ? `Error matches expected: ${JSON.stringify(expectedError)}`
+      : `Error does not match.\nExpected: ${JSON.stringify(expectedError)}\nActual: ${JSON.stringify(result.error)}`,
+    expected: expectedError,
+    actual: result.error,
+  };
+}
+
+/**
+ * Assert that a result is an error with a specific error type and optional cause.
+ *
+ * @example
+ * ```typescript
+ * expectErrorWithCause(result, {
+ *   type: 'TIMEOUT',
+ *   cause: expect.any(Error),
+ * });
+ *
+ * expectErrorWithCause(result, {
+ *   type: 'UNEXPECTED_ERROR',
+ *   cause: { message: 'Network failed' },
+ * });
+ * ```
+ */
+export function expectErrorWithCause<E extends { type: string; cause?: unknown }>(
+  result: Result<unknown, E>,
+  expected: { type: string; cause?: unknown | ((cause: unknown) => boolean) }
+): AssertionResult {
+  if (isOk(result)) {
+    return {
+      passed: false,
+      message: `Expected error but got ok(${JSON.stringify(result.value)})`,
+      expected,
+      actual: result,
+    };
+  }
+
+  const error = result.error as { type?: string; cause?: unknown };
+
+  // Check type
+  if (error.type !== expected.type) {
+    return {
+      passed: false,
+      message: `Error type mismatch.\nExpected: ${expected.type}\nActual: ${error.type ?? "no type"}`,
+      expected,
+      actual: error,
+    };
+  }
+
+  // Check cause if provided
+  if (expected.cause !== undefined) {
+    const causeMatches =
+      typeof expected.cause === "function"
+        ? expected.cause(error.cause)
+        : typeof expected.cause === "object" && expected.cause !== null
+          ? Object.entries(expected.cause as Record<string, unknown>).every(([key, value]) => {
+              const causeValue = (error.cause as Record<string, unknown> | undefined)?.[key];
+              return causeValue === value;
+            })
+          : error.cause === expected.cause;
+
+    if (!causeMatches) {
+      return {
+        passed: false,
+        message: `Error cause mismatch.\nExpected cause: ${JSON.stringify(expected.cause)}\nActual cause: ${JSON.stringify(error.cause)}`,
+        expected,
+        actual: error,
+      };
+    }
+  }
+
+  return {
+    passed: true,
+    message: `Error matches expected type "${expected.type}" with correct cause`,
+    expected,
+    actual: error,
+  };
+}
+
+/**
+ * Assert that a result is an UnexpectedError.
+ */
+export function expectUnexpectedError(
+  result: Result<unknown, unknown>
+): AssertionResult {
+  if (isOk(result)) {
+    return {
+      passed: false,
+      message: `Expected UnexpectedError but got ok(${JSON.stringify(result.value)})`,
+      expected: "UnexpectedError",
+      actual: result,
+    };
+  }
+
+  const isUnexpected = isUnexpectedError(result.error);
+
+  return {
+    passed: isUnexpected,
+    message: isUnexpected
+      ? "Result is an UnexpectedError"
+      : `Expected UnexpectedError but got: ${JSON.stringify(result.error)}`,
+    expected: "UnexpectedError",
+    actual: result.error,
+  };
+}
+
+/**
+ * Assert that a result is ok with the expected value.
+ */
+export function expectOk<T>(
+  result: Result<T, unknown>,
+  expectedValue?: T | Partial<T>
+): AssertionResult {
+  if (isErr(result)) {
+    return {
+      passed: false,
+      message: `Expected ok but got err(${JSON.stringify(result.error)})`,
+      expected: expectedValue ?? "ok",
+      actual: result,
+    };
+  }
+
+  if (expectedValue === undefined) {
+    return {
+      passed: true,
+      message: `Result is ok(${JSON.stringify(result.value)})`,
+      expected: "ok",
+      actual: result.value,
+    };
+  }
+
+  const matches = typeof expectedValue === "object" && expectedValue !== null
+    ? Object.entries(expectedValue as Record<string, unknown>).every(([key, value]) => {
+        const actualValue = (result.value as Record<string, unknown>)[key];
+        if (typeof value === "object" && value !== null) {
+          return JSON.stringify(actualValue) === JSON.stringify(value);
+        }
+        return actualValue === value;
+      })
+    : result.value === expectedValue;
+
+  return {
+    passed: matches,
+    message: matches
+      ? `Result ok value matches expected`
+      : `Result ok value does not match.\nExpected: ${JSON.stringify(expectedValue)}\nActual: ${JSON.stringify(result.value)}`,
+    expected: expectedValue,
+    actual: result.value,
+  };
+}
+
+// =============================================================================
+// Debug Helpers
+// =============================================================================
+
+/**
+ * Format a Result for debugging/logging.
+ *
+ * @example
+ * ```typescript
+ * console.log(formatResult(ok(42)));           // "Ok(42)"
+ * console.log(formatResult(err('NOT_FOUND'))); // "Err('NOT_FOUND')"
+ * console.log(formatResult(err({ type: 'VALIDATION_ERROR', field: 'email' })));
+ * // "Err({ type: 'VALIDATION_ERROR', field: 'email' })"
+ * ```
+ */
+export function formatResult<T, E>(result: Result<T, E>): string {
+  if (isOk(result)) {
+    return `Ok(${formatValue(result.value)})`;
+  }
+  return `Err(${formatValue(result.error)})`;
+}
+
+/**
+ * Format a value for display (handles objects, strings, etc.).
+ */
+function formatValue(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "string") return `'${value}'`;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "function") return `[Function: ${value.name || "anonymous"}]`;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "[]";
+    if (value.length <= 3) return `[${value.map(formatValue).join(", ")}]`;
+    return `[${value.slice(0, 3).map(formatValue).join(", ")}, ... (${value.length} items)]`;
+  }
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj);
+    if (keys.length === 0) return "{}";
+    if (keys.length <= 4) {
+      const entries = keys.map((k) => `${k}: ${formatValue(obj[k])}`).join(", ");
+      return `{ ${entries} }`;
+    }
+    const sample = keys.slice(0, 3).map((k) => `${k}: ${formatValue(obj[k])}`).join(", ");
+    return `{ ${sample}, ... (${keys.length} keys) }`;
+  }
+  return String(value);
+}
+
+/**
+ * Format a workflow event for debugging.
+ */
+export function formatEvent(event: WorkflowEvent<unknown>): string {
+  const type = event.type;
+  const name = "name" in event ? (event as { name?: string }).name : undefined;
+  const stepKey = "stepKey" in event ? (event as { stepKey?: string }).stepKey : undefined;
+  const identifier = name ?? stepKey;
+
+  if (identifier) {
+    return `${type}:${identifier}`;
+  }
+  return type;
+}
+
+/**
+ * Format a sequence of events for debugging.
+ */
+export function formatEvents(events: WorkflowEvent<unknown>[]): string {
+  return events.map(formatEvent).join(" → ");
 }

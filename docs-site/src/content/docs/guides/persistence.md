@@ -5,6 +5,27 @@ description: Save and resume workflows across restarts
 
 Save workflow state to a database and resume later. Completed steps return their cached results without re-executing.
 
+## Quick Start Imports
+
+**Option 1: Import from main package** (recommended for most use cases)
+
+```typescript
+import {
+  createWorkflow,
+  createStepCollector,
+  isStepComplete,
+  stringifyState,
+  parseState,
+} from 'awaitly';
+```
+
+**Option 2: Import from persistence submodule** (for full persistence API)
+
+```typescript
+import { createWorkflow, createStepCollector, isStepComplete } from 'awaitly';
+import { stringifyState, parseState, createStatePersistence } from 'awaitly/persistence';
+```
+
 ## Collect state during execution
 
 Use `createStepCollector` to automatically capture step results:
@@ -36,7 +57,7 @@ Only steps with `key` are saved.
 Serialize the state and store it:
 
 ```typescript
-import { stringifyState } from 'awaitly';
+import { stringifyState } from 'awaitly/persistence';
 
 const json = stringifyState(state, {
   workflowId: 'wf-123',
@@ -55,7 +76,7 @@ await db.workflowStates.create({
 Load and parse the state, then pass it to a new workflow:
 
 ```typescript
-import { parseState } from 'awaitly';
+import { parseState } from 'awaitly/persistence';
 
 const saved = await db.workflowStates.findUnique({
   where: { id: 'wf-123' },
@@ -81,7 +102,7 @@ await workflow(async (step) => {
 For structured storage, use `createStatePersistence`:
 
 ```typescript
-import { createStatePersistence } from 'awaitly';
+import { createStatePersistence } from 'awaitly/persistence';
 
 const persistence = createStatePersistence({
   get: (key) => redis.get(key),
@@ -157,6 +178,8 @@ await workflow(async (step) => {
 Load state lazily:
 
 ```typescript
+import { parseState } from 'awaitly/persistence';
+
 const workflow = createWorkflow(deps, {
   resumeState: async () => {
     const saved = await db.workflowStates.findUnique({ where: { id: 'wf-123' } });
@@ -170,7 +193,7 @@ const workflow = createWorkflow(deps, {
 For simple cases, use the file cache adapter:
 
 ```typescript
-import { createFileCache } from 'awaitly';
+import { createFileCache } from 'awaitly/persistence';
 
 const cache = createFileCache({
   directory: './workflow-state',

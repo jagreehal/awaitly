@@ -1568,6 +1568,179 @@ export function createApprovalStep<T>(
 }
 
 // =============================================================================
+// Pre-Execution Gating (AI SDK / LangChain-style tool confirmation)
+// =============================================================================
+
+/**
+ * Options for creating a gated (pre-approval) step.
+ */
+export interface GatedStepOptions<TArgs, T> {
+  /** Stable key for this gated step (used for approval tracking) */
+  key: string;
+
+  /**
+   * Condition to check if approval is required.
+   * If returns true, execution pauses for approval.
+   * If returns false, operation executes immediately.
+   */
+  requiresApproval: boolean | ((args: TArgs) => boolean | Promise<boolean>);
+
+  /**
+   * Human-readable description of what this operation does.
+   * Shown in the approval UI so humans understand what they're approving.
+   */
+  description: string | ((args: TArgs) => string);
+
+  /**
+   * Check if approval has been granted externally.
+   * If not provided, the step always returns PendingApproval when gated.
+   */
+  checkApproval?: () => Promise<
+    | { status: "pending" }
+    | { status: "approved"; value?: T }
+    | { status: "rejected"; reason: string }
+  >;
+
+  /**
+   * Optional metadata to include in the approval request.
+   * The args are automatically included as `pendingArgs`.
+   */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Create a gated step that requires approval before execution.
+ *
+ * This is the AI SDK / LangChain-style pattern where you intercept
+ * tool calls *before* they execute, allowing humans to see the args
+ * and approve, edit, or reject before the operation runs.
+ *
+ * ## When to Use
+ *
+ * Use `gatedStep` when you want to:
+ * - **Show args before execution**: Let humans see what the operation will do
+ * - **Allow editing args**: Humans can modify args before operation runs
+ * - **Conditional gating**: Only require approval for certain conditions
+ * - **AI safety**: Gate dangerous AI tool calls (send email, delete file, etc.)
+ *
+ * ## Difference from createApprovalStep
+ *
+ * - `createApprovalStep`: Checks external approval status, operation already defined
+ * - `gatedStep`: Gates before operation, shows args, allows editing, then executes
+ *
+ * ## Flow
+ *
+ * 1. Call gatedStep with args
+ * 2. Check if approval is required (based on requiresApproval condition)
+ * 3. If required and not approved:
+ *    - Return PendingApproval with args visible in metadata
+ *    - Human sees: "Send email to external@example.com with subject X"
+ *    - Human can approve (run as-is), edit (modify args), or reject
+ * 4. If approved or not required:
+ *    - Execute the operation with (potentially edited) args
+ *
+ * @param operation - The operation to gate (a function returning AsyncResult)
+ * @param options - Gating configuration
+ * @returns A gated function that checks approval before execution
+ *
+ * @example
+ * ```typescript
+ * // Gate external email sends
+ * const sendEmail = async (to: string, subject: string, body: string) => { ... };
+ *
+ * const gatedSendEmail = gatedStep(
+ *   sendEmail,
+ *   {
+ *     key: 'email',
+ *     requiresApproval: (args) => !args.to.endsWith('@mycompany.com'),
+ *     description: (args) => `Send email to ${args.to}: "${args.subject}"`,
+ *   }
+ * );
+ *
+ * // In workflow:
+ * const result = await step(
+ *   () => gatedSendEmail({ to: 'external@other.com', subject: 'Hello', body: '...' }),
+ *   { key: 'send-welcome-email' }
+ * );
+ *
+ * // If gated, returns PendingApproval with:
+ * // {
+ * //   stepKey: 'email',
+ * //   reason: 'Send email to external@other.com: "Hello"',
+ * //   metadata: { pendingArgs: { to: '...', subject: '...', body: '...' } }
+ * // }
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // Gate file deletion with explicit approval check
+ * const gatedDelete = gatedStep(
+ *   (path: string) => deleteFile(path),
+ *   {
+ *     key: 'delete-file',
+ *     requiresApproval: true, // Always require approval
+ *     description: (args) => `Delete file: ${args.path}`,
+ *     checkApproval: () => approvalStore.getApproval('delete-file'),
+ *   }
+ * );
+ * ```
+ */
+export function gatedStep<TArgs extends Record<string, unknown>, T, E>(
+  operation: (args: TArgs) => AsyncResult<T, E>,
+  options: GatedStepOptions<TArgs, T>
+): (args: TArgs) => AsyncResult<T, E | PendingApproval | ApprovalRejected> {
+  return async (args: TArgs): AsyncResult<T, E | PendingApproval | ApprovalRejected> => {
+    // Check if approval is required
+    const requiresApproval =
+      typeof options.requiresApproval === "function"
+        ? await options.requiresApproval(args)
+        : options.requiresApproval;
+
+    if (!requiresApproval) {
+      // No approval needed - execute immediately
+      return operation(args);
+    }
+
+    // Approval is required - check if already approved
+    if (options.checkApproval) {
+      const approvalStatus = await options.checkApproval();
+
+      switch (approvalStatus.status) {
+        case "approved":
+          // Approved - execute the operation
+          return operation(args);
+        case "rejected":
+          return err({
+            type: "APPROVAL_REJECTED",
+            stepKey: options.key,
+            reason: approvalStatus.reason,
+          });
+        case "pending":
+          // Fall through to return pending
+          break;
+      }
+    }
+
+    // Return pending approval with args visible
+    const description =
+      typeof options.description === "function"
+        ? options.description(args)
+        : options.description;
+
+    return err({
+      type: "PENDING_APPROVAL",
+      stepKey: options.key,
+      reason: description,
+      metadata: {
+        ...options.metadata,
+        pendingArgs: args,
+        gatedOperation: true,
+      },
+    });
+  };
+}
+
+// =============================================================================
 // Resume State Helpers for HITL
 // =============================================================================
 

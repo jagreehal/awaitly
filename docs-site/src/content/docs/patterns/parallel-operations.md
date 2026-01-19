@@ -42,9 +42,9 @@ const result = await allAsync([
 // result.error === 'NOT_FOUND'
 ```
 
-## Collect all results
+## Collect all errors
 
-Use `allSettledAsync` to get all results regardless of failures:
+Use `allSettledAsync` to run all operations and collect all errors (if any fail):
 
 ```typescript
 import { allSettledAsync } from 'awaitly';
@@ -55,16 +55,21 @@ const result = await allSettledAsync([
   fetchComments('1'),  // Succeeds
 ]);
 
+// Returns ok([values]) only if ALL succeed
+// Returns err([SettledError]) if ANY fail, collecting all errors
 if (result.ok) {
-  result.value.forEach((item) => {
-    if (item.status === 'ok') {
-      console.log('Success:', item.value);
-    } else {
-      console.log('Failed:', item.error);
-    }
-  });
+  // All operations succeeded
+  const [user, posts, comments] = result.value;
+  console.log('All succeeded:', user, posts, comments);
+} else {
+  // At least one failed - result.error is SettledError[]
+  for (const settled of result.error) {
+    console.log('Failed:', settled.error);
+  }
 }
 ```
+
+**Note**: Unlike `Promise.allSettled()`, this returns a Result - `ok` if all succeed, `err` if any fail. This is consistent with awaitly's philosophy that all functions return Results. If you need partial success, use `partition()` after `Promise.all()` of Results.
 
 ## Partition successes and failures
 

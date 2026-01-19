@@ -4098,10 +4098,19 @@ type AllAsyncCauses<T extends readonly MaybeAsyncResult<unknown, unknown, unknow
  * ## When to Use
  *
  * Use `allSettledAsync()` when:
- * - You have multiple async operations and need ALL errors
- * - You're doing async form validation (show all field errors)
+ * - You have multiple async operations and need ALL errors reported
+ * - You're doing async form validation (show all field errors at once)
  * - You want to run operations in parallel and collect all results
- * - You need partial results from parallel operations
+ *
+ * ## Behavior
+ *
+ * **Note:** Unlike `Promise.allSettled()`, this returns a Result:
+ * - `ok(values[])` if ALL succeed
+ * - `err(SettledError[])` if ANY fail (with all collected errors)
+ *
+ * This is consistent with awaitly's philosophy - all functions return Results.
+ * `Promise.allSettled()` always succeeds with per-item status objects; this function
+ * returns a single Result indicating overall success or failure.
  *
  * ## Why Use This Instead of `allSettled`
  *
@@ -4113,21 +4122,26 @@ type AllAsyncCauses<T extends readonly MaybeAsyncResult<unknown, unknown, unknow
  *
  * - **No short-circuit**: All operations complete (even if some fail)
  * - **Parallel**: All operations run simultaneously
- * - **Error array**: Returns array of `{ error, cause }` objects
+ * - **Error array**: Returns array of `SettledError` objects (`{ error, cause? }`)
  *
  * @param results - Array of Results or Promises of Results to combine (all are evaluated)
  * @returns A Promise resolving to a Result with:
- *   - Array of all success values if all succeed
- *   - Array of `{ error, cause }` objects if any fail
+ *   - `ok(values[])` - Array of all success values if ALL succeed
+ *   - `err(errors[])` - Array of `SettledError` objects if ANY fail
  *
  * @example
  * ```typescript
- * // Async form validation
+ * // Async form validation - see all errors at once
  * const validated = await allSettledAsync([
  *   validateEmailAsync(email),
  *   validatePasswordAsync(password),
  *   checkUsernameAvailableAsync(username),
  * ]);
+ *
+ * if (!validated.ok) {
+ *   // validated.error is array of all validation failures
+ *   console.log('Errors:', validated.error.map(e => e.error));
+ * }
  *
  * // Parallel API calls with error collection
  * const results = await allSettledAsync([
@@ -4135,7 +4149,6 @@ type AllAsyncCauses<T extends readonly MaybeAsyncResult<unknown, unknown, unknow
  *   fetchUser('2'),
  *   fetchUser('3'),
  * ]);
- * // Can see which succeeded and which failed
  * ```
  */
 export async function allSettledAsync<
@@ -4172,4 +4185,132 @@ export async function allSettledAsync<
     return err(errors) as unknown as Result<AllAsyncValues<T>, SettledError<AllAsyncErrors<T> | PromiseRejectedError, AllAsyncCauses<T> | PromiseRejectionCause>[]>;
   }
   return ok(values) as unknown as Result<AllAsyncValues<T>, SettledError<AllAsyncErrors<T> | PromiseRejectedError, AllAsyncCauses<T> | PromiseRejectionCause>[]>;
+}
+
+/**
+ * Combines two Results into a tuple Result.
+ *
+ * ## When to Use
+ *
+ * Use `zip()` when:
+ * - You have two independent Results and need both values together
+ * - You want to combine validation results before processing
+ * - You need a pair/tuple from two separate operations
+ *
+ * ## Why Use This Instead of `all()`
+ *
+ * - **Simpler types**: Returns `[A, B]` instead of array inference
+ * - **Two-argument**: Cleaner API for common case of combining two Results
+ * - **Compose with andThen**: Chain multiple zips for complex combinations
+ *
+ * ## Important
+ *
+ * - **Short-circuits**: Returns first error if either fails
+ * - **Order matters**: If both fail, returns error from first argument
+ * - **Use `all()`**: For more than 2 Results
+ *
+ * @param a - First Result
+ * @param b - Second Result
+ * @returns A Result containing a tuple `[A, B]` if both succeed, or the first error
+ *
+ * @example
+ * ```typescript
+ * // Combine two Results
+ * const userResult = await fetchUser('1');
+ * const postsResult = await fetchPosts('1');
+ * const combined = zip(userResult, postsResult);
+ * // combined: Result<[User, Post[]], UserError | PostsError>
+ *
+ * // Use with andThen for chaining
+ * const result = andThen(
+ *   zip(fetchUser('1'), fetchPosts('1')),
+ *   ([user, posts]) => createDashboard(user, posts)
+ * );
+ *
+ * // Validation combination
+ * const validated = zip(
+ *   validateEmail(email),
+ *   validatePassword(password)
+ * );
+ * if (validated.ok) {
+ *   const [email, password] = validated.value;
+ *   createAccount(email, password);
+ * }
+ * ```
+ */
+export function zip<A, EA, CA, B, EB, CB>(
+  a: Result<A, EA, CA>,
+  b: Result<B, EB, CB>
+): Result<[A, B], EA | EB, CA | CB> {
+  if (!a.ok) return a as Result<never, EA, CA>;
+  if (!b.ok) return b as Result<never, EB, CB>;
+  return ok([a.value, b.value]) as Result<[A, B], never, never>;
+}
+
+/**
+ * Async version of `zip()` - combines two Results or Promises of Results into a tuple.
+ *
+ * ## When to Use
+ *
+ * Use `zipAsync()` when:
+ * - You have two async operations and need both results together
+ * - You want to run two fetches in parallel and combine results
+ * - You need to combine Promises of Results into a single Result
+ *
+ * ## Why Use This Instead of `allAsync()`
+ *
+ * - **Simpler types**: Returns `[A, B]` instead of array inference
+ * - **Two-argument**: Cleaner API for common case of combining two async Results
+ * - **Parallel execution**: Both Promises start immediately
+ *
+ * ## Important
+ *
+ * - **Parallel**: Both operations run simultaneously (faster than sequential)
+ * - **Short-circuits result**: Returns first argument's error if it fails, else second's
+ * - **Waits for both**: Both Promises complete before returning (unlike `allAsync` fail-fast)
+ * - **Rejection handling**: Promise rejections are wrapped as `PromiseRejectedError`
+ * - **Use `allAsync()`**: For more than 2 Results
+ *
+ * @param a - First Result or Promise of Result
+ * @param b - Second Result or Promise of Result
+ * @returns A Promise of Result containing a tuple `[A, B]` if both succeed
+ *
+ * @example
+ * ```typescript
+ * // Parallel async operations
+ * const result = await zipAsync(
+ *   fetchUser('1'),
+ *   fetchPosts('1')
+ * );
+ * // Both fetches run in parallel
+ * // result: Result<[User, Post[]], UserError | PostsError>
+ *
+ * // Mix sync and async
+ * const combined = await zipAsync(
+ *   ok({ cached: true }), // Already resolved
+ *   fetchFromAPI(id),     // Async fetch
+ * );
+ *
+ * // With chaining
+ * const dashboard = await zipAsync(fetchUser('1'), fetchPosts('1'))
+ *   .then(result => andThen(result, ([user, posts]) => createDashboard(user, posts)));
+ * ```
+ */
+export async function zipAsync<A, EA, CA, B, EB, CB>(
+  a: Result<A, EA, CA> | Promise<Result<A, EA, CA>>,
+  b: Result<B, EB, CB> | Promise<Result<B, EB, CB>>
+): AsyncResult<[A, B], EA | EB | PromiseRejectedError, CA | CB | PromiseRejectionCause> {
+  // Wrap rejections into PromiseRejectedError (consistent with allAsync)
+  const wrapRejection = <T, E, C>(
+    p: Result<T, E, C> | Promise<Result<T, E, C>>
+  ): Promise<Result<T, E | PromiseRejectedError, C | PromiseRejectionCause>> =>
+    Promise.resolve(p).catch((reason) =>
+      err(
+        { type: "PROMISE_REJECTED" as const, cause: reason } as PromiseRejectedError,
+        { cause: { type: "PROMISE_REJECTION" as const, reason } as PromiseRejectionCause }
+      )
+    );
+
+  const [ra, rb] = await Promise.all([wrapRejection(a), wrapRejection(b)]);
+  return zip(ra, rb);
 }
