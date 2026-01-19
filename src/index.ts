@@ -151,6 +151,8 @@ export {
   any,
   anyAsync,
   partition,
+  zip,
+  zipAsync,
 
   // Run
   run,
@@ -202,6 +204,7 @@ export {
   type PendingApproval,
   type ApprovalRejected,
   type ApprovalStepOptions,
+  type GatedStepOptions,
 
   // Functions
   createWorkflow,
@@ -213,6 +216,7 @@ export {
   isApprovalRejected,
   pendingApproval,
   createApprovalStep,
+  gatedStep,
   injectApproval,
   clearStep,
   hasPendingApproval,
@@ -244,3 +248,9 @@ export {
   toDays,
   isDuration,
 } from "./duration";
+
+// =============================================================================
+// Persistence - Convenience re-exports (full API in awaitly/persistence)
+// =============================================================================
+
+export { stringifyState, parseState } from "./persistence";

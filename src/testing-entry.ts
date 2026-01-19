@@ -32,9 +32,15 @@ export {
   type WorkflowHarness,
   type MockFunction,
   type WorkflowSnapshot,
+  type CompensationInvocation,
+  type SagaHarness,
+  type MockSagaContext,
+  type SagaStepOptions,
+  type EventAssertionOptions,
 
   // Test Harness
   createWorkflowHarness,
+  createSagaHarness,
 
   // Mock Factories
   createMockFn,
@@ -48,4 +54,20 @@ export {
   okOutcome,
   errOutcome,
   throwOutcome,
+
+  // Event Assertion Helpers
+  assertEventSequence,
+  assertEventEmitted,
+  assertEventNotEmitted,
+
+  // Error Matcher Utilities
+  expectError,
+  expectErrorWithCause,
+  expectUnexpectedError,
+  expectOk,
+
+  // Debug Helpers
+  formatResult,
+  formatEvent,
+  formatEvents,
 } from "./testing";

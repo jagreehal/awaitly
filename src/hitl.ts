@@ -35,7 +35,73 @@ export type ApprovalStatus<T = unknown> =
   | { status: "pending" }
   | { status: "approved"; value: T; approvedBy?: string; approvedAt?: number }
   | { status: "rejected"; reason: string; rejectedBy?: string; rejectedAt?: number }
-  | { status: "expired"; expiredAt: number };
+  | { status: "expired"; expiredAt: number }
+  | { status: "edited"; originalValue: T; editedValue: T; editedBy?: string; editedAt?: number };
+
+// =============================================================================
+// Notification Channel Types
+// =============================================================================
+
+/**
+ * Context passed to notification channel when an approval is needed.
+ */
+export interface ApprovalNeededContext {
+  /** Unique approval key for correlation */
+  approvalKey: string;
+  /** Workflow run ID */
+  runId: string;
+  /** Workflow name/type */
+  workflowName: string;
+  /** Human-readable reason for the approval */
+  reason?: string;
+  /** Custom metadata attached to the approval */
+  metadata?: Record<string, unknown>;
+  /** When the approval expires (timestamp) */
+  expiresAt?: number;
+  /** Human-readable summary for notifications */
+  summary?: string;
+  /** For gated steps: the operation args that need approval */
+  pendingArgs?: Record<string, unknown>;
+}
+
+/**
+ * Context passed to notification channel when an approval is resolved.
+ */
+export interface ApprovalResolvedContext {
+  /** Unique approval key */
+  approvalKey: string;
+  /** Resolution action */
+  action: "approved" | "rejected" | "edited" | "expired" | "cancelled";
+  /** Who performed the action (if available) */
+  actorId?: string;
+  /** Timestamp of resolution */
+  resolvedAt: number;
+  /** Reason (for rejections) */
+  reason?: string;
+  /** Value (for approvals/edits) */
+  value?: unknown;
+  /** Original value (for edits) */
+  originalValue?: unknown;
+}
+
+/**
+ * Notification channel for external integrations (Slack, email, etc).
+ * Implement this interface to receive push notifications when approvals
+ * are created or resolved.
+ */
+export interface NotificationChannel {
+  /**
+   * Called when a new approval request is created.
+   * Use this to send Slack messages, emails, or push to a UI.
+   */
+  onApprovalNeeded(context: ApprovalNeededContext): Promise<void>;
+
+  /**
+   * Called when an approval is granted, rejected, edited, or expires.
+   * Use this to update Slack messages, send confirmation emails, etc.
+   */
+  onApprovalResolved?(context: ApprovalResolvedContext): Promise<void>;
+}
 
 /**
  * Interface for approval storage backends.
@@ -74,6 +140,17 @@ export interface ApprovalStore {
     key: string,
     reason: string,
     options?: { rejectedBy?: string }
+  ): Promise<void>;
+
+  /**
+   * Edit an approval (approve with modifications).
+   * Records both the original proposed value and the edited value.
+   */
+  editApproval<T>(
+    key: string,
+    originalValue: T,
+    editedValue: T,
+    options?: { editedBy?: string }
   ): Promise<void>;
 
   /**
@@ -151,6 +228,12 @@ export interface HITLOrchestratorOptions {
   defaultExpirationMs?: number;
   /** Logger function */
   logger?: (message: string) => void;
+  /**
+   * Notification channel for external integrations.
+   * When provided, the orchestrator will call onApprovalNeeded when
+   * an approval is created, and onApprovalResolved when resolved.
+   */
+  notificationChannel?: NotificationChannel;
 }
 
 /**
@@ -237,6 +320,21 @@ export function createMemoryApprovalStore(): ApprovalStore {
         reason,
         rejectedBy: options?.rejectedBy,
         rejectedAt: Date.now(),
+      });
+    },
+
+    async editApproval<T>(
+      key: string,
+      originalValue: T,
+      editedValue: T,
+      options?: { editedBy?: string }
+    ): Promise<void> {
+      approvals.set(key, {
+        status: "edited",
+        originalValue,
+        editedValue,
+        editedBy: options?.editedBy,
+        editedAt: Date.now(),
       });
     },
 
@@ -357,6 +455,18 @@ export interface HITLOrchestrator {
   ): Promise<void>;
 
   /**
+   * Edit an approval (approve with modifications).
+   * Use this when a human wants to approve but with changes to the proposed value.
+   * Records both the original and edited values for audit trail.
+   */
+  editApproval<T>(
+    approvalKey: string,
+    originalValue: T,
+    editedValue: T,
+    options?: { editedBy?: string }
+  ): Promise<{ editedAt: number }>;
+
+  /**
    * Poll for an approval to be granted.
    */
   pollApproval<T>(
@@ -421,6 +531,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
     workflowStateStore,
     defaultExpirationMs = 7 * 24 * 60 * 60 * 1000, // 7 days
     logger = () => {},
+    notificationChannel,
   } = options;
 
   async function execute<T, E, TInput>(
@@ -462,21 +573,49 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
 
       await workflowStateStore.save(state);
 
+      // Find the reason and metadata from the error if available
+      let reason: string | undefined;
+      let pendingMetadata: Record<string, unknown> | undefined;
+      if (!result.ok && isPendingApproval(result.error)) {
+        reason = result.error.reason;
+        pendingMetadata = result.error.metadata;
+      }
+
+      const expiresAt = Date.now() + defaultExpirationMs;
+
       // Create approval requests in the store
+      // Note: runId/workflowName placed last to prevent overwrites from pendingMetadata
       for (const key of pendingApprovals) {
         await approvalStore.createApproval(key, {
-          metadata: { runId, workflowName },
-          expiresAt: Date.now() + defaultExpirationMs,
+          metadata: { ...pendingMetadata, runId, workflowName },
+          expiresAt,
         });
       }
 
-      logger(`Workflow ${runId} paused, waiting for: ${pendingApprovals.join(", ")}`);
-
-      // Find the reason from the error if available
-      let reason: string | undefined;
-      if (!result.ok && isPendingApproval(result.error)) {
-        reason = result.error.reason;
+      // Notify external systems (Slack, email, etc.)
+      // Wrapped in try/catch to make notifications best-effort - state is already saved
+      if (notificationChannel) {
+        for (const key of pendingApprovals) {
+          try {
+            const pendingInfo = collector.getPendingApprovals().find((p) => p.stepKey === key);
+            await notificationChannel.onApprovalNeeded({
+              approvalKey: key,
+              runId,
+              workflowName,
+              reason,
+              metadata: { ...opts?.metadata, ...pendingMetadata },
+              expiresAt,
+              summary: reason ?? `Approval needed for ${key}`,
+              pendingArgs: pendingInfo?.error.metadata as Record<string, unknown> | undefined,
+            });
+          } catch (notifyError) {
+            // Log but don't fail - workflow state is already persisted
+            logger(`Failed to notify for approval ${key}: ${notifyError}`);
+          }
+        }
       }
+
+      logger(`Workflow ${runId} paused, waiting for: ${pendingApprovals.join(", ")}`);
 
       return {
         status: "paused",
@@ -520,7 +659,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
       }
     }
 
-    // Inject approved values into resume state
+    // Inject approved/edited values into resume state
     let resumeState = savedState.resumeState;
     for (const key of savedState.pendingApprovals) {
       const status = await approvalStore.getApproval(key);
@@ -528,6 +667,12 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
         resumeState = injectApproval(resumeState, {
           stepKey: key,
           value: status.value,
+        });
+      } else if (status.status === "edited") {
+        // For edited approvals, inject the edited value (not original)
+        resumeState = injectApproval(resumeState, {
+          stepKey: key,
+          value: status.editedValue,
         });
       }
     }
@@ -615,6 +760,17 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
       }
     }
 
+    // Notify external systems
+    if (notificationChannel?.onApprovalResolved) {
+      await notificationChannel.onApprovalResolved({
+        approvalKey,
+        action: "approved",
+        actorId: opts?.approvedBy,
+        resolvedAt: grantedAt,
+        value,
+      });
+    }
+
     logger(`Approval ${approvalKey} granted by ${opts?.approvedBy ?? "unknown"}`);
     return { grantedAt, resumedWorkflows };
   }
@@ -627,7 +783,47 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
     await approvalStore.rejectApproval(approvalKey, reason, {
       rejectedBy: opts?.rejectedBy,
     });
+
+    // Notify external systems
+    if (notificationChannel?.onApprovalResolved) {
+      await notificationChannel.onApprovalResolved({
+        approvalKey,
+        action: "rejected",
+        actorId: opts?.rejectedBy,
+        resolvedAt: Date.now(),
+        reason,
+      });
+    }
+
     logger(`Approval ${approvalKey} rejected: ${reason}`);
+  }
+
+  async function editApprovalFn<T>(
+    approvalKey: string,
+    originalValue: T,
+    editedValue: T,
+    opts?: { editedBy?: string }
+  ): Promise<{ editedAt: number }> {
+    await approvalStore.editApproval(approvalKey, originalValue, editedValue, {
+      editedBy: opts?.editedBy,
+    });
+
+    const editedAt = Date.now();
+
+    // Notify external systems
+    if (notificationChannel?.onApprovalResolved) {
+      await notificationChannel.onApprovalResolved({
+        approvalKey,
+        action: "edited",
+        actorId: opts?.editedBy,
+        resolvedAt: editedAt,
+        value: editedValue,
+        originalValue,
+      });
+    }
+
+    logger(`Approval ${approvalKey} edited by ${opts?.editedBy ?? "unknown"}`);
+    return { editedAt };
   }
 
   async function pollApproval<T>(
@@ -700,6 +896,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
     resume,
     grantApproval: grantApprovalFn,
     rejectApproval: rejectApprovalFn,
+    editApproval: editApprovalFn,
     pollApproval,
     getWorkflowStatus,
     listPendingWorkflows,
@@ -717,10 +914,14 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
 export interface ApprovalWebhookRequest {
   /** Approval key */
   key: string;
-  /** Action: approve, reject, or cancel */
-  action: "approve" | "reject" | "cancel";
+  /** Action: approve, reject, edit, or cancel */
+  action: "approve" | "reject" | "edit" | "cancel";
   /** Value to inject (for approve) */
   value?: unknown;
+  /** Original value (for edit - what was proposed) */
+  originalValue?: unknown;
+  /** Edited value (for edit - what human changed it to) */
+  editedValue?: unknown;
   /** Reason (for reject) */
   reason?: string;
   /** Who performed this action */
@@ -758,7 +959,7 @@ export function createApprovalWebhookHandler(
   store: ApprovalStore
 ): (request: ApprovalWebhookRequest) => Promise<ApprovalWebhookResponse> {
   return async (request: ApprovalWebhookRequest): Promise<ApprovalWebhookResponse> => {
-    const { key, action, value, reason, actorId } = request;
+    const { key, action, value, originalValue, editedValue, reason, actorId } = request;
 
     try {
       switch (action) {
@@ -778,6 +979,17 @@ export function createApprovalWebhookHandler(
           return {
             success: true,
             message: `Approval ${key} rejected`,
+            data: { key, action, timestamp: Date.now() },
+          };
+
+        case "edit":
+          if (originalValue === undefined || editedValue === undefined) {
+            return { success: false, message: "Both originalValue and editedValue are required for edit" };
+          }
+          await store.editApproval(key, originalValue, editedValue, { editedBy: actorId });
+          return {
+            success: true,
+            message: `Approval ${key} edited`,
             data: { key, action, timestamp: Date.now() },
           };
 
@@ -833,6 +1045,9 @@ export function createApprovalChecker<T>(store: ApprovalStore) {
         return { status: "pending" };
       case "approved":
         return { status: "approved", value: status.value as T };
+      case "edited":
+        // Treat edited as approved, using the edited value
+        return { status: "approved", value: status.editedValue as T };
       case "rejected":
         return { status: "rejected", reason: status.reason };
       case "expired":

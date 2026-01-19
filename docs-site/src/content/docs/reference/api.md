@@ -103,9 +103,11 @@ all(results)                        // All succeed (sync, short-circuits)
 allAsync(results)                   // All succeed (async, short-circuits)
 any(results)                        // First success (sync)
 anyAsync(results)                   // First success (async)
-allSettled(results)                 // Collect all (sync)
-allSettledAsync(results)            // Collect all (async)
+allSettled(results)                 // Collect all errors (sync)
+allSettledAsync(results)            // Collect all errors (async)
 partition(results)                  // Split into { values, errors }
+zip(a, b)                           // Combine two Results into tuple
+zipAsync(a, b)                      // Combine two async Results into tuple
 ```
 
 ## Batch Processing

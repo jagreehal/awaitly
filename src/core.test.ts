@@ -48,6 +48,8 @@ import {
   orElseAsync,
   recover,
   recoverAsync,
+  zip,
+  zipAsync,
 } from "./index";
 
 describe("Result Core", () => {
@@ -1886,6 +1888,148 @@ describe("partition() - split results", () => {
 
     expect(values).toEqual([]);
     expect(errors).toEqual(["a", "b"]);
+  });
+});
+
+describe("zip() - combine two Results", () => {
+  it("combines two ok Results into tuple", () => {
+    const a = ok(1);
+    const b = ok("hello");
+    const result = zip(a, b);
+
+    expect(result).toEqual({ ok: true, value: [1, "hello"] });
+  });
+
+  it("returns first error if first Result fails", () => {
+    const a = err("FIRST_ERROR");
+    const b = ok("hello");
+    const result = zip(a, b);
+
+    expect(result).toEqual({ ok: false, error: "FIRST_ERROR" });
+  });
+
+  it("returns second error if second Result fails", () => {
+    const a = ok(1);
+    const b = err("SECOND_ERROR");
+    const result = zip(a, b);
+
+    expect(result).toEqual({ ok: false, error: "SECOND_ERROR" });
+  });
+
+  it("returns first error if both fail (short-circuit)", () => {
+    const a = err("FIRST_ERROR");
+    const b = err("SECOND_ERROR");
+    const result = zip(a, b);
+
+    expect(result).toEqual({ ok: false, error: "FIRST_ERROR" });
+  });
+
+  it("preserves type inference", () => {
+    const userResult = ok({ id: "1", name: "Alice" });
+    const postsResult = ok([{ id: "p1", title: "Post" }]);
+    const result = zip(userResult, postsResult);
+
+    if (result.ok) {
+      const [user, posts] = result.value;
+      expect(user.name).toBe("Alice");
+      expect(posts[0].title).toBe("Post");
+    }
+  });
+});
+
+describe("zipAsync() - combine two async Results", () => {
+  it("combines two ok async Results into tuple", async () => {
+    const a = Promise.resolve(ok(1));
+    const b = Promise.resolve(ok("hello"));
+    const result = await zipAsync(a, b);
+
+    expect(result).toEqual({ ok: true, value: [1, "hello"] });
+  });
+
+  it("mixes sync and async Results", async () => {
+    const a = ok(1); // sync
+    const b = Promise.resolve(ok("hello")); // async
+    const result = await zipAsync(a, b);
+
+    expect(result).toEqual({ ok: true, value: [1, "hello"] });
+  });
+
+  it("returns first error from async Results", async () => {
+    const a = Promise.resolve(err("FIRST_ERROR"));
+    const b = Promise.resolve(ok("hello"));
+    const result = await zipAsync(a, b);
+
+    expect(result).toEqual({ ok: false, error: "FIRST_ERROR" });
+  });
+
+  it("returns second error if second fails", async () => {
+    const a = Promise.resolve(ok(1));
+    const b = Promise.resolve(err("SECOND_ERROR"));
+    const result = await zipAsync(a, b);
+
+    expect(result).toEqual({ ok: false, error: "SECOND_ERROR" });
+  });
+
+  it("runs both Promises in parallel", async () => {
+    const order: string[] = [];
+
+    const a = (async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      order.push("a");
+      return ok(1);
+    })();
+
+    const b = (async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      order.push("b");
+      return ok(2);
+    })();
+
+    await zipAsync(a, b);
+
+    // b should complete first (shorter delay), proving parallel execution
+    expect(order).toEqual(["b", "a"]);
+  });
+
+  it("wraps first Promise rejection as PromiseRejectedError", async () => {
+    const a = Promise.reject(new Error("network error"));
+    const b = Promise.resolve(ok("hello"));
+    const result = await zipAsync(a, b);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatchObject({
+        type: "PROMISE_REJECTED",
+        cause: expect.any(Error),
+      });
+    }
+  });
+
+  it("wraps second Promise rejection as PromiseRejectedError", async () => {
+    const a = Promise.resolve(ok(1));
+    const b = Promise.reject(new Error("timeout"));
+    const result = await zipAsync(a, b);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatchObject({
+        type: "PROMISE_REJECTED",
+        cause: expect.any(Error),
+      });
+    }
+  });
+
+  it("handles rejection when both reject (returns first)", async () => {
+    const a = Promise.reject(new Error("first"));
+    const b = Promise.reject(new Error("second"));
+    const result = await zipAsync(a, b);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatchObject({
+        type: "PROMISE_REJECTED",
+      });
+    }
   });
 });
 
