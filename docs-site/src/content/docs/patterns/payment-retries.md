@@ -23,7 +23,7 @@ async function processPayment(order: Order) {
 Use step keys and persistence to make the workflow resumable:
 
 ```typescript
-import { createWorkflow, createStepCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 import { stringifyState, parseState } from 'awaitly/persistence';
 
 const processPayment = createWorkflow({
@@ -33,7 +33,7 @@ const processPayment = createWorkflow({
 });
 
 // Collect state for persistence
-const collector = createStepCollector();
+const collector = createResumeStateCollector();
 
 const workflow = createWorkflow(deps, {
   onEvent: collector.handleEvent,
@@ -66,7 +66,7 @@ const result = await workflow(async (step) => {
 
 ```typescript
 // Always save state (success or failure)
-const state = collector.getState();
+const state = collector.getResumeState();
 const json = stringifyState(state, { orderId });
 
 await db.workflowStates.upsert({
@@ -134,7 +134,7 @@ const idempotencyKey = `payment:${Date.now()}`;
 
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
-import { createWorkflow, createStepCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 import { stringifyState, parseState } from 'awaitly/persistence';
 
 const validateCard = async (
@@ -184,7 +184,7 @@ async function handlePayment(orderId: string, cardToken: string, amount: number)
     where: { id: idempotencyKey },
   });
 
-  const collector = createStepCollector();
+  const collector = createResumeStateCollector();
   const resumeState = existing ? parseState(existing.state) : undefined;
 
   const workflow = createWorkflow(
@@ -212,7 +212,7 @@ async function handlePayment(orderId: string, cardToken: string, amount: number)
   });
 
   // Always save state
-  const state = collector.getState();
+  const state = collector.getResumeState();
   await db.workflowStates.upsert({
     where: { id: idempotencyKey },
     update: { state: stringifyState(state), updatedAt: new Date() },

@@ -23,7 +23,7 @@ import {
   ResumeState,
   ResumeStateEntry,
   WorkflowEvent,
-  createStepCollector,
+  createResumeStateCollector,
   StepTimeoutError,
 } from "./workflow-entry";
 

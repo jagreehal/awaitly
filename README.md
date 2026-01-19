@@ -253,10 +253,10 @@ Save workflow state to a database and resume later from exactly where you left o
 **Step 1: Collect state during execution**
 
 ```typescript
-import { createWorkflow, createStepCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 
 // Create a collector to automatically capture step results
-const collector = createStepCollector();
+const collector = createResumeStateCollector();
 
 const workflow = createWorkflow({ fetchUser, fetchPosts }, {
   onEvent: collector.handleEvent, // Automatically collects step_complete events
@@ -270,7 +270,7 @@ await workflow(async (step) => {
 });
 
 // Get the collected state
-const state = collector.getState(); // Returns ResumeState
+const state = collector.getResumeState(); // Returns ResumeState
 ```
 
 **Step 2: Save to database**
@@ -478,11 +478,11 @@ Save workflow state to a database and resume later. Perfect for crash recovery, 
 ### Basic Save & Resume
 
 ```typescript
-import { createWorkflow, createStepCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 import { stringifyState, parseState } from 'awaitly/persistence';
 
 // 1. Collect state during execution
-const collector = createStepCollector();
+const collector = createResumeStateCollector();
 const workflow = createWorkflow({ fetchUser, fetchPosts }, {
   onEvent: collector.handleEvent,
 });
@@ -494,7 +494,7 @@ await workflow(async (step) => {
 });
 
 // 2. Save to database
-const state = collector.getState();
+const state = collector.getResumeState();
 const json = stringifyState(state, { workflowId: "123" });
 await db.workflowStates.create({ id: "123", state: json });
 
@@ -533,11 +533,11 @@ const persistence = createStatePersistence({
 }, 'workflow:state:');
 
 // Save
-const collector = createStepCollector();
+const collector = createResumeStateCollector();
 const workflow = createWorkflow(deps, { onEvent: collector.handleEvent });
 await workflow(async (step) => { /* ... */ });
 
-await persistence.save('run-123', collector.getState(), { userId: 'user-1' });
+await persistence.save('run-123', collector.getResumeState(), { userId: 'user-1' });
 
 // Load and resume
 const savedState = await persistence.load('run-123');
@@ -625,7 +625,7 @@ const result = await resilientWorkflow(async (step) => {
 Pause long-running workflows until an operator approves, then resume using persisted step results.
 
 ```typescript
-import { createWorkflow, createStepCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 import {
   createApprovalStep,
   injectApproval,
@@ -633,7 +633,7 @@ import {
 } from 'awaitly/hitl';
 
 // Use collector to automatically capture state
-const collector = createStepCollector();
+const collector = createResumeStateCollector();
 const requireApproval = createApprovalStep({
   key: 'approval:deploy',
   checkApproval: async () => ({ status: 'pending' }),
@@ -647,7 +647,7 @@ const result = await gatedWorkflow(async (step) => step(requireApproval, { key: 
 
 if (!result.ok && isPendingApproval(result.error)) {
   // Get collected state
-  const state = collector.getState();
+  const state = collector.getResumeState();
   
   // Later, when approval is granted, inject it and resume
   const updatedState = injectApproval(state, {
@@ -826,10 +826,10 @@ const result = await validateAndCheckout(async (step) => {
 - **State save & resume** - Persist step completions and resume later.
 
   ```typescript
-  import { createWorkflow, createStepCollector } from 'awaitly/workflow';
+  import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 
   // Collect state during execution
-  const collector = createStepCollector();
+  const collector = createResumeStateCollector();
   const workflow = createWorkflow(deps, {
     onEvent: collector.handleEvent, // Automatically collects step_complete events
   });
@@ -840,7 +840,7 @@ const result = await validateAndCheckout(async (step) => {
   });
 
   // Get collected state
-  const state = collector.getState();
+  const state = collector.getResumeState();
 
   // Resume later
   const resumed = createWorkflow(deps, { resumeState: state });
@@ -900,13 +900,13 @@ The scariest failure mode in payments: **charge succeeded, but persistence faile
 Step keys + persistence solve this. Save state to a database, and if the workflow crashes, resume from the last successful step:
 
 ```typescript
-import { createWorkflow, createStepCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 import { stringifyState, parseState } from 'awaitly/persistence';
 
 const processPayment = createWorkflow({ validateCard, chargeProvider, persistResult });
 
 // Collect state for persistence
-const collector = createStepCollector();
+const collector = createResumeStateCollector();
 const workflow = createWorkflow(
   { validateCard, chargeProvider, persistResult },
   { onEvent: collector.handleEvent }
@@ -929,7 +929,7 @@ const result = await workflow(async (step) => {
 
 // Save state after each run (or on crash)
 if (result.ok) {
-  const state = collector.getState();
+  const state = collector.getResumeState();
   const json = stringifyState(state, { orderId: input.orderId });
   await db.workflowStates.upsert({
     where: { idempotencyKey: input.idempotencyKey },
@@ -1153,7 +1153,7 @@ import { ok, err, map, all, run } from 'awaitly';
 import { ok, err, map, TaggedError, Match } from 'awaitly/core';
 
 // Workflow layer - orchestration, Duration, step collector
-import { createWorkflow, Duration, createStepCollector, isStepComplete } from 'awaitly/workflow';
+import { createWorkflow, Duration, createResumeStateCollector, isStepComplete } from 'awaitly/workflow';
 
 // Visualization tools
 import { createVisualizer } from 'awaitly/visualize';

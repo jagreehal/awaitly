@@ -15,7 +15,7 @@ import {
 } from "./index";
 import {
   createWorkflow,
-  createStepCollector,
+  createResumeStateCollector,
 } from "./workflow-entry";
 import {
   isPendingApproval,
@@ -658,7 +658,7 @@ describe("Workflows Documentation - Approval Workflows", () => {
     };
 
     // Include requireApproval in deps so its error types are part of the workflow's union
-    const collector = createStepCollector();
+    const collector = createResumeStateCollector();
     const refundWorkflow = createWorkflow({ calculateRefund, requireApproval }, {
       onEvent: collector.handleEvent,
     });
@@ -731,12 +731,12 @@ describe("Workflows Documentation - Approval Workflows", () => {
     }
   });
 
-  it("collects workflow state for persistence using createStepCollector", async () => {
+  it("collects workflow state for persistence using createResumeStateCollector", async () => {
     const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> => {
       return ok({ id, name: "Alice", email: "alice@example.com" });
     };
 
-    const collector = createStepCollector();
+    const collector = createResumeStateCollector();
 
     // Note: onEvent is passed in the options of createWorkflow, not to the workflow call
     const workflow = createWorkflow(
@@ -751,7 +751,7 @@ describe("Workflows Documentation - Approval Workflows", () => {
     });
 
     // From docs: Get collected state for persistence
-    const state = collector.getState();
+    const state = collector.getResumeState();
     expect(state.steps.has("user:1")).toBe(true);
 
     const entry = state.steps.get("user:1");
@@ -763,7 +763,7 @@ describe("Workflows Documentation - Approval Workflows", () => {
       return ok({ id, name: "Alice", email: "alice@example.com" });
     };
 
-    const collector = createStepCollector();
+    const collector = createResumeStateCollector();
 
     // Note: onEvent is passed in the options of createWorkflow
     const workflow = createWorkflow(
@@ -776,7 +776,7 @@ describe("Workflows Documentation - Approval Workflows", () => {
       return user;
     });
 
-    const state = collector.getState();
+    const state = collector.getResumeState();
 
     // From docs: stringifyState and parseState for persistence
     const serialized = stringifyState(state);
@@ -795,7 +795,7 @@ describe("Workflows Documentation - Approval Workflows", () => {
       return ok({ id, name: "Alice", email: "alice@example.com" });
     };
 
-    const collector = createStepCollector();
+    const collector = createResumeStateCollector();
 
     // First run - collect state
     // Note: onEvent is passed in the options of createWorkflow
@@ -812,7 +812,7 @@ describe("Workflows Documentation - Approval Workflows", () => {
     expect(fetchCallCount).toBe(1);
 
     // Simulate persistence round-trip
-    const savedState = stringifyState(collector.getState());
+    const savedState = stringifyState(collector.getResumeState());
     const resumeState = parseState(savedState);
 
     // Second run - resume from state
@@ -835,10 +835,10 @@ describe("Workflows Documentation - Approval Workflows", () => {
   });
 
   it("supports injecting approval into resume state", async () => {
-    const collector = createStepCollector();
+    const collector = createResumeStateCollector();
 
     // Create initial state with a pending approval
-    const initialState = collector.getState();
+    const initialState = collector.getResumeState();
 
     // From docs: injectApproval usage
     const updatedState = injectApproval(initialState, {

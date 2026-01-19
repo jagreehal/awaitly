@@ -70,7 +70,7 @@ export {
   // Functions
   createWorkflow,
   isStepComplete,
-  createStepCollector,
+  createResumeStateCollector,
 } from "./workflow";
 
 // =============================================================================

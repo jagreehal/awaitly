@@ -157,9 +157,9 @@ pendingApproval(stepKey, options?)  // Create PendingApproval error
 ### Managing approval state
 
 ```typescript
-createHITLCollector()               // Collect step events for resume
+createApprovalStateCollector()      // Collect full resume state + pending approvals
 injectApproval(state, { stepKey, value })  // Add approval to resume state
-clearStep(state, stepKey)           // Remove step from resume state
+clearStep(state, stepKey)           // Remove step from resume state (immutable)
 hasPendingApproval(state, stepKey)  // Check if step is pending
 getPendingApprovals(state)          // Get all pending step keys
 ```
@@ -238,7 +238,7 @@ createStatePersistence(store, prefix)      // State persistence
 createHydratingCache(memory, persist, id)  // Hydrating cache
 stringifyState(state, meta)         // JSON stringify
 parseState(json)                    // JSON parse
-createStepCollector()               // Collect step events
+createResumeStateCollector()        // Collect step events for resume state
 ```
 
 ## Versioning

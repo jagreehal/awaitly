@@ -91,11 +91,11 @@ export interface ResumeStateEntry {
  *
  * @example
  * // Collect from step_complete events using the helper
- * const collector = createStepCollector();
+ * const collector = createResumeStateCollector();
  * const workflow = createWorkflow({ fetchUser }, {
  *   onEvent: collector.handleEvent,
  * });
- * // Later: collector.getState() returns ResumeState
+ * // Later: collector.getResumeState() returns ResumeState
  *
  * @example
  * // Resume with saved state
@@ -113,7 +113,7 @@ export interface ResumeState {
  *
  * ## When to Use
  *
- * Use `createStepCollector` when you need to:
+ * Use `createResumeStateCollector` when you need to:
  * - **Save workflow state** for later replay/resume
  * - **Persist step results** to a database or file system
  * - **Build resume state** from workflow execution
@@ -124,14 +124,14 @@ export interface ResumeState {
  * - **Automatic filtering**: Only collects `step_complete` events (ignores other events)
  * - **Metadata preservation**: Captures both result and meta for proper error replay
  * - **Type-safe**: Returns properly typed `ResumeState`
- * - **Convenient API**: Simple `handleEvent` → `getState` pattern
+ * - **Convenient API**: Simple `handleEvent` → `getResumeState` pattern
  *
  * ## How It Works
  *
  * 1. Create collector and pass `handleEvent` to workflow's `onEvent` option
  * 2. Workflow emits `step_complete` events for keyed steps
  * 3. Collector automatically captures these events
- * 4. Call `getState()` to get the collected `ResumeState`
+ * 4. Call `getResumeState()` to get the collected `ResumeState`
  * 5. Persist state (e.g., to database) for later resume
  *
  * ## Important Notes
@@ -142,13 +142,13 @@ export interface ResumeState {
  *
  * @returns An object with:
  *   - `handleEvent`: Function to pass to workflow's `onEvent` option
- *   - `getState`: Get collected resume state (call after workflow execution)
- *   - `clear`: Clear all collected state
+ *   - `getResumeState`: Get collected resume state (call after workflow execution)
+ *   - `clear`: Clears the collector's internal recorded entries (does not mutate workflow state)
  *
  * @example
  * ```typescript
  * // Collect state during workflow execution
- * const collector = createStepCollector();
+ * const collector = createResumeStateCollector();
  *
  * const workflow = createWorkflow({ fetchUser, fetchPosts }, {
  *   onEvent: collector.handleEvent, // Pass collector's handler
@@ -162,7 +162,7 @@ export interface ResumeState {
  * });
  *
  * // Get collected state for persistence
- * const state = collector.getState();
+ * const state = collector.getResumeState();
  * // state.steps contains: 'user:1' and 'posts:1' entries
  *
  * // Save to database
@@ -185,9 +185,12 @@ export interface ResumeState {
  * });
  * ```
  */
-export function createStepCollector(): {
+export function createResumeStateCollector(): {
+  /** Handle workflow events. Pass this to workflow's `onEvent` option. */
   handleEvent: (event: WorkflowEvent<unknown>) => void;
-  getState: () => ResumeState;
+  /** Get the collected resume state. Call after workflow execution. */
+  getResumeState: () => ResumeState;
+  /** Clears the collector's internal recorded entries (does not mutate workflow state). */
   clear: () => void;
 } {
   const steps = new Map<string, ResumeStateEntry>();
@@ -198,7 +201,7 @@ export function createStepCollector(): {
         steps.set(event.stepKey, { result: event.result, meta: event.meta });
       }
     },
-    getState: () => ({ steps: new Map(steps) }),
+    getResumeState: () => ({ steps: new Map(steps) }),
     clear: () => steps.clear(),
   };
 }
@@ -1516,7 +1519,7 @@ export interface ApprovalStepOptions<T> {
  * @example
  * ```typescript
  * // With approval injection for resume
- * const collector = createHITLCollector();
+ * const collector = createApprovalStateCollector();
  * const workflow = createWorkflow({ requireApproval }, {
  *   onEvent: collector.handleEvent,
  * });
@@ -1777,10 +1780,11 @@ export function injectApproval<T>(
 
 /**
  * Remove a step from resume state (e.g., to force re-execution).
+ * This is an immutable operation - returns a new ResumeState without modifying the original.
  *
  * @param state - The resume state to update
  * @param stepKey - The key of the step to remove
- * @returns A new ResumeState with the step removed
+ * @returns A new ResumeState with the step removed (original is unchanged)
  *
  * @example
  * ```typescript
@@ -1844,14 +1848,14 @@ export function getPendingApprovals(state: ResumeState): string[] {
 // =============================================================================
 
 /**
- * Extended step collector that tracks pending approvals.
- * Use this for HITL workflows that need to track approval state.
+ * Extended resume state collector that tracks pending approvals.
+ * Use this for human-in-the-loop workflows that need to track approval state.
  *
  * @returns An object with methods to handle events, get state, and manage approvals
  *
  * @example
  * ```typescript
- * const collector = createHITLCollector();
+ * const collector = createApprovalStateCollector();
  *
  * const workflow = createWorkflow({ fetchUser, requireApproval }, {
  *   onEvent: collector.handleEvent,
@@ -1867,19 +1871,19 @@ export function getPendingApprovals(state: ResumeState): string[] {
  * if (collector.hasPendingApprovals()) {
  *   const pending = collector.getPendingApprovals();
  *   // pending: [{ stepKey: 'approval:1', error: PendingApproval }]
- *   await saveToDatabase(collector.getState());
+ *   await saveToDatabase(collector.getResumeState());
  * }
  *
  * // Later, when approved:
  * const resumeState = collector.injectApproval('approval:1', { approvedBy: 'admin' });
  * ```
  */
-export function createHITLCollector(): {
-  /** Handle workflow events (pass to onEvent option) */
+export function createApprovalStateCollector(): {
+  /** Handle workflow events. Pass this to workflow's `onEvent` option. */
   handleEvent: (event: WorkflowEvent<unknown>) => void;
-  /** Get collected resume state */
-  getState: () => ResumeState;
-  /** Clear all collected state */
+  /** Get the collected resume state. Call after workflow execution. */
+  getResumeState: () => ResumeState;
+  /** Clears the collector's internal recorded entries (does not mutate workflow state). */
   clear: () => void;
   /** Check if any steps have pending approvals */
   hasPendingApprovals: () => boolean;
@@ -1896,7 +1900,7 @@ export function createHITLCollector(): {
         steps.set(event.stepKey, { result: event.result, meta: event.meta });
       }
     },
-    getState: () => ({ steps: new Map(steps) }),
+    getResumeState: () => ({ steps: new Map(steps) }),
     clear: () => steps.clear(),
     hasPendingApprovals: () => {
       for (const entry of steps.values()) {

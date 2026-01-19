@@ -8,7 +8,7 @@
 
 import type { Result, WorkflowEvent } from "./core";
 import type { ResumeState, Workflow } from "./workflow";
-import { createHITLCollector, isPendingApproval, injectApproval } from "./workflow";
+import { createApprovalStateCollector, isPendingApproval, injectApproval } from "./workflow";
 
 // =============================================================================
 // Workflow Factory Types
@@ -542,7 +542,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
     opts?: { runId?: string; metadata?: Record<string, unknown> }
   ): Promise<HITLExecutionResult<T, E>> {
     const runId = opts?.runId ?? crypto.randomUUID();
-    const collector = createHITLCollector();
+    const collector = createApprovalStateCollector();
 
     // Create workflow with collector's event handler wired in
     const workflow = workflowFactory({
@@ -563,7 +563,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
       const state: SavedWorkflowState = {
         runId,
         workflowName,
-        resumeState: collector.getState(),
+        resumeState: collector.getResumeState(),
         pendingApprovals,
         input,
         metadata: opts?.metadata,
@@ -678,7 +678,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
     }
 
     // Create collector for tracking any new pending approvals
-    const collector = createHITLCollector();
+    const collector = createApprovalStateCollector();
 
     // Create workflow with resume state and event handler
     const workflow = workflowFactory({
@@ -699,7 +699,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
       // Update saved state with new pending approvals
       const updatedState: SavedWorkflowState = {
         ...savedState,
-        resumeState: collector.getState(),
+        resumeState: collector.getResumeState(),
         pendingApprovals: newPendingApprovals,
         updatedAt: Date.now(),
       };

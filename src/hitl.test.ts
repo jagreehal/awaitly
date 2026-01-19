@@ -7,7 +7,7 @@ import { AsyncResult, err, isErr, isOk, ok, Result } from "./index";
 import {
   createWorkflow,
   ResumeState,
-  createStepCollector,
+  createResumeStateCollector,
 } from "./workflow-entry";
 import {
   PendingApproval,
@@ -20,7 +20,7 @@ import {
   clearStep,
   hasPendingApproval,
   getPendingApprovals,
-  createHITLCollector,
+  createApprovalStateCollector,
 } from "./hitl-entry";
 
 describe("HITL - Human-in-the-Loop Support", () => {
@@ -195,9 +195,9 @@ describe("HITL - Human-in-the-Loop Support", () => {
     });
   });
 
-  describe("createHITLCollector()", () => {
+  describe("createApprovalStateCollector()", () => {
     it("collects step_complete events", async () => {
-      const collector = createHITLCollector();
+      const collector = createApprovalStateCollector();
 
       // Simulate step_complete events
       collector.handleEvent({
@@ -209,12 +209,12 @@ describe("HITL - Human-in-the-Loop Support", () => {
         result: ok("value1"),
       });
 
-      const state = collector.getState();
+      const state = collector.getResumeState();
       expect(state.steps.has("step:1")).toBe(true);
     });
 
     it("detects pending approvals", async () => {
-      const collector = createHITLCollector();
+      const collector = createApprovalStateCollector();
 
       collector.handleEvent({
         type: "step_complete",
@@ -232,7 +232,7 @@ describe("HITL - Human-in-the-Loop Support", () => {
     });
 
     it("injectApproval updates collector state and returns resumeState", async () => {
-      const collector = createHITLCollector();
+      const collector = createApprovalStateCollector();
 
       // Add a pending approval
       collector.handleEvent({
@@ -258,11 +258,11 @@ describe("HITL - Human-in-the-Loop Support", () => {
 
       // Collector state is also updated (no longer pending)
       expect(collector.hasPendingApprovals()).toBe(false);
-      expect(collector.getState().steps.get("approval:1")!.result.ok).toBe(true);
+      expect(collector.getResumeState().steps.get("approval:1")!.result.ok).toBe(true);
     });
 
     it("clear removes all collected state", async () => {
-      const collector = createHITLCollector();
+      const collector = createApprovalStateCollector();
 
       collector.handleEvent({
         type: "step_complete",
@@ -273,9 +273,9 @@ describe("HITL - Human-in-the-Loop Support", () => {
         result: ok("value1"),
       });
 
-      expect(collector.getState().steps.size).toBe(1);
+      expect(collector.getResumeState().steps.size).toBe(1);
       collector.clear();
-      expect(collector.getState().steps.size).toBe(0);
+      expect(collector.getResumeState().steps.size).toBe(0);
     });
   });
 
@@ -297,7 +297,7 @@ describe("HITL - Human-in-the-Loop Support", () => {
       };
 
       // First run: workflow should pause at approval
-      const collector1 = createHITLCollector();
+      const collector1 = createApprovalStateCollector();
       const workflow1 = createWorkflow(
         { fetchData, requireApproval },
         { onEvent: collector1.handleEvent }
