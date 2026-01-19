@@ -1,5 +1,11 @@
 # awaitly
 
+## 1.1.0
+
+### Minor Changes
+
+- 795bfb6: Enhanced HITL orchestrator with production-ready approval workflows. Added `execute()` and `resume()` methods for workflow orchestration, `grantApproval()`, `rejectApproval()`, and `editApproval()` for approval management, and improved workflow state persistence. Enhanced testing harness with expanded mocking capabilities. Added workflow hooks (`shouldRun`, `onBeforeStart`, `onAfterStep`) for distributed locking, rate limiting, and checkpointing. Improved core workflow engine with better HITL collector support and event tracking.
+
 ## 1.0.0
 
 ### Initial Release
@@ -52,16 +58,19 @@ A TypeScript-first workflow orchestration library with type-safe error handling,
 - **Resource Management** (`withScope`, `createResourceScope`, `createResource`): RAII-style resource cleanup with automatic guarantees and LIFO cleanup order
 
 - **Match API** (`Match`): Exhaustive pattern matching for discriminated unions
+
   - `Match.value()`, `Match.tag()`, `Match.tags()`, `Match.when()` for pattern matching
   - `Match.exhaustive`, `Match.orElse()`, `Match.orElseValue()` for completion
   - `Match.is()`, `Match.isOneOf()` for type guards
 
 - **Schedule API** (`Schedule`): Composable scheduling primitives for retry and polling strategies
+
   - Base schedules: `forever()`, `recurs(n)`, `once()`, `stop()`
   - Delay-based: `spaced()`, `exponential()`, `linear()`, `fibonacci()`
   - Combinators: `upTo(n)`, `maxDelay()`, `jittered()`, `andThen()`, `union()`, `intersect()`
 
 - **Duration API** (`Duration`): Type-safe duration handling
+
   - Constructors: `millis()`, `seconds()`, `minutes()`, `hours()`, `days()`
   - Operations: `add()`, `subtract()`, `multiply()`, `divide()`
   - Formatting: `format()`, `parse()`
