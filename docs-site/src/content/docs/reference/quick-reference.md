@@ -220,8 +220,8 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 
 | Need | Import from |
 |------|-------------|
-| Result types (`ok`, `err`, `isOk`, `isErr`, `map`, `mapError`, `andThen`, `tap`, `from`, `fromPromise`, `all`, `allAsync`, `partition`, `match`, `TaggedError`) | `awaitly` |
-| Workflow engine (`createWorkflow`, `run`, `Duration`, `isStepComplete`, `createStepCollector`, step types, `ResumeState`) | `awaitly/workflow` |
+| Result types + composition (`ok`, `err`, `isOk`, `isErr`, `map`, `mapError`, `andThen`, `tap`, `from`, `fromPromise`, `all`, `allAsync`, `partition`, `match`, `run`, `TaggedError`) | `awaitly` |
+| Workflow engine (`createWorkflow`, `Duration`, `isStepComplete`, `createStepCollector`, step types, `ResumeState`) | `awaitly/workflow` |
 | Saga pattern (`createSagaWorkflow`) | `awaitly/workflow` |
 | Parallel ops (`allAsync`, `allSettledAsync`, `zip`, `zipAsync`) | `awaitly` |
 | HITL (`pendingApproval`, `createApprovalStep`, `gatedStep`, `injectApproval`, `isPendingApproval`) | `awaitly/hitl` |
@@ -243,8 +243,8 @@ For optimal bundle size, import from specific entry points:
 
 | Entry Point | Use Case |
 |-------------|----------|
-| `awaitly` | Result types and transforms only |
-| `awaitly/workflow` | Workflow engine (`createWorkflow`, `run`, `Duration`, etc.) |
+| `awaitly` | Result types, transforms, and `run()` for composition |
+| `awaitly/workflow` | Workflow engine (`createWorkflow`, `Duration`, etc.) |
 | `awaitly/hitl` | Human-in-the-loop (`createApprovalStep`, `isPendingApproval`, etc.) |
 | `awaitly/persistence` | State serialization (`stringifyState`, `parseState`) |
 | `awaitly/batch` | Batch processing only |

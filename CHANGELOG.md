@@ -4,19 +4,19 @@
 
 ### Minor Changes
 
-- 0039fe2: Split workflow functionality into separate entry point (`awaitly/workflow`) for better tree-shaking and bundle size optimization. The main `awaitly` package now only exports core Result types, while workflow orchestration features (`createWorkflow`, `run`, `Duration`, `createStepCollector`, etc.) are available via `awaitly/workflow`. This allows users who only need Result types to import a smaller bundle (~3 KB gzipped) without the workflow engine overhead.
+- 0039fe2: Split workflow functionality into separate entry point (`awaitly/workflow`) for better tree-shaking and bundle size optimization. The main `awaitly` package now exports core Result types plus `run()` for ergonomic composition, while workflow orchestration features (`createWorkflow`, `Duration`, `createStepCollector`, etc.) are available via `awaitly/workflow`. This allows users who only need Result types to import a smaller bundle (~5 KB gzipped) without the full workflow engine overhead.
 
-  **Migration:** Update imports from `awaitly` to `awaitly/workflow` for workflow-related functionality:
+  **What's available where:**
 
   ```typescript
-  // Before
-  import { createWorkflow, run } from "awaitly";
+  // Main entry - Result types + run() for composition
+  import { ok, err, map, andThen, run } from "awaitly";
 
-  // After
-  import { createWorkflow, run } from "awaitly/workflow";
+  // Workflow entry - orchestration engine
+  import { createWorkflow, Duration, createStepCollector } from "awaitly/workflow";
   ```
 
-  Core Result types (`ok`, `err`, `map`, `andThen`, etc.) remain available from the main `awaitly` entry point.
+  The `run()` function is included in the main entry because composing 2+ Result-returning operations is a common use case, and `run()` provides much cleaner do-notation style compared to nested `andThen` chains.
 
 ## 1.1.0
 
@@ -107,8 +107,8 @@ A TypeScript-first workflow orchestration library with type-safe error handling,
 
 #### Entry Points
 
-- `awaitly` - Core Result type and Duration
-- `awaitly/workflow` - Workflow engine and step API
+- `awaitly` - Core Result type and `run()` for composition
+- `awaitly/workflow` - Workflow engine (`createWorkflow`, `Duration`, step collector)
 - `awaitly/match` - Pattern matching utilities
 - `awaitly/retry` - Schedule API for retry strategies
 - `awaitly/batch` - Batch processing utilities

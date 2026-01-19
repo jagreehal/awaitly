@@ -41,11 +41,11 @@ import { createWorkflow } from 'awaitly/workflow';
 Or use tree-shakable imports for smaller bundles:
 
 ```typescript
-// Result types only (~3KB)
-import { ok, err, map, andThen } from 'awaitly';
+// Result types + run (~5KB)
+import { ok, err, run, map, andThen } from 'awaitly';
 
-// Workflow features (~8KB)
-import { createWorkflow, run } from 'awaitly/workflow';
+// Workflow orchestration
+import { createWorkflow } from 'awaitly/workflow';
 
 // Visualization (~5KB)
 import { createVisualizer } from 'awaitly/visualize';
