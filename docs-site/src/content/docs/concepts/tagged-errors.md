@@ -224,4 +224,4 @@ class GoodExample extends TaggedError('GoodExample')<{
 
 ## Next
 
-[Learn about Retries & Timeouts →](/workflow/guides/retries-timeouts/)
+[Learn about Retries & Timeouts →](/guides/retries-timeouts/)

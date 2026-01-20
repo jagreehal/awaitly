@@ -234,4 +234,4 @@ describe('refund workflow', () => {
 
 ## Next
 
-[Learn about Batch Processing →](/workflow/guides/batch-processing/)
+[Learn about Batch Processing →](/guides/batch-processing/)

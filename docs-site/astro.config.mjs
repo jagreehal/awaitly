@@ -14,14 +14,13 @@ export default defineConfig({
   integrations: [
     astroMermaid(),
       starlight({
-      title: '@jagreehal/workflow',
+      title: 'awaitly',
       description: 'Typed async workflows with Result types and automatic error inference',
       customCss: ['./src/styles/global.css'],
       plugins: [starlightThemeNext()],
       tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 3 },
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/jagreehal/workflow' },
-        { icon: 'x.com', label: 'X', href: 'https://x.com/AskJag' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/jagreehal/awaitly' },
       ],
       sidebar: [
         {

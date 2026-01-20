@@ -1,20 +1,20 @@
 ---
-title: "@jagreehal/workflow"
+title: "awaitly"
 description: Typed async workflows with Result types and automatic error inference
 template: splash
 hero:
   tagline: Typed async workflows with Result types and automatic error inference
   actions:
     - text: Get Started
-      link: /workflow/getting-started/installation/
+      link: /getting-started/installation/
       icon: right-arrow
     - text: View on GitHub
-      link: https://github.com/jagreehal/workflow
+      link: https://github.com/jagreehal/awaitly
       icon: external
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 ## What it does
 
@@ -26,13 +26,14 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 ## Install
 
 ```bash
-npm install @jagreehal/workflow
+npm install awaitly
 ```
 
 ## Basic example
 
 ```typescript
-import { createWorkflow, ok, err, type AsyncResult } from '@jagreehal/workflow';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 // Define operations that return Results
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
@@ -80,16 +81,8 @@ if (result.ok) {
 ## Next steps
 
 <CardGrid>
-  <Card title="Installation" icon="laptop">
-    [Install the package](/workflow/getting-started/installation/) and set up your first project
-  </Card>
-  <Card title="Your First Workflow" icon="rocket">
-    [Build a simple workflow](/workflow/getting-started/first-workflow/) in 5 minutes
-  </Card>
-  <Card title="Core Concepts" icon="open-book">
-    [Understand Results, Steps, and Workflows](/workflow/concepts/results/)
-  </Card>
-  <Card title="API Reference" icon="list-format">
-    [Full API documentation](/workflow/reference/api/)
-  </Card>
+  <LinkCard title="Installation" description="Install the package and set up your first project" href="/getting-started/installation/" />
+  <LinkCard title="Your First Workflow" description="Build a simple workflow in 5 minutes" href="/getting-started/first-workflow/" />
+  <LinkCard title="Core Concepts" description="Understand Results, Steps, and Workflows" href="/concepts/results/" />
+  <LinkCard title="API Reference" description="Full API documentation" href="/reference/api/" />
 </CardGrid>

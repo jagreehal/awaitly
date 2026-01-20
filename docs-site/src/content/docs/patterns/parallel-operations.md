@@ -137,7 +137,7 @@ const result = await processInBatches(
 );
 ```
 
-See [Batch Processing](/workflow/guides/batch-processing/) for details.
+See [Batch Processing](/guides/batch-processing/) for details.
 
 ## Parallel with dependencies
 

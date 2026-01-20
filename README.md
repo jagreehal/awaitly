@@ -12,6 +12,8 @@ This library fixes that. Your errors become **first-class citizens** with full t
 npm install awaitly
 ```
 
+📚 **[Full Documentation](https://jagreehal.github.io/awaitly/)** — guides, API reference, and examples.
+
 **What you get:**
 
 - **Automatic error inference** - Error types flow from your dependencies. Add a step? The union updates. Remove one? It updates. Zero manual tracking.
@@ -1020,7 +1022,7 @@ flowchart TD
 
 **When to use awaitly:** You want typed Results with async/await syntax, automatic error inference, and built-in reliability primitives.
 
-See [Coming from neverthrow](docs/coming-from-neverthrow.md) for pattern-by-pattern equivalents.
+See the [comparison table above](#vs-neverthrow) for pattern-by-pattern equivalents.
 
 ### Where awaitly shines
 
@@ -1267,11 +1269,13 @@ console.log(collector.visualizeAs('mermaid'));
 
 ## Keep Going
 
-**Already using neverthrow?** [The migration guide](docs/coming-from-neverthrow.md) shows pattern-by-pattern equivalents - you'll feel at home quickly.
+**Already using neverthrow?** See the [comparison table above](#vs-neverthrow) for pattern-by-pattern equivalents - you'll feel at home quickly.
 
-**Ready for production features?** [Advanced usage](docs/advanced.md) covers sagas, circuit breakers, rate limiting, persistence adapters, and HITL orchestration.
+**Ready for production features?** The [advanced guides](https://jagreehal.github.io/awaitly/advanced/saga-compensation/) cover sagas, circuit breakers, rate limiting, persistence adapters, and HITL orchestration.
 
-**Need the full API?** [API reference](docs/api.md) has everything in one place.
+**Need the full API?** [API reference](https://jagreehal.github.io/awaitly/reference/api/) has everything in one place.
+
+**Explore all guides:** [Documentation site](https://jagreehal.github.io/awaitly/) has the complete set of guides, tutorials, and reference material.
 
 ---
 

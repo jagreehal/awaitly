@@ -302,4 +302,4 @@ const loader = createVersionedStateLoader({
 
 ## Next
 
-[Learn about Persistence →](/workflow/guides/persistence/)
+[Learn about Persistence →](/guides/persistence/)

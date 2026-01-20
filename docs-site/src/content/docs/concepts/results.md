@@ -211,4 +211,4 @@ const results = await allAsync([
 
 ## Next
 
-[Learn about Steps →](/workflow/concepts/step/)
+[Learn about Steps →](/concepts/step/)

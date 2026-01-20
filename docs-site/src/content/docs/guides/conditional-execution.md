@@ -269,4 +269,4 @@ const result = await processOrder(async (step) => {
 
 ## Next
 
-[Learn about Testing →](/workflow/guides/testing/)
+[Learn about Testing →](/guides/testing/)

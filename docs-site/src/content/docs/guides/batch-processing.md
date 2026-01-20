@@ -212,4 +212,4 @@ const generateEmbeddings = async (documents: Document[]) => {
 
 ## Next
 
-[See Patterns: Checkout Flow →](/workflow/patterns/checkout-flow/)
+[See Patterns: Checkout Flow →](/patterns/checkout-flow/)

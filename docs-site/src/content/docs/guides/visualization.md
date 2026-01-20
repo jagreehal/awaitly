@@ -493,4 +493,4 @@ The dev server provides:
 
 ## Next
 
-[Learn about Testing →](/workflow/guides/testing/)
+[Learn about Testing →](/guides/testing/)

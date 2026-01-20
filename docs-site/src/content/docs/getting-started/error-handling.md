@@ -131,8 +131,8 @@ const workflow = createWorkflow(
 |----------|---------------|
 | Simple distinct states | String literals: `'NOT_FOUND' \| 'UNAUTHORIZED'` |
 | Errors with context | Objects: `{ type: 'NOT_FOUND', id: string }` |
-| API responses | [Tagged Errors](/workflow/concepts/tagged-errors/) for structured data |
+| API responses | [Tagged Errors](/concepts/tagged-errors/) for structured data |
 
 ## Next
 
-[Learn about Results in depth →](/workflow/concepts/results/)
+[Learn about Results in depth →](/concepts/results/)
