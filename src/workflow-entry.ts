@@ -75,6 +75,9 @@ export {
   isWorkflowCancelled,
 } from "./workflow";
 
+// Re-export UNEXPECTED_ERROR constant for convenience
+export { UNEXPECTED_ERROR } from "./core";
+
 // =============================================================================
 // Duration - Re-exported for convenience (timeouts/delays)
 // =============================================================================

@@ -133,6 +133,10 @@ const workflow = createWorkflow(
 | Errors with context | Objects: `{ type: 'NOT_FOUND', id: string }` |
 | API responses | [Tagged Errors](../../concepts/tagged-errors/) for structured data |
 
+## Need help?
+
+Having issues with TypeScript narrowing or error handling? See [Troubleshooting](../../guides/troubleshooting/).
+
 ## Next
 
 [Learn about Results in depth →](../../concepts/results/)

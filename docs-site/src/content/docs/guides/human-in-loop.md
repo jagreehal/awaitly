@@ -329,6 +329,300 @@ const gatedDelete = gatedStep(
 // Deleting /important/data.json: Pauses for approval
 ```
 
+## Multi-stage approvals
+
+For workflows requiring multiple approvers (e.g., manager → finance → CEO):
+
+```typescript
+import { createApprovalStep, isPendingApproval } from 'awaitly/hitl';
+
+// Define approval stages
+const managerApproval = createApprovalStep({
+  key: 'approval:manager',
+  checkApproval: async () => {
+    const status = await db.getApprovalStatus('expense-123', 'manager');
+    if (!status) return { status: 'pending' };
+    return status.approved
+      ? { status: 'approved', value: status }
+      : { status: 'rejected', reason: status.reason };
+  },
+});
+
+const financeApproval = createApprovalStep({
+  key: 'approval:finance',
+  checkApproval: async () => {
+    const status = await db.getApprovalStatus('expense-123', 'finance');
+    if (!status) return { status: 'pending' };
+    return status.approved
+      ? { status: 'approved', value: status }
+      : { status: 'rejected', reason: status.reason };
+  },
+});
+
+const ceoApproval = createApprovalStep({
+  key: 'approval:ceo',
+  checkApproval: async () => {
+    const status = await db.getApprovalStatus('expense-123', 'ceo');
+    if (!status) return { status: 'pending' };
+    return status.approved
+      ? { status: 'approved', value: status }
+      : { status: 'rejected', reason: status.reason };
+  },
+});
+
+// Workflow with conditional approval chain
+const expenseWorkflow = createWorkflow({
+  validateExpense,
+  processExpense,
+  managerApproval,
+  financeApproval,
+  ceoApproval,
+});
+
+const result = await expenseWorkflow(async (step) => {
+  const expense = await step(() => validateExpense(data));
+
+  // Always needs manager approval
+  await step(managerApproval, { key: 'approval:manager' });
+
+  // Finance approval for amounts over $1000
+  if (expense.amount > 1000) {
+    await step(financeApproval, { key: 'approval:finance' });
+  }
+
+  // CEO approval for amounts over $10000
+  if (expense.amount > 10000) {
+    await step(ceoApproval, { key: 'approval:ceo' });
+  }
+
+  return await step(() => processExpense(expense));
+});
+```
+
+### Track approval progress
+
+```typescript
+import { getPendingApprovals } from 'awaitly/hitl';
+
+const state = collector.getResumeState();
+const pending = getPendingApprovals(state);
+
+// Show approval chain status
+const stages = ['manager', 'finance', 'ceo'];
+const completed = stages.filter(s => !pending.some(p => p.stepKey.includes(s)));
+const current = pending[0]?.stepKey;
+
+console.log(`Completed: ${completed.join(' → ')}`);
+console.log(`Waiting for: ${current}`);
+// "Completed: manager"
+// "Waiting for: approval:finance"
+```
+
+## Approval timeouts
+
+Handle approvals that take too long:
+
+```typescript
+import { createApprovalStep, isPendingApproval } from 'awaitly/hitl';
+
+// Approval with built-in timeout check
+const timedApproval = createApprovalStep({
+  key: 'approval:urgent',
+  checkApproval: async () => {
+    const request = await db.getApprovalRequest('request-123');
+
+    // Check if approval has timed out
+    const timeoutMs = 24 * 60 * 60 * 1000; // 24 hours
+    if (Date.now() - request.createdAt > timeoutMs) {
+      return {
+        status: 'rejected',
+        reason: 'Approval timed out after 24 hours',
+      };
+    }
+
+    if (!request.status) return { status: 'pending' };
+    return request.approved
+      ? { status: 'approved', value: request }
+      : { status: 'rejected', reason: request.reason };
+  },
+});
+
+// Or use a scheduled job to auto-reject timed out approvals
+async function checkApprovalTimeouts() {
+  const expired = await db.approvalRequests.findMany({
+    where: {
+      status: 'pending',
+      createdAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+    },
+  });
+
+  for (const request of expired) {
+    await db.approvalRequests.update({
+      where: { id: request.id },
+      data: { status: 'rejected', reason: 'Auto-rejected: timeout exceeded' },
+    });
+
+    // Notify workflow to retry
+    await resumeWorkflow(request.workflowId);
+  }
+}
+```
+
+### Escalation on timeout
+
+```typescript
+const approvalWithEscalation = createApprovalStep({
+  key: 'approval:manager',
+  checkApproval: async () => {
+    const request = await db.getApprovalRequest('request-123');
+
+    // After 4 hours, escalate to senior manager
+    const escalationThreshold = 4 * 60 * 60 * 1000;
+    if (!request.status && Date.now() - request.createdAt > escalationThreshold) {
+      // Escalate (update assignment)
+      if (!request.escalated) {
+        await db.approvalRequests.update({
+          where: { id: request.id },
+          data: {
+            assignedTo: 'senior-manager@company.com',
+            escalated: true,
+          },
+        });
+        await sendSlack('Approval escalated to senior manager');
+      }
+    }
+
+    if (!request.status) return { status: 'pending' };
+    return request.approved
+      ? { status: 'approved', value: request }
+      : { status: 'rejected', reason: request.reason };
+  },
+});
+```
+
+## Recovery patterns
+
+### Handle orchestrator failures
+
+When the orchestrator process crashes:
+
+```typescript
+import {
+  createHITLOrchestrator,
+  createMemoryApprovalStore,
+  createMemoryWorkflowStateStore,
+} from 'awaitly/hitl';
+
+// Use persistent stores instead of memory
+const approvalStore = createRedisApprovalStore(redis);
+const workflowStateStore = createPostgresWorkflowStateStore(db);
+
+const orchestrator = createHITLOrchestrator({
+  approvalStore,
+  workflowStateStore,
+  createWorkflow: (resumeState) => createWorkflow(deps, { resumeState }),
+});
+
+// On startup, recover incomplete workflows
+async function recoverWorkflows() {
+  // Find workflows that were interrupted
+  const incomplete = await workflowStateStore.findIncomplete();
+
+  for (const workflow of incomplete) {
+    console.log(`Recovering workflow: ${workflow.id}`);
+
+    try {
+      // Check if any pending approvals have been resolved
+      const pendingApprovals = await approvalStore.getPending(workflow.id);
+      const anyResolved = pendingApprovals.some(a => a.status !== 'pending');
+
+      if (anyResolved) {
+        // Resume the workflow
+        const result = await orchestrator.resume(workflow.id);
+        console.log(`Workflow ${workflow.id} resumed:`, result.ok ? 'success' : 'failed');
+      }
+    } catch (error) {
+      console.error(`Failed to recover ${workflow.id}:`, error);
+      // Mark for manual intervention
+      await workflowStateStore.markForReview(workflow.id, error);
+    }
+  }
+}
+
+// Run on startup
+await recoverWorkflows();
+```
+
+### Idempotent approval handling
+
+Ensure approvals can be safely retried:
+
+```typescript
+const idempotentApprovalStore = {
+  async grantApproval(key: string, value: unknown) {
+    // Use upsert to handle duplicate approval attempts
+    await db.approvals.upsert({
+      where: { key },
+      create: {
+        key,
+        status: 'approved',
+        value: JSON.stringify(value),
+        approvedAt: new Date(),
+      },
+      update: {
+        // Don't overwrite if already approved
+        // This makes the operation idempotent
+      },
+    });
+  },
+
+  async getApproval(key: string) {
+    const record = await db.approvals.findUnique({ where: { key } });
+    if (!record) return { status: 'pending' };
+    return {
+      status: record.status,
+      value: JSON.parse(record.value),
+    };
+  },
+};
+```
+
+### Handle partial failures
+
+When a workflow fails after some approvals:
+
+```typescript
+const result = await expenseWorkflow(async (step) => {
+  const expense = await step(() => validateExpense(data), { key: 'validate' });
+
+  // First approval passed
+  await step(managerApproval, { key: 'approval:manager' });
+
+  // Second approval passed
+  await step(financeApproval, { key: 'approval:finance' });
+
+  // This step fails after approvals
+  return await step(() => processExpense(expense), { key: 'process' });
+});
+
+if (!result.ok && !isPendingApproval(result.error)) {
+  // Processing failed but approvals are saved
+  // On retry, approvals will be skipped (cached)
+  const savedState = collector.getResumeState();
+
+  // Option 1: Auto-retry with backoff
+  await retryWithBackoff(() => resumeWorkflow(savedState));
+
+  // Option 2: Alert for manual intervention
+  await alertOps({
+    message: 'Expense workflow failed after approval',
+    error: result.error,
+    workflowId: expense.id,
+    resumeState: savedState,
+  });
+}
+```
+
 ## React integration
 
 ```typescript

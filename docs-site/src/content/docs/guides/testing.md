@@ -5,7 +5,17 @@ description: Test workflows deterministically
 
 Use the test harness to control step execution and verify workflow behavior.
 
-## Result assertions
+This guide progresses through: **asserting results** → **basic workflow testing** → **advanced mocking** → **specialized testing** (time, sagas, events).
+
+---
+
+## Part 1: Asserting Results
+
+**WHAT**: Type-safe utilities to assert and unwrap Result values in tests.
+
+**WHY**: Vitest assertions don't narrow TypeScript types - these utilities do, making your tests type-safe.
+
+### Result assertions
 
 The `awaitly/testing` module provides type-safe assertion utilities that work seamlessly with TypeScript:
 
@@ -56,7 +66,15 @@ expect(user.name).toBe('Alice');
 | `unwrapOkAsync(promise)` | Awaits, asserts Ok, returns value. |
 | `unwrapErrAsync(promise)` | Awaits, asserts Err, returns error. |
 
-## Basic testing
+---
+
+## Part 2: Basic Workflow Testing
+
+**WHAT**: Create test harnesses with scripted or dynamic outcomes to control what each step returns.
+
+**WHY**: Test workflows deterministically without real dependencies - script success, failure, and edge cases.
+
+### Basic testing
 
 ```typescript
 import { createWorkflowHarness, okOutcome, errOutcome } from 'awaitly/testing';
@@ -98,7 +116,7 @@ describe('checkout workflow', () => {
 });
 ```
 
-## Scripted outcomes
+### Scripted outcomes
 
 Control what each step returns:
 
@@ -115,7 +133,7 @@ const harness = createWorkflowHarness({
 });
 ```
 
-## Dynamic outcomes
+### Dynamic outcomes
 
 Return different results based on input:
 
@@ -128,7 +146,15 @@ const harness = createWorkflowHarness({
 });
 ```
 
-## Mock functions
+---
+
+## Part 3: Advanced Mocking
+
+**WHAT**: Mock functions that track calls, support call-specific behavior, and enable retry testing.
+
+**WHY**: Test complex scenarios like retries, call tracking, and conditional responses.
+
+### Mock functions
 
 Track calls and change behavior:
 
@@ -155,7 +181,7 @@ expect(mockFetchUser.calls[0].args).toEqual(['1']);
 expect(mockFetchUser.calls[1].args).toEqual(['2']);
 ```
 
-## Testing retries
+### Testing retries
 
 ```typescript
 import { unwrapOk } from 'awaitly/testing';
@@ -179,7 +205,15 @@ expect(value.data).toBe('success');
 expect(mockFetch.calls.length).toBe(3);
 ```
 
-## Snapshot testing
+---
+
+## Part 4: Specialized Testing
+
+**WHAT**: Tools for testing time-dependent workflows, sagas with compensation, event sequences, and debugging.
+
+**WHY**: Production workflows involve timeouts, compensations, and complex event flows - these utilities make them testable.
+
+### Snapshot testing
 
 Compare workflow behavior across changes:
 
@@ -195,7 +229,7 @@ const snapshot = createSnapshot(harness.getInvocations());
 expect(snapshot).toMatchSnapshot();
 ```
 
-## Testing time-dependent workflows
+### Testing time-dependent workflows
 
 Control time in tests:
 
@@ -216,7 +250,7 @@ clock.tick(500);  // 500ms passed
 clock.tick(600);  // Now 1100ms, timeout triggers
 ```
 
-## Assertions on step invocations
+### Assertions on step invocations
 
 ```typescript
 const result = await harness.run(executor);
@@ -231,7 +265,7 @@ expect(invocations[1].name).toBe('chargeCard');
 expect(invocations[1].startedAt).toBeGreaterThan(invocations[0].completedAt);
 ```
 
-## Full example
+### Full example
 
 ```typescript
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -286,6 +320,208 @@ describe('refund workflow', () => {
     expect(error).toBe('ORDER_NOT_FOUND');
     expect(mockProcessRefund.calls.length).toBe(0); // Never called
   });
+});
+```
+
+### Testing saga workflows
+
+Use `createSagaHarness` to test workflows with compensation:
+
+```typescript
+import { createSagaHarness, okOutcome, errOutcome, unwrapErr } from 'awaitly/testing';
+
+describe('payment saga', () => {
+  it('compensates on failure', async () => {
+    const harness = createSagaHarness({
+      chargePayment: () => okOutcome({ id: 'pay_1', amount: 100 }),
+      reserveInventory: () => errOutcome('OUT_OF_STOCK'),
+      refundPayment: () => okOutcome(undefined),
+    });
+
+    const result = await harness.runSaga(async (saga, deps) => {
+      // Charge payment - add compensation to refund if later steps fail
+      const payment = await saga.step(
+        () => deps.chargePayment({ amount: 100 }),
+        {
+          name: 'charge-payment',
+          compensate: (p) => deps.refundPayment({ id: p.id }),
+        }
+      );
+
+      // This fails - triggers compensation
+      const reservation = await saga.step(
+        () => deps.reserveInventory({ items: [] }),
+        { name: 'reserve-inventory' }
+      );
+
+      return { payment, reservation };
+    });
+
+    // Assert the workflow failed
+    const error = unwrapErr(result);
+    expect(error).toBe('OUT_OF_STOCK');
+
+    // Assert compensation ran (LIFO order)
+    harness.assertCompensationOrder(['charge-payment']);
+    harness.assertCompensated('charge-payment');
+    harness.assertNotCompensated('reserve-inventory'); // Failed step isn't compensated
+  });
+});
+```
+
+#### Saga harness API
+
+| Method | Description |
+|--------|-------------|
+| `runSaga(fn)` | Run a saga workflow with compensation tracking |
+| `getCompensations()` | Get recorded compensation invocations (in order) |
+| `assertCompensationOrder(names)` | Assert compensations ran in expected order (LIFO) |
+| `assertCompensated(name)` | Assert a specific step was compensated |
+| `assertNotCompensated(name)` | Assert a step was NOT compensated |
+
+### Event assertions
+
+Assert on workflow events for detailed behavior testing:
+
+```typescript
+import {
+  assertEventSequence,
+  assertEventEmitted,
+  assertEventNotEmitted,
+} from 'awaitly/testing';
+import { createWorkflow, type WorkflowEvent } from 'awaitly/workflow';
+
+describe('event assertions', () => {
+  it('verifies event sequence', async () => {
+    const events: WorkflowEvent<unknown>[] = [];
+
+    const workflow = createWorkflow(deps, {
+      onEvent: (e) => events.push(e),
+    });
+
+    await workflow(async (step) => {
+      const user = await step(() => fetchUser('1'), { name: 'fetch-user' });
+      const posts = await step(() => fetchPosts(user.id), { name: 'fetch-posts' });
+      return { user, posts };
+    });
+
+    // Assert events occurred in order
+    const result = assertEventSequence(events, [
+      'workflow_start',
+      'step_start:fetch-user',
+      'step_complete:fetch-user',
+      'step_start:fetch-posts',
+      'step_complete:fetch-posts',
+      'workflow_complete',
+    ]);
+
+    expect(result.passed).toBe(true);
+  });
+
+  it('verifies specific event was emitted', async () => {
+    const events: WorkflowEvent<unknown>[] = [];
+
+    const workflow = createWorkflow(deps, {
+      onEvent: (e) => events.push(e),
+    });
+
+    await workflow(async (step) => {
+      await step(() => fetchUser('unknown'), { name: 'fetch-user' });
+    });
+
+    // Assert error event was emitted
+    const result = assertEventEmitted(events, {
+      type: 'step_error',
+      name: 'fetch-user',
+    });
+
+    expect(result.passed).toBe(true);
+  });
+
+  it('verifies event was NOT emitted', async () => {
+    const events: WorkflowEvent<unknown>[] = [];
+
+    const workflow = createWorkflow(deps, {
+      onEvent: (e) => events.push(e),
+    });
+
+    await workflow(async (step) => {
+      const user = await step(() => fetchUser('1'), { name: 'fetch-user' });
+      return user;
+    });
+
+    // Assert no retry events (step succeeded first try)
+    const result = assertEventNotEmitted(events, {
+      type: 'step_retry',
+    });
+
+    expect(result.passed).toBe(true);
+  });
+});
+```
+
+#### Non-strict sequence matching
+
+Allow extra events between expected ones:
+
+```typescript
+// Only checks that these events appear in order, ignores others
+const result = assertEventSequence(
+  events,
+  ['workflow_start', 'step_complete:payment', 'workflow_complete'],
+  { strict: false }
+);
+```
+
+### Debug helpers
+
+Format results and events for debugging:
+
+```typescript
+import { formatResult, formatEvent, formatEvents } from 'awaitly/testing';
+import { ok, err } from 'awaitly';
+
+// Format results
+console.log(formatResult(ok(42)));
+// "Ok(42)"
+
+console.log(formatResult(ok({ id: '1', name: 'Alice' })));
+// "Ok({ id: '1', name: 'Alice' })"
+
+console.log(formatResult(err('NOT_FOUND')));
+// "Err('NOT_FOUND')"
+
+console.log(formatResult(err({ type: 'VALIDATION_ERROR', field: 'email' })));
+// "Err({ type: 'VALIDATION_ERROR', field: 'email' })"
+
+// Format events
+const event = { type: 'step_complete', name: 'fetch-user', durationMs: 42 };
+console.log(formatEvent(event));
+// "step_complete:fetch-user"
+
+// Format event sequence
+console.log(formatEvents(events));
+// "workflow_start → step_start:fetch-user → step_complete:fetch-user → workflow_complete"
+```
+
+#### Using debug helpers in tests
+
+```typescript
+it('debugs failing workflow', async () => {
+  const events: WorkflowEvent<unknown>[] = [];
+  const workflow = createWorkflow(deps, { onEvent: (e) => events.push(e) });
+
+  const result = await workflow(async (step) => {
+    const user = await step(() => fetchUser('1'));
+    return user;
+  });
+
+  // Print for debugging
+  console.log('Result:', formatResult(result));
+  console.log('Events:', formatEvents(events));
+
+  // Then assert
+  expectOk(result);
 });
 ```
 

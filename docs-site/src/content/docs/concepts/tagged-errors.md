@@ -5,7 +5,17 @@ description: Rich error types with exhaustive pattern matching
 
 String literal errors like `'NOT_FOUND'` work for simple cases. When you need errors with contextual data, use `TaggedError`.
 
-## When to use what
+This guide progresses through: **deciding when to use TaggedError** → **creating them** → **pattern matching** → **advanced usage**.
+
+## Decision tree: When to use what
+
+```
+Do you need data attached to the error?
+├── No → Use string literals: 'NOT_FOUND' | 'UNAUTHORIZED'
+└── Yes → Do you have 3+ error variants to handle?
+    ├── No → Object literal: { type: 'NOT_FOUND', id: string }
+    └── Yes → TaggedError with match()
+```
 
 | Use case | Recommendation |
 |----------|---------------|
@@ -14,7 +24,137 @@ String literal errors like `'NOT_FOUND'` work for simple cases. When you need er
 | Multiple variants to handle | TaggedError with `match()` |
 | API responses | TaggedError for structured data |
 
+## When to migrate from string literals
+
+**Start with string literals.** They're simpler and often sufficient:
+
+```typescript
+// Good for simple cases
+const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND' | 'FORBIDDEN'> => {
+  // ...
+};
+```
+
+**Migrate to TaggedError when:**
+
+1. **You need error context for debugging:**
+
+```typescript
+// ❌ Before: No context, hard to debug
+return err('NOT_FOUND');
+
+// ✅ After: Rich context
+return err(new NotFoundError({ resource: 'User', id, searchedAt: 'users_table' }));
+```
+
+2. **You're handling 3+ error types with different logic:**
+
+```typescript
+// ❌ Before: Verbose switch/case
+if (error === 'NOT_FOUND') { ... }
+else if (error === 'FORBIDDEN') { ... }
+else if (error === 'RATE_LIMITED') { ... }
+else if (error === 'VALIDATION_FAILED') { ... }
+
+// ✅ After: Exhaustive, type-safe match
+TaggedError.match(error, {
+  NotFoundError: (e) => { ... },
+  ForbiddenError: (e) => { ... },
+  RateLimitedError: (e) => { ... },
+  ValidationError: (e) => { ... },
+});
+```
+
+3. **You want TypeScript to catch missing error handlers:**
+
+```typescript
+// With TaggedError.match(), forgetting a handler is a compile error
+TaggedError.match(error, {
+  NotFoundError: (e) => { ... },
+  // ForbiddenError: ... // TypeScript error: Missing handler!
+});
+```
+
+## Migration example
+
+**Before: String literals**
+
+```typescript
+type UserError = 'NOT_FOUND' | 'FORBIDDEN' | 'VALIDATION_FAILED';
+
+const fetchUser = async (id: string): AsyncResult<User, UserError> => {
+  if (!session.valid) return err('FORBIDDEN');
+  const user = await db.users.find(id);
+  if (!user) return err('NOT_FOUND');
+  return ok(user);
+};
+
+// Handling
+if (!result.ok) {
+  if (result.error === 'NOT_FOUND') {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  // No context about WHICH user wasn't found
+}
+```
+
+**After: TaggedError**
+
+```typescript
+class UserNotFoundError extends TaggedError('UserNotFoundError')<{
+  userId: string;
+}> {}
+
+class UserForbiddenError extends TaggedError('UserForbiddenError')<{
+  userId: string;
+  reason: 'session_expired' | 'insufficient_permissions';
+}> {}
+
+class UserValidationError extends TaggedError('UserValidationError')<{
+  field: string;
+  message: string;
+}> {}
+
+type UserError = UserNotFoundError | UserForbiddenError | UserValidationError;
+
+const fetchUser = async (id: string): AsyncResult<User, UserError> => {
+  if (!session.valid) {
+    return err(new UserForbiddenError({ userId: id, reason: 'session_expired' }));
+  }
+  const user = await db.users.find(id);
+  if (!user) {
+    return err(new UserNotFoundError({ userId: id }));
+  }
+  return ok(user);
+};
+
+// Handling - exhaustive and with context
+if (!result.ok) {
+  const response = TaggedError.match(result.error, {
+    UserNotFoundError: (e) => ({
+      status: 404,
+      body: { error: 'not_found', userId: e.userId },
+    }),
+    UserForbiddenError: (e) => ({
+      status: 403,
+      body: { error: 'forbidden', reason: e.reason },
+    }),
+    UserValidationError: (e) => ({
+      status: 400,
+      body: { error: 'validation', field: e.field, message: e.message },
+    }),
+  });
+  return res.status(response.status).json(response.body);
+}
+```
+
+---
+
 ## Creating tagged errors
+
+**WHAT**: Define error classes that extend `TaggedError` with typed properties.
+
+**WHY**: Each error type becomes a distinct class with typed data, enabling pattern matching and rich debugging context.
 
 ```typescript
 import { TaggedError } from 'awaitly';
@@ -50,7 +190,13 @@ const fetchUser = async (id: string): AsyncResult<User, NotFoundError | Unauthor
 };
 ```
 
+---
+
 ## Pattern matching with match()
+
+**WHAT**: Use `TaggedError.match` to handle each error variant with exhaustive type checking.
+
+**WHY**: TypeScript ensures you handle every error type - forget one and you get a compile error.
 
 `TaggedError.match` forces exhaustive handling:
 
@@ -98,7 +244,11 @@ const message = TaggedError.matchPartial(
 );
 ```
 
+---
+
 ## Type helpers
+
+Extract type information from tagged errors for reuse:
 
 ```typescript
 import { type TagOf, type ErrorByTag } from 'awaitly';
@@ -143,7 +293,11 @@ try {
 }
 ```
 
+---
+
 ## Real-world example
+
+Here's a complete example showing TaggedError in a payment workflow:
 
 ```typescript
 // Define error types
