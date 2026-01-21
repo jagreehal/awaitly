@@ -25,6 +25,8 @@ import {
   WorkflowEvent,
   createResumeStateCollector,
   StepTimeoutError,
+  isWorkflowCancelled,
+  WorkflowCancelledError,
 } from "./workflow-entry";
 
 describe("run() - do-notation style", () => {
@@ -3676,5 +3678,573 @@ describe("step.parallel() named object form", () => {
     }
   });
 
+});
+
+// =============================================================================
+// Workflow Cancellation Tests
+// =============================================================================
+
+describe("createWorkflow with signal (cancellation)", () => {
+  const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> =>
+    id !== "0" ? ok({ id, name: `User ${id}` }) : err("NOT_FOUND");
+
+  it("returns cancelled error when signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort("already cancelled");
+
+    const workflow = createWorkflow({ fetchUser }, {
+      signal: controller.signal,
+    });
+
+    const result = await workflow(async (step) => {
+      // This should never execute
+      const user = await step(fetchUser("1"));
+      return user;
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // After the fix, WorkflowCancelledError is returned directly
+      expect(isWorkflowCancelled(result.error)).toBe(true);
+      if (isWorkflowCancelled(result.error)) {
+        expect(result.error.reason).toBe("already cancelled");
+      }
+    }
+  });
+
+  it("cancels workflow mid-execution when signal is aborted", async () => {
+    type User = { id: string; name: string };
+    const controller = new AbortController();
+    const events: WorkflowEvent<unknown>[] = [];
+    const stepExecutions: string[] = [];
+
+    // Create a slow operation that gives us time to abort
+    const slowFetch = async (id: string): AsyncResult<User, "NOT_FOUND"> => {
+      stepExecutions.push(`start:${id}`);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      stepExecutions.push(`end:${id}`);
+      return ok({ id, name: `User ${id}` });
+    };
+
+    const workflow = createWorkflow({ slowFetch }, {
+      signal: controller.signal,
+      onEvent: (e) => events.push(e),
+    });
+
+    // Start workflow and abort after first step starts
+    const resultPromise = workflow(async (step) => {
+      // First step
+      const user1 = await step(() => slowFetch("1"), { key: "step1" });
+      // This step should never execute due to cancellation
+      const user2 = await step(() => slowFetch("2"), { key: "step2" });
+      return { user1, user2 };
+    });
+
+    // Abort after a short delay (during first step execution)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort("mid-execution abort");
+
+    const result = await resultPromise;
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(isWorkflowCancelled(result.error)).toBe(true);
+      if (isWorkflowCancelled(result.error)) {
+        expect(result.error.reason).toBe("mid-execution abort");
+        // lastStepKey reports the last successfully completed step (for resume purposes)
+        expect(result.error.lastStepKey).toBe("step1");
+      }
+    }
+
+    // Should emit workflow_cancelled event
+    const cancelledEvent = events.find((e) => e.type === "workflow_cancelled");
+    expect(cancelledEvent).toBeDefined();
+    if (cancelledEvent && cancelledEvent.type === "workflow_cancelled") {
+      expect(cancelledEvent.reason).toBe("mid-execution abort");
+    }
+
+    // Second step should never have started
+    expect(stepExecutions.filter((s) => s.startsWith("start:2")).length).toBe(0);
+  });
+
+  it("emits workflow_cancelled event when signal is already aborted", async () => {
+    const events: WorkflowEvent<unknown>[] = [];
+    const controller = new AbortController();
+    controller.abort("pre-aborted");
+
+    const workflow = createWorkflow({ fetchUser }, {
+      signal: controller.signal,
+      onEvent: (e) => events.push(e),
+    });
+
+    await workflow(async (step) => {
+      return await step(fetchUser("1"));
+    });
+
+    const cancelledEvent = events.find((e) => e.type === "workflow_cancelled");
+    expect(cancelledEvent).toBeDefined();
+    if (cancelledEvent && cancelledEvent.type === "workflow_cancelled") {
+      expect(cancelledEvent.reason).toBe("pre-aborted");
+      expect(typeof cancelledEvent.durationMs).toBe("number");
+      expect(cancelledEvent.durationMs).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("provides signal in WorkflowContext for manual use", async () => {
+    const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+
+    const workflow = createWorkflow({ fetchUser }, {
+      signal: controller.signal,
+    });
+
+    await workflow(async (step, deps, ctx) => {
+      receivedSignal = ctx.signal;
+      return await step(fetchUser("1"));
+    });
+
+    expect(receivedSignal).toBe(controller.signal);
+  });
+
+  it("isWorkflowCancelled type guard works correctly", () => {
+    const cancelledError: WorkflowCancelledError = {
+      type: "WORKFLOW_CANCELLED",
+      reason: "test",
+    };
+
+    expect(isWorkflowCancelled(cancelledError)).toBe(true);
+    expect(isWorkflowCancelled({ type: "OTHER" })).toBe(false);
+    expect(isWorkflowCancelled(null)).toBe(false);
+    expect(isWorkflowCancelled(undefined)).toBe(false);
+  });
+
+  it("works with strict mode - maps through catchUnexpected", async () => {
+    const controller = new AbortController();
+    controller.abort("strict cancelled");
+
+    const workflow = createWorkflow({ fetchUser }, {
+      signal: controller.signal,
+      strict: true,
+      catchUnexpected: (cause) => {
+        if (isWorkflowCancelled(cause)) {
+          return { type: "CANCELLED" as const, reason: cause.reason };
+        }
+        return { type: "UNEXPECTED" as const };
+      },
+    });
+
+    const result = await workflow(async (step) => {
+      return await step(fetchUser("1"));
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toEqual({ type: "CANCELLED", reason: "strict cancelled" });
+    }
+  });
+
+  it("workflow without signal has undefined signal in context", async () => {
+    let receivedSignal: AbortSignal | undefined = new AbortController().signal; // Set to non-undefined
+
+    const workflow = createWorkflow({ fetchUser });
+
+    await workflow(async (step, deps, ctx) => {
+      receivedSignal = ctx.signal;
+      return await step(fetchUser("1"));
+    });
+
+    expect(receivedSignal).toBeUndefined();
+  });
+
+  it("detects late cancellation when abort happens during last step", async () => {
+    const controller = new AbortController();
+    const events: WorkflowEvent<unknown>[] = [];
+
+    // Operation that aborts the signal during execution but still returns success
+    const slowOp = async (): AsyncResult<string, never> => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      // Abort during the operation
+      controller.abort("late abort");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return ok("success");
+    };
+
+    const workflow = createWorkflow({ slowOp }, {
+      signal: controller.signal,
+      onEvent: (e) => events.push(e),
+    });
+
+    const result = await workflow(async (step) => {
+      // Only one step - abort happens during it but it returns success
+      return await step(() => slowOp(), { key: "only-step" });
+    });
+
+    // Even though the operation returned success, workflow should detect the late abort
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(isWorkflowCancelled(result.error)).toBe(true);
+      if (isWorkflowCancelled(result.error)) {
+        expect(result.error.reason).toBe("late abort");
+        // lastStepKey is the last completed step (the one that ran)
+        expect(result.error.lastStepKey).toBe("only-step");
+      }
+    }
+
+    // Should emit workflow_cancelled, not workflow_success
+    const cancelledEvent = events.find((e) => e.type === "workflow_cancelled");
+    const successEvent = events.find((e) => e.type === "workflow_success");
+    expect(cancelledEvent).toBeDefined();
+    expect(successEvent).toBeUndefined();
+  });
+
+  it("strict mode mid-execution cancellation maps through catchUnexpected", async () => {
+    type User = { id: string; name: string };
+    const controller = new AbortController();
+    const events: WorkflowEvent<unknown>[] = [];
+
+    const slowFetch = async (id: string): AsyncResult<User, "NOT_FOUND"> => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return ok({ id, name: `User ${id}` });
+    };
+
+    const workflow = createWorkflow({ slowFetch }, {
+      signal: controller.signal,
+      onEvent: (e) => events.push(e),
+      strict: true,
+      catchUnexpected: (cause) => {
+        if (isWorkflowCancelled(cause)) {
+          return { type: "WORKFLOW_CANCELLED" as const, reason: cause.reason };
+        }
+        return { type: "UNEXPECTED" as const };
+      },
+    });
+
+    const resultPromise = workflow(async (step) => {
+      const user1 = await step(() => slowFetch("1"), { key: "step1" });
+      const user2 = await step(() => slowFetch("2"), { key: "step2" });
+      return { user1, user2 };
+    });
+
+    // Abort during first step
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort("mid-execution strict abort");
+
+    const result = await resultPromise;
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // Error should be mapped through catchUnexpected
+      expect(result.error).toEqual({
+        type: "WORKFLOW_CANCELLED",
+        reason: "mid-execution strict abort",
+      });
+    }
+
+    // Should still emit workflow_cancelled event
+    const cancelledEvent = events.find((e) => e.type === "workflow_cancelled");
+    expect(cancelledEvent).toBeDefined();
+  });
+
+  it("correctly handles pre-aborted signal (should cancel immediately)", async () => {
+    // If a signal is already aborted before workflow starts,
+    // the workflow should return cancelled immediately
+    // This is correct behavior - user is saying "don't run this"
+    const controller = new AbortController();
+    const events: WorkflowEvent<unknown>[] = [];
+
+    // Abort BEFORE creating the workflow
+    controller.abort("pre-aborted");
+
+    const quickOp = async (): AsyncResult<number, "FAILED"> => {
+      return ok(42);
+    };
+
+    const workflow = createWorkflow({ quickOp }, {
+      signal: controller.signal,
+      onEvent: (e) => events.push(e),
+    });
+
+    // Run the workflow - should fail immediately due to pre-aborted signal
+    const result = await workflow(async (step) => {
+      const value = await step(() => quickOp(), { key: "quick-step" });
+      return value * 2;
+    });
+
+    // The workflow should be cancelled because signal was already aborted
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(isWorkflowCancelled(result.error)).toBe(true);
+      if (isWorkflowCancelled(result.error)) {
+        expect(result.error.reason).toBe("pre-aborted");
+      }
+    }
+
+    // Should emit workflow_cancelled, NOT workflow_success
+    const cancelledEvent = events.find((e) => e.type === "workflow_cancelled");
+    const successEvent = events.find((e) => e.type === "workflow_success");
+    expect(cancelledEvent).toBeDefined();
+    expect(successEvent).toBeUndefined();
+  });
+
+  it("recognizes AbortError from step as workflow cancellation", async () => {
+    // When a step throws an AbortError (e.g., from fetch() respecting the signal),
+    // it should be recognized as workflow cancellation, not a normal error
+    const controller = new AbortController();
+    const events: WorkflowEvent<unknown>[] = [];
+
+    // Simulate an operation that respects the AbortSignal and throws AbortError
+    const fetchWithSignal = async (signal: AbortSignal): AsyncResult<string, "FETCH_ERROR"> => {
+      // Check if already aborted
+      if (signal.aborted) {
+        const abortError = new DOMException("The operation was aborted", "AbortError");
+        throw abortError;
+      }
+      // Wait a bit, then check again
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (signal.aborted) {
+        const abortError = new DOMException("The operation was aborted", "AbortError");
+        throw abortError;
+      }
+      return ok("data");
+    };
+
+    const workflow = createWorkflow({ fetchWithSignal }, {
+      signal: controller.signal,
+      onEvent: (e) => events.push(e),
+    });
+
+    const resultPromise = workflow(async (step, deps, ctx) => {
+      // Use step.withTimeout with signal: true to get the workflow signal
+      const data = await step.withTimeout(
+        (signal) => fetchWithSignal(signal),
+        { ms: 5000, signal: true, key: "fetch-step" }
+      );
+      return data;
+    });
+
+    // Abort during the fetch
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort("user cancelled");
+
+    const result = await resultPromise;
+
+    // Should be recognized as cancellation
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(isWorkflowCancelled(result.error)).toBe(true);
+      if (isWorkflowCancelled(result.error)) {
+        expect(result.error.reason).toBe("user cancelled");
+      }
+    }
+
+    // Should emit workflow_cancelled event
+    const cancelledEvent = events.find((e) => e.type === "workflow_cancelled");
+    expect(cancelledEvent).toBeDefined();
+  });
+
+  it("strict mode AbortError: treated as regular error, not cancellation", async () => {
+    // In strict mode, AbortError is treated as a regular error mapped by catchUnexpected.
+    // This ensures event and error are consistent:
+    // - catchUnexpected maps the AbortError to user's error type
+    // - workflow_error event is emitted (not workflow_cancelled)
+    // - No event/error mismatch
+    const controller = new AbortController();
+    const events: WorkflowEvent<unknown>[] = [];
+    const catchUnexpectedCalls: unknown[] = [];
+
+    const fetchWithSignal = async (signal: AbortSignal): AsyncResult<string, "FETCH_ERROR"> => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (signal.aborted) {
+        throw new DOMException("The operation was aborted", "AbortError");
+      }
+      return ok("data");
+    };
+
+    type MappedError = { type: "ABORTED" } | { type: "CANCELLED"; reason?: string } | { type: "UNEXPECTED" };
+
+    const workflow = createWorkflow({ fetchWithSignal }, {
+      signal: controller.signal,
+      onEvent: (e) => events.push(e),
+      strict: true,
+      catchUnexpected: (cause): MappedError => {
+        catchUnexpectedCalls.push(cause);
+        // User can handle AbortError specifically if they want
+        if (cause instanceof Error && cause.name === "AbortError") {
+          return { type: "ABORTED" };
+        }
+        if (isWorkflowCancelled(cause)) {
+          return { type: "CANCELLED", reason: cause.reason };
+        }
+        return { type: "UNEXPECTED" };
+      },
+    });
+
+    const resultPromise = workflow(async (step, deps, ctx) => {
+      const data = await step.withTimeout(
+        (signal) => fetchWithSignal(signal),
+        { ms: 5000, signal: true, key: "fetch-step" }
+      );
+      return data;
+    });
+
+    // Abort during the fetch
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort("strict mode abort");
+
+    const result = await resultPromise;
+
+    // catchUnexpected should be called exactly ONCE
+    expect(catchUnexpectedCalls.length).toBe(1);
+    expect(catchUnexpectedCalls[0]).toBeInstanceOf(DOMException);
+
+    // Error is the mapped AbortError
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toEqual({ type: "ABORTED" });
+    }
+
+    // Should emit workflow_error (not workflow_cancelled) for consistency
+    const errorEvent = events.find((e) => e.type === "workflow_error");
+    const cancelledEvent = events.find((e) => e.type === "workflow_cancelled");
+    expect(errorEvent).toBeDefined();
+    expect(cancelledEvent).toBeUndefined();
+  });
+
+  it("non-strict mode: typed error is preserved even when abort fires", async () => {
+    // When a step fails with a typed error (e.g., "USER_NOT_FOUND") and abort also fires,
+    // the typed error should be preserved - abort should not mask unrelated errors.
+    const controller = new AbortController();
+    const events: WorkflowEvent<unknown>[] = [];
+
+    type UserError = "USER_NOT_FOUND" | "PERMISSION_DENIED";
+
+    const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, UserError> => {
+      // Simulate some delay
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      // Return a typed error
+      return err("USER_NOT_FOUND");
+    };
+
+    const workflow = createWorkflow({ fetchUser }, {
+      signal: controller.signal,
+      onEvent: (e) => events.push(e),
+    });
+
+    const resultPromise = workflow(async (step) => {
+      const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+      return user;
+    });
+
+    // Abort fires DURING the step (but step will fail with typed error anyway)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort("abort fired");
+
+    const result = await resultPromise;
+
+    // The typed error should be preserved, NOT masked by cancellation
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // Should be the typed error, not WorkflowCancelledError
+      expect(result.error).toBe("USER_NOT_FOUND");
+      expect(isWorkflowCancelled(result.error)).toBe(false);
+    }
+
+    // Should emit workflow_error with the typed error, not workflow_cancelled
+    const errorEvent = events.find((e) => e.type === "workflow_error");
+    const cancelledEvent = events.find((e) => e.type === "workflow_cancelled");
+    expect(errorEvent).toBeDefined();
+    expect(cancelledEvent).toBeUndefined();
+  });
+
+  it("non-strict mode: AbortError exception during abort becomes cancellation", async () => {
+    // When a step throws an AbortError and abort fires,
+    // treat it as cancellation since AbortError during abort is caused by the abort.
+    const controller = new AbortController();
+    const events: WorkflowEvent<unknown>[] = [];
+
+    const riskyOperation = async (): AsyncResult<string, "KNOWN_ERROR"> => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      // Throw an AbortError (simulating what fetch() throws when aborted)
+      const abortError = new Error("The operation was aborted");
+      abortError.name = "AbortError";
+      throw abortError;
+    };
+
+    const workflow = createWorkflow({ riskyOperation }, {
+      signal: controller.signal,
+      onEvent: (e) => events.push(e),
+    });
+
+    const resultPromise = workflow(async (step) => {
+      const data = await step(() => riskyOperation(), { key: "risky-step" });
+      return data;
+    });
+
+    // Abort during the operation
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort("user cancelled");
+
+    const result = await resultPromise;
+
+    // AbortError during abort should be treated as cancellation
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(isWorkflowCancelled(result.error)).toBe(true);
+      if (isWorkflowCancelled(result.error)) {
+        expect(result.error.reason).toBe("user cancelled");
+      }
+    }
+
+    // Should emit workflow_cancelled
+    const cancelledEvent = events.find((e) => e.type === "workflow_cancelled");
+    expect(cancelledEvent).toBeDefined();
+  });
+
+  it("non-strict mode: only AbortError exceptions become cancellation, not other errors", async () => {
+    // Test that only AbortError-type exceptions are treated as cancellation.
+    // Other thrown exceptions should remain as UnexpectedError even if abort was signaled.
+    // This prevents masking real errors as cancellation.
+    const controller = new AbortController();
+    const events: WorkflowEvent<unknown>[] = [];
+
+    const failingOperation = async (): AsyncResult<string, "KNOWN_ERROR"> => {
+      // Small delay to allow abort to fire first
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      // Throw an unrelated exception (NOT an AbortError)
+      throw new Error("Database connection failed - unrelated to abort");
+    };
+
+    const workflow = createWorkflow({ failingOperation }, {
+      signal: controller.signal,
+      onEvent: (e) => events.push(e),
+    });
+
+    const resultPromise = workflow(async (step) => {
+      const data = await step(() => failingOperation(), { key: "failing-step" });
+      return data;
+    });
+
+    // Abort fires BEFORE the exception (abort is signaled during execution)
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    controller.abort("user cancelled");
+
+    const result = await resultPromise;
+
+    // Even though abort was signaled, the exception is NOT an AbortError,
+    // so it should be preserved as UnexpectedError, not masked as cancellation.
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // Should NOT be WorkflowCancelledError - the exception is not abort-related
+      expect(isWorkflowCancelled(result.error)).toBe(false);
+      // Should be UnexpectedError wrapping the original exception
+      expect(isUnexpectedError(result.error)).toBe(true);
+    }
+
+    // Should emit workflow_error, not workflow_cancelled
+    const errorEvent = events.find((e) => e.type === "workflow_error");
+    const cancelledEvent = events.find((e) => e.type === "workflow_cancelled");
+    expect(errorEvent).toBeDefined();
+    expect(cancelledEvent).toBeUndefined();
+  });
 });
 

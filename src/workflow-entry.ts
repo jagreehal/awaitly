@@ -66,11 +66,13 @@ export {
   type StepCache,
   type ResumeState,
   type ResumeStateEntry,
+  type WorkflowCancelledError,
 
   // Functions
   createWorkflow,
   isStepComplete,
   createResumeStateCollector,
+  isWorkflowCancelled,
 } from "./workflow";
 
 // =============================================================================

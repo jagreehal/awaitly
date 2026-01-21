@@ -42,11 +42,6 @@
       "import": "./dist/retry.js",
       "require": "./dist/retry.cjs"
     },
-    "./schedule": {
-      "types": "./dist/schedule.d.ts",
-      "import": "./dist/schedule.js",
-      "require": "./dist/schedule.cjs"
-    },
     "./reliability": {
       "types": "./dist/reliability.d.ts",
       "import": "./dist/reliability.js",
@@ -121,6 +116,16 @@
       "types": "./dist/tagged-error.d.ts",
       "import": "./dist/tagged-error.js",
       "require": "./dist/tagged-error.cjs"
+    },
+    "./singleflight": {
+      "types": "./dist/singleflight.d.ts",
+      "import": "./dist/singleflight.js",
+      "require": "./dist/singleflight.cjs"
+    },
+    "./adapters": {
+      "types": "./dist/adapters.d.ts",
+      "import": "./dist/adapters.js",
+      "require": "./dist/adapters.cjs"
     }
   },
   "files": [

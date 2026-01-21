@@ -860,6 +860,18 @@ export type WorkflowEvent<E, C = unknown> =
       durationMs: number;
       error: E;
       context?: C;
+    }
+  // Workflow cancellation event
+  | {
+      type: "workflow_cancelled";
+      workflowId: string;
+      ts: number;
+      durationMs: number;
+      /** Reason from AbortSignal.reason (if provided) */
+      reason?: string;
+      /** Last successfully completed keyed step before cancellation (for resume purposes) */
+      lastStepKey?: string;
+      context?: C;
     };
 
 // =============================================================================
@@ -875,7 +887,7 @@ export type RunOptionsWithCatch<E, C = void> = {
   /**
    * Listener for workflow events (start, success, error, step events).
    * Use this for logging, telemetry, or debugging.
-   * 
+   *
    * Context is automatically included in `event.context` when provided via the `context` option.
    * The separate `ctx` parameter is provided for convenience.
    */
@@ -897,6 +909,11 @@ export type RunOptionsWithCatch<E, C = void> = {
    * Useful for passing request IDs, user IDs, or loggers.
    */
   context?: C;
+  /**
+   * @internal External signal for workflow-level cancellation.
+   * Used by createWorkflow() to pass the workflow signal to steps.
+   */
+  _workflowSignal?: AbortSignal;
 };
 
 export type RunOptionsWithoutCatch<E, C = void> = {
@@ -907,7 +924,7 @@ export type RunOptionsWithoutCatch<E, C = void> = {
   onError?: (error: E | UnexpectedError, stepName?: string, ctx?: C) => void;
   /**
    * Listener for workflow events (start, success, error, step events).
-   * 
+   *
    * Note: Context is available both on `event.context` and as the separate `ctx` parameter.
    * The `ctx` parameter is provided for convenience and backward compatibility.
    */
@@ -915,6 +932,11 @@ export type RunOptionsWithoutCatch<E, C = void> = {
   catchUnexpected?: undefined;
   workflowId?: string;
   context?: C;
+  /**
+   * @internal External signal for workflow-level cancellation.
+   * Used by createWorkflow() to pass the workflow signal to steps.
+   */
+  _workflowSignal?: AbortSignal;
 };
 
 export type RunOptions<E, C = void> = RunOptionsWithCatch<E, C> | RunOptionsWithoutCatch<E, C>;
@@ -1072,7 +1094,9 @@ const TIMEOUT_SYMBOL: unique symbol = Symbol("timeout");
 async function executeWithTimeout<T>(
   operation: (() => Promise<T>) | ((signal: AbortSignal) => Promise<T>),
   options: TimeoutOptions,
-  stepInfo: { name?: string; key?: string; attempt?: number }
+  stepInfo: { name?: string; key?: string; attempt?: number },
+  /** External signal (e.g., workflow cancellation) to combine with timeout signal */
+  externalSignal?: AbortSignal
 ): Promise<T> {
   const controller = new AbortController();
 
@@ -1089,6 +1113,18 @@ async function executeWithTimeout<T>(
   // Track the timeout ID for cleanup
   let timeoutId: ReturnType<typeof setTimeout>;
 
+  // If external signal is already aborted, abort immediately
+  if (externalSignal?.aborted) {
+    controller.abort(externalSignal.reason);
+  }
+
+  // Forward external signal abort to internal controller
+  let externalAbortHandler: (() => void) | undefined;
+  if (externalSignal && !externalSignal.aborted) {
+    externalAbortHandler = () => controller.abort(externalSignal.reason);
+    externalSignal.addEventListener("abort", externalAbortHandler, { once: true });
+  }
+
   // Create a timeout promise that rejects after the specified duration
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -1101,6 +1137,7 @@ async function executeWithTimeout<T>(
   let operationPromise: Promise<T>;
   if (options.signal) {
     // Operation expects an AbortSignal
+    // Pass the internal controller's signal which is linked to both timeout and external signal
     operationPromise = Promise.resolve(
       (operation as (signal: AbortSignal) => Promise<T>)(controller.signal)
     );
@@ -1158,6 +1195,10 @@ async function executeWithTimeout<T>(
   } finally {
     // Always clear the timeout to prevent leaks
     clearTimeout(timeoutId!);
+    // Clean up external signal listener
+    if (externalAbortHandler && externalSignal) {
+      externalSignal.removeEventListener("abort", externalAbortHandler);
+    }
   }
 }
 
@@ -1256,6 +1297,8 @@ export function run<T, E, C = void>(
     onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
     workflowId?: string;
     context?: C;
+    /** @internal External signal for workflow-level cancellation. */
+    _workflowSignal?: AbortSignal;
   }
 ): AsyncResult<T, E | UnexpectedError, unknown>;
 
@@ -1283,6 +1326,8 @@ export function run<T, C = void>(
     onEvent?: (event: WorkflowEvent<UnexpectedError, C>, ctx: C) => void;
     workflowId?: string;
     context?: C;
+    /** @internal External signal for workflow-level cancellation. */
+    _workflowSignal?: AbortSignal;
   }
 ): AsyncResult<T, UnexpectedError, unknown>;
 
@@ -1297,6 +1342,7 @@ export async function run<T, E, C = void>(
     catchUnexpected,
     workflowId: providedWorkflowId,
     context,
+    _workflowSignal,
   } = options && typeof options === "object"
     ? (options as RunOptions<E, C>)
     : ({} as RunOptions<E, C>);
@@ -1486,11 +1532,12 @@ export async function run<T, E, C = void>(
 
             if (typeof operationOrResult === "function") {
               if (timeoutConfig) {
-                // Wrap with timeout
+                // Wrap with timeout, passing workflow signal for { signal: true } steps
                 result = await executeWithTimeout(
                   operationOrResult as () => Promise<Result<T, StepE, StepC>>,
                   timeoutConfig,
-                  { name: stepName, key: stepKey, attempt }
+                  { name: stepName, key: stepKey, attempt },
+                  _workflowSignal
                 );
               } else {
                 result = await operationOrResult();
@@ -2411,15 +2458,17 @@ run.strict = <T, E, C = void>(
   options: {
     onError?: (error: E, stepName?: string, ctx?: C) => void;
     /**
-   * Listener for workflow events (start, success, error, step events).
-   * 
-   * Note: Context is available both on `event.context` and as the separate `ctx` parameter.
-   * The `ctx` parameter is provided for convenience and backward compatibility.
-   */
-  onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
+     * Listener for workflow events (start, success, error, step events).
+     *
+     * Note: Context is available both on `event.context` and as the separate `ctx` parameter.
+     * The `ctx` parameter is provided for convenience and backward compatibility.
+     */
+    onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
     catchUnexpected: (cause: unknown) => E;
     workflowId?: string;
     context?: C;
+    /** @internal External signal for workflow-level cancellation. */
+    _workflowSignal?: AbortSignal;
   }
 ): AsyncResult<T, E, unknown> => {
   return run<T, E, C>(fn, options);

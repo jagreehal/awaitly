@@ -55,9 +55,10 @@ export default defineConfig({
     'tagged-error': 'src/tagged-error-entry.ts',
 
     // =========================================================================
-    // Legacy (keep schedule as alias for retry)
+    // Glue library utilities
     // =========================================================================
-    schedule: 'src/schedule.ts',
+    singleflight: 'src/singleflight-entry.ts',
+    adapters: 'src/adapters-entry.ts',
   },
   format: ['cjs', 'esm'],
   dts: true,

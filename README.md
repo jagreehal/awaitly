@@ -1166,9 +1166,8 @@ import { processInBatches } from 'awaitly/batch';
 // Resource management
 import { createResourceScope, withScope } from 'awaitly/resource';
 
-// Retry strategies (renamed from schedule for clarity)
+// Retry strategies
 import { Schedule, Duration } from 'awaitly/retry';
-import { Schedule } from 'awaitly/schedule'; // Legacy alias
 
 // Reliability patterns (umbrella)
 import { createCircuitBreaker, createRateLimiter, createSagaWorkflow } from 'awaitly/reliability';
