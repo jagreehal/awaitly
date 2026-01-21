@@ -200,4 +200,4 @@ const workflow = createWorkflow(deps, { cache });
 
 ## Next
 
-[Learn about Human-in-the-Loop →](/guides/human-in-loop/)
+[Learn about Human-in-the-Loop →](../human-in-loop/)

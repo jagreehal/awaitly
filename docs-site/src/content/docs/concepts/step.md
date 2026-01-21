@@ -154,8 +154,8 @@ const user = await step(() => fetchUser('1'), { name: 'Fetch user' });
 const posts = await step(() => fetchPosts(user.id), { name: 'Fetch posts' });
 ```
 
-See [Visualization](/guides/visualization/) for details.
+See [Visualization](../../guides/visualization/) for details.
 
 ## Next
 
-[Learn about Workflows →](/concepts/workflows/)
+[Learn about Workflows →](../workflows/)

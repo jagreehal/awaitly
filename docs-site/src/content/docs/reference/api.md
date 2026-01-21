@@ -13,6 +13,7 @@ createWorkflow(deps, { strict: true, catchUnexpected }) // Closed error union
 createWorkflow(deps, { onEvent, createContext })        // Event stream + context
 createWorkflow(deps, { cache })                         // Step caching
 createWorkflow(deps, { resumeState })                   // Resume from saved state
+createWorkflow(deps, { signal })                        // Workflow cancellation
 
 // Callback signatures:
 workflow(async (step, deps, ctx) => { ... })           // ctx is WorkflowContext
@@ -61,6 +62,7 @@ err(error, { cause })               // Create error with cause
 isOk(result)                        // result is { ok: true, value }
 isErr(result)                       // result is { ok: false, error }
 isUnexpectedError(error)            // error is UnexpectedError
+isWorkflowCancelled(error)          // error is WorkflowCancelledError
 ```
 
 ## Unwrap
@@ -192,6 +194,22 @@ isRateLimitExceededError(error)     // Check if rate limited
 isQueueFullError(error)             // Check if queue full
 ```
 
+## Singleflight (Request Coalescing)
+
+```typescript
+singleflight(operation, options)    // Wrap function with deduplication
+createSingleflightGroup()           // Low-level group API
+
+// Options
+{ key: (...args) => string, ttl?: number }
+
+// Group methods
+group.execute(key, operation)       // Execute or join in-flight request
+group.isInflight(key)               // Check if request is pending
+group.size()                        // Get number of in-flight requests
+group.clear()                       // Clear tracking
+```
+
 ## Conditional Execution
 
 ```typescript
@@ -301,9 +319,10 @@ UnexpectedError                     // { type: 'UNEXPECTED_ERROR', cause: unknow
 Workflow<E, Deps, C>                // Non-strict workflow return type
 WorkflowStrict<E, U, Deps, C>       // Strict workflow return type
 WorkflowOptions<E, C>               // Options for createWorkflow
-WorkflowContext<C>                  // Context: { workflowId, onEvent?, context? }
+WorkflowContext<C>                  // Context: { workflowId, onEvent?, context?, signal? }
 StepOptions                         // { name?: string, key?: string }
 WorkflowEvent<E, C>                 // Union of all event types
+WorkflowCancelledError              // { type: 'WORKFLOW_CANCELLED', reason?, lastStepKey? }
 ```
 
 ### Type extraction utilities

@@ -302,4 +302,4 @@ const loader = createVersionedStateLoader({
 
 ## Next
 
-[Learn about Persistence →](/guides/persistence/)
+[Learn about Persistence →](../persistence/)

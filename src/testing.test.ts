@@ -8,6 +8,12 @@ import {
   okOutcome,
   errOutcome,
   throwOutcome,
+  expectOk,
+  expectErr,
+  unwrapOk,
+  unwrapErr,
+  unwrapOkAsync,
+  unwrapErrAsync,
 } from "./testing";
 import { ok, err } from "./core";
 import type { AsyncResult } from "./core";
@@ -526,6 +532,100 @@ describe("Testing Harness", () => {
       const error = new Error("Network error");
       const outcome = throwOutcome(error);
       expect(outcome).toEqual({ type: "throw", error });
+    });
+  });
+
+  describe("Result Assertions", () => {
+    describe("expectOk", () => {
+      it("should pass for ok result", () => {
+        const result = ok(42);
+        expect(() => expectOk(result)).not.toThrow();
+      });
+
+      it("should throw for err result with descriptive message", () => {
+        const result = err("NOT_FOUND");
+        expect(() => expectOk(result)).toThrow("Expected Ok result, got Err");
+      });
+
+      it("should narrow type after assertion", () => {
+        const result = ok(42) as ReturnType<typeof ok<number>> | ReturnType<typeof err<string>>;
+        expectOk(result);
+        // TypeScript allows accessing .value after expectOk
+        const value: number = result.value;
+        expect(value).toBe(42);
+      });
+    });
+
+    describe("expectErr", () => {
+      it("should pass for err result", () => {
+        expect(() => expectErr(err("oops"))).not.toThrow();
+      });
+
+      it("should throw for ok result with descriptive message", () => {
+        expect(() => expectErr(ok(42))).toThrow("Expected Err result, got Ok");
+      });
+
+      it("should narrow type after assertion", () => {
+        const result = err("NOT_FOUND") as ReturnType<typeof ok<number>> | ReturnType<typeof err<string>>;
+        expectErr(result);
+        // TypeScript allows accessing .error after expectErr
+        const error: string = result.error;
+        expect(error).toBe("NOT_FOUND");
+      });
+    });
+
+    describe("unwrapOk", () => {
+      it("should return value for ok result", () => {
+        expect(unwrapOk(ok(42))).toBe(42);
+      });
+
+      it("should return complex value", () => {
+        const user = { id: "1", name: "Alice" };
+        expect(unwrapOk(ok(user))).toEqual(user);
+      });
+
+      it("should throw for err result", () => {
+        expect(() => unwrapOk(err("oops"))).toThrow();
+      });
+    });
+
+    describe("unwrapErr", () => {
+      it("should return error for err result", () => {
+        expect(unwrapErr(err("NOT_FOUND"))).toBe("NOT_FOUND");
+      });
+
+      it("should return complex error", () => {
+        const error = { type: "VALIDATION", field: "email" };
+        expect(unwrapErr(err(error))).toEqual(error);
+      });
+
+      it("should throw for ok result", () => {
+        expect(() => unwrapErr(ok(42))).toThrow();
+      });
+    });
+
+    describe("unwrapOkAsync", () => {
+      it("should await and return value", async () => {
+        const asyncResult = Promise.resolve(ok(42));
+        expect(await unwrapOkAsync(asyncResult)).toBe(42);
+      });
+
+      it("should throw for err result", async () => {
+        const asyncResult = Promise.resolve(err("oops"));
+        await expect(unwrapOkAsync(asyncResult)).rejects.toThrow();
+      });
+    });
+
+    describe("unwrapErrAsync", () => {
+      it("should await and return error", async () => {
+        const asyncResult = Promise.resolve(err("NOT_FOUND"));
+        expect(await unwrapErrAsync(asyncResult)).toBe("NOT_FOUND");
+      });
+
+      it("should throw for ok result", async () => {
+        const asyncResult = Promise.resolve(ok(42));
+        await expect(unwrapErrAsync(asyncResult)).rejects.toThrow();
+      });
     });
   });
 });

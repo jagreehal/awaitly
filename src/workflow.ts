@@ -11,6 +11,7 @@ import {
   err,
   createEarlyExit,
   isEarlyExit,
+  isUnexpectedError,
   type EarlyExit,
   type StepFailureMeta,
   type Result,
@@ -292,9 +293,9 @@ export type CausesOfDeps<Deps extends Record<string, AnyResultFn>> =
  */
 export type WorkflowOptions<E, C = void> = {
   onError?: (error: E | UnexpectedError, stepName?: string, ctx?: C) => void;
-  /** 
+  /**
    * Unified event stream for workflow and step lifecycle.
-   * 
+   *
    * Context is automatically included in `event.context` when provided via `createContext`.
    * The separate `ctx` parameter is provided for convenience.
    */
@@ -305,6 +306,37 @@ export type WorkflowOptions<E, C = void> = {
   cache?: StepCache;
   /** Pre-populate cache from saved state for workflow resume */
   resumeState?: ResumeState | (() => ResumeState | Promise<ResumeState>);
+  /**
+   * External AbortSignal for workflow-level cancellation.
+   *
+   * Returns WorkflowCancelledError when:
+   * - Abort is signaled before the workflow starts
+   * - Abort occurs between steps
+   * - A step throws AbortError (e.g., from fetch respecting the signal)
+   * - Abort fires during the last step but the step completes successfully (late cancellation)
+   *
+   * Typed errors are preserved: if a step returns `err("KNOWN_ERROR")` even while
+   * abort is signaled, that typed error is returned (not masked as cancellation).
+   *
+   * Steps using `step.withTimeout(..., { signal: true })` receive an AbortSignal
+   * that fires on EITHER timeout OR workflow cancellation.
+   *
+   * @example
+   * ```typescript
+   * const controller = new AbortController();
+   * const workflow = createWorkflow(deps, { signal: controller.signal });
+   *
+   * // Cancel workflow from outside
+   * setTimeout(() => controller.abort('timeout'), 5000);
+   *
+   * // Inside workflow: signal fires on timeout OR workflow cancellation
+   * const data = await step.withTimeout(
+   *   (signal) => fetch(url, { signal }),
+   *   { ms: 3000, signal: true }
+   * );
+   * ```
+   */
+  signal?: AbortSignal;
   /**
    * Hook called before workflow execution starts.
    * Return `false` to skip workflow execution (useful for distributed locking, queue checking).
@@ -347,9 +379,9 @@ export type WorkflowOptionsStrict<E, U, C = void> = {
   strict: true;              // discriminator
   catchUnexpected: (cause: unknown) => U;
   onError?: (error: E | U, stepName?: string, ctx?: C) => void;
-  /** 
+  /**
    * Unified event stream for workflow and step lifecycle.
-   * 
+   *
    * Context is automatically included in `event.context` when provided via `createContext`.
    * The separate `ctx` parameter is provided for convenience.
    */
@@ -360,6 +392,23 @@ export type WorkflowOptionsStrict<E, U, C = void> = {
   cache?: StepCache;
   /** Pre-populate cache from saved state for workflow resume */
   resumeState?: ResumeState | (() => ResumeState | Promise<ResumeState>);
+  /**
+   * External AbortSignal for workflow-level cancellation.
+   *
+   * Cancellation behavior:
+   * - Non-strict mode: Returns WorkflowCancelledError, emits workflow_cancelled event
+   * - Strict mode with catchUnexpected: Returns WorkflowCancelledError mapped through catchUnexpected
+   * - Late cancellation: If abort fires during the last step but the step completes successfully,
+   *   the workflow still returns WorkflowCancelledError (in both modes)
+   *
+   * Note: If a step throws AbortError (e.g., from fetch respecting the signal):
+   * - Non-strict mode: Recognized as cancellation → WorkflowCancelledError
+   * - Strict mode: Treated as regular error mapped by catchUnexpected (no special handling)
+   *
+   * Steps using `step.withTimeout(..., { signal: true })` receive an AbortSignal
+   * that fires on EITHER timeout OR workflow cancellation.
+   */
+  signal?: AbortSignal;
   /**
    * Hook called before workflow execution starts.
    * Return `false` to skip workflow execution (useful for distributed locking, queue checking).
@@ -413,6 +462,22 @@ export type WorkflowContext<C = void> = {
    * Automatically included in all workflow events.
    */
   context?: C;
+
+  /**
+   * Workflow-level AbortSignal (if provided in workflow options).
+   * Use this to check cancellation or pass to operations that support AbortSignal.
+   *
+   * @example
+   * ```typescript
+   * const result = await workflow(async (step, deps, ctx) => {
+   *   // Pass signal to fetch
+   *   const response = await fetch(url, { signal: ctx.signal });
+   *   // Or check manually
+   *   if (ctx.signal?.aborted) return early();
+   * });
+   * ```
+   */
+  signal?: AbortSignal;
 };
 
 /**
@@ -649,7 +714,7 @@ export function createWorkflow<
 >(
   deps: Deps,
   options?: WorkflowOptions<ErrorsOfDeps<Deps>, C>
-): Workflow<ErrorsOfDeps<Deps>, Deps>;
+): Workflow<ErrorsOfDeps<Deps>, Deps, C>;
 
 export function createWorkflow<
   const Deps extends Readonly<Record<string, AnyResultFn>>,
@@ -658,7 +723,7 @@ export function createWorkflow<
 >(
   deps: Deps,
   options: WorkflowOptionsStrict<ErrorsOfDeps<Deps>, U, C>
-): WorkflowStrict<ErrorsOfDeps<Deps>, U, Deps>;
+): WorkflowStrict<ErrorsOfDeps<Deps>, U, Deps, C>;
 
 // Implementation
 export function createWorkflow<
@@ -676,17 +741,17 @@ export function createWorkflow<
   // Signature 1: No args (original API)
   function workflowExecutor<T>(
     fn: (step: RunStep<E>, deps: Deps, ctx: WorkflowContext<C>) => T | Promise<T>
-  ): Promise<Result<T, E | U | UnexpectedError, unknown>>;
+  ): Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>>;
   // Signature 2: With args (new API)
   function workflowExecutor<T, Args>(
     args: Args,
     fn: (step: RunStep<E>, deps: Deps, args: Args, ctx: WorkflowContext<C>) => T | Promise<T>
-  ): Promise<Result<T, E | U | UnexpectedError, unknown>>;
+  ): Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>>;
   // Implementation
   async function workflowExecutor<T, Args = undefined>(
     fnOrArgs: ((step: RunStep<E>, deps: Deps, ctx: WorkflowContext<C>) => T | Promise<T>) | Args,
     maybeFn?: (step: RunStep<E>, deps: Deps, args: Args, ctx: WorkflowContext<C>) => T | Promise<T>
-  ): Promise<Result<T, E | U | UnexpectedError, unknown>> {
+  ): Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>> {
     // Detect calling pattern: if second arg is a function, first arg is args
     // This correctly handles functions as args (e.g., workflow(requestFactory, callback))
     const hasArgs = typeof maybeFn === "function";
@@ -700,11 +765,16 @@ export function createWorkflow<
     // Create context for this run
     const context = options?.createContext?.() as C;
 
+    // Get workflow-level signal for cancellation (extracted early for workflowContext)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const workflowSignal = (options as any)?.signal as AbortSignal | undefined;
+
     // Create workflow context object to pass to callback
     const workflowContext: WorkflowContext<C> = {
       workflowId,
       onEvent: options?.onEvent as ((event: WorkflowEvent<unknown, C>) => void) | undefined,
       context: context !== undefined ? context : undefined,
+      signal: workflowSignal,
     };
 
     // Helper to emit workflow events
@@ -731,6 +801,38 @@ export function createWorkflow<
     const catchUnexpected = (options as any)?.catchUnexpected as
       | ((cause: unknown) => U)
       | undefined;
+
+    // Helper to create cancellation result
+    const createCancelledResult = (reason?: string, lastStepKey?: string): Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown> => {
+      const cancelledError: WorkflowCancelledError = {
+        type: "WORKFLOW_CANCELLED",
+        reason,
+        lastStepKey,
+      };
+      // In strict mode, map through catchUnexpected
+      if (catchUnexpected) {
+        return err(catchUnexpected(cancelledError)) as Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>;
+      }
+      // In non-strict mode, return WorkflowCancelledError directly
+      return err(cancelledError) as Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>;
+    };
+
+    // Check if signal is already aborted before starting
+    if (workflowSignal?.aborted) {
+      const reason = typeof workflowSignal.reason === "string"
+        ? workflowSignal.reason
+        : workflowSignal.reason instanceof Error
+          ? workflowSignal.reason.message
+          : undefined;
+      emitEvent({
+        type: "workflow_cancelled",
+        workflowId,
+        ts: Date.now(),
+        durationMs: 0,
+        reason,
+      });
+      return createCancelledResult(reason);
+    }
 
     if (shouldRunHook) {
       const hookStartTime = performance.now();
@@ -912,6 +1014,47 @@ export function createWorkflow<
         ) => void | Promise<void>)
       | undefined;
 
+    // Track abort state and last step key for mid-execution cancellation
+    let abortedDuringExecution = false;
+    let abortReason: string | undefined;
+    let lastStepKey: string | undefined;
+
+    // Set up abort listener if signal is provided
+    const abortHandler = () => {
+      abortedDuringExecution = true;
+      abortReason = typeof workflowSignal?.reason === "string"
+        ? workflowSignal.reason
+        : workflowSignal?.reason instanceof Error
+          ? workflowSignal.reason.message
+          : undefined;
+    };
+
+    if (workflowSignal && !workflowSignal.aborted) {
+      workflowSignal.addEventListener("abort", abortHandler, { once: true });
+    }
+
+    // Helper to check for mid-execution cancellation and throw if aborted
+    // lastStepKey = the last successfully completed keyed step (for resume purposes)
+    const checkCancellation = (): void => {
+      // Check both the flag and the signal directly (in case abort happened synchronously)
+      if (abortedDuringExecution || workflowSignal?.aborted) {
+        const reason = abortReason ?? (
+          typeof workflowSignal?.reason === "string"
+            ? workflowSignal.reason
+            : workflowSignal?.reason instanceof Error
+              ? workflowSignal.reason.message
+              : undefined
+        );
+        const cancelledError: WorkflowCancelledError = {
+          type: "WORKFLOW_CANCELLED",
+          reason,
+          lastStepKey,
+        };
+        // Throw to abort the workflow - will be caught by run() error handling
+        throw cancelledError;
+      }
+    };
+
     // Helper to call onAfterStep hook with event emission
     const callOnAfterStepHook = async (
       stepKey: string,
@@ -946,8 +1089,9 @@ export function createWorkflow<
 
     // Create a cached step wrapper
     const createCachedStep = (realStep: RunStep<E>): RunStep<E> => {
-      // If no cache and no onAfterStep, return real step directly
-      if (!cache && !onAfterStepHook) {
+      // If no cache, no onAfterStep, and no signal, return real step directly
+      // (we need the wrapper for signal-based cancellation checks)
+      if (!cache && !onAfterStepHook && !workflowSignal) {
         return realStep;
       }
 
@@ -960,6 +1104,13 @@ export function createWorkflow<
         stepOptions?: StepOptions | string
       ): Promise<StepT> => {
         const { name, key } = parseStepOptions(stepOptions);
+
+        // Check for cancellation before starting step
+        // Use lastStepKey (last completed step) for reporting, not the step about to run
+        checkCancellation();
+
+        // Update lastStepKey AFTER the step completes (moved to success/error handlers below)
+        // This ensures lastStepKey always means "last successfully completed keyed step"
 
         // Only use cache if key is provided and cache exists
         if (key && cache && cache.has(key)) {
@@ -974,6 +1125,8 @@ export function createWorkflow<
 
           const cached = cache.get(key)!;
           if (cached.ok) {
+            // Update lastStepKey for cache hits too (step effectively completed)
+            lastStepKey = key;
             return cached.value as StepT;
           }
           // Cached error - throw early exit with preserved metadata (origin + cause)
@@ -1002,6 +1155,8 @@ export function createWorkflow<
           const value = await realStep(wrappedOp, stepOptions);
           // Cache successful result if key provided
           if (key) {
+            // Update lastStepKey on successful completion (for cancellation reporting)
+            lastStepKey = key;
             if (cache) {
               cache.set(key, ok(value));
             }
@@ -1232,31 +1387,166 @@ export function createWorkflow<
       ? (step: RunStep<E>) => (userFn as (step: RunStep<E>, deps: Deps, args: Args, ctx: WorkflowContext<C>) => T | Promise<T>)(createCachedStep(step), deps, args as Args, workflowContext)
       : (step: RunStep<E>) => (userFn as (step: RunStep<E>, deps: Deps, ctx: WorkflowContext<C>) => T | Promise<T>)(createCachedStep(step), deps, workflowContext);
 
-    let result: Result<T, E | U | UnexpectedError, unknown>;
+    let result: Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>;
 
-    if (options?.strict === true) {
-      // Strict mode - use run.strict for closed error union
-      const strictOptions = options as WorkflowOptionsStrict<E, U, C>;
-      result = await run.strict<T, E | U, C>(wrappedFn as (step: RunStep<E | U>) => Promise<T> | T, {
-        onError: strictOptions.onError,
-        onEvent: strictOptions.onEvent as ((event: WorkflowEvent<E | U | UnexpectedError, C>, ctx: C) => void) | undefined,
-        catchUnexpected: strictOptions.catchUnexpected,
+    try {
+      if (options?.strict === true) {
+        // Strict mode - use run.strict for closed error union
+        const strictOptions = options as WorkflowOptionsStrict<E, U, C>;
+        result = await run.strict<T, E | U, C>(wrappedFn as (step: RunStep<E | U>) => Promise<T> | T, {
+          onError: strictOptions.onError,
+          onEvent: strictOptions.onEvent as ((event: WorkflowEvent<E | U | UnexpectedError, C>, ctx: C) => void) | undefined,
+          catchUnexpected: strictOptions.catchUnexpected,
+          workflowId,
+          context,
+          _workflowSignal: workflowSignal,
+        });
+      } else {
+        // Non-strict mode - use run with onError for typed errors + UnexpectedError
+        const normalOptions = options as WorkflowOptions<E, C> | undefined;
+        result = await run<T, E, C>(wrappedFn as (step: RunStep<E | UnexpectedError>) => Promise<T> | T, {
+          onError: normalOptions?.onError ?? (() => {}),
+          onEvent: normalOptions?.onEvent,
+          workflowId,
+          context,
+          _workflowSignal: workflowSignal,
+        });
+      }
+    } finally {
+      // Clean up abort listener
+      if (workflowSignal) {
+        workflowSignal.removeEventListener("abort", abortHandler);
+      }
+    }
+
+    const durationMs = performance.now() - startTime;
+
+    // Check if the error is a wrapped WorkflowCancelledError
+    // There are two paths:
+    // 1. Non-strict mode: run() wraps it as UnexpectedError { cause: { type: 'UNCAUGHT_EXCEPTION', thrown: WorkflowCancelledError } }
+    // 2. Strict mode with catchUnexpected: run() already mapped it, result.cause is WorkflowCancelledError
+    if (!result.ok) {
+      let cancelledError: WorkflowCancelledError | undefined;
+      let alreadyMapped = false;
+
+      // Path 1: Non-strict mode - check UnexpectedError wrapper
+      if (isUnexpectedError(result.error)) {
+        const unexpectedCause = result.error.cause;
+        if (
+          unexpectedCause &&
+          typeof unexpectedCause === "object" &&
+          "type" in unexpectedCause &&
+          unexpectedCause.type === "UNCAUGHT_EXCEPTION" &&
+          "thrown" in unexpectedCause &&
+          isWorkflowCancelled(unexpectedCause.thrown)
+        ) {
+          cancelledError = unexpectedCause.thrown as WorkflowCancelledError;
+        }
+      }
+
+      // Path 2: Strict mode - check result.cause directly
+      // In this case, run() already called catchUnexpected, so result.error is already mapped
+      if (!cancelledError && isWorkflowCancelled(result.cause)) {
+        cancelledError = result.cause as WorkflowCancelledError;
+        alreadyMapped = true; // Don't call catchUnexpected again
+      }
+
+      // Path 3: AbortError during abort in NON-STRICT mode.
+      // In strict mode, the user's catchUnexpected already mapped the error - let that
+      // mapping stand and emit workflow_error (not workflow_cancelled) for consistency.
+      // In non-strict mode, ONLY treat as cancellation if:
+      // 1. Abort was signaled during execution
+      // 2. The error is an UnexpectedError (thrown exception)
+      // 3. The thrown error is specifically an AbortError (name === "AbortError")
+      // Other exceptions are preserved as UnexpectedError to avoid masking real errors.
+      if (!cancelledError && abortedDuringExecution && !catchUnexpected && isUnexpectedError(result.error)) {
+        // Extract the thrown error from the UnexpectedError wrapper
+        const unexpectedCause = result.error.cause;
+        let thrownError: unknown;
+        if (
+          unexpectedCause &&
+          typeof unexpectedCause === "object" &&
+          "type" in unexpectedCause &&
+          unexpectedCause.type === "UNCAUGHT_EXCEPTION" &&
+          "thrown" in unexpectedCause
+        ) {
+          thrownError = unexpectedCause.thrown;
+        }
+
+        // Check if it's an AbortError (use duck typing for cross-runtime compatibility)
+        const isAbortError = thrownError != null &&
+          typeof thrownError === "object" &&
+          "name" in thrownError &&
+          thrownError.name === "AbortError";
+
+        if (isAbortError) {
+          const reason = abortReason ?? (
+            typeof workflowSignal?.reason === "string"
+              ? workflowSignal.reason
+              : workflowSignal?.reason instanceof Error
+                ? workflowSignal.reason.message
+                : undefined
+          );
+          cancelledError = {
+            type: "WORKFLOW_CANCELLED",
+            reason,
+            lastStepKey,
+          };
+        }
+      }
+
+      if (cancelledError) {
+        emitEvent({
+          type: "workflow_cancelled",
+          workflowId,
+          ts: Date.now(),
+          durationMs,
+          reason: cancelledError.reason,
+          lastStepKey: cancelledError.lastStepKey,
+        });
+        // Path 1: Non-strict mode - return the original WorkflowCancelledError
+        // Path 2: Strict mode - return result as-is (already has mapped error)
+        if (alreadyMapped) {
+          // result.error is already the mapped error from catchUnexpected
+          return result as Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>;
+        }
+        return err(cancelledError) as Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>;
+      }
+    }
+
+    // Check for late cancellation: workflow completed successfully but signal was aborted
+    // This handles the case where abort happens during the last step but the operation doesn't throw
+    // Only check abortedDuringExecution, not workflowSignal?.aborted, to avoid race condition
+    // where a pre-aborted signal (aborted before workflow started) incorrectly cancels a successful workflow
+    if (result.ok && abortedDuringExecution) {
+      const reason = abortReason ?? (
+        typeof workflowSignal?.reason === "string"
+          ? workflowSignal.reason
+          : workflowSignal?.reason instanceof Error
+            ? workflowSignal.reason.message
+            : undefined
+      );
+      emitEvent({
+        type: "workflow_cancelled",
         workflowId,
-        context,
+        ts: Date.now(),
+        durationMs,
+        reason,
+        lastStepKey,
       });
-    } else {
-      // Non-strict mode - use run with onError for typed errors + UnexpectedError
-      const normalOptions = options as WorkflowOptions<E, C> | undefined;
-      result = await run<T, E, C>(wrappedFn as (step: RunStep<E | UnexpectedError>) => Promise<T> | T, {
-        onError: normalOptions?.onError ?? (() => {}),
-        onEvent: normalOptions?.onEvent,
-        workflowId,
-        context,
-      });
+      // Use createCancelledResult pattern for consistent strict mode handling
+      const cancelledError: WorkflowCancelledError = {
+        type: "WORKFLOW_CANCELLED",
+        reason,
+        lastStepKey,
+      };
+      if (catchUnexpected) {
+        return err(catchUnexpected(cancelledError)) as Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>;
+      }
+      return err(cancelledError) as Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>;
     }
 
     // Emit workflow_success or workflow_error
-    const durationMs = performance.now() - startTime;
     if (result.ok) {
       emitEvent({
         type: "workflow_success",
@@ -1265,16 +1555,19 @@ export function createWorkflow<
         durationMs,
       });
     } else {
+      // At this point, WorkflowCancelledError has already been handled and returned above,
+      // so result.error is not WorkflowCancelledError
       emitEvent({
         type: "workflow_error",
         workflowId,
         ts: Date.now(),
         durationMs,
-        error: result.error,
+        error: result.error as E | U | UnexpectedError,
       });
     }
 
-    return result;
+    // Cast is safe because WorkflowCancelledError case was handled above
+    return result as Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>;
   }
 
   return workflowExecutor;
@@ -1308,6 +1601,49 @@ export function isStepComplete(
   event: WorkflowEvent<unknown>
 ): event is Extract<WorkflowEvent<unknown>, { type: "step_complete" }> {
   return event.type === "step_complete";
+}
+
+// =============================================================================
+// Workflow Cancellation
+// =============================================================================
+
+/**
+ * Error returned when a workflow is cancelled via AbortSignal.
+ *
+ * @example
+ * ```typescript
+ * const controller = new AbortController();
+ * const workflow = createWorkflow(deps, { signal: controller.signal });
+ *
+ * // Later:
+ * controller.abort('User navigated away');
+ *
+ * const result = await workflowPromise;
+ * if (!result.ok && isWorkflowCancelled(result.error)) {
+ *   console.log('Cancelled:', result.error.reason);
+ * }
+ * ```
+ */
+export type WorkflowCancelledError = {
+  type: "WORKFLOW_CANCELLED";
+  /** Reason from AbortSignal.reason (if provided) */
+  reason?: string;
+  /** Last successfully completed keyed step (for resume purposes) */
+  lastStepKey?: string;
+};
+
+/**
+ * Type guard to check if an error is a WorkflowCancelledError.
+ *
+ * @param error - The error to check
+ * @returns `true` if the error is a WorkflowCancelledError, `false` otherwise
+ */
+export function isWorkflowCancelled(error: unknown): error is WorkflowCancelledError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as WorkflowCancelledError).type === "WORKFLOW_CANCELLED"
+  );
 }
 
 // =============================================================================

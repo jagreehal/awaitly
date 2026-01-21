@@ -210,6 +210,98 @@ function _test6() {
 }
 
 // =============================================================================
+// TEST 6a: createWorkflow context type
+// =============================================================================
+
+async function _test6a() {
+  const workflow = createWorkflow(
+    { fetchUser },
+    {
+      createContext: () => ({ traceId: "trace-123" }),
+    }
+  );
+
+  const result = await workflow(async (step, { fetchUser }, ctx) => {
+    expectType<{ traceId: string } | undefined>(ctx.context);
+    expectType<string>(ctx.workflowId);
+    expectType<AbortSignal | undefined>(ctx.signal);
+    expectType<((event: WorkflowEvent<unknown>) => void) | undefined>(ctx.onEvent);
+    return step(() => fetchUser("123"));
+  });
+
+  if (result.ok) {
+    expectType<User>(result.value);
+  }
+}
+
+// =============================================================================
+// TEST 6aa: createWorkflow args + context type
+// =============================================================================
+
+async function _test6aa() {
+  const workflow = createWorkflow(
+    { fetchUser },
+    {
+      createContext: () => ({ traceId: "trace-456" }),
+    }
+  );
+
+  const result = await workflow(
+    { userId: "123" },
+    async (step, { fetchUser }, args, ctx) => {
+      expectType<{ userId: string }>(args);
+      expectType<{ traceId: string } | undefined>(ctx.context);
+      return step(() => fetchUser(args.userId));
+    }
+  );
+
+  if (result.ok) {
+    expectType<User>(result.value);
+  }
+}
+
+// =============================================================================
+// TEST 6ab: createWorkflow onEvent context type
+// =============================================================================
+
+async function _test6ab() {
+  const workflow = createWorkflow(
+    { fetchUser },
+    {
+      createContext: () => ({ traceId: "trace-789" }),
+      onEvent: (event, ctx) => {
+        expectType<{ traceId: string }>(ctx);
+        expectType<{ traceId: string } | undefined>(event.context);
+      },
+    }
+  );
+
+  await workflow(async (step, { fetchUser }) => {
+    return step(() => fetchUser("123"));
+  });
+}
+
+// =============================================================================
+// TEST 6ac: createWorkflow onError context type
+// =============================================================================
+
+async function _test6ac() {
+  const workflow = createWorkflow(
+    { fetchUser },
+    {
+      createContext: () => ({ traceId: "trace-900" }),
+      onError: (_error, _stepName, ctx) => {
+        expectType<{ traceId: string } | undefined>(ctx);
+      },
+    }
+  );
+
+  await workflow(async (step, { fetchUser }) => {
+    return step(() => fetchUser("unknown"));
+  });
+}
+
+// =============================================================================
 // TEST 6b: isOk() and isErr() type guards with clean predicates
 // =============================================================================
 

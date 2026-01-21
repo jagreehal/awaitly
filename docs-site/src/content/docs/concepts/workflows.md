@@ -101,7 +101,7 @@ const result = await workflow(async (step) => {
 });
 ```
 
-See [Persistence](/guides/persistence/) for details.
+See [Persistence](../../guides/persistence/) for details.
 
 ### onEvent
 
@@ -136,6 +136,72 @@ const workflow = createWorkflow(deps, {
     type: 'UNEXPECTED' as const,
     message: String(thrown),
   }),
+});
+```
+
+### signal (Cancellation)
+
+Cancel workflows externally using an AbortSignal:
+
+```typescript
+import { isWorkflowCancelled } from 'awaitly/workflow';
+
+const controller = new AbortController();
+const workflow = createWorkflow(deps, {
+  signal: controller.signal,
+});
+
+// Start workflow
+const resultPromise = workflow(async (step) => {
+  const user = await step(() => fetchUser('1'), { key: 'fetch-user' });
+  await step(() => sendEmail(user.email), { key: 'send-email' });
+  return user;
+});
+
+// Cancel from outside (e.g., timeout, user action)
+setTimeout(() => controller.abort('timeout'), 5000);
+
+const result = await resultPromise;
+if (!result.ok && isWorkflowCancelled(result.error)) {
+  console.log('Cancelled:', result.error.reason); // 'timeout'
+}
+```
+
+**When cancellation returns `WorkflowCancelledError`:**
+- Abort is signaled before the workflow starts
+- Abort occurs between steps
+- A step throws `AbortError` (e.g., from `fetch` respecting the signal)
+- Abort fires during the last step but the step completes successfully (late cancellation)
+
+**Typed errors are preserved:** If a step returns `err("KNOWN_ERROR")` even while abort is signaled, that typed error is returned—not masked as cancellation.
+
+**Passing signal to operations:**
+
+Steps using `step.withTimeout` can receive the workflow signal:
+
+```typescript
+const result = await workflow(async (step) => {
+  // Signal fires on EITHER timeout OR workflow cancellation
+  const data = await step.withTimeout(
+    (signal) => fetch(url, { signal }),
+    { ms: 3000, signal: true }
+  );
+  return data;
+});
+```
+
+Or access the signal directly via context:
+
+```typescript
+const result = await workflow(async (step, deps, ctx) => {
+  // Manual signal access
+  const response = await fetch(url, { signal: ctx.signal });
+
+  // Check if cancelled
+  if (ctx.signal?.aborted) {
+    return err('CANCELLED' as const);
+  }
+  return ok(response);
 });
 ```
 
@@ -182,4 +248,4 @@ const result = await workflow(
 
 ## Next
 
-[Learn about Tagged Errors →](/concepts/tagged-errors/)
+[Learn about Tagged Errors →](../tagged-errors/)

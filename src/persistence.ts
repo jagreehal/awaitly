@@ -694,7 +694,10 @@ export interface StatePersistence {
 export function createStatePersistence(
   store: KeyValueStore,
   prefix = "workflow:state:"
-): StatePersistence {
+): StatePersistence & {
+  /** Load raw serialized state including metadata (for version checking) */
+  loadRaw(runId: string): Promise<SerializedState | undefined>;
+} {
   const prefixKey = (runId: string): string => `${prefix}${runId}`;
 
   return {
@@ -715,6 +718,17 @@ export function createStatePersistence(
       }
     },
 
+    async loadRaw(runId: string): Promise<SerializedState | undefined> {
+      const data = await store.get(prefixKey(runId));
+      if (!data) return undefined;
+
+      try {
+        return JSON.parse(data) as SerializedState;
+      } catch {
+        return undefined;
+      }
+    },
+
     async delete(runId: string): Promise<boolean> {
       return store.delete(prefixKey(runId));
     },
@@ -722,6 +736,234 @@ export function createStatePersistence(
     async list(): Promise<string[]> {
       const keys = await store.keys(`${prefix}*`);
       return keys.map((key) => key.slice(prefix.length));
+    },
+  };
+}
+
+// =============================================================================
+// Memory State Persistence
+// =============================================================================
+
+/**
+ * Options for the in-memory state persistence adapter.
+ */
+export interface MemoryStatePersistenceOptions {
+  /**
+   * Time-to-live in milliseconds.
+   * State entries are automatically removed after this duration.
+   */
+  ttl?: number;
+}
+
+/**
+ * Create an in-memory StatePersistence for testing and development.
+ *
+ * @param options - Persistence options
+ * @returns StatePersistence implementation
+ *
+ * @example
+ * ```typescript
+ * import { createMemoryStatePersistence } from 'awaitly/persistence';
+ *
+ * const store = createMemoryStatePersistence();
+ *
+ * // Use with durable.run()
+ * const result = await durable.run(deps, workflow, {
+ *   id: 'order-123',
+ *   store,
+ * });
+ * ```
+ */
+export function createMemoryStatePersistence(
+  options: MemoryStatePersistenceOptions = {}
+): StatePersistence & {
+  /** Load raw serialized state including metadata (for version checking) */
+  loadRaw(runId: string): Promise<SerializedState | undefined>;
+} {
+  const { ttl } = options;
+  const store = new Map<string, { state: ResumeState; metadata?: Record<string, unknown>; timestamp: number }>();
+
+  const isExpired = (timestamp: number): boolean => {
+    if (!ttl) return false;
+    return Date.now() - timestamp > ttl;
+  };
+
+  const evictExpired = (): void => {
+    if (!ttl) return;
+    for (const [key, entry] of store) {
+      if (isExpired(entry.timestamp)) {
+        store.delete(key);
+      }
+    }
+  };
+
+  return {
+    async save(runId: string, state: ResumeState, metadata?: Record<string, unknown>): Promise<void> {
+      evictExpired();
+      store.set(runId, { state, metadata, timestamp: Date.now() });
+    },
+
+    async load(runId: string): Promise<ResumeState | undefined> {
+      evictExpired();
+      const entry = store.get(runId);
+      if (!entry) return undefined;
+      if (isExpired(entry.timestamp)) {
+        store.delete(runId);
+        return undefined;
+      }
+      return entry.state;
+    },
+
+    async loadRaw(runId: string): Promise<SerializedState | undefined> {
+      evictExpired();
+      const entry = store.get(runId);
+      if (!entry) return undefined;
+      if (isExpired(entry.timestamp)) {
+        store.delete(runId);
+        return undefined;
+      }
+      return serializeState(entry.state, entry.metadata);
+    },
+
+    async delete(runId: string): Promise<boolean> {
+      return store.delete(runId);
+    },
+
+    async list(): Promise<string[]> {
+      evictExpired();
+      return [...store.keys()];
+    },
+  };
+}
+
+// =============================================================================
+// File State Persistence
+// =============================================================================
+
+/**
+ * Options for the file-based state persistence adapter.
+ */
+export interface FileStatePersistenceOptions {
+  /**
+   * Directory to store state files.
+   */
+  directory: string;
+
+  /**
+   * File extension for state files.
+   * @default '.json'
+   */
+  extension?: string;
+
+  /**
+   * Custom file system interface (for testing or custom implementations).
+   */
+  fs: FileSystemInterface;
+}
+
+/**
+ * Create a file system-based StatePersistence for local development.
+ * Each workflow's state is stored as a separate JSON file.
+ *
+ * @param options - Persistence options
+ * @returns StatePersistence implementation with init() method
+ *
+ * @example
+ * ```typescript
+ * import * as fs from 'fs/promises';
+ * import { createFileStatePersistence } from 'awaitly/persistence';
+ *
+ * const store = createFileStatePersistence({
+ *   directory: './workflow-state',
+ *   fs: {
+ *     readFile: (path) => fs.readFile(path, 'utf-8'),
+ *     writeFile: (path, data) => fs.writeFile(path, data, 'utf-8'),
+ *     unlink: fs.unlink,
+ *     exists: async (path) => fs.access(path).then(() => true).catch(() => false),
+ *     readdir: fs.readdir,
+ *     mkdir: fs.mkdir,
+ *   },
+ * });
+ *
+ * // Initialize directory before use
+ * await store.init();
+ *
+ * // Use with durable.run()
+ * const result = await durable.run(deps, workflow, {
+ *   id: 'order-123',
+ *   store,
+ * });
+ * ```
+ */
+export function createFileStatePersistence(
+  options: FileStatePersistenceOptions
+): StatePersistence & {
+  /** Initialize the state directory. Call before using the persistence. */
+  init(): Promise<void>;
+  /** Load raw serialized state including metadata (for version checking) */
+  loadRaw(runId: string): Promise<SerializedState | undefined>;
+} {
+  const { directory, extension = ".json", fs } = options;
+
+  const runIdToPath = (runId: string): string => {
+    // Sanitize runId for file system
+    const safeId = runId.replace(/[^a-zA-Z0-9_-]/g, "_");
+    return `${directory}/${safeId}${extension}`;
+  };
+
+  return {
+    async init(): Promise<void> {
+      await fs.mkdir(directory, { recursive: true });
+    },
+
+    async save(runId: string, state: ResumeState, metadata?: Record<string, unknown>): Promise<void> {
+      const path = runIdToPath(runId);
+      const serialized = serializeState(state, metadata);
+      await fs.writeFile(path, JSON.stringify(serialized, null, 2));
+    },
+
+    async load(runId: string): Promise<ResumeState | undefined> {
+      const path = runIdToPath(runId);
+      try {
+        if (!(await fs.exists(path))) return undefined;
+        const data = await fs.readFile(path);
+        const serialized = JSON.parse(data) as SerializedState;
+        return deserializeState(serialized);
+      } catch {
+        return undefined;
+      }
+    },
+
+    async loadRaw(runId: string): Promise<SerializedState | undefined> {
+      const path = runIdToPath(runId);
+      try {
+        if (!(await fs.exists(path))) return undefined;
+        const data = await fs.readFile(path);
+        return JSON.parse(data) as SerializedState;
+      } catch {
+        return undefined;
+      }
+    },
+
+    async delete(runId: string): Promise<boolean> {
+      const path = runIdToPath(runId);
+      try {
+        await fs.unlink(path);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
+    async list(): Promise<string[]> {
+      try {
+        const files = await fs.readdir(directory);
+        return files
+          .filter((file) => file.endsWith(extension))
+          .map((file) => file.slice(0, -extension.length));
+      } catch {
+        return [];
+      }
     },
   };
 }

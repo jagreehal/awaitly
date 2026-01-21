@@ -364,4 +364,4 @@ function ApprovalCard({ approvalKey, pendingArgs }) {
 
 ## Next
 
-[Learn about Visualization →](/guides/visualization/)
+[Learn about Visualization →](../visualization/)

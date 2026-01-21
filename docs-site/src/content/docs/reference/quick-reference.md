@@ -164,6 +164,46 @@ const result = await workflow(async (step) => {
 });
 ```
 
+### Cancel workflow from outside
+
+```typescript
+import { createWorkflow, isWorkflowCancelled } from 'awaitly/workflow';
+
+const controller = new AbortController();
+const workflow = createWorkflow(deps, { signal: controller.signal });
+
+const resultPromise = workflow(async (step) => {
+  const user = await step(() => fetchUser('1'), { key: 'user' });
+  await step(() => sendEmail(user.email), { key: 'email' });
+  return user;
+});
+
+// Cancel from outside (e.g., timeout, user action)
+setTimeout(() => controller.abort('timeout'), 5000);
+
+const result = await resultPromise;
+if (!result.ok && isWorkflowCancelled(result.error)) {
+  console.log('Cancelled:', result.error.reason);
+}
+```
+
+### Dedupe concurrent requests
+
+```typescript
+import { singleflight } from 'awaitly/singleflight';
+
+const fetchUserOnce = singleflight(fetchUser, {
+  key: (id) => `user:${id}`,
+});
+
+// 3 concurrent calls → 1 network request
+const [a, b, c] = await Promise.all([
+  fetchUserOnce('1'),
+  fetchUserOnce('1'),  // Shares request
+  fetchUserOnce('1'),  // Shares request
+]);
+```
+
 ### Process large datasets in batches
 
 ```typescript
@@ -221,7 +261,7 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 | Need | Import from |
 |------|-------------|
 | Result types + composition (`ok`, `err`, `isOk`, `isErr`, `map`, `mapError`, `andThen`, `tap`, `from`, `fromPromise`, `all`, `allAsync`, `partition`, `match`, `run`, `TaggedError`) | `awaitly` |
-| Workflow engine (`createWorkflow`, `Duration`, `isStepComplete`, `createResumeStateCollector`, step types, `ResumeState`) | `awaitly/workflow` |
+| Workflow engine (`createWorkflow`, `Duration`, `isStepComplete`, `createResumeStateCollector`, `isWorkflowCancelled`, step types, `ResumeState`) | `awaitly/workflow` |
 | Saga pattern (`createSagaWorkflow`) | `awaitly/workflow` |
 | Parallel ops (`allAsync`, `allSettledAsync`, `zip`, `zipAsync`) | `awaitly` |
 | HITL (`pendingApproval`, `createApprovalStep`, `gatedStep`, `injectApproval`, `isPendingApproval`) | `awaitly/hitl` |
@@ -229,6 +269,7 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 | Batch processing (`processInBatches`) | `awaitly/batch` |
 | Circuit breaker | `awaitly/circuit-breaker` |
 | Rate limiting | `awaitly/ratelimit` |
+| Singleflight (`singleflight`, `createSingleflightGroup`) | `awaitly/singleflight` |
 | Testing utilities | `awaitly/testing` |
 | Visualization | `awaitly/visualize` |
 | Duration helpers | `awaitly/workflow` |
@@ -260,6 +301,8 @@ For optimal bundle size, import from specific entry points:
 | Independent parallel calls | Parallel | `allAsync()`, `allSettledAsync()` |
 | First success wins (failover) | Race | `anyAsync()` |
 | Human approval gates | HITL | `createApprovalStep()`, `injectApproval()` |
+| Cancel from outside | Cancellation | `signal`, `isWorkflowCancelled()` |
+| Dedupe concurrent requests | Singleflight | `singleflight()` |
 | High-volume processing | Batch | `processInBatches()` |
 | Flaky external APIs | Circuit Breaker | `createCircuitBreaker()` |
 | Rate-limited APIs | Rate Limiter | `createRateLimiter()` |
