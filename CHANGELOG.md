@@ -1,5 +1,11 @@
 # awaitly
 
+## 1.5.0
+
+### Minor Changes
+
+- d70b04c: Add workflow cancellation updates and new adapters/singleflight APIs.
+
 ## 1.4.0
 
 ### Minor Changes
