@@ -126,6 +126,11 @@
       "types": "./dist/adapters.d.ts",
       "import": "./dist/adapters.js",
       "require": "./dist/adapters.cjs"
+    },
+    "./durable": {
+      "types": "./dist/durable.d.ts",
+      "import": "./dist/durable.js",
+      "require": "./dist/durable.cjs"
     }
   },
   "files": [

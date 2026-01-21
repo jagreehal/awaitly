@@ -59,6 +59,11 @@ export default defineConfig({
     // =========================================================================
     singleflight: 'src/singleflight-entry.ts',
     adapters: 'src/adapters-entry.ts',
+
+    // =========================================================================
+    // Durable execution
+    // =========================================================================
+    durable: 'src/durable-entry.ts',
   },
   format: ['cjs', 'esm'],
   dts: true,

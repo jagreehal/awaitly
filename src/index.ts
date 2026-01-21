@@ -42,6 +42,7 @@
  * - `awaitly/duration` - Type-safe time durations
  * - `awaitly/match` - Pattern matching
  * - `awaitly/persistence` - State persistence
+ * - `awaitly/durable` - Durable execution with automatic checkpointing
  */
 
 // =============================================================================
@@ -164,3 +165,4 @@ export {
   type ErrorByTag,
   type PropsOf,
 } from "./tagged-error";
+

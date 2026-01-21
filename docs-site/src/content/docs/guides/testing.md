@@ -5,10 +5,62 @@ description: Test workflows deterministically
 
 Use the test harness to control step execution and verify workflow behavior.
 
+## Result assertions
+
+The `awaitly/testing` module provides type-safe assertion utilities that work seamlessly with TypeScript:
+
+```typescript
+import { unwrapOk, unwrapErr, expectOk, expectErr } from 'awaitly/testing';
+
+// Most concise - unwrap returns the value directly
+const user = unwrapOk(await fetchUser('123'));
+expect(user.name).toBe('Alice');
+
+// Check for expected errors
+const error = unwrapErr(await fetchUser('unknown'));
+expect(error).toBe('NOT_FOUND');
+
+// Async variants for cleaner code
+const user = await unwrapOkAsync(fetchUser('123'));
+const error = await unwrapErrAsync(fetchUser('unknown'));
+```
+
+**Why use these instead of `expect(result.ok).toBe(true)`?**
+
+Vitest assertions don't narrow TypeScript types. After `expect(result.ok).toBe(true)`, TypeScript still sees `result` as `Result<T, E>` - you can't safely access `result.value`. The `unwrap*` and `expect*` functions throw on failure AND narrow the type:
+
+```typescript
+// ❌ TypeScript error - result.value might not exist
+const result = await fetchUser('123');
+expect(result.ok).toBe(true);
+expect(result.value.name).toBe('Alice'); // TS error!
+
+// ✅ Works - expectOk narrows the type
+const result = await fetchUser('123');
+expectOk(result);
+expect(result.value.name).toBe('Alice'); // TS knows result is Ok<T>
+
+// ✅ Even cleaner with unwrapOk
+const user = unwrapOk(await fetchUser('123'));
+expect(user.name).toBe('Alice');
+```
+
+### API Reference
+
+| Function | Description |
+|----------|-------------|
+| `expectOk(result)` | Asserts result is Ok, throws if Err. Narrows type. |
+| `expectErr(result)` | Asserts result is Err, throws if Ok. Narrows type. |
+| `unwrapOk(result)` | Asserts Ok and returns the value `T`. |
+| `unwrapErr(result)` | Asserts Err and returns the error `E`. |
+| `unwrapOkAsync(promise)` | Awaits, asserts Ok, returns value. |
+| `unwrapErrAsync(promise)` | Awaits, asserts Err, returns error. |
+
 ## Basic testing
 
 ```typescript
-import { createWorkflowHarness, okOutcome, errOutcome } from 'awaitly/workflow';
+import { createWorkflowHarness, okOutcome, errOutcome } from 'awaitly/testing';
+import { unwrapOk, unwrapErr } from 'awaitly/testing';
 import { describe, it, expect } from 'vitest';
 
 describe('checkout workflow', () => {
@@ -24,8 +76,8 @@ describe('checkout workflow', () => {
       return { order, payment };
     });
 
-    expect(result.ok).toBe(true);
-    expect(result.value.payment.txId).toBe('tx-123');
+    const value = unwrapOk(result);
+    expect(value.payment.txId).toBe('tx-123');
   });
 
   it('fails when payment is declined', async () => {
@@ -40,8 +92,8 @@ describe('checkout workflow', () => {
       return { order, payment };
     });
 
-    expect(result.ok).toBe(false);
-    expect(result.error).toBe('DECLINED');
+    const error = unwrapErr(result);
+    expect(error).toBe('DECLINED');
   });
 });
 ```
@@ -81,7 +133,7 @@ const harness = createWorkflowHarness({
 Track calls and change behavior:
 
 ```typescript
-import { createMockFn } from 'awaitly/workflow';
+import { createMockFn } from 'awaitly/testing';
 
 const mockFetchUser = createMockFn<typeof fetchUser>();
 
@@ -106,6 +158,8 @@ expect(mockFetchUser.calls[1].args).toEqual(['2']);
 ## Testing retries
 
 ```typescript
+import { unwrapOk } from 'awaitly/testing';
+
 const mockFetch = createMockFn<typeof fetchData>();
 
 // Fail twice, then succeed
@@ -120,7 +174,8 @@ const result = await harness.run(async (step) => {
   return await step.retry(() => fetchData(), { attempts: 3 });
 });
 
-expect(result.ok).toBe(true);
+const value = unwrapOk(result);
+expect(value.data).toBe('success');
 expect(mockFetch.calls.length).toBe(3);
 ```
 
@@ -129,7 +184,7 @@ expect(mockFetch.calls.length).toBe(3);
 Compare workflow behavior across changes:
 
 ```typescript
-import { createSnapshot, compareSnapshots } from 'awaitly/workflow';
+import { createSnapshot, compareSnapshots } from 'awaitly/testing';
 
 const harness = createWorkflowHarness(mocks);
 
@@ -145,7 +200,7 @@ expect(snapshot).toMatchSnapshot();
 Control time in tests:
 
 ```typescript
-import { createTestClock } from 'awaitly/workflow';
+import { createTestClock } from 'awaitly/testing';
 
 const clock = createTestClock();
 
@@ -185,7 +240,9 @@ import {
   createMockFn,
   okOutcome,
   errOutcome,
-} from 'awaitly/workflow';
+  unwrapOk,
+  unwrapErr,
+} from 'awaitly/testing';
 
 describe('refund workflow', () => {
   let mockCalculateRefund: ReturnType<typeof createMockFn>;
@@ -211,8 +268,8 @@ describe('refund workflow', () => {
       return await step(processRefund(refund));
     });
 
-    expect(result.ok).toBe(true);
-    expect(result.value.refundId).toBe('ref-123');
+    const value = unwrapOk(result);
+    expect(value.refundId).toBe('ref-123');
     expect(mockCalculateRefund.calls.length).toBe(1);
     expect(mockProcessRefund.calls.length).toBe(1);
   });
@@ -225,8 +282,8 @@ describe('refund workflow', () => {
       return await step(processRefund(refund));
     });
 
-    expect(result.ok).toBe(false);
-    expect(result.error).toBe('ORDER_NOT_FOUND');
+    const error = unwrapErr(result);
+    expect(error).toBe('ORDER_NOT_FOUND');
     expect(mockProcessRefund.calls.length).toBe(0); // Never called
   });
 });
@@ -234,4 +291,4 @@ describe('refund workflow', () => {
 
 ## Next
 
-[Learn about Batch Processing →](/guides/batch-processing/)
+[Learn about Batch Processing →](../batch-processing/)

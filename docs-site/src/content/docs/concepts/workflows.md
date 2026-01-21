@@ -101,7 +101,7 @@ const result = await workflow(async (step) => {
 });
 ```
 
-See [Persistence](/guides/persistence/) for details.
+See [Persistence](../../guides/persistence/) for details.
 
 ### onEvent
 
@@ -248,4 +248,4 @@ const result = await workflow(
 
 ## Next
 
-[Learn about Tagged Errors →](/concepts/tagged-errors/)
+[Learn about Tagged Errors →](../tagged-errors/)

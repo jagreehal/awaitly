@@ -714,7 +714,7 @@ export function createWorkflow<
 >(
   deps: Deps,
   options?: WorkflowOptions<ErrorsOfDeps<Deps>, C>
-): Workflow<ErrorsOfDeps<Deps>, Deps>;
+): Workflow<ErrorsOfDeps<Deps>, Deps, C>;
 
 export function createWorkflow<
   const Deps extends Readonly<Record<string, AnyResultFn>>,
@@ -723,7 +723,7 @@ export function createWorkflow<
 >(
   deps: Deps,
   options: WorkflowOptionsStrict<ErrorsOfDeps<Deps>, U, C>
-): WorkflowStrict<ErrorsOfDeps<Deps>, U, Deps>;
+): WorkflowStrict<ErrorsOfDeps<Deps>, U, Deps, C>;
 
 // Implementation
 export function createWorkflow<

@@ -5,8 +5,8 @@
  * Provides tools for scripting step outcomes and asserting workflow behavior.
  */
 
-import type { Result, AsyncResult, StepOptions, WorkflowEvent } from "./core";
-import { ok, err, isOk, isErr, isUnexpectedError } from "./core";
+import type { Result, AsyncResult, StepOptions, WorkflowEvent, Ok, Err } from "./core";
+import { ok, err, isOk } from "./core";
 import type { AnyResultFn, ErrorsOfDeps } from "./workflow";
 
 // =============================================================================
@@ -1112,193 +1112,107 @@ export function assertEventNotEmitted(
 }
 
 // =============================================================================
-// Error Matcher Utilities
+// Result Assertions (throw on failure, provide type narrowing)
 // =============================================================================
 
 /**
- * Assert that a result is an error with the expected error value.
+ * Asserts that a Result is Ok and narrows the type.
+ * Throws with descriptive error if not ok.
  *
  * @example
  * ```typescript
- * const result = await workflow(...);
- * expectError(result, 'NOT_FOUND');
- * expectError(result, { type: 'VALIDATION_ERROR', field: 'email' });
+ * const result = await fetchUser('123');
+ * expectOk(result);
+ * console.log(result.value.name); // TypeScript knows this exists
  * ```
  */
-export function expectError<E>(
-  result: Result<unknown, E>,
-  expectedError: E | Partial<E>
-): AssertionResult {
-  if (isOk(result)) {
-    return {
-      passed: false,
-      message: `Expected error but got ok(${JSON.stringify(result.value)})`,
-      expected: expectedError,
-      actual: result,
-    };
+export function expectOk<T, E, C = unknown>(
+  result: Result<T, E, C>
+): asserts result is Ok<T> {
+  if (!result.ok) {
+    throw new Error(
+      `Expected Ok result, got Err: ${JSON.stringify(result.error, null, 2)}`
+    );
   }
-
-  const matches = typeof expectedError === "object" && expectedError !== null
-    ? Object.entries(expectedError as Record<string, unknown>).every(([key, value]) => {
-        const errorValue = (result.error as Record<string, unknown>)[key];
-        if (typeof value === "object" && value !== null) {
-          return JSON.stringify(errorValue) === JSON.stringify(value);
-        }
-        return errorValue === value;
-      })
-    : result.error === expectedError;
-
-  return {
-    passed: matches,
-    message: matches
-      ? `Error matches expected: ${JSON.stringify(expectedError)}`
-      : `Error does not match.\nExpected: ${JSON.stringify(expectedError)}\nActual: ${JSON.stringify(result.error)}`,
-    expected: expectedError,
-    actual: result.error,
-  };
 }
 
 /**
- * Assert that a result is an error with a specific error type and optional cause.
+ * Asserts that a Result is Err and narrows the type.
+ * Throws with descriptive error if not err.
  *
  * @example
  * ```typescript
- * expectErrorWithCause(result, {
- *   type: 'TIMEOUT',
- *   cause: expect.any(Error),
- * });
- *
- * expectErrorWithCause(result, {
- *   type: 'UNEXPECTED_ERROR',
- *   cause: { message: 'Network failed' },
- * });
+ * const result = await fetchUser('unknown');
+ * expectErr(result);
+ * console.log(result.error); // TypeScript knows this exists
  * ```
  */
-export function expectErrorWithCause<E extends { type: string; cause?: unknown }>(
-  result: Result<unknown, E>,
-  expected: { type: string; cause?: unknown | ((cause: unknown) => boolean) }
-): AssertionResult {
-  if (isOk(result)) {
-    return {
-      passed: false,
-      message: `Expected error but got ok(${JSON.stringify(result.value)})`,
-      expected,
-      actual: result,
-    };
+export function expectErr<T, E, C = unknown>(
+  result: Result<T, E, C>
+): asserts result is Err<E, C> {
+  if (result.ok) {
+    throw new Error(
+      `Expected Err result, got Ok: ${JSON.stringify(result.value, null, 2)}`
+    );
   }
-
-  const error = result.error as { type?: string; cause?: unknown };
-
-  // Check type
-  if (error.type !== expected.type) {
-    return {
-      passed: false,
-      message: `Error type mismatch.\nExpected: ${expected.type}\nActual: ${error.type ?? "no type"}`,
-      expected,
-      actual: error,
-    };
-  }
-
-  // Check cause if provided
-  if (expected.cause !== undefined) {
-    const causeMatches =
-      typeof expected.cause === "function"
-        ? expected.cause(error.cause)
-        : typeof expected.cause === "object" && expected.cause !== null
-          ? Object.entries(expected.cause as Record<string, unknown>).every(([key, value]) => {
-              const causeValue = (error.cause as Record<string, unknown> | undefined)?.[key];
-              return causeValue === value;
-            })
-          : error.cause === expected.cause;
-
-    if (!causeMatches) {
-      return {
-        passed: false,
-        message: `Error cause mismatch.\nExpected cause: ${JSON.stringify(expected.cause)}\nActual cause: ${JSON.stringify(error.cause)}`,
-        expected,
-        actual: error,
-      };
-    }
-  }
-
-  return {
-    passed: true,
-    message: `Error matches expected type "${expected.type}" with correct cause`,
-    expected,
-    actual: error,
-  };
 }
 
 /**
- * Assert that a result is an UnexpectedError.
+ * Asserts Ok and returns the value. Most useful in tests.
+ *
+ * @example
+ * ```typescript
+ * const user = unwrapOk(await fetchUser('123'));
+ * expect(user.name).toBe('Alice');
+ * ```
  */
-export function expectUnexpectedError(
-  result: Result<unknown, unknown>
-): AssertionResult {
-  if (isOk(result)) {
-    return {
-      passed: false,
-      message: `Expected UnexpectedError but got ok(${JSON.stringify(result.value)})`,
-      expected: "UnexpectedError",
-      actual: result,
-    };
-  }
-
-  const isUnexpected = isUnexpectedError(result.error);
-
-  return {
-    passed: isUnexpected,
-    message: isUnexpected
-      ? "Result is an UnexpectedError"
-      : `Expected UnexpectedError but got: ${JSON.stringify(result.error)}`,
-    expected: "UnexpectedError",
-    actual: result.error,
-  };
+export function unwrapOk<T, E, C = unknown>(result: Result<T, E, C>): T {
+  expectOk(result);
+  return result.value;
 }
 
 /**
- * Assert that a result is ok with the expected value.
+ * Asserts Err and returns the error.
+ *
+ * @example
+ * ```typescript
+ * const error = unwrapErr(await fetchUser('unknown'));
+ * expect(error).toBe('NOT_FOUND');
+ * ```
  */
-export function expectOk<T>(
-  result: Result<T, unknown>,
-  expectedValue?: T | Partial<T>
-): AssertionResult {
-  if (isErr(result)) {
-    return {
-      passed: false,
-      message: `Expected ok but got err(${JSON.stringify(result.error)})`,
-      expected: expectedValue ?? "ok",
-      actual: result,
-    };
-  }
+export function unwrapErr<T, E, C = unknown>(result: Result<T, E, C>): E {
+  expectErr(result);
+  return result.error;
+}
 
-  if (expectedValue === undefined) {
-    return {
-      passed: true,
-      message: `Result is ok(${JSON.stringify(result.value)})`,
-      expected: "ok",
-      actual: result.value,
-    };
-  }
+/**
+ * Awaits an AsyncResult, asserts Ok, returns the value.
+ *
+ * @example
+ * ```typescript
+ * const user = await unwrapOkAsync(fetchUser('123'));
+ * expect(user.name).toBe('Alice');
+ * ```
+ */
+export async function unwrapOkAsync<T, E, C = unknown>(
+  result: AsyncResult<T, E, C>
+): Promise<T> {
+  return unwrapOk(await result);
+}
 
-  const matches = typeof expectedValue === "object" && expectedValue !== null
-    ? Object.entries(expectedValue as Record<string, unknown>).every(([key, value]) => {
-        const actualValue = (result.value as Record<string, unknown>)[key];
-        if (typeof value === "object" && value !== null) {
-          return JSON.stringify(actualValue) === JSON.stringify(value);
-        }
-        return actualValue === value;
-      })
-    : result.value === expectedValue;
-
-  return {
-    passed: matches,
-    message: matches
-      ? `Result ok value matches expected`
-      : `Result ok value does not match.\nExpected: ${JSON.stringify(expectedValue)}\nActual: ${JSON.stringify(result.value)}`,
-    expected: expectedValue,
-    actual: result.value,
-  };
+/**
+ * Awaits an AsyncResult, asserts Err, returns the error.
+ *
+ * @example
+ * ```typescript
+ * const error = await unwrapErrAsync(fetchUser('unknown'));
+ * expect(error).toBe('NOT_FOUND');
+ * ```
+ */
+export async function unwrapErrAsync<T, E, C = unknown>(
+  result: AsyncResult<T, E, C>
+): Promise<E> {
+  return unwrapErr(await result);
 }
 
 // =============================================================================

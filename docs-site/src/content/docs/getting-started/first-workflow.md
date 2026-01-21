@@ -124,4 +124,4 @@ The workflow exits at the first error. No need for try/catch or manual error che
 
 ## Next
 
-[Learn about error handling →](/getting-started/error-handling/)
+[Learn about error handling →](../error-handling/)

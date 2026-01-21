@@ -493,4 +493,4 @@ The dev server provides:
 
 ## Next
 
-[Learn about Testing →](/guides/testing/)
+[Learn about Testing →](../testing/)

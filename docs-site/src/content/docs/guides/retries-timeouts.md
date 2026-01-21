@@ -169,4 +169,4 @@ const result = await workflow(async (step) => {
 
 ## Next
 
-[Learn about Caching →](/guides/caching/)
+[Learn about Caching →](../caching/)

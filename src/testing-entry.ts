@@ -60,11 +60,13 @@ export {
   assertEventEmitted,
   assertEventNotEmitted,
 
-  // Error Matcher Utilities
-  expectError,
-  expectErrorWithCause,
-  expectUnexpectedError,
+  // Result Assertions (throw on failure, provide type narrowing)
   expectOk,
+  expectErr,
+  unwrapOk,
+  unwrapErr,
+  unwrapOkAsync,
+  unwrapErrAsync,
 
   // Debug Helpers
   formatResult,
