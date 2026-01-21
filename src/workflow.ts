@@ -27,7 +27,8 @@ import {
   type Err,
 } from "./core";
 
-// Re-export types that workflow users commonly need
+// Re-export types and constants that workflow users commonly need
+export { UNEXPECTED_ERROR } from "./core";
 export type {
   Result,
   AsyncResult,

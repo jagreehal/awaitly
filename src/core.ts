@@ -80,8 +80,11 @@ export type UnexpectedCause =
   | { type: "UNCAUGHT_EXCEPTION"; thrown: unknown }
   | UnexpectedStepFailureCause;
 
+/** Discriminant for UnexpectedError type - use in switch statements */
+export const UNEXPECTED_ERROR = "UNEXPECTED_ERROR" as const;
+
 export type UnexpectedError = {
-  type: "UNEXPECTED_ERROR";
+  type: typeof UNEXPECTED_ERROR;
   cause: UnexpectedCause;
 };
 export type PromiseRejectedError = { type: "PROMISE_REJECTED"; cause: unknown };

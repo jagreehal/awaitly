@@ -367,3 +367,14 @@ const message = match(result, {
   err: (error) => `Failed: ${error}`,
 });
 ```
+
+---
+
+## See Also
+
+| Topic | Guide |
+|-------|-------|
+| Common issues | [Troubleshooting](../../guides/troubleshooting/) |
+| Framework setup | [Framework Integrations](../../guides/framework-integrations/) |
+| Production best practices | [Production Deployment](../../advanced/production-deployment/) |
+| Complete API | [API Reference](../api/) |
