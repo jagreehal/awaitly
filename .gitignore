@@ -93,3 +93,9 @@ dist
 
 tmp
 .playwright-mcp
+
+# Old ts-morph analyzer (kept locally for reference)
+src/_analyze/
+
+# Turbo
+.turbo

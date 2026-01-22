@@ -38,16 +38,15 @@ jobs:
 
       - name: Build packages
         run: pnpm build
-        env:
-          NODE_ENV: production
+
+      - name: Type check
+        run: pnpm type-check
 
       - name: Lint
         run: pnpm lint
 
       - name: Test
         run: pnpm test
-        env:
-          NODE_ENV: test
 
   dependabot-auto-merge:
     needs: build-and-test

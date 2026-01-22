@@ -1,237 +1,48 @@
 {
-  "name": "awaitly",
-  "version": "1.6.0",
-  "type": "module",
-  "description": "Typed async workflows with automatic error inference. Build type-safe workflows with Result types, step caching, resume state, and human-in-the-loop support.",
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
-    },
-    "./core": {
-      "types": "./dist/core.d.ts",
-      "import": "./dist/core.js",
-      "require": "./dist/core.cjs"
-    },
-    "./workflow": {
-      "types": "./dist/workflow.d.ts",
-      "import": "./dist/workflow.js",
-      "require": "./dist/workflow.cjs"
-    },
-    "./visualize": {
-      "types": "./dist/visualize.d.ts",
-      "import": "./dist/visualize.js",
-      "require": "./dist/visualize.cjs"
-    },
-    "./batch": {
-      "types": "./dist/batch.d.ts",
-      "import": "./dist/batch.js",
-      "require": "./dist/batch.cjs"
-    },
-    "./resource": {
-      "types": "./dist/resource.d.ts",
-      "import": "./dist/resource.js",
-      "require": "./dist/resource.cjs"
-    },
-    "./retry": {
-      "types": "./dist/retry.d.ts",
-      "import": "./dist/retry.js",
-      "require": "./dist/retry.cjs"
-    },
-    "./reliability": {
-      "types": "./dist/reliability.d.ts",
-      "import": "./dist/reliability.js",
-      "require": "./dist/reliability.cjs"
-    },
-    "./circuit-breaker": {
-      "types": "./dist/circuit-breaker.d.ts",
-      "import": "./dist/circuit-breaker.js",
-      "require": "./dist/circuit-breaker.cjs"
-    },
-    "./ratelimit": {
-      "types": "./dist/ratelimit.d.ts",
-      "import": "./dist/ratelimit.js",
-      "require": "./dist/ratelimit.cjs"
-    },
-    "./saga": {
-      "types": "./dist/saga.d.ts",
-      "import": "./dist/saga.js",
-      "require": "./dist/saga.cjs"
-    },
-    "./policies": {
-      "types": "./dist/policies.d.ts",
-      "import": "./dist/policies.js",
-      "require": "./dist/policies.cjs"
-    },
-    "./persistence": {
-      "types": "./dist/persistence.d.ts",
-      "import": "./dist/persistence.js",
-      "require": "./dist/persistence.cjs"
-    },
-    "./hitl": {
-      "types": "./dist/hitl.d.ts",
-      "import": "./dist/hitl.js",
-      "require": "./dist/hitl.cjs"
-    },
-    "./webhook": {
-      "types": "./dist/webhook.d.ts",
-      "import": "./dist/webhook.js",
-      "require": "./dist/webhook.cjs"
-    },
-    "./otel": {
-      "types": "./dist/otel.d.ts",
-      "import": "./dist/otel.js",
-      "require": "./dist/otel.cjs"
-    },
-    "./devtools": {
-      "types": "./dist/devtools.d.ts",
-      "import": "./dist/devtools.js",
-      "require": "./dist/devtools.cjs"
-    },
-    "./testing": {
-      "types": "./dist/testing.d.ts",
-      "import": "./dist/testing.js",
-      "require": "./dist/testing.cjs"
-    },
-    "./conditional": {
-      "types": "./dist/conditional.d.ts",
-      "import": "./dist/conditional.js",
-      "require": "./dist/conditional.cjs"
-    },
-    "./duration": {
-      "types": "./dist/duration.d.ts",
-      "import": "./dist/duration.js",
-      "require": "./dist/duration.cjs"
-    },
-    "./match": {
-      "types": "./dist/match.d.ts",
-      "import": "./dist/match.js",
-      "require": "./dist/match.cjs"
-    },
-    "./tagged-error": {
-      "types": "./dist/tagged-error.d.ts",
-      "import": "./dist/tagged-error.js",
-      "require": "./dist/tagged-error.cjs"
-    },
-    "./singleflight": {
-      "types": "./dist/singleflight.d.ts",
-      "import": "./dist/singleflight.js",
-      "require": "./dist/singleflight.cjs"
-    },
-    "./adapters": {
-      "types": "./dist/adapters.d.ts",
-      "import": "./dist/adapters.js",
-      "require": "./dist/adapters.cjs"
-    },
-    "./durable": {
-      "types": "./dist/durable.d.ts",
-      "import": "./dist/durable.js",
-      "require": "./dist/durable.cjs"
-    }
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "docs"
+  "name": "awaitly-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Typed async workflows with automatic error inference",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
-    "build": "tsup",
-    "build:tsc": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest watch",
-    "test:coverage": "vitest run --coverage",
-    "lint": "eslint .",
-    "tsd": "tsd --files 'src/**/*.test-d.ts'",
-    "clean": "rm -rf dist lib",
-    "prebuild": "pnpm clean",
-    "prepare": "pnpm build",
-    "quality": "pnpm build:tsc && pnpm test && pnpm lint",
-    "prepublishOnly": "pnpm build:tsc && pnpm run test && pnpm run lint",
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "clean": "turbo clean",
+    "type-check": "turbo type-check",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "pnpm build && changeset publish"
+    "release": "pnpm build && changeset publish",
+    "quality": "turbo run build && turbo run lint && turbo run type-check && turbo run test"
   },
-  "keywords": [
-    "awaitly",
-    "workflow",
-    "workflows",
-    "result",
-    "result-type",
-    "error-handling",
-    "typescript",
-    "async",
-    "async-await",
-    "type-safe",
-    "type-inference",
-    "railway-oriented-programming",
-    "functional-programming",
-    "either",
-    "monad",
-    "step",
-    "orchestration",
-    "pipeline",
-    "early-exit",
-    "resume",
-    "caching",
-    "hitl",
-    "human-in-the-loop"
-  ],
-  "author": "Jag Reehal <jag@jagreehal.com>",
-  "homepage": "https://github.com/jagreehal/awaitly#readme",
-  "bugs": {
-    "url": "https://github.com/jagreehal/awaitly/issues"
+  "devDependencies": {
+    "@changesets/cli": "^2.29.8",
+    "@eslint/js": "^9.39.2",
+    "@typescript-eslint/eslint-plugin": "^8.53.1",
+    "@typescript-eslint/parser": "^8.53.1",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-unicorn": "^62.0.0",
+    "turbo": "^2.7.5",
+    "typescript-eslint": "^8.53.1"
   },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=8"
+  },
+  "packageManager": "pnpm@10.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jagreehal/awaitly.git"
   },
+  "author": "Jag Reehal <jag@jagreehal.com>",
   "license": "MIT",
-  "devDependencies": {
-    "@changesets/cli": "^2.29.8",
-    "@eslint/js": "^9.39.2",
-    "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
-    "@total-typescript/ts-reset": "^0.6.1",
-    "@total-typescript/tsconfig": "^1.0.4",
-    "@types/node": "^25.0.9",
-    "@types/picomatch": "^4.0.2",
-    "@types/ws": "^8.18.1",
-    "@typescript-eslint/eslint-plugin": "^8.53.1",
-    "@typescript-eslint/parser": "^8.53.1",
-    "@typescript-eslint/rule-tester": "^8.53.1",
-    "@typescript-eslint/utils": "^8.53.1",
-    "@vitest/coverage-v8": "^4.0.17",
-    "eslint": "9.39.2",
-    "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-unicorn": "^62.0.0",
-    "jsdom": "^27.4.0",
-    "mermaid": "^11.12.2",
-    "pino": "^10.2.1",
-    "tsd": "^0.33.0",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.53.1",
-    "vitest": "^4.0.17",
-    "ws": "^8.19.0"
+  "bugs": {
+    "url": "https://github.com/jagreehal/awaitly/issues"
   },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "tsd": {
-    "directory": "src",
-    "testFilePattern": "**/index.test-d.ts",
-    "compilerOptions": {
-      "strict": true,
-      "noUnusedLocals": false,
-      "noUnusedParameters": false,
-      "skipLibCheck": true
-    }
-  },
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  }
+  "homepage": "https://github.com/jagreehal/awaitly#readme"
 }

@@ -10,8 +10,25 @@ First-class OpenTelemetry metrics from the workflow event stream.
 Create an adapter that tracks metrics and optionally creates spans:
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow, ok, err, type Result } from 'awaitly';
 import { createAutotelAdapter } from 'awaitly/otel';
+
+// Define your dependencies with Result-returning functions
+type UserNotFound = { type: 'USER_NOT_FOUND'; id: string };
+type CardDeclined = { type: 'CARD_DECLINED'; reason: string };
+
+const deps = {
+  fetchUser: async (id: string): Promise<Result<User, UserNotFound>> => {
+    const user = await db.users.find(id);
+    return user ? ok(user) : err({ type: 'USER_NOT_FOUND', id });
+  },
+  chargeCard: async (amount: number): Promise<Result<Charge, CardDeclined>> => {
+    const result = await paymentGateway.charge(amount);
+    return result.success
+      ? ok(result.charge)
+      : err({ type: 'CARD_DECLINED', reason: result.error });
+  },
+};
 
 const autotel = createAutotelAdapter({
   serviceName: 'checkout-service',
@@ -29,9 +46,9 @@ const workflow = createWorkflow(deps, {
   onEvent: autotel.handleEvent,
 });
 
-await workflow(async (step) => {
-  const user = await step(() => fetchUser(id), { name: 'fetch-user' });
-  const charge = await step(() => chargeCard(100), { name: 'charge-card' });
+await workflow(async (step, deps) => {
+  const user = await step(() => deps.fetchUser(id), { name: 'fetch-user' });
+  const charge = await step(() => deps.chargeCard(100), { name: 'charge-card' });
   return { user, charge };
 });
 ```
@@ -79,9 +96,9 @@ import { trace } from 'autotel';
 const traced = withAutotelTracing(trace, { serviceName: 'checkout' });
 
 const result = await traced('process-order', async () => {
-  return workflow(async (step) => {
-    const user = await step(() => fetchUser(id), { name: 'fetch-user' });
-    const charge = await step(() => chargeCard(100), { name: 'charge' });
+  return workflow(async (step, deps) => {
+    const user = await step(() => deps.fetchUser(id), { name: 'fetch-user' });
+    const charge = await step(() => deps.chargeCard(100), { name: 'charge' });
     return { user, charge };
   });
 }, { orderId: '123' }); // Optional attributes
@@ -142,7 +159,8 @@ const inventoryWorkflow = createWorkflow(inventoryDeps, {
 
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
-import { createAutotelAdapter, createVisualizer } from 'awaitly/otel';
+import { createAutotelAdapter } from 'awaitly/otel';
+import { createVisualizer } from 'awaitly/visualize';
 
 const autotel = createAutotelAdapter({ serviceName: 'checkout' });
 const viz = createVisualizer({ workflowName: 'checkout' });

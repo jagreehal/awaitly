@@ -1,0 +1,67 @@
+{
+  "name": "awaitly-analyze",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Static workflow analysis for awaitly using tree-sitter. Analyze workflow source code to extract structure and generate visualizations.",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "bin": {
+    "awaitly-analyze": "./dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "lint": "eslint .",
+    "clean": "rm -rf dist",
+    "quality": "pnpm type-check && pnpm test && pnpm lint"
+  },
+  "keywords": [
+    "awaitly",
+    "workflow",
+    "static-analysis",
+    "tree-sitter",
+    "typescript",
+    "visualization",
+    "mermaid"
+  ],
+  "author": "Jag Reehal <jag@jagreehal.com>",
+  "homepage": "https://github.com/jagreehal/awaitly#readme",
+  "bugs": {
+    "url": "https://github.com/jagreehal/awaitly/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jagreehal/awaitly.git"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "web-tree-sitter": "^0.26.3"
+  },
+  "devDependencies": {
+    "@total-typescript/ts-reset": "^0.6.1",
+    "@total-typescript/tsconfig": "^1.0.4",
+    "@types/node": "^25.0.10",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
