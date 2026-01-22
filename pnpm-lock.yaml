@@ -116,6 +116,9 @@ importers:
 
   packages/awaitly-analyze:
     dependencies:
+      awaitly:
+        specifier: workspace:^
+        version: link:../awaitly
       web-tree-sitter:
         specifier: ^0.26.3
         version: 0.26.3
