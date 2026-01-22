@@ -1,11 +1,4 @@
 import { defineConfig } from 'tsup';
-import { copyFileSync, mkdirSync, existsSync } from 'fs';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
-
-// Get __dirname equivalent for ESM
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 export default defineConfig({
   entry: {
@@ -71,16 +64,6 @@ export default defineConfig({
     // Durable execution
     // =========================================================================
     durable: 'src/durable-entry.ts',
-
-    // =========================================================================
-    // Static analysis (tree-sitter based)
-    // =========================================================================
-    analyze: 'src/analyze/index.ts',
-
-    // =========================================================================
-    // CLI tools
-    // =========================================================================
-    'cli/index': 'src/cli/index.ts',
   },
   format: ['cjs', 'esm'],
   dts: true,
@@ -88,26 +71,4 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   minify: true,
-
-  // Copy WASM files to dist after build
-  onSuccess: async () => {
-    const wasmSrc = resolve(__dirname, 'src/analyze/wasm');
-    const wasmDest = resolve(__dirname, 'dist/wasm');
-
-    // Create dest directory
-    if (!existsSync(wasmDest)) {
-      mkdirSync(wasmDest, { recursive: true });
-    }
-
-    // Copy WASM files
-    const wasmFiles = ['tree-sitter.wasm', 'tree-sitter-typescript.wasm'];
-    for (const file of wasmFiles) {
-      const src = resolve(wasmSrc, file);
-      const dest = resolve(wasmDest, file);
-      if (existsSync(src)) {
-        copyFileSync(src, dest);
-        console.log(`Copied ${file} to dist/wasm/`);
-      }
-    }
-  },
 });

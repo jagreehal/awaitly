@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'docs-site/**'
+      - 'apps/docs-site/**'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -32,23 +32,23 @@ jobs:
         with:
           node-version: 20
           cache: 'pnpm'
-          cache-dependency-path: docs-site/pnpm-lock.yaml
+          cache-dependency-path: apps/docs-site/pnpm-lock.yaml
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
       - name: Install dependencies
-        working-directory: docs-site
+        working-directory: apps/docs-site
         run: pnpm install --frozen-lockfile
 
       - name: Build docs
-        working-directory: docs-site
+        working-directory: apps/docs-site
         run: pnpm build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs-site/dist
+          path: apps/docs-site/dist
 
   deploy:
     environment:

@@ -10,7 +10,6 @@ import {
   analyzeWorkflowSource,
   resetIdCounter,
   loadTreeSitter,
-  getWasmCachePath,
 } from "./index";
 import type { StaticFlowNode, StaticSequenceNode, StaticStepNode } from "./types";
 
@@ -37,11 +36,6 @@ describe("Tree-sitter POC", () => {
 
       expect(first.parser).toBe(second.parser);
       expect(first.language).toBe(second.language);
-    });
-
-    it("should provide cache path for debugging", () => {
-      const cachePath = getWasmCachePath();
-      expect(cachePath).toContain(".cache/awaitly/wasm");
     });
   });
 

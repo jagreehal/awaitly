@@ -9,7 +9,7 @@ import {
   renderStaticMermaid,
   renderMultipleStaticJSON,
   type MermaidOptions,
-} from "../analyze";
+} from "..";
 
 // =============================================================================
 // Types

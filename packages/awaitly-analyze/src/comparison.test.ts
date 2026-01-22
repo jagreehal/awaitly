@@ -14,8 +14,8 @@ import {
 } from "./index";
 import type { StaticFlowNode, StaticStepNode } from "./types";
 
-// Test fixtures directory (in the old ts-morph analyzer folder)
-const FIXTURES_DIR = join(__dirname, "../_analyze/test-fixtures");
+// Test fixtures directory
+const FIXTURES_DIR = join(__dirname, "__fixtures__");
 
 describe("Analyzer Comparison", () => {
   beforeEach(() => {

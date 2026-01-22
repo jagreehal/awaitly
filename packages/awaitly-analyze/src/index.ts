@@ -13,7 +13,7 @@
  *
  * Usage:
  * ```typescript
- * import { analyzeWorkflow } from 'awaitly/analyze';
+ * import { analyzeWorkflow } from 'awaitly-analyze';
  *
  * const results = await analyzeWorkflow('./my-workflow.ts');
  * ```
@@ -30,7 +30,6 @@ export {
 export {
   loadTreeSitter,
   clearTreeSitterCache,
-  getWasmCachePath,
 } from "./tree-sitter-loader";
 
 // Renderers
