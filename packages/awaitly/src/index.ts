@@ -87,6 +87,7 @@ export {
   type StepTimeoutError,
   type StepTimeoutMarkerMeta,
   STEP_TIMEOUT_MARKER,
+  PROMISE_REJECTED,
 
   // Constructors
   ok,
@@ -96,6 +97,7 @@ export {
   isOk,
   isErr,
   isUnexpectedError,
+  isPromiseRejectedError,
   isStepTimeoutError,
   getStepTimeoutMeta,
 
