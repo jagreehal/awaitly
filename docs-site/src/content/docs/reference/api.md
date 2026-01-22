@@ -303,6 +303,27 @@ createAutotelEventHandler(options)  // Event handler for debug
 withAutotelTracing(trace, options)  // Wrap with tracing
 ```
 
+## Static Analysis
+
+```typescript
+analyzeWorkflow(filePath)           // Analyze workflow file
+analyzeWorkflowSource(source)       // Analyze source string
+loadTreeSitter()                    // Pre-load tree-sitter WASM
+clearTreeSitterCache()              // Clear WASM cache
+getWasmCachePath()                  // Get WASM cache location
+
+// Type guards
+isStaticStepNode(node)              // node is StaticStepNode
+isStaticSequenceNode(node)          // node is StaticSequenceNode
+isStaticParallelNode(node)          // node is StaticParallelNode
+isStaticRaceNode(node)              // node is StaticRaceNode
+isStaticConditionalNode(node)       // node is StaticConditionalNode
+isStaticLoopNode(node)              // node is StaticLoopNode
+isStaticWorkflowRefNode(node)       // node is StaticWorkflowRefNode
+hasStaticChildren(node)             // node has children
+getStaticChildren(node)             // Get children array
+```
+
 ## Types
 
 ### Core Result types
@@ -394,4 +415,23 @@ WorkflowHarness<E, Deps>            // Test harness interface
 MockFunction<T, E>                  // Mock function interface
 ScriptedOutcome<T, E>               // Scripted step outcome
 WorkflowSnapshot                    // Snapshot for comparison
+```
+
+### Static Analysis types
+
+```typescript
+StaticWorkflowIR                    // Analysis result
+StaticWorkflowNode                  // Workflow root node
+StaticFlowNode                      // Union of all node types
+StaticStepNode                      // Step call node
+StaticSequenceNode                  // Sequential execution
+StaticParallelNode                  // Parallel execution
+StaticRaceNode                      // Race execution
+StaticConditionalNode               // if/else or conditional helpers
+StaticLoopNode                      // Loop (for/while)
+StaticWorkflowRefNode               // Reference to another workflow
+StaticUnknownNode                   // Unanalyzable code
+AnalysisWarning                     // Analysis warning
+AnalysisStats                       // Step/conditional/parallel counts
+AnalyzerOptions                     // Analyzer configuration
 ```

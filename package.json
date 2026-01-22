@@ -6,6 +6,9 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "awaitly-analyze": "./dist/cli/index.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -131,6 +134,11 @@
       "types": "./dist/durable.d.ts",
       "import": "./dist/durable.js",
       "require": "./dist/durable.cjs"
+    },
+    "./analyze": {
+      "types": "./dist/analyze.d.ts",
+      "import": "./dist/analyze.js",
+      "require": "./dist/analyze.cjs"
     }
   },
   "files": [
@@ -196,14 +204,14 @@
     "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
     "@total-typescript/ts-reset": "^0.6.1",
     "@total-typescript/tsconfig": "^1.0.4",
-    "@types/node": "^25.0.9",
+    "@types/node": "^25.0.10",
     "@types/picomatch": "^4.0.2",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.53.1",
     "@typescript-eslint/parser": "^8.53.1",
     "@typescript-eslint/rule-tester": "^8.53.1",
     "@typescript-eslint/utils": "^8.53.1",
-    "@vitest/coverage-v8": "^4.0.17",
+    "@vitest/coverage-v8": "^4.0.18",
     "eslint": "9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-unicorn": "^62.0.0",
@@ -214,8 +222,17 @@
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.53.1",
-    "vitest": "^4.0.17",
+    "vitest": "^4.0.18",
+    "web-tree-sitter": "^0.26.3",
     "ws": "^8.19.0"
+  },
+  "peerDependencies": {
+    "web-tree-sitter": ">=0.26.3"
+  },
+  "peerDependenciesMeta": {
+    "web-tree-sitter": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=18.0.0"

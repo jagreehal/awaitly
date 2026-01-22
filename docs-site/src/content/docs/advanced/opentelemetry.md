@@ -29,9 +29,9 @@ const workflow = createWorkflow(deps, {
   onEvent: autotel.handleEvent,
 });
 
-await workflow(async (step) => {
-  const user = await step(() => fetchUser(id), { name: 'fetch-user' });
-  const charge = await step(() => chargeCard(100), { name: 'charge-card' });
+await workflow(async (step, deps) => {
+  const user = await step(() => deps.fetchUser(id), { name: 'fetch-user' });
+  const charge = await step(() => deps.chargeCard(100), { name: 'charge-card' });
   return { user, charge };
 });
 ```
@@ -79,9 +79,9 @@ import { trace } from 'autotel';
 const traced = withAutotelTracing(trace, { serviceName: 'checkout' });
 
 const result = await traced('process-order', async () => {
-  return workflow(async (step) => {
-    const user = await step(() => fetchUser(id), { name: 'fetch-user' });
-    const charge = await step(() => chargeCard(100), { name: 'charge' });
+  return workflow(async (step, deps) => {
+    const user = await step(() => deps.fetchUser(id), { name: 'fetch-user' });
+    const charge = await step(() => deps.chargeCard(100), { name: 'charge' });
     return { user, charge };
   });
 }, { orderId: '123' }); // Optional attributes
@@ -142,7 +142,8 @@ const inventoryWorkflow = createWorkflow(inventoryDeps, {
 
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
-import { createAutotelAdapter, createVisualizer } from 'awaitly/otel';
+import { createAutotelAdapter } from 'awaitly/otel';
+import { createVisualizer } from 'awaitly/visualize';
 
 const autotel = createAutotelAdapter({ serviceName: 'checkout' });
 const viz = createVisualizer({ workflowName: 'checkout' });

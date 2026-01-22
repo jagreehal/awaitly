@@ -16,9 +16,9 @@ const workflow = createWorkflow(deps, {
   onEvent: viz.handleEvent,
 });
 
-await workflow(async (step) => {
-  const order = await step(() => fetchOrder('123'), { name: 'Fetch order' });
-  const payment = await step(() => chargeCard(order.total), { name: 'Charge card' });
+await workflow(async (step, deps) => {
+  const order = await step(() => deps.fetchOrder('123'), { name: 'Fetch order' });
+  const payment = await step(() => deps.chargeCard(order.total), { name: 'Charge card' });
   return { order, payment };
 });
 
@@ -245,9 +245,9 @@ console.log(collector.visualizeAs('mermaid'));
 ```typescript
 const viz = createVisualizer({
   workflowName: 'checkout',
-  showDurations: true,     // Show step durations
-  showTimestamps: false,   // Show start times
-  maxWidth: 80,            // ASCII width limit
+  showTimings: true,       // Show step durations (default: true)
+  showKeys: false,         // Show step cache keys (default: false)
+  detectParallel: true,    // Enable parallel detection (default: true)
 });
 ```
 
@@ -275,7 +275,7 @@ const workflow = createWorkflow(deps, {
 For interactive debugging, run comparison, and timeline analysis:
 
 ```typescript
-import { createDevtools, quickVisualize, createConsoleLogger } from 'awaitly/workflow';
+import { createDevtools, quickVisualize, createConsoleLogger } from 'awaitly/devtools';
 
 const devtools = createDevtools({ workflowName: 'checkout' });
 
@@ -311,7 +311,7 @@ const imported = devtools.importRun(json);
 Use `createConsoleLogger` for pretty console output:
 
 ```typescript
-import { createConsoleLogger } from 'awaitly/workflow';
+import { createConsoleLogger } from 'awaitly/devtools';
 
 const logger = createConsoleLogger({ prefix: '[workflow]', colors: true });
 
@@ -332,7 +332,7 @@ await workflow(async (step) => { ... });
 Visualize a workflow run without setting up a visualizer:
 
 ```typescript
-import { quickVisualize } from 'awaitly/workflow';
+import { quickVisualize } from 'awaitly/devtools';
 
 const result = await quickVisualize(
   async (handleEvent) => {

@@ -48,6 +48,7 @@ export default defineConfig({
             { label: 'Persistence', slug: 'guides/persistence' },
             { label: 'Human-in-the-Loop', slug: 'guides/human-in-loop' },
             { label: 'Visualization', slug: 'guides/visualization' },
+            { label: 'Static Analysis', slug: 'guides/static-analysis' },
             { label: 'Testing', slug: 'guides/testing' },
             { label: 'Batch Processing', slug: 'guides/batch-processing' },
           ],
