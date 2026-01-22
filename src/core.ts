@@ -83,11 +83,14 @@ export type UnexpectedCause =
 /** Discriminant for UnexpectedError type - use in switch statements */
 export const UNEXPECTED_ERROR = "UNEXPECTED_ERROR" as const;
 
+/** Discriminant for PromiseRejectedError type - use in switch statements */
+export const PROMISE_REJECTED = "PROMISE_REJECTED" as const;
+
 export type UnexpectedError = {
   type: typeof UNEXPECTED_ERROR;
   cause: UnexpectedCause;
 };
-export type PromiseRejectedError = { type: "PROMISE_REJECTED"; cause: unknown };
+export type PromiseRejectedError = { type: typeof PROMISE_REJECTED; cause: unknown };
 /** Cause type for promise rejections in async batch helpers */
 export type PromiseRejectionCause = { type: "PROMISE_REJECTION"; reason: unknown };
 export type EmptyInputError = { type: "EMPTY_INPUT"; message: string };
@@ -197,6 +200,23 @@ export const isUnexpectedError = (e: unknown): e is UnexpectedError =>
   typeof e === "object" &&
   e !== null &&
   (e as UnexpectedError).type === "UNEXPECTED_ERROR";
+
+/**
+ * Checks if an error is a PromiseRejectedError.
+ * Occurs when a Promise rejects in batch operations (allAsync, anyAsync, zipAsync).
+ *
+ * @example
+ * ```typescript
+ * onError: (error): FetchError => {
+ *   if (isPromiseRejectedError(error)) return 'FETCH_FAILED';
+ *   return error; // TypeScript narrows to FetchError
+ * }
+ * ```
+ */
+export const isPromiseRejectedError = (e: unknown): e is PromiseRejectedError =>
+  typeof e === "object" &&
+  e !== null &&
+  (e as PromiseRejectedError).type === PROMISE_REJECTED;
 
 // =============================================================================
 // Type Utilities

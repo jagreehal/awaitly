@@ -23,7 +23,9 @@ import {
   fromPromise,
   isErr,
   isOk,
+  isPromiseRejectedError,
   isUnexpectedError,
+  PROMISE_REJECTED,
   map,
   mapError,
   mapErrorTry,
@@ -129,6 +131,52 @@ describe("Result Core", () => {
 
         // @ts-expect-error - value doesn't exist on narrowed err type
         result.value;
+      }
+    });
+  });
+
+  describe("isPromiseRejectedError() type guard", () => {
+    it("correctly identifies PromiseRejectedError", () => {
+      const error: PromiseRejectedError = {
+        type: "PROMISE_REJECTED",
+        cause: new Error("test"),
+      };
+      expect(isPromiseRejectedError(error)).toBe(true);
+    });
+
+    it("works with PROMISE_REJECTED constant", () => {
+      const error: PromiseRejectedError = {
+        type: PROMISE_REJECTED,
+        cause: new Error("test"),
+      };
+      expect(isPromiseRejectedError(error)).toBe(true);
+    });
+
+    it("returns false for other error types", () => {
+      expect(isPromiseRejectedError({ type: "OTHER_ERROR" })).toBe(false);
+      expect(isPromiseRejectedError({ type: "UNEXPECTED_ERROR", cause: {} })).toBe(
+        false
+      );
+    });
+
+    it("returns false for null, undefined, and primitives", () => {
+      expect(isPromiseRejectedError(null)).toBe(false);
+      expect(isPromiseRejectedError(undefined)).toBe(false);
+      expect(isPromiseRejectedError("PROMISE_REJECTED")).toBe(false);
+      expect(isPromiseRejectedError(123)).toBe(false);
+    });
+
+    it("narrows type in conditional branches", () => {
+      type DomainError = "FETCH_FAILED";
+      const error: PromiseRejectedError | DomainError = {
+        type: "PROMISE_REJECTED",
+        cause: new Error(),
+      };
+
+      if (isPromiseRejectedError(error)) {
+        // TypeScript narrows to PromiseRejectedError
+        const _cause: unknown = error.cause;
+        expect(_cause).toBeInstanceOf(Error);
       }
     });
   });
