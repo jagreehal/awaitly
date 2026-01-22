@@ -8,7 +8,22 @@ Visualize workflow execution as ASCII diagrams or Mermaid charts for debugging, 
 ## Basic usage
 
 ```typescript
+import { createWorkflow, ok, err, type Result } from 'awaitly';
 import { createVisualizer } from 'awaitly/visualize';
+
+// Define your dependencies with Result-returning functions
+const deps = {
+  fetchOrder: async (id: string): Promise<Result<Order, OrderNotFound>> => {
+    const order = await db.orders.find(id);
+    return order ? ok(order) : err({ type: 'ORDER_NOT_FOUND', id });
+  },
+  chargeCard: async (amount: number): Promise<Result<Payment, PaymentFailed>> => {
+    const result = await paymentGateway.charge(amount);
+    return result.success
+      ? ok(result.payment)
+      : err({ type: 'PAYMENT_FAILED', reason: result.error });
+  },
+};
 
 const viz = createVisualizer({ workflowName: 'checkout' });
 

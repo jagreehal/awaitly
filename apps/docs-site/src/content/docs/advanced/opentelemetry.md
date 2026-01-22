@@ -10,8 +10,25 @@ First-class OpenTelemetry metrics from the workflow event stream.
 Create an adapter that tracks metrics and optionally creates spans:
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow, ok, err, type Result } from 'awaitly';
 import { createAutotelAdapter } from 'awaitly/otel';
+
+// Define your dependencies with Result-returning functions
+type UserNotFound = { type: 'USER_NOT_FOUND'; id: string };
+type CardDeclined = { type: 'CARD_DECLINED'; reason: string };
+
+const deps = {
+  fetchUser: async (id: string): Promise<Result<User, UserNotFound>> => {
+    const user = await db.users.find(id);
+    return user ? ok(user) : err({ type: 'USER_NOT_FOUND', id });
+  },
+  chargeCard: async (amount: number): Promise<Result<Charge, CardDeclined>> => {
+    const result = await paymentGateway.charge(amount);
+    return result.success
+      ? ok(result.charge)
+      : err({ type: 'CARD_DECLINED', reason: result.error });
+  },
+};
 
 const autotel = createAutotelAdapter({
   serviceName: 'checkout-service',
