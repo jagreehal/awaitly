@@ -68,11 +68,26 @@ interface TreeSitterModule {
 
 /**
  * Load web-tree-sitter module.
- * Uses CJS require for compatibility with both ESM and CJS contexts.
+ * Works in both ESM and CJS contexts.
  */
 function loadWebTreeSitter(): TreeSitterModule {
-  const require = createRequire(import.meta.url);
-  return require("web-tree-sitter") as unknown as TreeSitterModule;
+  // ESM: use import.meta.url with createRequire
+  // CJS: use __filename (tsup defines this for CJS builds)
+  let requireFn: NodeRequire;
+
+  try {
+    if (typeof import.meta?.url === "string" && import.meta.url) {
+      requireFn = createRequire(import.meta.url);
+    } else {
+      // CJS fallback - __filename is available in CJS context
+      requireFn = createRequire(__filename);
+    }
+  } catch {
+    // Final fallback for CJS
+    requireFn = createRequire(__filename);
+  }
+
+  return requireFn("web-tree-sitter") as unknown as TreeSitterModule;
 }
 
 /**

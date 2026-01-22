@@ -49,6 +49,9 @@
     "url": "git+https://github.com/jagreehal/awaitly.git"
   },
   "license": "MIT",
+  "peerDependencies": {
+    "awaitly": "workspace:^"
+  },
   "dependencies": {
     "web-tree-sitter": "^0.26.3"
   },
