@@ -3,6 +3,10 @@ title: Your First Workflow
 description: Build a simple workflow with typed errors in 5 minutes
 ---
 
+:::note
+New to awaitly? Start with [The Basics](../basics/) to learn `run()` and Result types first.
+:::
+
 This guide walks through building a workflow that fetches a user and their posts, with typed error handling.
 
 ## Define your operations

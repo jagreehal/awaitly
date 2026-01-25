@@ -39,6 +39,7 @@ export default defineConfig({
           label: 'Getting Started',
           items: [
             { label: 'Installation', slug: 'getting-started/installation' },
+            { label: 'The Basics', slug: 'getting-started/basics' },
             { label: 'Your First Workflow', slug: 'getting-started/first-workflow' },
             { label: 'Handling Errors', slug: 'getting-started/error-handling' },
           ],

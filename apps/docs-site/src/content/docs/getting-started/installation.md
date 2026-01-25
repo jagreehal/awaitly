@@ -83,4 +83,4 @@ npx tsx test.ts
 
 ## Next
 
-[Build your first workflow →](../first-workflow/)
+[Learn the basics →](../basics/)
