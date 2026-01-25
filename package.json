@@ -2,7 +2,7 @@
   "name": "awaitly-monorepo",
   "version": "0.0.0",
   "private": true,
-  "description": "Typed async workflows with automatic error inference",
+  "description": "Good things come to those who a-wait-ly",
   "workspaces": [
     "packages/*",
     "apps/*"

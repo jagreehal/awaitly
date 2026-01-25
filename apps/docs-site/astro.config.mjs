@@ -60,6 +60,9 @@ export default defineConfig({
             { label: 'Batch Processing', slug: 'guides/batch-processing' },
             { label: 'ESLint Plugin', slug: 'guides/eslint-plugin' },
             { label: 'Claude Code Skill', slug: 'guides/claude-skill' },
+            { label: 'Troubleshooting', slug: 'guides/troubleshooting' },
+            { label: 'Framework Integration', slug: 'guides/framework-integration' },
+            { label: 'Migration Guide', slug: 'guides/migration' },
           ],
         },
         {
@@ -85,6 +88,7 @@ export default defineConfig({
         {
           label: 'Reference',
           items: [
+            { label: 'Quick Reference', slug: 'reference/quick-reference' },
             { label: 'API', slug: 'reference/api' },
           ],
         },

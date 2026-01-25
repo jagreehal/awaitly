@@ -32,9 +32,9 @@ Most programmers treat errors like embarrassing relatives—they pretend they do
 | Approach | Error Visibility | Composability | Ergonomics | Bundle Size |
 |----------|-----------------|---------------|------------|-------------|
 | **try/catch** | Low (hidden) | Medium | High | Minimal |
+| **awaitly** | High | High | High | Light |
 | **neverthrow** | High | High | Medium | Light |
 | **Effect** | Very High | Very High | Low → Medium | Heavy |
-| **awaitly** | High | High | High | Light |
 
 ## Three Criteria for Great Error Handling
 
@@ -55,14 +55,26 @@ Need to handle errors?
        No
         │
         ▼
-   Complex business logic?
+Want compiler-verified error handling (Result types)?
         │
+   No ──▶ try/catch
+        │
+   Yes  │
         ▼
-   Want auto error inference? ──No──▶ neverthrow
+Need full ecosystem (DI, layers, tracing)?
         │
-       Yes
+   Yes ──▶ Effect
         │
+   No  ──▶ awaitly
+        │
+   No   (prefer chaining)
         ▼
+Need full ecosystem (DI, layers, tracing)?
+        │
+   Yes ──▶ Effect
+        │
+   No  ──▶ neverthrow
+=======
    Want async/await syntax? ──No──▶ neverthrow
         │
        Yes
@@ -73,6 +85,7 @@ Need to handle errors?
        Yes ──▶ Effect
         │
        No ──▶ awaitly
+>>>>>>> origin/main
 ```
 
 ## When to Use What
@@ -82,16 +95,16 @@ Need to handle errors?
 - You need to ship quickly
 - You're at system boundaries (HTTP handlers, event listeners)
 
-### Consider neverthrow when:
-- Your business logic has multiple failure modes
-- You want compiler-verified error handling
-- You prefer functional chaining (`.andThen()`)
-
 ### Consider awaitly when:
 - You want Result types with familiar async/await syntax
 - You need automatic error type inference
 - You need retries, timeouts, and caching
 - Your team knows async/await but wants better error handling
+
+### Consider neverthrow when:
+- You want compiler-verified error handling
+- You prefer functional chaining (`.andThen()`)
+- You don't mind moving away from async/await for composition
 
 ### Look at Effect when:
 - You need the full ecosystem (DI, layers, tracing)

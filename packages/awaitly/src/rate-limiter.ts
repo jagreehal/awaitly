@@ -575,6 +575,492 @@ export function createCombinedLimiter(
 }
 
 // =============================================================================
+// Fixed Window Rate Limiter
+// =============================================================================
+
+/**
+ * Configuration for fixed window rate limiter.
+ */
+export interface FixedWindowLimiterConfig {
+  /**
+   * Maximum requests allowed per window.
+   */
+  limit: number;
+
+  /**
+   * Window duration in milliseconds.
+   * @default 1000 (1 second)
+   */
+  windowMs?: number;
+
+  /**
+   * Strategy when rate limit is exceeded.
+   * - 'wait': Wait until window resets (default)
+   * - 'reject': Reject immediately with error
+   * @default 'wait'
+   */
+  strategy?: "wait" | "reject";
+}
+
+/**
+ * Statistics for fixed window rate limiter.
+ */
+export interface FixedWindowLimiterStats {
+  /** Requests made in current window */
+  requestCount: number;
+  /** Maximum requests allowed per window */
+  limit: number;
+  /** Window duration in milliseconds */
+  windowMs: number;
+  /** Time remaining until window reset (ms) */
+  remainingMs: number;
+  /** Number of requests waiting for next window */
+  waitingCount: number;
+}
+
+/**
+ * Fixed window rate limiter interface.
+ */
+export interface FixedWindowLimiter {
+  /**
+   * Execute an operation with rate limiting.
+   * @param operation - The operation to execute
+   * @param cost - Optional cost for this operation (default: 1)
+   * @returns The operation result
+   */
+  execute<T>(operation: () => T | Promise<T>, cost?: number): Promise<T>;
+
+  /**
+   * Execute a Result-returning operation with rate limiting.
+   * @param operation - The operation to execute
+   * @param cost - Optional cost for this operation (default: 1)
+   */
+  executeResult<T, E>(
+    operation: () => Result<T, E> | AsyncResult<T, E>,
+    cost?: number
+  ): AsyncResult<T, E | RateLimitExceededError>;
+
+  /**
+   * Get current statistics.
+   */
+  getStats(): FixedWindowLimiterStats;
+
+  /**
+   * Reset the rate limiter.
+   */
+  reset(): void;
+}
+
+/**
+ * Create a fixed window rate limiter.
+ *
+ * Unlike token bucket, fixed window resets at fixed intervals.
+ * Simpler to reason about but can allow bursts at window boundaries.
+ *
+ * @param name - Name for the limiter (used in errors)
+ * @param config - Rate limiter configuration
+ * @returns A FixedWindowLimiter instance
+ *
+ * @example
+ * ```typescript
+ * const limiter = createFixedWindowLimiter('api-calls', {
+ *   limit: 100,       // 100 requests
+ *   windowMs: 60000,  // per minute
+ * });
+ *
+ * // In workflow
+ * const data = await limiter.execute(() => callApi());
+ *
+ * // Cost-based limiting (e.g., batch operations cost more)
+ * const batchData = await limiter.execute(() => callBatchApi(), 10);
+ * ```
+ */
+export function createFixedWindowLimiter(
+  name: string,
+  config: FixedWindowLimiterConfig
+): FixedWindowLimiter {
+  const { limit, windowMs = 1000, strategy = "wait" } = config;
+
+  let windowStart = Date.now();
+  let requestCount = 0;
+  const waitQueue: Array<{ resolve: () => void; cost: number }> = [];
+
+  /**
+   * Reset window if needed and return remaining time.
+   */
+  function checkWindow(): number {
+    const now = Date.now();
+    const elapsed = now - windowStart;
+
+    if (elapsed >= windowMs) {
+      // New window
+      windowStart = now;
+      requestCount = 0;
+      return 0;
+    }
+
+    return windowMs - elapsed;
+  }
+
+  /**
+   * Try to consume capacity.
+   * Returns remaining wait time if insufficient capacity.
+   */
+  function tryConsume(cost: number): number {
+    const remainingMs = checkWindow();
+
+    if (requestCount + cost <= limit) {
+      requestCount += cost;
+      return 0;
+    }
+
+    return remainingMs;
+  }
+
+  /**
+   * Wait for next window.
+   */
+  async function waitForWindow(cost: number): Promise<void> {
+    return new Promise((resolve) => {
+      const check = () => {
+        const waitTime = tryConsume(cost);
+        if (waitTime === 0) {
+          resolve();
+        } else {
+          waitQueue.push({ resolve: check, cost });
+          setTimeout(() => {
+            const idx = waitQueue.findIndex((w) => w.resolve === check);
+            if (idx !== -1) {
+              waitQueue.splice(idx, 1);
+              check();
+            }
+          }, waitTime);
+        }
+      };
+      check();
+    });
+  }
+
+  return {
+    async execute<T>(operation: () => T | Promise<T>, cost = 1): Promise<T> {
+      // Reject immediately if cost exceeds limit - can never succeed
+      if (cost > limit) {
+        throw {
+          type: "RATE_LIMIT_EXCEEDED",
+          limiterName: name,
+          retryAfterMs: windowMs,
+        } as RateLimitExceededError;
+      }
+
+      const waitTime = tryConsume(cost);
+
+      if (waitTime > 0) {
+        if (strategy === "reject") {
+          throw {
+            type: "RATE_LIMIT_EXCEEDED",
+            limiterName: name,
+            retryAfterMs: waitTime,
+          } as RateLimitExceededError;
+        }
+
+        await waitForWindow(cost);
+      }
+
+      return operation();
+    },
+
+    async executeResult<T, E>(
+      operation: () => Result<T, E> | AsyncResult<T, E>,
+      cost = 1
+    ): AsyncResult<T, E | RateLimitExceededError> {
+      // Reject immediately if cost exceeds limit - can never succeed
+      if (cost > limit) {
+        return err({
+          type: "RATE_LIMIT_EXCEEDED",
+          limiterName: name,
+          retryAfterMs: windowMs,
+        });
+      }
+
+      const waitTime = tryConsume(cost);
+
+      if (waitTime > 0) {
+        if (strategy === "reject") {
+          return err({
+            type: "RATE_LIMIT_EXCEEDED",
+            limiterName: name,
+            retryAfterMs: waitTime,
+          });
+        }
+
+        await waitForWindow(cost);
+      }
+
+      return operation();
+    },
+
+    getStats(): FixedWindowLimiterStats {
+      const remainingMs = checkWindow();
+      return {
+        requestCount,
+        limit,
+        windowMs,
+        remainingMs,
+        waitingCount: waitQueue.length,
+      };
+    },
+
+    reset(): void {
+      windowStart = Date.now();
+      requestCount = 0;
+      waitQueue.length = 0;
+    },
+  };
+}
+
+// =============================================================================
+// Cost-Based Token Bucket Rate Limiter
+// =============================================================================
+
+/**
+ * Configuration for cost-based rate limiter.
+ */
+export interface CostBasedRateLimiterConfig {
+  /**
+   * Maximum tokens (credits) per second refill rate.
+   */
+  tokensPerSecond: number;
+
+  /**
+   * Maximum token capacity (burst capacity).
+   * @default tokensPerSecond * 2
+   */
+  maxTokens?: number;
+
+  /**
+   * Strategy when rate limit is exceeded.
+   * - 'wait': Wait until tokens are available (default)
+   * - 'reject': Reject immediately with error
+   * @default 'wait'
+   */
+  strategy?: "wait" | "reject";
+}
+
+/**
+ * Statistics for cost-based rate limiter.
+ */
+export interface CostBasedRateLimiterStats {
+  /** Available tokens (can be fractional) */
+  availableTokens: number;
+  /** Maximum token capacity */
+  maxTokens: number;
+  /** Token refill rate per second */
+  tokensPerSecond: number;
+  /** Number of operations waiting */
+  waitingCount: number;
+}
+
+/**
+ * Cost-based rate limiter interface.
+ */
+export interface CostBasedRateLimiter {
+  /**
+   * Execute an operation with cost-based rate limiting.
+   * @param operation - The operation to execute
+   * @param cost - Token cost for this operation (default: 1)
+   * @returns The operation result
+   */
+  execute<T>(operation: () => T | Promise<T>, cost?: number): Promise<T>;
+
+  /**
+   * Execute a Result-returning operation with cost-based rate limiting.
+   * @param operation - The operation to execute
+   * @param cost - Token cost for this operation (default: 1)
+   */
+  executeResult<T, E>(
+    operation: () => Result<T, E> | AsyncResult<T, E>,
+    cost?: number
+  ): AsyncResult<T, E | RateLimitExceededError>;
+
+  /**
+   * Get current statistics.
+   */
+  getStats(): CostBasedRateLimiterStats;
+
+  /**
+   * Reset the rate limiter.
+   */
+  reset(): void;
+}
+
+/**
+ * Create a cost-based token bucket rate limiter.
+ *
+ * Different operations can have different costs, allowing fine-grained
+ * control over resource usage. For example, a batch API call might cost
+ * 10 tokens while a simple query costs 1.
+ *
+ * @param name - Name for the limiter (used in errors)
+ * @param config - Rate limiter configuration
+ * @returns A CostBasedRateLimiter instance
+ *
+ * @example
+ * ```typescript
+ * const limiter = createCostBasedRateLimiter('api', {
+ *   tokensPerSecond: 100,  // 100 tokens/second refill
+ *   maxTokens: 200,        // Can burst up to 200 tokens
+ * });
+ *
+ * // Simple query costs 1 token
+ * await limiter.execute(() => simpleQuery());
+ *
+ * // Batch operation costs 10 tokens
+ * await limiter.execute(() => batchOperation(), 10);
+ *
+ * // Heavy export costs 50 tokens
+ * await limiter.execute(() => exportData(), 50);
+ * ```
+ */
+export function createCostBasedRateLimiter(
+  name: string,
+  config: CostBasedRateLimiterConfig
+): CostBasedRateLimiter {
+  const { tokensPerSecond, strategy = "wait" } = config;
+  const maxTokens = config.maxTokens ?? tokensPerSecond * 2;
+
+  let tokens = maxTokens;
+  let lastRefill = Date.now();
+  const refillRate = tokensPerSecond / 1000; // tokens per ms
+
+  const waitQueue: Array<{ check: () => void; cost: number }> = [];
+
+  /**
+   * Refill tokens based on elapsed time.
+   */
+  function refill(): void {
+    const now = Date.now();
+    const elapsed = now - lastRefill;
+    const tokensToAdd = elapsed * refillRate;
+    tokens = Math.min(maxTokens, tokens + tokensToAdd);
+    lastRefill = now;
+  }
+
+  /**
+   * Try to consume tokens.
+   * Returns remaining wait time if insufficient tokens.
+   */
+  function tryConsume(cost: number): number {
+    refill();
+    if (tokens >= cost) {
+      tokens -= cost;
+      return 0;
+    }
+    // Calculate wait time for needed tokens
+    const tokensNeeded = cost - tokens;
+    return Math.ceil(tokensNeeded / refillRate);
+  }
+
+  /**
+   * Wait for tokens to be available.
+   */
+  async function waitForTokens(cost: number): Promise<void> {
+    return new Promise((resolve) => {
+      const check = () => {
+        const waitTime = tryConsume(cost);
+        if (waitTime === 0) {
+          resolve();
+        } else {
+          waitQueue.push({ check, cost });
+          setTimeout(() => {
+            const idx = waitQueue.findIndex((w) => w.check === check);
+            if (idx !== -1) {
+              waitQueue.splice(idx, 1);
+              check();
+            }
+          }, waitTime);
+        }
+      };
+      check();
+    });
+  }
+
+  return {
+    async execute<T>(operation: () => T | Promise<T>, cost = 1): Promise<T> {
+      // Reject immediately if cost exceeds maxTokens - can never succeed
+      if (cost > maxTokens) {
+        throw {
+          type: "RATE_LIMIT_EXCEEDED",
+          limiterName: name,
+          retryAfterMs: Math.ceil(cost / refillRate),
+        } as RateLimitExceededError;
+      }
+
+      const waitTime = tryConsume(cost);
+
+      if (waitTime > 0) {
+        if (strategy === "reject") {
+          throw {
+            type: "RATE_LIMIT_EXCEEDED",
+            limiterName: name,
+            retryAfterMs: waitTime,
+          } as RateLimitExceededError;
+        }
+
+        await waitForTokens(cost);
+      }
+
+      return operation();
+    },
+
+    async executeResult<T, E>(
+      operation: () => Result<T, E> | AsyncResult<T, E>,
+      cost = 1
+    ): AsyncResult<T, E | RateLimitExceededError> {
+      // Reject immediately if cost exceeds maxTokens - can never succeed
+      if (cost > maxTokens) {
+        return err({
+          type: "RATE_LIMIT_EXCEEDED",
+          limiterName: name,
+          retryAfterMs: Math.ceil(cost / refillRate),
+        });
+      }
+
+      const waitTime = tryConsume(cost);
+
+      if (waitTime > 0) {
+        if (strategy === "reject") {
+          return err({
+            type: "RATE_LIMIT_EXCEEDED",
+            limiterName: name,
+            retryAfterMs: waitTime,
+          });
+        }
+
+        await waitForTokens(cost);
+      }
+
+      return operation();
+    },
+
+    getStats(): CostBasedRateLimiterStats {
+      refill();
+      return {
+        availableTokens: tokens,
+        maxTokens,
+        tokensPerSecond,
+        waitingCount: waitQueue.length,
+      };
+    },
+
+    reset(): void {
+      tokens = maxTokens;
+      lastRefill = Date.now();
+      waitQueue.length = 0;
+    },
+  };
+}
+
+// =============================================================================
 // Presets
 // =============================================================================
 

@@ -305,6 +305,18 @@ export type StepOptions = {
   key?: string;
 
   /**
+   * Short description for labels/tooltips.
+   * Used by static analysis visualization tools.
+   */
+  description?: string;
+
+  /**
+   * Full markdown documentation for the step.
+   * Used by static analysis visualization tools.
+   */
+  markdown?: string;
+
+  /**
    * Retry configuration for transient failures.
    * When specified, the step will retry on errors according to this config.
    */
@@ -381,6 +393,20 @@ export type RetryOptions = {
 };
 
 /**
+ * Timeout behavior when the timeout is reached.
+ *
+ * - 'error' (default): Return an error result with StepTimeoutError
+ * - 'option': Return Ok(undefined) instead of an error (useful for optional operations)
+ * - 'disconnect': Let the operation complete in background, return timeout error immediately
+ * - function: Custom handler to generate the timeout error
+ */
+export type TimeoutBehavior =
+  | "error"
+  | "option"
+  | "disconnect"
+  | ((stepInfo: { name?: string; key?: string; ms: number }) => unknown);
+
+/**
  * Configuration for step timeout behavior.
  */
 export type TimeoutOptions = {
@@ -393,6 +419,7 @@ export type TimeoutOptions = {
   /**
    * Custom error to use when timeout occurs.
    * @default StepTimeoutError with step details
+   * @deprecated Use `onTimeout` with a function for custom errors
    */
   error?: unknown;
 
@@ -403,6 +430,36 @@ export type TimeoutOptions = {
    * @default false
    */
   signal?: boolean;
+
+  /**
+   * Behavior when timeout is reached.
+   *
+   * - 'error' (default): Return StepTimeoutError (or custom error if provided)
+   * - 'option': Return Ok(undefined) instead of error (operation treated as optional)
+   * - 'disconnect': Let operation complete in background, return error immediately
+   * - function: Custom handler `(stepInfo) => customError`
+   *
+   * @default 'error'
+   *
+   * @example
+   * ```typescript
+   * // Default: Return timeout error
+   * step.withTimeout(() => slowOp(), { ms: 5000 });
+   *
+   * // Optional: Return undefined if times out
+   * step.withTimeout(() => optionalOp(), { ms: 5000, onTimeout: 'option' });
+   *
+   * // Disconnect: Don't wait for slow operation
+   * step.withTimeout(() => fireAndForget(), { ms: 5000, onTimeout: 'disconnect' });
+   *
+   * // Custom error
+   * step.withTimeout(() => apiCall(), {
+   *   ms: 5000,
+   *   onTimeout: ({ name, ms }) => ({ type: 'API_TIMEOUT', name, ms })
+   * });
+   * ```
+   */
+  onTimeout?: TimeoutBehavior;
 };
 
 /**
@@ -784,11 +841,11 @@ export type WorkflowEvent<E, C = unknown> =
   | { type: "workflow_start"; workflowId: string; ts: number; context?: C }
   | { type: "workflow_success"; workflowId: string; ts: number; durationMs: number; context?: C }
   | { type: "workflow_error"; workflowId: string; ts: number; durationMs: number; error: E; context?: C }
-  | { type: "step_start"; workflowId: string; stepId: string; stepKey?: string; name?: string; ts: number; context?: C }
-  | { type: "step_success"; workflowId: string; stepId: string; stepKey?: string; name?: string; ts: number; durationMs: number; context?: C }
-  | { type: "step_error"; workflowId: string; stepId: string; stepKey?: string; name?: string; ts: number; durationMs: number; error: E; context?: C }
-  | { type: "step_aborted"; workflowId: string; stepId: string; stepKey?: string; name?: string; ts: number; durationMs: number; context?: C }
-  | { type: "step_complete"; workflowId: string; stepKey: string; name?: string; ts: number; durationMs: number; result: Result<unknown, unknown, unknown>; meta?: StepFailureMeta; context?: C }
+  | { type: "step_start"; workflowId: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; context?: C }
+  | { type: "step_success"; workflowId: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; context?: C }
+  | { type: "step_error"; workflowId: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; error: E; context?: C }
+  | { type: "step_aborted"; workflowId: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; context?: C }
+  | { type: "step_complete"; workflowId: string; stepKey: string; name?: string; description?: string; ts: number; durationMs: number; result: Result<unknown, unknown, unknown>; meta?: StepFailureMeta; context?: C }
   | { type: "step_cache_hit"; workflowId: string; stepKey: string; name?: string; ts: number; context?: C }
   | { type: "step_cache_miss"; workflowId: string; stepKey: string; name?: string; ts: number; context?: C }
   | { type: "step_skipped"; workflowId: string; stepKey?: string; name?: string; reason?: string; decisionId?: string; ts: number; context?: C }
@@ -1109,6 +1166,21 @@ function sleep(ms: number): Promise<void> {
  * Symbol used internally to identify timeout rejection.
  */
 const TIMEOUT_SYMBOL: unique symbol = Symbol("timeout");
+const TIMEOUT_OPTION_SYMBOL: unique symbol = Symbol("timeout-option");
+
+/**
+ * Check if an error is a timeout option marker (should return undefined instead of error).
+ * @internal
+ */
+function isTimeoutOptionMarker(
+  value: unknown
+): value is { [TIMEOUT_OPTION_SYMBOL]: true; ms: number } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as Record<symbol, unknown>)[TIMEOUT_OPTION_SYMBOL] === true
+  );
+}
 
 /**
  * Execute an operation with a timeout using Promise.race.
@@ -1122,16 +1194,30 @@ async function executeWithTimeout<T>(
   externalSignal?: AbortSignal
 ): Promise<T> {
   const controller = new AbortController();
+  const behavior = options.onTimeout ?? "error";
 
-  // Create the timeout error once
-  const timeoutError: StepTimeoutError =
-    (options.error as StepTimeoutError) ?? {
-      type: "STEP_TIMEOUT",
-      stepName: stepInfo.name,
-      stepKey: stepInfo.key,
-      timeoutMs: options.ms,
-      attempt: stepInfo.attempt,
-    };
+  // Create the timeout error based on behavior
+  const createTimeoutError = (): unknown => {
+    // For function behavior, call the handler to generate the error
+    if (typeof behavior === "function") {
+      return behavior({
+        name: stepInfo.name,
+        key: stepInfo.key,
+        ms: options.ms,
+      });
+    }
+
+    // For other behaviors, use custom error or default StepTimeoutError
+    return (
+      (options.error as StepTimeoutError) ?? {
+        type: "STEP_TIMEOUT",
+        stepName: stepInfo.name,
+        stepKey: stepInfo.key,
+        timeoutMs: options.ms,
+        attempt: stepInfo.attempt,
+      }
+    );
+  };
 
   // Track the timeout ID for cleanup
   let timeoutId: ReturnType<typeof setTimeout>;
@@ -1151,8 +1237,19 @@ async function executeWithTimeout<T>(
   // Create a timeout promise that rejects after the specified duration
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
-      controller.abort(); // Signal abort for operations that support it
-      reject({ [TIMEOUT_SYMBOL]: true, error: timeoutError });
+      // For 'disconnect', don't abort - let operation continue in background
+      if (behavior !== "disconnect") {
+        controller.abort();
+      }
+
+      // For 'option', throw special marker to return undefined
+      if (behavior === "option") {
+        reject({ [TIMEOUT_OPTION_SYMBOL]: true, ms: options.ms });
+        return;
+      }
+
+      // For all other behaviors, throw the timeout error
+      reject({ [TIMEOUT_SYMBOL]: true, error: createTimeoutError() });
     }, options.ms);
   });
 
@@ -1174,12 +1271,30 @@ async function executeWithTimeout<T>(
     const result = await Promise.race([operationPromise, timeoutPromise]);
     return result;
   } catch (error) {
+    // Check if this was an 'option' timeout - return undefined as success
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      (error as Record<symbol, unknown>)[TIMEOUT_OPTION_SYMBOL] === true
+    ) {
+      // Throw special marker that step handler will convert to ok(undefined)
+      throw { [TIMEOUT_OPTION_SYMBOL]: true, ms: options.ms };
+    }
+
     // Check if this was our timeout
     if (
       typeof error === "object" &&
       error !== null &&
       (error as Record<symbol, unknown>)[TIMEOUT_SYMBOL] === true
     ) {
+      // For 'disconnect' behavior, the operation continues in the background
+      // Attach a catch handler to prevent unhandled rejection if it fails later
+      if (behavior === "disconnect") {
+        operationPromise.catch(() => {
+          // Intentionally swallowed - operation was disconnected
+        });
+      }
+
       const errorToThrow = (error as { error: unknown }).error;
 
       // Mark the error with STEP_TIMEOUT_MARKER if it's a custom error (not already a StepTimeoutError)
@@ -1494,7 +1609,7 @@ export async function run<T, E, C = void>(
     ): Promise<T> => {
       return (async () => {
         const parsedOptions = parseStepOptions(stepOptions);
-        const { name: stepName, key: stepKey, retry: retryConfig, timeout: timeoutConfig } = parsedOptions;
+        const { name: stepName, key: stepKey, description: stepDescription, retry: retryConfig, timeout: timeoutConfig } = parsedOptions;
         const stepId = generateStepId(stepKey);
         const hasEventListeners = onEvent;
         const overallStartTime = hasEventListeners ? performance.now() : 0;
@@ -1540,6 +1655,7 @@ export async function run<T, E, C = void>(
             stepId,
             stepKey,
             name: stepName,
+            description: stepDescription,
             ts: Date.now(),
           });
         }
@@ -1579,6 +1695,7 @@ export async function run<T, E, C = void>(
                 stepId,
                 stepKey,
                 name: stepName,
+                description: stepDescription,
                 ts: Date.now(),
                 durationMs,
               });
@@ -1588,6 +1705,7 @@ export async function run<T, E, C = void>(
                   workflowId,
                   stepKey,
                   name: stepName,
+                  description: stepDescription,
                   ts: Date.now(),
                   durationMs,
                   result,
@@ -1642,6 +1760,45 @@ export async function run<T, E, C = void>(
           } catch (thrown) {
             const durationMs = performance.now() - attemptStartTime;
 
+            // Handle timeout with 'option' behavior - return undefined as success
+            if (isTimeoutOptionMarker(thrown)) {
+              const timeoutMs = thrown.ms;
+              emitEvent({
+                type: "step_timeout",
+                workflowId,
+                stepId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                timeoutMs,
+                attempt,
+              });
+              emitEvent({
+                type: "step_success",
+                workflowId,
+                stepId,
+                stepKey,
+                name: stepName,
+                description: stepDescription,
+                ts: Date.now(),
+                durationMs: performance.now() - overallStartTime,
+              });
+              if (stepKey) {
+                emitEvent({
+                  type: "step_complete",
+                  workflowId,
+                  stepKey,
+                  name: stepName,
+                  description: stepDescription,
+                  ts: Date.now(),
+                  durationMs: performance.now() - overallStartTime,
+                  result: ok(undefined),
+                });
+              }
+              // Return undefined as success value (timeout was treated as optional)
+              return undefined as T;
+            }
+
             // Handle early exit - propagate immediately
             if (isEarlyExitE(thrown)) {
               emitEvent({
@@ -1650,6 +1807,7 @@ export async function run<T, E, C = void>(
                 stepId,
                 stepKey,
                 name: stepName,
+                description: stepDescription,
                 ts: Date.now(),
                 durationMs,
               });
@@ -1718,6 +1876,7 @@ export async function run<T, E, C = void>(
                 stepId,
                 stepKey,
                 name: stepName,
+                description: stepDescription,
                 ts: Date.now(),
                 durationMs: totalDurationMs,
                 error: thrown as unknown as E,
@@ -1728,6 +1887,7 @@ export async function run<T, E, C = void>(
                   workflowId,
                   stepKey,
                   name: stepName,
+                  description: stepDescription,
                   ts: Date.now(),
                   durationMs: totalDurationMs,
                   result: err(thrown as unknown as E, { cause: thrown }),
@@ -1793,6 +1953,7 @@ export async function run<T, E, C = void>(
                 stepId,
                 stepKey,
                 name: stepName,
+                description: stepDescription,
                 ts: Date.now(),
                 durationMs: totalDurationMs,
                 error: mappedError,
@@ -1803,6 +1964,7 @@ export async function run<T, E, C = void>(
                   workflowId,
                   stepKey,
                   name: stepName,
+                  description: stepDescription,
                   ts: Date.now(),
                   durationMs: totalDurationMs,
                   result: err(mappedError, { cause: thrown }),
@@ -1822,6 +1984,7 @@ export async function run<T, E, C = void>(
                 stepId,
                 stepKey,
                 name: stepName,
+                description: stepDescription,
                 ts: Date.now(),
                 durationMs: totalDurationMs,
                 error: unexpectedError,
@@ -1832,6 +1995,7 @@ export async function run<T, E, C = void>(
                   workflowId,
                   stepKey,
                   name: stepName,
+                  description: stepDescription,
                   ts: Date.now(),
                   durationMs: totalDurationMs,
                   result: err(unexpectedError, { cause: thrown }),
@@ -1857,6 +2021,7 @@ export async function run<T, E, C = void>(
           stepId,
           stepKey,
           name: stepName,
+          description: stepDescription,
           ts: Date.now(),
           durationMs: totalDurationMs,
           error: wrappedError,
@@ -1867,6 +2032,7 @@ export async function run<T, E, C = void>(
             workflowId,
             stepKey,
             name: stepName,
+            description: stepDescription,
             ts: Date.now(),
             durationMs: totalDurationMs,
             result: errorResult,

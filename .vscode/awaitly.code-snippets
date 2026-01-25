@@ -1,0 +1,137 @@
+{
+  "Awaitly Run Workflow": {
+    "prefix": ["awaitly-run", "run-workflow"],
+    "body": [
+      "const ${1:result} = await run(async (step) => {",
+      "\t${2:// Your workflow steps here}",
+      "\t$0",
+      "});",
+      "",
+      "if (!${1:result}.ok) {",
+      "\treturn ${1:result};",
+      "}",
+      "",
+      "console.log(${1:result}.value);"
+    ],
+    "description": "Create an awaitly run() workflow with Result handling"
+  },
+  "Awaitly Step": {
+    "prefix": ["awaitly-step", "step"],
+    "body": [
+      "const ${1:result} = await step(",
+      "\t() => ${2:asyncOperation()}",
+      ");"
+    ],
+    "description": "Create an awaitly step() call"
+  },
+  "Awaitly Step with Key": {
+    "prefix": ["awaitly-step-key", "step-key"],
+    "body": [
+      "const ${1:result} = await step(",
+      "\t() => ${2:asyncOperation()},",
+      "\t{ key: '${3:cache-key}' }",
+      ");"
+    ],
+    "description": "Create an awaitly step() call with cache key"
+  },
+  "Awaitly Create Workflow": {
+    "prefix": ["awaitly-workflow", "createWorkflow"],
+    "body": [
+      "const ${1:workflowName} = createWorkflow<",
+      "\t{ ${2:arg}: ${3:string} },",
+      "\t${4:ResultType},",
+      "\t${5:ErrorType}",
+      ">('${1:workflowName}');",
+      "",
+      "// Execute the workflow",
+      "const ${6:result} = await ${1:workflowName}(async (step) => {",
+      "\t${0:// Your workflow steps here}",
+      "});"
+    ],
+    "description": "Create an awaitly workflow with createWorkflow"
+  },
+  "Awaitly Parallel Steps": {
+    "prefix": ["awaitly-parallel", "step-parallel"],
+    "body": [
+      "const ${1:results} = await step.parallel({",
+      "\t${2:first}: () => ${3:firstOperation()},",
+      "\t${4:second}: () => ${5:secondOperation()},",
+      "});"
+    ],
+    "description": "Create parallel awaitly steps"
+  },
+  "Awaitly Error Type": {
+    "prefix": ["awaitly-error", "tagged-error"],
+    "body": [
+      "type ${1:ErrorName} = {",
+      "\t_tag: '${1:ErrorName}';",
+      "\t${2:message}: ${3:string};",
+      "};"
+    ],
+    "description": "Create a tagged error type for awaitly"
+  },
+  "Awaitly Step with Retry": {
+    "prefix": ["awaitly-retry", "step-retry"],
+    "body": [
+      "const ${1:result} = await step.retry(",
+      "\t() => ${2:asyncOperation()},",
+      "\t{",
+      "\t\tattempts: ${3:3},",
+      "\t\tbackoff: '${4|exponential,linear,fixed|}',",
+      "\t\tbaseDelay: ${5:1000}",
+      "\t}",
+      ");"
+    ],
+    "description": "Create an awaitly step with retry"
+  },
+  "Awaitly Step with Timeout": {
+    "prefix": ["awaitly-timeout", "step-timeout"],
+    "body": [
+      "const ${1:result} = await step.withTimeout(",
+      "\t() => ${2:asyncOperation()},",
+      "\t{ ms: ${3:5000} }",
+      ");"
+    ],
+    "description": "Create an awaitly step with timeout"
+  },
+  "Awaitly Result Check": {
+    "prefix": ["awaitly-check", "result-check"],
+    "body": [
+      "if (!${1:result}.ok) {",
+      "\treturn ${1:result};",
+      "}",
+      "",
+      "const ${2:value} = ${1:result}.value;",
+      "$0"
+    ],
+    "description": "Check awaitly Result and early return on error"
+  },
+  "Awaitly Full Workflow Example": {
+    "prefix": ["awaitly-full", "workflow-full"],
+    "body": [
+      "import { run } from 'awaitly';",
+      "",
+      "type ${1:WorkflowError} = {",
+      "\t_tag: '${1:WorkflowError}';",
+      "\tmessage: string;",
+      "};",
+      "",
+      "async function ${2:myWorkflow}(${3:input}: ${4:string}) {",
+      "\treturn run(async (step) => {",
+      "\t\tconst ${5:data} = await step(",
+      "\t\t\t() => ${6:fetchData}(${3:input}),",
+      "\t\t\t{ key: `${7:data}:\\${${3:input}}` }",
+      "\t\t);",
+      "",
+      "\t\tif (!${5:data}.ok) {",
+      "\t\t\treturn ${5:data};",
+      "\t\t}",
+      "",
+      "\t\treturn ${5:data};",
+      "\t});",
+      "}",
+      "$0"
+    ],
+    "description": "Create a complete awaitly workflow with error handling"
+  }
+}

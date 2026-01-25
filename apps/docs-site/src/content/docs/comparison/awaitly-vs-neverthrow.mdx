@@ -419,21 +419,23 @@ const result = await workflow(async (step) => {
 
 ## When to Choose Each
 
+### Choose awaitly when:
+- You want Result types with familiar async/await syntax
+- You need workflow orchestration (retries, timeouts, caching)
+- You want automatic error type inference
+- You're building multi-step async operations
+- You need step-level resilience patterns
+- You want to keep async/await ergonomics for multi-step flows
+
 ### Choose neverthrow when:
 - You only need Result types without workflow features
 - You prefer method chaining over function calls
 - You want the smallest possible bundle size
 - Your project already uses neverthrow
 
+
+=======
 ### Choose awaitly when:
-- You need workflow orchestration (retries, timeouts, caching)
-- You want automatic error type inference
-- You're building multi-step async operations
-- You need step-level resilience patterns
-
-## Migration Guide
-
-### From neverthrow to awaitly
 
 ```typescript
 // neverthrow

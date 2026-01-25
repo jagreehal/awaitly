@@ -1,0 +1,468 @@
+---
+title: Framework Integration
+description: Using awaitly with React, Next.js, Express, and other frameworks
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+awaitly integrates naturally with popular frameworks. This guide shows common patterns for React, Next.js, Express, and Fastify.
+
+## React
+
+### useWorkflow hook
+
+Create a reusable hook for running workflows in components:
+
+```typescript
+import { useState, useCallback } from 'react';
+import { createWorkflow, type Result, type UnexpectedError } from 'awaitly';
+
+type WorkflowState<T, E> =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; data: T }
+  | { status: 'error'; error: E | UnexpectedError };
+
+export function useWorkflow<T, E, Deps extends Record<string, unknown>>(
+  deps: Deps,
+  workflowFn: (step: any, deps: Deps) => Promise<T>
+) {
+  const [state, setState] = useState<WorkflowState<T, E>>({ status: 'idle' });
+
+  const run = useCallback(async () => {
+    setState({ status: 'loading' });
+
+    const workflow = createWorkflow(deps);
+    const result = await workflow(workflowFn);
+
+    if (result.ok) {
+      setState({ status: 'success', data: result.value });
+    } else {
+      setState({ status: 'error', error: result.error as E | UnexpectedError });
+    }
+
+    return result;
+  }, [deps, workflowFn]);
+
+  return { ...state, run };
+}
+```
+
+Usage in a component:
+
+```tsx
+function CheckoutButton({ cartId }: { cartId: string }) {
+  const { status, data, error, run } = useWorkflow(
+    { validateCart, processPayment, sendConfirmation },
+    async (step) => {
+      const cart = await step(validateCart(cartId));
+      const payment = await step(processPayment(cart.total));
+      await step(sendConfirmation(cart.email, payment.id));
+      return { orderId: payment.id };
+    }
+  );
+
+  return (
+    <div>
+      <button onClick={run} disabled={status === 'loading'}>
+        {status === 'loading' ? 'Processing...' : 'Checkout'}
+      </button>
+      {status === 'error' && <p>Error: {String(error)}</p>}
+      {status === 'success' && <p>Order confirmed: {data.orderId}</p>}
+    </div>
+  );
+}
+```
+
+### Error boundaries
+
+Integrate with React error boundaries for unexpected errors:
+
+```tsx
+import { Component, type ReactNode } from 'react';
+import { isUnexpectedError } from 'awaitly';
+
+interface Props {
+  children: ReactNode;
+  fallback: (error: unknown) => ReactNode;
+}
+
+interface State {
+  error: unknown | null;
+}
+
+export class WorkflowErrorBoundary extends Component<Props, State> {
+  state: State = { error: null };
+
+  static getDerivedStateFromError(error: unknown): State {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return this.props.fallback(this.state.error);
+    }
+    return this.props.children;
+  }
+}
+
+// Usage
+function App() {
+  return (
+    <WorkflowErrorBoundary
+      fallback={(error) => (
+        <div>
+          {isUnexpectedError(error)
+            ? 'An unexpected error occurred'
+            : 'Something went wrong'}
+        </div>
+      )}
+    >
+      <CheckoutPage />
+    </WorkflowErrorBoundary>
+  );
+}
+```
+
+## Next.js
+
+### Server Actions
+
+Use awaitly in Next.js 13+ server actions:
+
+```typescript
+// app/actions/checkout.ts
+'use server';
+
+import { createWorkflow, type AsyncResult } from 'awaitly';
+import { validateCart, processPayment, sendEmail } from '@/lib/services';
+
+type CheckoutResult = { orderId: string };
+type CheckoutError = 'INVALID_CART' | 'PAYMENT_FAILED' | 'EMAIL_FAILED';
+
+export async function checkout(
+  cartId: string
+): Promise<AsyncResult<CheckoutResult, CheckoutError>> {
+  const workflow = createWorkflow({
+    validateCart,
+    processPayment,
+    sendEmail,
+  });
+
+  return await workflow(async (step) => {
+    const cart = await step(validateCart(cartId));
+    const payment = await step(processPayment(cart.total));
+    await step(sendEmail(cart.email, payment.receiptUrl));
+    return { orderId: payment.id };
+  });
+}
+```
+
+Use in a client component:
+
+```tsx
+'use client';
+
+import { checkout } from './actions/checkout';
+
+export function CheckoutForm({ cartId }: { cartId: string }) {
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit() {
+    setPending(true);
+    const result = await checkout(cartId);
+    setPending(false);
+
+    if (result.ok) {
+      redirect(`/order/${result.value.orderId}`);
+    } else {
+      // Handle typed errors
+      switch (result.error) {
+        case 'INVALID_CART':
+          toast.error('Your cart is invalid');
+          break;
+        case 'PAYMENT_FAILED':
+          toast.error('Payment failed, please try again');
+          break;
+        case 'EMAIL_FAILED':
+          toast.warning('Order placed but confirmation email failed');
+          break;
+      }
+    }
+  }
+
+  return (
+    <button onClick={handleSubmit} disabled={pending}>
+      {pending ? 'Processing...' : 'Complete Order'}
+    </button>
+  );
+}
+```
+
+### API Routes
+
+Use awaitly in Next.js API routes:
+
+```typescript
+// app/api/orders/route.ts
+import { NextResponse } from 'next/server';
+import { createWorkflow } from 'awaitly';
+
+export async function POST(request: Request) {
+  const body = await request.json();
+
+  const workflow = createWorkflow({ validateOrder, chargeCard, createOrder });
+  const result = await workflow(async (step) => {
+    const validated = await step(validateOrder(body));
+    const charge = await step(chargeCard(validated.amount));
+    const order = await step(createOrder(validated, charge.id));
+    return order;
+  });
+
+  if (result.ok) {
+    return NextResponse.json(result.value, { status: 201 });
+  }
+
+  // Map errors to HTTP responses
+  const errorMap: Record<string, number> = {
+    VALIDATION_ERROR: 400,
+    CARD_DECLINED: 402,
+    INVENTORY_ERROR: 409,
+  };
+
+  const status = errorMap[String(result.error)] ?? 500;
+  return NextResponse.json({ error: result.error }, { status });
+}
+```
+
+## Express
+
+### Middleware pattern
+
+Create middleware for consistent error handling:
+
+```typescript
+import express, { type Request, type Response, type NextFunction } from 'express';
+import { type Result, isUnexpectedError } from 'awaitly';
+
+// Middleware to handle Result responses
+function resultHandler<T, E>(
+  handler: (req: Request) => Promise<Result<T, E>>
+) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await handler(req);
+
+      if (result.ok) {
+        res.json(result.value);
+      } else {
+        // Map domain errors to HTTP status codes
+        const error = result.error;
+        if (isUnexpectedError(error)) {
+          res.status(500).json({ error: 'Internal server error' });
+        } else {
+          res.status(400).json({ error });
+        }
+      }
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+// Usage
+const app = express();
+
+app.post('/api/orders', resultHandler(async (req) => {
+  const workflow = createWorkflow({ validateOrder, processPayment });
+  return await workflow(async (step) => {
+    const order = await step(validateOrder(req.body));
+    const payment = await step(processPayment(order.total));
+    return { orderId: payment.id };
+  });
+}));
+```
+
+### Route handlers with typed errors
+
+```typescript
+import { createWorkflow, type AsyncResult } from 'awaitly';
+import { Router } from 'express';
+
+const router = Router();
+
+// POST /users
+router.post('/users', async (req, res) => {
+  const workflow = createWorkflow({ validateUser, createUser, sendWelcome });
+
+  const result = await workflow(async (step) => {
+    const validated = await step(validateUser(req.body));
+    const user = await step(createUser(validated));
+    await step(sendWelcome(user.email));
+    return user;
+  });
+
+  if (result.ok) {
+    return res.status(201).json(result.value);
+  }
+
+  // Type-safe error handling
+  const error = result.error;
+  switch (error) {
+    case 'INVALID_EMAIL':
+    case 'WEAK_PASSWORD':
+      return res.status(400).json({ error, message: 'Validation failed' });
+    case 'USER_EXISTS':
+      return res.status(409).json({ error, message: 'User already exists' });
+    case 'EMAIL_FAILED':
+      // User created but email failed - still success
+      return res.status(201).json({
+        ...result.value,
+        warning: 'Welcome email could not be sent'
+      });
+    default:
+      return res.status(500).json({ error: 'Internal error' });
+  }
+});
+```
+
+## Fastify
+
+### Plugin pattern
+
+```typescript
+import Fastify from 'fastify';
+import { createWorkflow, type Result } from 'awaitly';
+
+const fastify = Fastify();
+
+// Decorate request with workflow helper
+fastify.decorateRequest('workflow', null);
+
+fastify.addHook('preHandler', async (request) => {
+  request.workflow = <T, E, Deps extends Record<string, unknown>>(
+    deps: Deps,
+    fn: (step: any, deps: Deps) => Promise<T>
+  ) => {
+    const workflow = createWorkflow(deps);
+    return workflow(fn);
+  };
+});
+
+// Route using the helper
+fastify.post('/orders', async (request, reply) => {
+  const result = await request.workflow(
+    { validateOrder, processPayment },
+    async (step) => {
+      const order = await step(validateOrder(request.body));
+      const payment = await step(processPayment(order.total));
+      return { orderId: payment.id };
+    }
+  );
+
+  if (result.ok) {
+    return reply.code(201).send(result.value);
+  }
+
+  return reply.code(400).send({ error: result.error });
+});
+```
+
+### Schema validation integration
+
+```typescript
+import { Type } from '@sinclair/typebox';
+
+const OrderSchema = Type.Object({
+  items: Type.Array(Type.Object({
+    productId: Type.String(),
+    quantity: Type.Number(),
+  })),
+  shippingAddress: Type.String(),
+});
+
+fastify.post('/orders', {
+  schema: {
+    body: OrderSchema,
+  },
+}, async (request, reply) => {
+  // Body is already validated by Fastify
+  const result = await createWorkflow({ processOrder })(async (step) => {
+    return await step(processOrder(request.body));
+  });
+
+  if (result.ok) {
+    return reply.send(result.value);
+  }
+
+  // Only domain errors at this point (validation already passed)
+  return reply.code(422).send({ error: result.error });
+});
+```
+
+## Best Practices
+
+<Aside type="tip" title="Keep workflows in separate files">
+Define workflows in dedicated files for better testing and reuse:
+
+```typescript
+// workflows/checkout.ts
+export const checkout = createWorkflow({
+  validateCart,
+  processPayment,
+  sendConfirmation,
+});
+
+// routes/checkout.ts
+import { checkout } from '../workflows/checkout';
+```
+</Aside>
+
+### Error mapping
+
+Create consistent error-to-HTTP mappings:
+
+```typescript
+// lib/error-mapper.ts
+export const httpErrorMap = new Map<string, { status: number; message: string }>([
+  ['NOT_FOUND', { status: 404, message: 'Resource not found' }],
+  ['UNAUTHORIZED', { status: 401, message: 'Authentication required' }],
+  ['FORBIDDEN', { status: 403, message: 'Access denied' }],
+  ['VALIDATION_ERROR', { status: 400, message: 'Invalid input' }],
+  ['RATE_LIMITED', { status: 429, message: 'Too many requests' }],
+]);
+
+export function mapErrorToResponse(error: unknown) {
+  const mapped = httpErrorMap.get(String(error));
+  return mapped ?? { status: 500, message: 'Internal server error' };
+}
+```
+
+### Request context
+
+Pass request context through workflows:
+
+```typescript
+const workflow = createWorkflow({ fetchUser, logAction });
+
+const result = await workflow(
+  async (step, deps, ctx) => {
+    const user = await step(fetchUser(ctx.userId));
+    await step(logAction(ctx.requestId, 'user_fetched'));
+    return user;
+  },
+  {
+    context: {
+      userId: req.user.id,
+      requestId: req.headers['x-request-id'],
+    }
+  }
+);
+```
+
+## Next Steps
+
+- [Testing Guide](/guides/testing/) - Test your workflows
+- [Production Deployment](/advanced/production-deployment/) - Deploy with confidence
+- [Observability](/advanced/opentelemetry/) - Add tracing and monitoring

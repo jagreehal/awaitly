@@ -55,6 +55,69 @@ Slow op timed out after 1000ms
 */
 ```
 
+### Timeout behavior variants
+
+Control what happens when a timeout occurs using `onTimeout`:
+
+<Tabs>
+  <TabItem label="error (default)">
+```typescript
+// Default behavior - return timeout error
+const data = await step.withTimeout(
+  () => slowOperation(),
+  { ms: 5000, onTimeout: 'error' }
+);
+// Returns StepTimeoutError when operation times out
+```
+  </TabItem>
+  <TabItem label="option">
+```typescript
+// Treat timeout as optional - return undefined instead of error
+const data = await step.withTimeout(
+  () => optionalEnrichment(),
+  { ms: 1000, onTimeout: 'option' }
+);
+// data is undefined if timeout occurred, otherwise the result
+// No error thrown - useful for non-critical operations
+```
+  </TabItem>
+  <TabItem label="disconnect">
+```typescript
+// Return error immediately but let operation complete in background
+const data = await step.withTimeout(
+  () => expensiveButRecoverableOperation(),
+  { ms: 2000, onTimeout: 'disconnect' }
+);
+// Returns error immediately, but operation continues running
+// Useful when you want to fail fast but still let work complete
+```
+  </TabItem>
+  <TabItem label="custom handler">
+```typescript
+// Use custom error from handler function
+const data = await step.withTimeout(
+  () => apiCall(),
+  {
+    ms: 5000,
+    onTimeout: ({ name, ms }) => ({
+      _tag: 'API_TIMEOUT' as const,
+      operation: name,
+      waited: ms,
+    }),
+  }
+);
+// Returns your custom error type for better domain modeling
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="tip" title="When to use each behavior">
+- **error** (default): Standard behavior, fail when timeout
+- **option**: Non-critical enrichment data, graceful degradation
+- **disconnect**: Fire-and-forget cleanup, background processing
+- **custom handler**: Domain-specific timeout errors, tagged errors
+</Aside>
+
 ## Retries
 
 Retry failed steps with configurable backoff:

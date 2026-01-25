@@ -3534,6 +3534,224 @@ describe("Retry + Timeout Combined", () => {
 });
 
 // =============================================================================
+// Timeout Behavior Variants Tests
+// =============================================================================
+
+describe("step timeout behavior variants", () => {
+  describe("onTimeout: 'option'", () => {
+    it("returns undefined instead of error when operation times out", async () => {
+      const events: WorkflowEvent<unknown>[] = [];
+
+      const result = await run(
+        async (step) => {
+          const value = await step(
+            async () => {
+              await new Promise((resolve) => setTimeout(resolve, 200));
+              return ok("completed");
+            },
+            { timeout: { ms: 50, onTimeout: "option" } }
+          );
+          // value should be undefined when timeout with 'option'
+          return value ?? "default";
+        },
+        { onEvent: (e) => events.push(e) }
+      );
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe("default");
+      }
+
+      // Should still emit timeout event
+      const timeoutEvents = events.filter((e) => e.type === "step_timeout");
+      expect(timeoutEvents).toHaveLength(1);
+
+      // Should emit success event (timeout treated as success with undefined)
+      const successEvents = events.filter((e) => e.type === "step_success");
+      expect(successEvents.length).toBeGreaterThan(0);
+    });
+
+    it("does not retry when onTimeout is 'option'", async () => {
+      let attempts = 0;
+
+      const result = await run(async (step) => {
+        const value = await step(
+          async () => {
+            attempts++;
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            return ok("completed");
+          },
+          {
+            timeout: { ms: 50, onTimeout: "option" },
+            retry: { attempts: 3 },
+          }
+        );
+        return value ?? "timed-out";
+      });
+
+      expect(result.ok).toBe(true);
+      // Should only attempt once since 'option' treats timeout as success
+      expect(attempts).toBe(1);
+    });
+  });
+
+  describe("onTimeout: 'disconnect'", () => {
+    it("returns error immediately but operation continues in background", async () => {
+      let operationCompleted = false;
+
+      const result = await run(async (step) => {
+        await step(
+          async () => {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            operationCompleted = true;
+            return ok("completed");
+          },
+          { timeout: { ms: 20, onTimeout: "disconnect" } }
+        );
+        return "done";
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toHaveProperty("type", "STEP_TIMEOUT");
+      }
+
+      // Wait for background operation to complete
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(operationCompleted).toBe(true);
+    });
+
+    it("does not emit unhandled rejection when background operation fails", async () => {
+      const unhandled: unknown[] = [];
+      const handler = (reason: unknown) => {
+        unhandled.push(reason);
+      };
+      process.once("unhandledRejection", handler);
+
+      const result = await run(async (step) => {
+        await step(
+          async () => {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            return err({ type: "BACKGROUND_FAIL" as const });
+          },
+          { timeout: { ms: 10, onTimeout: "disconnect" } }
+        );
+        return "done";
+      });
+
+      expect(result.ok).toBe(false);
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      process.removeListener("unhandledRejection", handler);
+
+      expect(unhandled).toHaveLength(0);
+    });
+  });
+
+  describe("onTimeout: function", () => {
+    it("uses custom error from handler function", async () => {
+      const result = await run(async (step) => {
+        await step(
+          async () => {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            return ok("completed");
+          },
+          {
+            timeout: {
+              ms: 50,
+              onTimeout: ({ name, ms }) => ({
+                type: "CUSTOM_TIMEOUT" as const,
+                stepName: name,
+                durationMs: ms,
+              }),
+            },
+            name: "my-slow-step",
+          }
+        );
+        return "done";
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toEqual({
+          type: "CUSTOM_TIMEOUT",
+          stepName: "my-slow-step",
+          durationMs: 50,
+        });
+      }
+    });
+
+    it("custom error works with tagged errors", async () => {
+      const result = await run(async (step) => {
+        await step(
+          async () => {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            return ok("completed");
+          },
+          {
+            timeout: {
+              ms: 50,
+              onTimeout: ({ ms }) => ({
+                _tag: "SlowOperation" as const,
+                waited: ms,
+              }),
+            },
+          }
+        );
+        return "done";
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toEqual({
+          _tag: "SlowOperation",
+          waited: 50,
+        });
+      }
+    });
+  });
+
+  describe("onTimeout: 'error' (default)", () => {
+    it("returns StepTimeoutError by default", async () => {
+      const result = await run(async (step) => {
+        await step(
+          async () => {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            return ok("completed");
+          },
+          { timeout: { ms: 50 } }
+        );
+        return "done";
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toHaveProperty("type", "STEP_TIMEOUT");
+        expect((result.error as StepTimeoutError).timeoutMs).toBe(50);
+      }
+    });
+
+    it("explicit 'error' behavior works same as default", async () => {
+      const result = await run(async (step) => {
+        await step(
+          async () => {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            return ok("completed");
+          },
+          { timeout: { ms: 50, onTimeout: "error" } }
+        );
+        return "done";
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toHaveProperty("type", "STEP_TIMEOUT");
+      }
+    });
+  });
+});
+
+// =============================================================================
 // Named Object Parallel Tests
 // =============================================================================
 
@@ -4269,4 +4487,3 @@ describe("createWorkflow with signal (cancellation)", () => {
     expect(cancelledEvent).toBeUndefined();
   });
 });
-

@@ -1,0 +1,362 @@
+---
+title: Migration Guide
+description: Migrate to awaitly from try/catch, neverthrow, or other patterns
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide helps you migrate existing code to awaitly. Whether you're coming from try/catch, neverthrow, or rolling your own Result types, we've got you covered.
+
+## From try/catch
+
+### Basic pattern
+
+<Tabs>
+  <TabItem label="Before (try/catch)">
+```typescript
+async function processOrder(orderId: string): Promise<Order> {
+  try {
+    const order = await db.orders.findById(orderId);
+    if (!order) {
+      throw new Error('Order not found');
+    }
+
+    const payment = await paymentService.charge(order.total);
+    if (!payment.success) {
+      throw new Error('Payment failed');
+    }
+
+    await emailService.sendConfirmation(order.email);
+
+    return order;
+  } catch (error) {
+    console.error('Order processing failed:', error);
+    throw error;
+  }
+}
+```
+  </TabItem>
+  <TabItem label="After (awaitly)">
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+
+type OrderError = 'NOT_FOUND' | 'PAYMENT_FAILED' | 'EMAIL_FAILED';
+
+// Define Result-returning functions
+async function findOrder(id: string): AsyncResult<Order, 'NOT_FOUND'> {
+  const order = await db.orders.findById(id);
+  return order ? ok(order) : err('NOT_FOUND');
+}
+
+async function chargeOrder(total: number): AsyncResult<Payment, 'PAYMENT_FAILED'> {
+  const payment = await paymentService.charge(total);
+  return payment.success ? ok(payment) : err('PAYMENT_FAILED');
+}
+
+async function sendConfirmation(email: string): AsyncResult<void, 'EMAIL_FAILED'> {
+  try {
+    await emailService.sendConfirmation(email);
+    return ok(undefined);
+  } catch {
+    return err('EMAIL_FAILED');
+  }
+}
+
+// Compose in a workflow
+const processOrder = createWorkflow({
+  findOrder,
+  chargeOrder,
+  sendConfirmation,
+});
+
+const result = await processOrder(async (step) => {
+  const order = await step(findOrder(orderId));
+  await step(chargeOrder(order.total));
+  await step(sendConfirmation(order.email));
+  return order;
+});
+
+if (result.ok) {
+  console.log('Order processed:', result.value);
+} else {
+  console.log('Failed with:', result.error);
+  // result.error is typed as: 'NOT_FOUND' | 'PAYMENT_FAILED' | 'EMAIL_FAILED' | UnexpectedError
+}
+```
+  </TabItem>
+</Tabs>
+
+### Converting throwing functions
+
+Use `step.try` to wrap existing throwing code:
+
+```typescript
+// Existing throwing function
+async function riskyOperation(): Promise<Data> {
+  // May throw
+  return await externalApi.call();
+}
+
+// In workflow
+const result = await workflow(async (step) => {
+  const data = await step.try(
+    () => riskyOperation(),
+    { error: 'OPERATION_FAILED' as const }
+  );
+  return data;
+});
+```
+
+Or use `fromPromise` for standalone conversions:
+
+```typescript
+import { fromPromise } from 'awaitly';
+
+const result = await fromPromise(riskyOperation());
+// result: Result<Data, PromiseRejectedError>
+```
+
+### Gradual adoption
+
+You don't have to convert everything at once. Start with new code:
+
+```typescript
+// Keep existing try/catch code
+async function legacyFunction() {
+  try {
+    return await oldService.call();
+  } catch {
+    return null;
+  }
+}
+
+// Wrap in Result for new workflow
+async function wrappedLegacy(): AsyncResult<Data, 'LEGACY_FAILED'> {
+  const result = await legacyFunction();
+  return result ? ok(result) : err('LEGACY_FAILED');
+}
+
+// Use in new workflow
+const workflow = createWorkflow({ wrappedLegacy, newFunction });
+```
+
+## From neverthrow
+
+awaitly and neverthrow share similar concepts, so migration is straightforward.
+
+### Result types
+
+<Tabs>
+  <TabItem label="neverthrow">
+```typescript
+import { ok, err, Result, ResultAsync } from 'neverthrow';
+
+function divide(a: number, b: number): Result<number, string> {
+  if (b === 0) return err('Division by zero');
+  return ok(a / b);
+}
+
+async function fetchUser(id: string): ResultAsync<User, 'NOT_FOUND'> {
+  // ...
+}
+```
+  </TabItem>
+  <TabItem label="awaitly">
+```typescript
+import { ok, err, Result, AsyncResult } from 'awaitly';
+
+function divide(a: number, b: number): Result<number, string> {
+  if (b === 0) return err('Division by zero');
+  return ok(a / b);
+}
+
+async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
+  // ...
+}
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="tip" title="Direct replacement">
+`ok()` and `err()` work the same way. The main difference is `ResultAsync` vs `AsyncResult`.
+</Aside>
+
+### Chaining operations
+
+<Tabs>
+  <TabItem label="neverthrow">
+```typescript
+const result = await fetchUser(id)
+  .andThen(user => fetchPosts(user.id))
+  .map(posts => posts.length);
+```
+  </TabItem>
+  <TabItem label="awaitly">
+```typescript
+import { andThen, map } from 'awaitly';
+
+// Functional style
+const posts = await andThen(
+  await fetchUser(id),
+  (user) => fetchPosts(user.id)
+);
+const count = map(posts, (p) => p.length);
+
+// Or use workflows for complex chains
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser(id));
+  const posts = await step(fetchPosts(user.id));
+  return posts.length;
+});
+```
+  </TabItem>
+</Tabs>
+
+### Pattern matching
+
+<Tabs>
+  <TabItem label="neverthrow">
+```typescript
+result.match(
+  (value) => console.log('Success:', value),
+  (error) => console.log('Error:', error)
+);
+```
+  </TabItem>
+  <TabItem label="awaitly">
+```typescript
+import { match } from 'awaitly';
+
+match(result, {
+  ok: (value) => console.log('Success:', value),
+  err: (error) => console.log('Error:', error),
+});
+```
+  </TabItem>
+</Tabs>
+
+### Combining results
+
+<Tabs>
+  <TabItem label="neverthrow">
+```typescript
+import { Result } from 'neverthrow';
+
+const combined = Result.combine([result1, result2, result3]);
+```
+  </TabItem>
+  <TabItem label="awaitly">
+```typescript
+import { all, allAsync } from 'awaitly';
+
+// Sync results
+const combined = all([result1, result2, result3]);
+
+// Async results
+const combined = await allAsync([
+  fetchUser(id),
+  fetchPosts(id),
+  fetchComments(id),
+]);
+```
+  </TabItem>
+</Tabs>
+
+### Key differences
+
+| Feature | neverthrow | awaitly |
+|---------|------------|---------|
+| Async type | `ResultAsync<T, E>` | `AsyncResult<T, E>` (type alias) |
+| Chaining | Method chaining | Functions + workflows |
+| Error inference | Manual | Automatic in workflows |
+| Step control | - | Retries, timeouts, caching |
+
+## From custom Result types
+
+### Standard shape
+
+awaitly uses a standard Result shape:
+
+```typescript
+// Success
+{ ok: true, value: T }
+
+// Error
+{ ok: false, error: E, cause?: C }
+```
+
+If your custom type uses different shapes, create adapters:
+
+```typescript
+// Your existing type
+type MyResult<T, E> = { success: true; data: T } | { success: false; err: E };
+
+// Adapter
+function toAwaitly<T, E>(myResult: MyResult<T, E>): Result<T, E> {
+  return myResult.success
+    ? ok(myResult.data)
+    : err(myResult.err);
+}
+
+function fromAwaitly<T, E>(result: Result<T, E>): MyResult<T, E> {
+  return result.ok
+    ? { success: true, data: result.value }
+    : { success: false, err: result.error };
+}
+```
+
+### Using adapters in workflows
+
+```typescript
+import { from } from 'awaitly';
+
+// Wrap existing functions
+async function wrappedLegacy(id: string): AsyncResult<User, 'NOT_FOUND'> {
+  const legacyResult = await legacyService.getUser(id);
+  return toAwaitly(legacyResult);
+}
+
+// Use in workflow
+const workflow = createWorkflow({ wrappedLegacy });
+```
+
+## Migration checklist
+
+### Phase 1: Core functions
+
+1. **Identify error types**: List all the errors your functions can produce
+2. **Add return type annotations**: `AsyncResult<T, ErrorType>`
+3. **Replace throw with return**: `throw new Error()` → `return err('ERROR_TYPE')`
+4. **Replace success returns**: `return value` → `return ok(value)`
+
+### Phase 2: Composition
+
+1. **Create workflows**: Wrap related operations in `createWorkflow`
+2. **Use step functions**: Replace sequential awaits with `step()`
+3. **Add error handling**: Handle specific errors at the workflow boundary
+
+### Phase 3: Reliability
+
+1. **Add retries**: Use `step.retry()` for transient failures
+2. **Add timeouts**: Use `step.withTimeout()` for slow operations
+3. **Add caching**: Use step keys for idempotent operations
+
+### Phase 4: Testing
+
+1. **Update tests**: Test Result values instead of catching errors
+2. **Test error paths**: Verify correct error types are returned
+3. **Test workflows**: Use `createWorkflowHarness` for deterministic testing
+
+## Code mods (coming soon)
+
+<Aside type="note">
+We're working on automated code mods to help with migration. Stay tuned!
+</Aside>
+
+## Getting help
+
+- [Troubleshooting Guide](/guides/troubleshooting/) for common issues
+- [API Reference](/reference/api/) for detailed function docs
+- [GitHub Issues](https://github.com/jagreehal/awaitly/issues) for bugs and questions

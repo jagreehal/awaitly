@@ -53,6 +53,8 @@ export default defineConfig({
     duration: 'src/duration-entry.ts',
     match: 'src/match-entry.ts',
     'tagged-error': 'src/tagged-error-entry.ts',
+    errors: 'src/errors-entry.ts',
+    cache: 'src/cache-entry.ts',
 
     // =========================================================================
     // Glue library utilities

@@ -1,5 +1,7 @@
 # awaitly
 
+> Good things come to those who a-**wait**-ly.
+
 Stop writing `try/catch` in every async handler.
 
 awaitly lets you:
