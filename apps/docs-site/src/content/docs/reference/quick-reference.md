@@ -164,6 +164,22 @@ const result = await workflow(async (step) => {
 });
 ```
 
+### Timeout behavior variants
+
+```typescript
+// Default: return error on timeout
+{ ms: 5000, onTimeout: 'error' }
+
+// Return undefined instead of error (optional operation)
+{ ms: 1000, onTimeout: 'option' }
+
+// Return error but let operation finish in background
+{ ms: 2000, onTimeout: 'disconnect' }
+
+// Custom error handler
+{ ms: 5000, onTimeout: ({ name, ms }) => ({ _tag: 'Timeout', name, ms }) }
+```
+
 ### Cancel workflow from outside
 
 ```typescript
@@ -275,6 +291,7 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 | Duration helpers | `awaitly/workflow` |
 | Tagged errors | `awaitly` |
 | Pattern matching | `awaitly` |
+| Pre-built errors (`TimeoutError`, `RetryExhaustedError`, `RateLimitError`, etc.) | `awaitly/errors` |
 
 ---
 
@@ -306,6 +323,7 @@ For optimal bundle size, import from specific entry points:
 | High-volume processing | Batch | `processInBatches()` |
 | Flaky external APIs | Circuit Breaker | `createCircuitBreaker()` |
 | Rate-limited APIs | Rate Limiter | `createRateLimiter()` |
+| Rich typed errors | Tagged Errors | `TaggedError()`, `TimeoutError`, etc. |
 
 ---
 
@@ -366,6 +384,29 @@ const message = match(result, {
   ok: (user) => `Hello, ${user.name}!`,
   err: (error) => `Failed: ${error}`,
 });
+```
+
+### Using tagged errors
+
+```typescript
+import { TaggedError } from 'awaitly';
+import { TimeoutError, RetryExhaustedError, ValidationError, isAwaitlyError } from 'awaitly/errors';
+
+// Create typed errors
+const timeout = new TimeoutError({ operation: 'fetchUser', ms: 5000 });
+const validation = new ValidationError({ field: 'email', reason: 'Invalid format' });
+
+// Pattern match on errors
+const message = TaggedError.match(error, {
+  TimeoutError: (e) => `Timed out after ${e.ms}ms`,
+  RetryExhaustedError: (e) => `Failed after ${e.attempts} attempts`,
+  ValidationError: (e) => `Invalid ${e.field}: ${e.reason}`,
+});
+
+// Type guard
+if (isAwaitlyError(error)) {
+  console.log('Awaitly error:', error._tag);
+}
 ```
 
 ---

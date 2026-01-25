@@ -118,6 +118,16 @@
       "import": "./dist/tagged-error.js",
       "require": "./dist/tagged-error.cjs"
     },
+    "./errors": {
+      "types": "./dist/errors.d.ts",
+      "import": "./dist/errors.js",
+      "require": "./dist/errors.cjs"
+    },
+    "./cache": {
+      "types": "./dist/cache.d.ts",
+      "import": "./dist/cache.js",
+      "require": "./dist/cache.cjs"
+    },
     "./singleflight": {
       "types": "./dist/singleflight.d.ts",
       "import": "./dist/singleflight.js",

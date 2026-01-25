@@ -17,7 +17,7 @@ Effect                              awaitly
 │  ────────────────────── │         │  ──────────────────────  │
 │  • Fibers & concurrency │         │  • Simple async/await    │
 │  • Dependency injection │         │  • Workflow orchestration│
-│  • Advanced scheduling  │         │  • Retry/timeout policies│
+│  • Scheduling & limiting│         │  • Retry/timeout/limits  │
 │  • Resource management  │         │  • Automatic error union │
 │  • Comprehensive stdlib │         │  • Minimal API surface   │
 └─────────────────────────┘         └──────────────────────────┘
@@ -32,13 +32,14 @@ Choose awaitly when you want typed error handling and workflow resilience withou
 | Feature | awaitly | Effect |
 |---------|---------|--------|
 | Learning curve | Low | Steep |
-| Bundle size | ~3KB | ~50KB+ |
+| Bundle size | Light (tree-shakeable) | Heavy |
 | Result type | `Result<T, E>` | `Effect<A, E, R>` |
 | Error tracking | Automatic inference | Explicit typing |
 | Async model | Native Promises | Effect runtime |
 | Dependency injection | Simple context | Full DI system |
 | Scheduling | Retry policies | Schedule combinators |
 | Concurrency | Native Promise.all | Fibers |
+| Rate limiting | Built-in `awaitly/ratelimit` | Built-in `RateLimiter` |
 
 ## Result Types
 
@@ -305,6 +306,46 @@ const policy = Schedule.exponential('100 millis').pipe(
 ```
   </TabItem>
 </Tabs>
+
+### Rate Limiting
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { createRateLimiter } from 'awaitly/ratelimit';
+
+const limiter = createRateLimiter('api', {
+  maxPerSecond: 2,
+  burstCapacity: 5,
+});
+
+const result = await workflow(async (step) => {
+  // Rate limit *when the step starts*
+  const data = await limiter.execute(() => step(() => fetchData()));
+  return data;
+});
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { Effect, RateLimiter } from 'effect';
+
+// fetchData: Effect<Data, Error, never>
+const program = Effect.scoped(
+  Effect.gen(function* (_) {
+    const rateLimit = yield* _(
+      RateLimiter.make({ limit: 2, interval: '1 seconds' })
+    );
+    return yield* _(rateLimit(fetchData));
+  })
+);
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="note">
+Both libraries can rate limit by start-time. awaitly also includes a separate concurrency limiter (max in-flight + optional queue) via `createConcurrencyLimiter`.
+</Aside>
 
 ## Workflow Orchestration
 

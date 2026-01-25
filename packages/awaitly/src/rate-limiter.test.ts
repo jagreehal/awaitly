@@ -3,6 +3,8 @@ import {
   createRateLimiter,
   createConcurrencyLimiter,
   createCombinedLimiter,
+  createFixedWindowLimiter,
+  createCostBasedRateLimiter,
   isRateLimitExceededError,
   isQueueFullError,
   rateLimiterPresets,
@@ -472,6 +474,339 @@ describe("Rate Limiter", () => {
       const limiter = createConcurrencyLimiter("db", rateLimiterPresets.database);
       const result = await limiter.execute(() => "success");
       expect(result).toBe("success");
+    });
+  });
+
+  describe("createFixedWindowLimiter", () => {
+    it("should create a fixed window limiter instance", () => {
+      const limiter = createFixedWindowLimiter("api", {
+        limit: 10,
+        windowMs: 1000,
+      });
+      expect(limiter).toBeDefined();
+      expect(limiter.execute).toBeInstanceOf(Function);
+    });
+
+    it("should execute operations immediately when under limit", async () => {
+      const limiter = createFixedWindowLimiter("api", {
+        limit: 10,
+        windowMs: 1000,
+      });
+
+      const result = await limiter.execute(() => "success");
+      expect(result).toBe("success");
+    });
+
+    it("should track request count", async () => {
+      const limiter = createFixedWindowLimiter("api", {
+        limit: 10,
+        windowMs: 1000,
+      });
+
+      await limiter.execute(() => "result1");
+      await limiter.execute(() => "result2");
+
+      const stats = limiter.getStats();
+      expect(stats.requestCount).toBe(2);
+      expect(stats.limit).toBe(10);
+    });
+
+    it("should wait when window limit exceeded (wait strategy)", async () => {
+      const limiter = createFixedWindowLimiter("api", {
+        limit: 2,
+        windowMs: 1000,
+        strategy: "wait",
+      });
+
+      await limiter.execute(() => "result1");
+      await limiter.execute(() => "result2");
+
+      // This should wait for window reset
+      const promise = limiter.execute(() => "result3");
+
+      // Advance time to next window
+      vi.advanceTimersByTime(1000);
+
+      const result = await promise;
+      expect(result).toBe("result3");
+    });
+
+    it("should reject when window limit exceeded (reject strategy)", async () => {
+      const limiter = createFixedWindowLimiter("api", {
+        limit: 1,
+        windowMs: 1000,
+        strategy: "reject",
+      });
+
+      await limiter.execute(() => "result1");
+
+      await expect(limiter.execute(() => "result2")).rejects.toEqual(
+        expect.objectContaining({
+          type: "RATE_LIMIT_EXCEEDED",
+          limiterName: "api",
+        })
+      );
+    });
+
+    it("should reset count on new window", async () => {
+      const limiter = createFixedWindowLimiter("api", {
+        limit: 10,
+        windowMs: 1000,
+      });
+
+      await limiter.execute(() => "result1");
+      expect(limiter.getStats().requestCount).toBe(1);
+
+      // Move to next window
+      vi.advanceTimersByTime(1000);
+
+      expect(limiter.getStats().requestCount).toBe(0);
+    });
+
+    it("should support cost-based operations", async () => {
+      const limiter = createFixedWindowLimiter("api", {
+        limit: 10,
+        windowMs: 1000,
+      });
+
+      // Batch operation costs 5
+      await limiter.execute(() => "batch", 5);
+
+      const stats = limiter.getStats();
+      expect(stats.requestCount).toBe(5);
+
+      // Only 5 remaining in window
+      await expect(
+        (async () => {
+          const limiter2 = createFixedWindowLimiter("api2", {
+            limit: 10,
+            windowMs: 1000,
+            strategy: "reject",
+          });
+          await limiter2.execute(() => "batch1", 5);
+          await limiter2.execute(() => "batch2", 6); // Over limit!
+        })()
+      ).rejects.toEqual(
+        expect.objectContaining({ type: "RATE_LIMIT_EXCEEDED" })
+      );
+    });
+
+    it("should reject immediately when cost exceeds window limit (wait strategy)", async () => {
+      const limiter = createFixedWindowLimiter("api", {
+        limit: 5,
+        windowMs: 1000,
+        strategy: "wait",
+      });
+
+      // Should reject immediately since cost > limit can never succeed
+      await expect(limiter.execute(() => "result", 6)).rejects.toEqual(
+        expect.objectContaining({ type: "RATE_LIMIT_EXCEEDED" })
+      );
+    });
+
+    it("should reset state", async () => {
+      const limiter = createFixedWindowLimiter("api", {
+        limit: 10,
+        windowMs: 1000,
+      });
+
+      await limiter.execute(() => "result1");
+      await limiter.execute(() => "result2");
+
+      limiter.reset();
+
+      const stats = limiter.getStats();
+      expect(stats.requestCount).toBe(0);
+    });
+  });
+
+  describe("createFixedWindowLimiter.executeResult", () => {
+    it("should execute Result-returning operations", async () => {
+      const limiter = createFixedWindowLimiter("api", {
+        limit: 10,
+        windowMs: 1000,
+      });
+
+      const result = await limiter.executeResult(() => ok({ id: "1" }));
+      expect(result.ok).toBe(true);
+    });
+
+    it("should return rate limit error as Result (reject strategy)", async () => {
+      const limiter = createFixedWindowLimiter("api", {
+        limit: 1,
+        windowMs: 1000,
+        strategy: "reject",
+      });
+
+      await limiter.executeResult(() => ok("result1"));
+
+      const result = await limiter.executeResult(() => ok("result2"));
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(isRateLimitExceededError(result.error)).toBe(true);
+      }
+    });
+  });
+
+  describe("createCostBasedRateLimiter", () => {
+    it("should create a cost-based rate limiter instance", () => {
+      const limiter = createCostBasedRateLimiter("api", {
+        tokensPerSecond: 100,
+      });
+      expect(limiter).toBeDefined();
+      expect(limiter.execute).toBeInstanceOf(Function);
+    });
+
+    it("should execute operations with default cost of 1", async () => {
+      const limiter = createCostBasedRateLimiter("api", {
+        tokensPerSecond: 100,
+        maxTokens: 100,
+      });
+
+      await limiter.execute(() => "result");
+
+      const stats = limiter.getStats();
+      expect(stats.availableTokens).toBe(99);
+    });
+
+    it("should support different costs per operation", async () => {
+      const limiter = createCostBasedRateLimiter("api", {
+        tokensPerSecond: 100,
+        maxTokens: 100,
+      });
+
+      // Simple query costs 1
+      await limiter.execute(() => "simple", 1);
+
+      // Batch operation costs 10
+      await limiter.execute(() => "batch", 10);
+
+      // Heavy export costs 50
+      await limiter.execute(() => "export", 50);
+
+      const stats = limiter.getStats();
+      expect(stats.availableTokens).toBe(39); // 100 - 1 - 10 - 50
+    });
+
+    it("should wait for tokens when insufficient (wait strategy)", async () => {
+      const limiter = createCostBasedRateLimiter("api", {
+        tokensPerSecond: 100,
+        maxTokens: 10,
+        strategy: "wait",
+      });
+
+      // Use all tokens
+      await limiter.execute(() => "result", 10);
+
+      // This needs 5 tokens, should wait
+      const promise = limiter.execute(() => "result2", 5);
+
+      // Advance time to get more tokens (50ms = 5 tokens at 100/s)
+      vi.advanceTimersByTime(50);
+
+      const result = await promise;
+      expect(result).toBe("result2");
+    });
+
+    it("should reject when insufficient tokens (reject strategy)", async () => {
+      const limiter = createCostBasedRateLimiter("api", {
+        tokensPerSecond: 100,
+        maxTokens: 10,
+        strategy: "reject",
+      });
+
+      // Use all tokens
+      await limiter.execute(() => "result", 10);
+
+      await expect(limiter.execute(() => "result2", 5)).rejects.toEqual(
+        expect.objectContaining({
+          type: "RATE_LIMIT_EXCEEDED",
+          limiterName: "api",
+        })
+      );
+    });
+
+    it("should reject immediately when cost exceeds max tokens (wait strategy)", async () => {
+      const limiter = createCostBasedRateLimiter("api", {
+        tokensPerSecond: 100,
+        maxTokens: 10,
+        strategy: "wait",
+      });
+
+      // Should reject immediately since cost > maxTokens can never succeed
+      await expect(limiter.execute(() => "result", 11)).rejects.toEqual(
+        expect.objectContaining({ type: "RATE_LIMIT_EXCEEDED" })
+      );
+    });
+
+    it("should refill tokens over time", async () => {
+      const limiter = createCostBasedRateLimiter("api", {
+        tokensPerSecond: 100,
+        maxTokens: 100,
+      });
+
+      await limiter.execute(() => "result", 50);
+      expect(limiter.getStats().availableTokens).toBe(50);
+
+      // Advance 250ms = 25 tokens refilled
+      vi.advanceTimersByTime(250);
+
+      expect(limiter.getStats().availableTokens).toBe(75);
+    });
+
+    it("should not exceed max tokens", async () => {
+      const limiter = createCostBasedRateLimiter("api", {
+        tokensPerSecond: 100,
+        maxTokens: 100,
+      });
+
+      // Already at max
+      expect(limiter.getStats().availableTokens).toBe(100);
+
+      // Advance time - should stay at max
+      vi.advanceTimersByTime(1000);
+
+      expect(limiter.getStats().availableTokens).toBe(100);
+    });
+
+    it("should reset state", async () => {
+      const limiter = createCostBasedRateLimiter("api", {
+        tokensPerSecond: 100,
+        maxTokens: 100,
+      });
+
+      await limiter.execute(() => "result", 50);
+
+      limiter.reset();
+
+      expect(limiter.getStats().availableTokens).toBe(100);
+    });
+  });
+
+  describe("createCostBasedRateLimiter.executeResult", () => {
+    it("should execute Result-returning operations", async () => {
+      const limiter = createCostBasedRateLimiter("api", {
+        tokensPerSecond: 100,
+      });
+
+      const result = await limiter.executeResult(() => ok({ id: "1" }), 5);
+      expect(result.ok).toBe(true);
+    });
+
+    it("should return rate limit error as Result (reject strategy)", async () => {
+      const limiter = createCostBasedRateLimiter("api", {
+        tokensPerSecond: 100,
+        maxTokens: 10,
+        strategy: "reject",
+      });
+
+      await limiter.executeResult(() => ok("result1"), 10);
+
+      const result = await limiter.executeResult(() => ok("result2"), 5);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(isRateLimitExceededError(result.error)).toBe(true);
+      }
     });
   });
 });

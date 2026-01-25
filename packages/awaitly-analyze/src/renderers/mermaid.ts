@@ -26,6 +26,10 @@ export interface MermaidOptions {
   direction?: "TB" | "LR" | "BT" | "RL";
   /** Show step keys in labels */
   showKeys?: boolean;
+  /** Show step descriptions in labels (default: false) */
+  showStepDescriptions?: boolean;
+  /** Include step markdown as Mermaid comments (default: false) */
+  includeStepMarkdown?: boolean;
   /** Show condition labels on edges */
   showConditions?: boolean;
   /** Use subgraphs for parallel/race blocks */
@@ -52,6 +56,8 @@ export interface MermaidStyles {
 const DEFAULT_OPTIONS: Required<MermaidOptions> = {
   direction: "TB",
   showKeys: false,
+  showStepDescriptions: false,
+  includeStepMarkdown: false,
   showConditions: true,
   useSubgraphs: true,
   styles: {
@@ -302,12 +308,31 @@ function renderStepNode(
     label = `${label}\\n[${node.key}]`;
   }
 
+  // Add description to label when showStepDescriptions is enabled
+  if (context.opts.showStepDescriptions && node.description) {
+    label = `${label}\\n${truncate(node.description, 40)}`;
+  }
+
   // Add retry/timeout indicators
   if (node.retry) {
     label += "\\n(retry)";
   }
   if (node.timeout) {
     label += "\\n(timeout)";
+  }
+
+  // Add markdown as Mermaid comments when includeStepMarkdown is enabled
+  if (context.opts.includeStepMarkdown && node.markdown) {
+    const markdownLines = node.markdown.trim().split("\n");
+    const maxLines = context.opts.maxMarkdownLines;
+    const displayLines = markdownLines.slice(0, maxLines);
+    lines.push(`  %% Step: ${node.name ?? node.callee ?? "step"}`);
+    for (const line of displayLines) {
+      lines.push(`  %% ${line}`);
+    }
+    if (markdownLines.length > maxLines) {
+      lines.push(`  %% ... (${markdownLines.length - maxLines} more lines)`);
+    }
   }
 
   lines.push(`  ${nodeId}[${escapeLabel(label)}]`);

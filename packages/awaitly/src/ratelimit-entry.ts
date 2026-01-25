@@ -23,19 +23,40 @@
  */
 
 export {
+  // Token bucket (original)
   type RateLimiterConfig,
+  type RateLimiterStats,
+  type RateLimiter,
+  createRateLimiter,
+
+  // Fixed window
+  type FixedWindowLimiterConfig,
+  type FixedWindowLimiterStats,
+  type FixedWindowLimiter,
+  createFixedWindowLimiter,
+
+  // Cost-based token bucket
+  type CostBasedRateLimiterConfig,
+  type CostBasedRateLimiterStats,
+  type CostBasedRateLimiter,
+  createCostBasedRateLimiter,
+
+  // Concurrency
   type ConcurrencyLimiterConfig,
+  type ConcurrencyLimiterStats,
+  type ConcurrencyLimiter,
+  createConcurrencyLimiter,
+
+  // Combined
+  type CombinedLimiterConfig,
+  createCombinedLimiter,
+
+  // Errors
   type RateLimitExceededError,
   type QueueFullError,
-  type RateLimiterStats,
-  type ConcurrencyLimiterStats,
-  type RateLimiter,
-  type ConcurrencyLimiter,
-  type CombinedLimiterConfig,
   isRateLimitExceededError,
   isQueueFullError,
-  createRateLimiter,
-  createConcurrencyLimiter,
-  createCombinedLimiter,
+
+  // Presets
   rateLimiterPresets,
 } from "./rate-limiter";

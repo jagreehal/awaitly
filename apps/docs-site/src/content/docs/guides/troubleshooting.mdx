@@ -1,0 +1,426 @@
+---
+title: Troubleshooting
+description: Common issues and solutions when using awaitly
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers common issues you might encounter when using awaitly and how to resolve them.
+
+## Type Errors
+
+### "Type 'X' is not assignable to type 'Y'"
+
+This usually happens when error types don't match what the workflow expects.
+
+<Tabs>
+  <TabItem label="Problem">
+```typescript
+// Error: Type '"UNKNOWN"' is not assignable to type '"NOT_FOUND" | "EMAIL_FAILED"'
+const workflow = createWorkflow({ fetchUser, sendEmail });
+
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser('1'));
+  await step.try(
+    () => riskyOperation(),
+    { error: 'UNKNOWN' }  // Not in dependencies!
+  );
+  return user;
+});
+```
+  </TabItem>
+  <TabItem label="Solution">
+```typescript
+// Option 1: Add the error type to a dependency
+async function riskyOp(): AsyncResult<void, 'UNKNOWN'> { ... }
+const workflow = createWorkflow({ fetchUser, sendEmail, riskyOp });
+
+// Option 2: Use run() with explicit error types
+const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED' | 'UNKNOWN'>(
+  async (step) => { ... }
+);
+```
+  </TabItem>
+</Tabs>
+
+### "Property 'value' does not exist on type 'Result'"
+
+You're trying to access `.value` without narrowing the type first.
+
+<Tabs>
+  <TabItem label="Problem">
+```typescript
+const result = await workflow(async (step) => { ... });
+console.log(result.value);  // Error!
+```
+  </TabItem>
+  <TabItem label="Solution">
+```typescript
+const result = await workflow(async (step) => { ... });
+
+// Option 1: Check ok first
+if (result.ok) {
+  console.log(result.value);  // Safe
+}
+
+// Option 2: Use unwrap helpers
+import { unwrap, unwrapOr } from 'awaitly';
+
+const value = unwrap(result);  // Throws if err
+const value = unwrapOr(result, defaultValue);  // Returns default if err
+```
+  </TabItem>
+</Tabs>
+
+### "Argument of type '() =\> Promise\<X\>' is not assignable"
+
+Your operation doesn't return a `Result` type.
+
+<Tabs>
+  <TabItem label="Problem">
+```typescript
+const workflow = createWorkflow({});
+
+const result = await workflow(async (step) => {
+  // Error: fetch returns Promise<Response>, not Result
+  const response = await step(() => fetch('/api'));
+  return response;
+});
+```
+  </TabItem>
+  <TabItem label="Solution">
+```typescript
+// Option 1: Use step.try for throwing code
+const result = await workflow(async (step) => {
+  const response = await step.try(
+    () => fetch('/api').then(r => r.json()),
+    { error: 'FETCH_FAILED' as const }
+  );
+  return response;
+});
+
+// Option 2: Wrap in a Result-returning function
+async function fetchApi(): AsyncResult<Data, 'FETCH_FAILED'> {
+  try {
+    const res = await fetch('/api');
+    return ok(await res.json());
+  } catch {
+    return err('FETCH_FAILED');
+  }
+}
+```
+  </TabItem>
+</Tabs>
+
+### Error type is `unknown` instead of my expected types
+
+This happens when TypeScript can't infer your error types.
+
+<Tabs>
+  <TabItem label="Problem">
+```typescript
+// Error type is unknown
+const fetchUser = async (id: string) => {
+  const user = await db.find(id);
+  return user ? ok(user) : err('NOT_FOUND');
+};
+```
+  </TabItem>
+  <TabItem label="Solution">
+```typescript
+// Use explicit return type annotation
+const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
+  const user = await db.find(id);
+  return user ? ok(user) : err('NOT_FOUND');
+};
+
+// Or use 'as const' for literal types
+const fetchUser = async (id: string) => {
+  const user = await db.find(id);
+  return user ? ok(user) : err('NOT_FOUND' as const);
+};
+```
+  </TabItem>
+</Tabs>
+
+## Runtime Errors
+
+### "Cannot read property 'ok' of undefined"
+
+Your operation returned `undefined` instead of a `Result`.
+
+<Tabs>
+  <TabItem label="Problem">
+```typescript
+async function fetchUser(id: string) {
+  const user = await db.find(id);
+  if (user) return ok(user);
+  // Missing return statement for error case!
+}
+```
+  </TabItem>
+  <TabItem label="Solution">
+```typescript
+async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
+  const user = await db.find(id);
+  if (user) return ok(user);
+  return err('NOT_FOUND');  // Always return a Result
+}
+```
+  </TabItem>
+</Tabs>
+
+### Workflow hangs indefinitely
+
+Usually caused by an unresolved promise or missing await.
+
+<Tabs>
+  <TabItem label="Common causes">
+    <ul>
+      <li>Forgot to <code>await</code> an async step</li>
+      <li>Operation never resolves or rejects</li>
+      <li>Infinite loop in operation</li>
+      <li>Deadlock in concurrent operations</li>
+    </ul>
+  </TabItem>
+  <TabItem label="Solutions">
+```typescript
+// Add timeouts to operations
+const result = await workflow(async (step) => {
+  const data = await step.withTimeout(
+    () => potentiallySlowOp(),
+    { ms: 30000, name: 'slow-op' }
+  );
+  return data;
+});
+
+// Use cancellation
+const controller = new AbortController();
+setTimeout(() => controller.abort('timeout'), 60000);
+
+const workflow = createWorkflow(deps, { signal: controller.signal });
+```
+  </TabItem>
+</Tabs>
+
+### "Maximum call stack size exceeded"
+
+Usually caused by circular dependencies or infinite recursion.
+
+```typescript
+// Problem: Circular dependency between workflows
+const workflowA = createWorkflow({ workflowB });  // workflowB depends on workflowA!
+
+// Solution: Break the cycle
+const workflowA = createWorkflow({ fetchData });
+const workflowB = createWorkflow({ processData });
+// Call them sequentially, not as dependencies
+```
+
+## Debugging Workflows
+
+### Enable workflow events
+
+Use the `onEvent` option to log what's happening:
+
+```typescript
+const workflow = createWorkflow(deps, {
+  onEvent: (event) => {
+    switch (event.type) {
+      case 'step_start':
+        console.log(`[START] ${event.name}`);
+        break;
+      case 'step_complete':
+        console.log(`[DONE] ${event.name} (${event.durationMs}ms)`);
+        break;
+      case 'step_error':
+        console.log(`[ERROR] ${event.name}:`, event.error);
+        break;
+      case 'step_retry':
+        console.log(`[RETRY] ${event.name} attempt ${event.attempt}`);
+        break;
+    }
+  },
+});
+```
+
+### Use visualization
+
+```typescript
+import { createTracer, renderMermaid } from 'awaitly/visualize';
+
+const tracer = createTracer();
+const workflow = createWorkflow(deps, { onEvent: tracer.handleEvent });
+
+const result = await workflow(async (step) => { ... });
+
+// See what happened
+console.log(renderMermaid(tracer.getTrace()));
+```
+
+### Inspect step results
+
+```typescript
+const workflow = createWorkflow(deps, {
+  onEvent: (event) => {
+    if (event.type === 'step_complete') {
+      console.log('Step result:', event.result);
+    }
+  },
+});
+```
+
+## Performance Issues
+
+### Workflow is slow
+
+<Tabs>
+  <TabItem label="Problem">
+Sequential steps that could run in parallel:
+```typescript
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser('1'));
+  const posts = await step(fetchPosts('1'));  // Waits for user
+  const comments = await step(fetchComments('1'));  // Waits for posts
+  return { user, posts, comments };
+});
+```
+  </TabItem>
+  <TabItem label="Solution">
+Run independent operations in parallel:
+```typescript
+import { allAsync } from 'awaitly';
+
+const result = await workflow(async (step) => {
+  const [user, posts, comments] = await step(() =>
+    allAsync([
+      fetchUser('1'),
+      fetchPosts('1'),
+      fetchComments('1'),
+    ])
+  );
+  return { user, posts, comments };
+});
+```
+  </TabItem>
+</Tabs>
+
+### Memory usage is high
+
+- Use streaming for large data instead of loading everything
+- Clear caches when done
+- Use `processInBatches` for large datasets
+
+```typescript
+import { processInBatches } from 'awaitly/batch';
+
+// Instead of: await Promise.all(users.map(processUser))
+const result = await processInBatches(
+  users,
+  processUser,
+  { batchSize: 100, concurrency: 5 }
+);
+```
+
+### Too many API calls
+
+Use singleflight to dedupe concurrent requests:
+
+```typescript
+import { singleflight } from 'awaitly/singleflight';
+
+const fetchUserOnce = singleflight(fetchUser, {
+  key: (id) => `user:${id}`,
+});
+
+// 10 concurrent calls → 1 actual API call
+await Promise.all(ids.map(id => fetchUserOnce(id)));
+```
+
+## Common Mistakes
+
+### Forgetting `as const` for error literals
+
+```typescript
+// Bad: error type is string
+return err('NOT_FOUND');
+
+// Good: error type is 'NOT_FOUND'
+return err('NOT_FOUND' as const);
+
+// Best: explicit return type handles this
+async function fn(): AsyncResult<User, 'NOT_FOUND'> {
+  return err('NOT_FOUND');  // Automatically literal
+}
+```
+
+### Using step() outside workflow
+
+```typescript
+// Error: step is only available inside workflow callback
+const user = await step(fetchUser('1'));  // step is undefined!
+
+// Correct: use inside workflow
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser('1'));
+  return user;
+});
+```
+
+### Mixing throw and Result
+
+```typescript
+// Bad: inconsistent error handling
+async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
+  const user = await db.find(id);
+  if (!user) throw new Error('Not found');  // Don't throw!
+  return ok(user);
+}
+
+// Good: always return Result
+async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
+  const user = await db.find(id);
+  return user ? ok(user) : err('NOT_FOUND');
+}
+```
+
+### Not handling all error cases
+
+```typescript
+// TypeScript doesn't enforce handling all errors by default
+const result = await workflow(async (step) => { ... });
+
+if (!result.ok) {
+  // result.error could be 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
+  // Make sure to handle all cases!
+}
+
+// Use exhaustive matching with TaggedError
+import { TaggedError } from 'awaitly';
+
+if (!result.ok) {
+  const message = TaggedError.match(result.error, {
+    NOT_FOUND: () => 'User not found',
+    EMAIL_FAILED: () => 'Email delivery failed',
+    // TypeScript will error if you miss a case
+  });
+}
+```
+
+## Getting Help
+
+If you're still stuck:
+
+1. Check the [API Reference](/reference/api/) for correct usage
+2. Look at [example patterns](/patterns/checkout-flow/) for common scenarios
+3. Search [GitHub Issues](https://github.com/jagreehal/awaitly/issues) for similar problems
+4. Open a new issue with a minimal reproduction
+
+<Aside type="tip" title="Minimal reproduction">
+When reporting issues, include:
+- awaitly version
+- TypeScript version
+- A minimal code example that demonstrates the problem
+- Expected vs actual behavior
+</Aside>

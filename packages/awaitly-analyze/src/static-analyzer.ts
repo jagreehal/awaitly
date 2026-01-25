@@ -1197,6 +1197,8 @@ function analyzeStepCall(call: SyntaxNode, ctx: AnalyzerContext): StaticStepNode
     callee,
     key: options.key,
     name: options.name,
+    description: options.description,
+    markdown: options.markdown,
     retry: options.retry,
     timeout: options.timeout,
     location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
@@ -1249,6 +1251,8 @@ function analyzeStepRetryCall(
     callee,
     key: options.key,
     name: options.name,
+    description: options.description,
+    markdown: options.markdown,
     retry,
     timeout: options.timeout,
     location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
@@ -1299,6 +1303,8 @@ function analyzeStepTimeoutCall(
     callee,
     key: options.key,
     name: options.name,
+    description: options.description,
+    markdown: options.markdown,
     retry: options.retry,
     timeout,
     location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
@@ -1311,6 +1317,8 @@ function analyzeStepTimeoutCall(
 interface StepOptions {
   key?: string;
   name?: string;
+  description?: string;
+  markdown?: string;
   retry?: StaticRetryConfig;
   timeout?: StaticTimeoutConfig;
 }
@@ -1342,6 +1350,12 @@ function extractStepOptions(
         } else if (key === "name") {
           const value = extractStringValue(valueNode, ctx);
           if (value) result.name = value;
+        } else if (key === "description") {
+          const value = extractStringValue(valueNode, ctx);
+          if (value) result.description = value;
+        } else if (key === "markdown") {
+          const value = extractStringValue(valueNode, ctx);
+          if (value) result.markdown = value;
         } else if (key === "retry") {
           result.retry = extractRetryConfig(valueNode, ctx);
         } else if (key === "timeout") {

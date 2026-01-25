@@ -51,6 +51,10 @@ export interface StaticStepNode extends StaticBaseNode {
   type: "step";
   /** The function being called (e.g., "fetchUser", "deps.validateCart") */
   callee?: string;
+  /** Short description for labels/tooltips (static analysis) */
+  description?: string;
+  /** Full markdown documentation (static analysis) */
+  markdown?: string;
   /** Retry configuration if specified */
   retry?: StaticRetryConfig;
   /** Timeout configuration if specified */

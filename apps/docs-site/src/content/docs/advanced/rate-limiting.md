@@ -54,6 +54,50 @@ const dbLimiter = createConcurrencyLimiter('database', rateLimiterPresets.databa
 // { maxConcurrent: 10, strategy: 'queue', maxQueueSize: 100 }
 ```
 
+## Fixed window limiter
+
+Simpler alternative to token bucket. Resets at fixed intervals:
+
+```typescript
+import { createFixedWindowLimiter } from 'awaitly/ratelimit';
+
+const limiter = createFixedWindowLimiter('api', {
+  limit: 100,          // 100 requests
+  windowMs: 60000,     // per minute
+  strategy: 'wait',    // 'wait' (default) or 'reject'
+});
+
+const data = await limiter.execute(async () => callApi());
+
+// Check status
+const stats = limiter.getStats();
+console.log(stats.requestCount);  // Requests in current window
+console.log(stats.remainingMs);   // Time until window reset
+```
+
+## Cost-based rate limiter
+
+Different operations can have different costs:
+
+```typescript
+import { createCostBasedRateLimiter } from 'awaitly/ratelimit';
+
+const limiter = createCostBasedRateLimiter('api', {
+  tokensPerSecond: 100,  // 100 tokens/second refill
+  maxTokens: 200,        // Can burst up to 200 tokens
+  strategy: 'wait',
+});
+
+// Simple query costs 1 token (default)
+await limiter.execute(() => simpleQuery());
+
+// Batch operation costs 10 tokens
+await limiter.execute(() => batchOperation(), 10);
+
+// Heavy export costs 50 tokens
+await limiter.execute(() => exportData(), 50);
+```
+
 ## Combined limiter
 
 Apply both rate and concurrency limits:
