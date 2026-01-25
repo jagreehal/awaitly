@@ -1,5 +1,11 @@
 # awaitly-docs
 
+## 1.1.1
+
+### Patch Changes
+
+- 29e01e0: Show logo in docs
+
 ## 1.1.0
 
 ### Minor Changes
