@@ -1,11 +1,11 @@
 
 export default new Map([
 ["src/content/docs/index.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Findex.mdx&astroContentModuleFlag=true")],
+["src/content/docs/playground.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fplayground.mdx&astroContentModuleFlag=true")],
 ["src/content/docs/comparison/awaitly-vs-effect.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fcomparison%2Fawaitly-vs-effect.mdx&astroContentModuleFlag=true")],
+["src/content/docs/comparison/awaitly-vs-try-catch.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fcomparison%2Fawaitly-vs-try-catch.mdx&astroContentModuleFlag=true")],
 ["src/content/docs/comparison/index.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fcomparison%2Findex.mdx&astroContentModuleFlag=true")],
 ["src/content/docs/comparison/awaitly-vs-neverthrow.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fcomparison%2Fawaitly-vs-neverthrow.mdx&astroContentModuleFlag=true")],
-["src/content/docs/comparison/awaitly-vs-try-catch.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fcomparison%2Fawaitly-vs-try-catch.mdx&astroContentModuleFlag=true")],
-["src/content/docs/playground.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fplayground.mdx&astroContentModuleFlag=true")],
 ["src/content/docs/concepts/step.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fconcepts%2Fstep.mdx&astroContentModuleFlag=true")],
 ["src/content/docs/concepts/results.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fconcepts%2Fresults.mdx&astroContentModuleFlag=true")],
 ["src/content/docs/concepts/workflows.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fconcepts%2Fworkflows.mdx&astroContentModuleFlag=true")],
