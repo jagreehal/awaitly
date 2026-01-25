@@ -1,0 +1,463 @@
+---
+title: awaitly vs neverthrow
+description: A comparison of awaitly and neverthrow for Result-based error handling
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
+
+Both awaitly and [neverthrow](https://github.com/supermacro/neverthrow) provide Result types for TypeScript. This guide compares their APIs and helps you choose the right tool.
+
+## Quick Comparison
+
+| Feature | awaitly | neverthrow |
+|---------|---------|------------|
+| Result type | `Result<T, E>` | `Result<T, E>` |
+| Async result | `AsyncResult<T, E>` | `ResultAsync<T, E>` |
+| Method style | Functions | Methods |
+| Workflow orchestration | Built-in | Not included |
+| Automatic error inference | Yes | No |
+| Bundle size | ~3KB | ~2KB |
+
+## Creating Results
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, err } from 'awaitly';
+
+const divide = (a: number, b: number) =>
+  b === 0 ? err('DIVIDE_BY_ZERO') : ok(a / b);
+
+const result = divide(10, 2);
+/*
+Output:
+{ ok: true, value: 5 }
+*/
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+import { ok, err } from 'neverthrow';
+
+const divide = (a: number, b: number) =>
+  b === 0 ? err('DIVIDE_BY_ZERO') : ok(a / b);
+
+const result = divide(10, 2);
+/*
+Output:
+Result { _value: 5 }
+*/
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="note">
+Both libraries use the same `ok()` and `err()` constructors, making migration straightforward.
+</Aside>
+
+## Checking Results
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { isOk, isErr } from 'awaitly';
+
+const result = divide(10, 2);
+
+// Property-based
+if (result.ok) {
+  console.log(result.value); // 5
+}
+
+// Function-based
+if (isOk(result)) {
+  console.log(result.value); // 5
+}
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+const result = divide(10, 2);
+
+// Method-based
+if (result.isOk()) {
+  console.log(result.value); // 5
+}
+
+if (result.isErr()) {
+  console.log(result.error);
+}
+```
+  </TabItem>
+</Tabs>
+
+## Transforming Values
+
+### map
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, map } from 'awaitly';
+
+const result = ok(5);
+const doubled = map(result, n => n * 2);
+/*
+Output:
+{ ok: true, value: 10 }
+*/
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+import { ok } from 'neverthrow';
+
+const result = ok(5);
+const doubled = result.map(n => n * 2);
+/*
+Output:
+Result { _value: 10 }
+*/
+```
+  </TabItem>
+</Tabs>
+
+### mapError
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { err, mapError } from 'awaitly';
+
+const result = err('NOT_FOUND');
+const mapped = mapError(result, e => ({ code: e, status: 404 }));
+/*
+Output:
+{ ok: false, error: { code: 'NOT_FOUND', status: 404 } }
+*/
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+import { err } from 'neverthrow';
+
+const result = err('NOT_FOUND');
+const mapped = result.mapErr(e => ({ code: e, status: 404 }));
+/*
+Output:
+Result { _error: { code: 'NOT_FOUND', status: 404 } }
+*/
+```
+  </TabItem>
+</Tabs>
+
+## Chaining Operations
+
+### andThen / flatMap
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, err, andThen } from 'awaitly';
+
+const parseNumber = (s: string) => {
+  const n = parseInt(s, 10);
+  return isNaN(n) ? err('PARSE_ERROR') : ok(n);
+};
+
+const result = ok('42');
+const parsed = andThen(result, parseNumber);
+/*
+Output:
+{ ok: true, value: 42 }
+*/
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+import { ok, err } from 'neverthrow';
+
+const parseNumber = (s: string) => {
+  const n = parseInt(s, 10);
+  return isNaN(n) ? err('PARSE_ERROR') : ok(n);
+};
+
+const result = ok('42');
+const parsed = result.andThen(parseNumber);
+/*
+Output:
+Result { _value: 42 }
+*/
+```
+  </TabItem>
+</Tabs>
+
+## Pattern Matching
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, match } from 'awaitly';
+
+const result = ok(42);
+const message = match(
+  result,
+  value => `Success: ${value}`,
+  error => `Error: ${error}`
+);
+/*
+Output:
+"Success: 42"
+*/
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+import { ok } from 'neverthrow';
+
+const result = ok(42);
+const message = result.match(
+  value => `Success: ${value}`,
+  error => `Error: ${error}`
+);
+/*
+Output:
+"Success: 42"
+*/
+```
+  </TabItem>
+</Tabs>
+
+## Async Operations
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+
+const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
+  const user = await db.find(id);
+  return user ? ok(user) : err('NOT_FOUND');
+};
+
+// Use with regular async/await
+const result = await fetchUser('123');
+if (result.ok) {
+  console.log(result.value.name);
+}
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+import { okAsync, errAsync, ResultAsync } from 'neverthrow';
+
+const fetchUser = (id: string): ResultAsync<User, 'NOT_FOUND'> => {
+  return ResultAsync.fromPromise(
+    db.find(id),
+    () => 'NOT_FOUND' as const
+  );
+};
+
+// Chain with methods
+const result = await fetchUser('123');
+if (result.isOk()) {
+  console.log(result.value.name);
+}
+```
+  </TabItem>
+</Tabs>
+
+## Batch Operations
+
+### Combining Multiple Results
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, err, all } from 'awaitly';
+
+const results = [ok(1), ok(2), ok(3)];
+const combined = all(results);
+/*
+Output:
+{ ok: true, value: [1, 2, 3] }
+*/
+
+const withError = [ok(1), err('FAILED'), ok(3)];
+const failed = all(withError);
+/*
+Output:
+{ ok: false, error: 'FAILED' }
+*/
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+import { ok, err, Result } from 'neverthrow';
+
+const results = [ok(1), ok(2), ok(3)];
+const combined = Result.combine(results);
+/*
+Output:
+Result { _value: [1, 2, 3] }
+*/
+
+const withError = [ok(1), err('FAILED'), ok(3)];
+const failed = Result.combine(withError);
+/*
+Output:
+Result { _error: 'FAILED' }
+*/
+```
+  </TabItem>
+</Tabs>
+
+## Unwrapping
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, unwrap, unwrapOr, unwrapOrElse } from 'awaitly';
+
+const result = ok(42);
+
+// Throws if err
+const value1 = unwrap(result); // 42
+
+// Default value
+const value2 = unwrapOr(result, 0); // 42
+
+// Computed default
+const value3 = unwrapOrElse(result, err => {
+  console.log('Failed:', err);
+  return 0;
+}); // 42
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+import { ok } from 'neverthrow';
+
+const result = ok(42);
+
+// Throws if err
+const value1 = result.unwrapOr(0); // neverthrow doesn't have unwrap()
+
+// Default value
+const value2 = result.unwrapOr(0); // 42
+
+// neverthrow doesn't have unwrapOrElse
+```
+  </TabItem>
+</Tabs>
+
+## What awaitly Adds: Workflow Orchestration
+
+<Aside type="tip" title="awaitly's Key Advantage">
+While neverthrow focuses purely on Result types, awaitly adds workflow orchestration with automatic error inference.
+</Aside>
+
+### Automatic Error Type Inference
+
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+
+const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
+const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
+const chargeCard = async (amount: number): AsyncResult<Receipt, 'PAYMENT_DECLINED'> => { /* ... */ };
+
+// Error types automatically inferred from all dependencies
+const workflow = createWorkflow({ fetchUser, sendEmail, chargeCard });
+
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser('123'));
+  await step(chargeCard(99.99));
+  await step(sendEmail(user.email));
+  return user;
+});
+
+// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | 'PAYMENT_DECLINED' | UnexpectedError
+//                  ^^^ Automatically inferred from dependencies!
+```
+
+### Built-in Retry and Timeout
+
+```typescript
+const result = await workflow(async (step) => {
+  // Retry with exponential backoff
+  const user = await step.retry(
+    () => fetchUser('123'),
+    { attempts: 3, backoff: 'exponential', delayMs: 100 }
+  );
+
+  // Timeout protection
+  const data = await step.withTimeout(
+    () => slowOperation(),
+    { ms: 5000 }
+  );
+
+  return { user, data };
+});
+```
+
+### Step Caching and Resume
+
+```typescript
+const workflow = createWorkflow(deps, {
+  cache: new Map(),
+  resumeState: savedState, // Resume from previous run
+});
+
+const result = await workflow(async (step) => {
+  // Cached steps skip re-execution
+  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  return user;
+});
+```
+
+## When to Choose Each
+
+### Choose neverthrow when:
+- You only need Result types without workflow features
+- You prefer method chaining over function calls
+- You want the smallest possible bundle size
+- Your project already uses neverthrow
+
+### Choose awaitly when:
+- You need workflow orchestration (retries, timeouts, caching)
+- You want automatic error type inference
+- You're building multi-step async operations
+- You need step-level resilience patterns
+
+## Migration Guide
+
+### From neverthrow to awaitly
+
+```typescript
+// neverthrow
+import { ok, err } from 'neverthrow';
+const result = ok(5).map(n => n * 2).mapErr(e => e.toUpperCase());
+
+// awaitly
+import { ok, err, map, mapError } from 'awaitly';
+const result = mapError(map(ok(5), n => n * 2), e => e.toUpperCase());
+
+// Or use pipe pattern
+import { pipe } from 'awaitly';
+const result = pipe(
+  ok(5),
+  r => map(r, n => n * 2),
+  r => mapError(r, e => e.toUpperCase())
+);
+```
+
+<Aside type="note">
+awaitly uses standalone functions instead of methods, which works better with tree-shaking and functional composition.
+</Aside>
+
+## Next Steps
+
+- [Learn about Workflows →](../concepts/workflows/)
+- [See the full API Reference →](../reference/api/)

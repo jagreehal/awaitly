@@ -1,0 +1,353 @@
+---
+title: Static Analysis
+description: Analyze workflow structure without execution
+---
+
+import Playground from '../../../components/Playground.astro';
+
+Analyze workflow source code to extract structure, dependencies, and generate visualization data without executing the workflow.
+
+## Try it live
+
+Edit the code below to see real-time workflow analysis and diagram generation:
+
+<Playground height="450px" />
+
+## CLI Tool
+
+The `awaitly-analyze` CLI analyzes TypeScript workflow files and outputs Mermaid diagrams or JSON:
+
+```bash
+# Output Mermaid diagram (default)
+npx awaitly-analyze ./src/workflows/checkout.ts
+
+# Output JSON
+npx awaitly-analyze ./src/workflows/checkout.ts --format=json
+
+# Pipe to file
+npx awaitly-analyze ./src/workflows/checkout.ts > workflow.md
+
+# Show step cache keys
+npx awaitly-analyze ./src/workflows/checkout.ts --keys
+
+# Change diagram direction (TB, LR, BT, RL)
+npx awaitly-analyze ./src/workflows/checkout.ts --direction=LR
+```
+
+### Multi-workflow output
+
+When a file contains multiple workflows, each gets its own section with a markdown header and mermaid diagram:
+
+```text
+## Workflow: checkoutWorkflow
+
+(mermaid diagram for checkout workflow)
+
+## Workflow: paymentWorkflow
+
+(mermaid diagram for payment workflow)
+```
+
+## Basic usage
+
+```typescript
+import { analyzeWorkflow } from 'awaitly/analyze';
+
+// Analyze a file
+const results = await analyzeWorkflow('./src/workflows/checkout.ts');
+
+for (const ir of results) {
+  console.log(`Workflow: ${ir.root.workflowName}`);
+  console.log(`Steps: ${ir.metadata.stats.totalSteps}`);
+  console.log(`Conditionals: ${ir.metadata.stats.conditionalCount}`);
+}
+```
+
+## Analyzing source strings
+
+Analyze workflow code directly without reading from a file:
+
+```typescript
+import { analyzeWorkflowSource } from 'awaitly/analyze';
+
+const source = `
+  const checkout = createWorkflow(deps);
+
+  async function run() {
+    return await checkout(async (step, deps) => {
+      const cart = await step(() => deps.fetchCart(), { key: 'cart' });
+      const total = await step(() => deps.calculateTotal(cart), { key: 'total' });
+      return { cart, total };
+    });
+  }
+`;
+
+const results = await analyzeWorkflowSource(source);
+console.log(results[0].metadata.stats);
+// { totalSteps: 2, conditionalCount: 0, parallelCount: 0, ... }
+```
+
+## What gets detected
+
+The analyzer extracts:
+
+| Feature | Detection |
+|---------|-----------|
+| Steps | `step()`, `step.retry()`, `step.withTimeout()` |
+| Conditionals | `if/else`, `when()`, `unless()`, `whenOr()`, `unlessOr()` |
+| Loops | `for`, `while`, `for-of`, `for-in` |
+| Parallel | `step.parallel()`, `allAsync()`, `allSettledAsync()` |
+| Race | `step.race()`, `anyAsync()` |
+| Retry/Timeout | Options in step config, `step.retry()`, `step.withTimeout()` |
+| Workflow refs | Calls to other workflows |
+
+### Supported callback patterns
+
+The analyzer handles various callback patterns:
+
+```typescript
+// Simple identifier
+workflow(async (step, deps) => { ... });
+
+// Destructuring
+workflow(async ({ step }, deps) => { ... });
+
+// Destructuring with alias
+workflow(async ({ step: runStep }, deps) => { ... });
+
+// Destructuring with default
+workflow(async ({ step = defaultStep }, deps) => { ... });
+
+// Destructuring with alias and default
+workflow(async ({ step: runStep = fallback }, deps) => { ... });
+```
+
+## IR structure
+
+The analyzer returns a `StaticWorkflowIR` with:
+
+```typescript
+interface StaticWorkflowIR {
+  root: StaticWorkflowNode;      // Workflow tree
+  metadata: StaticAnalysisMetadata;
+  references: Map<string, StaticWorkflowIR>;
+}
+
+interface StaticAnalysisMetadata {
+  analyzedAt: number;
+  filePath: string;
+  warnings: AnalysisWarning[];
+  stats: AnalysisStats;
+}
+
+interface AnalysisStats {
+  totalSteps: number;
+  conditionalCount: number;
+  parallelCount: number;
+  raceCount: number;
+  loopCount: number;
+  workflowRefCount: number;
+  unknownCount: number;
+}
+```
+
+## Node types
+
+The workflow tree contains these node types:
+
+```typescript
+type StaticFlowNode =
+  | StaticStepNode        // step() call
+  | StaticSequenceNode    // Sequential steps
+  | StaticParallelNode    // Parallel execution
+  | StaticRaceNode        // Race execution
+  | StaticConditionalNode // if/else or conditional helpers
+  | StaticLoopNode        // for/while loops
+  | StaticWorkflowRefNode // Call to another workflow
+  | StaticUnknownNode;    // Unanalyzable code
+```
+
+## Walking the tree
+
+Use the built-in helpers to traverse nodes:
+
+```typescript
+import {
+  isStaticStepNode,
+  isStaticConditionalNode,
+  getStaticChildren
+} from 'awaitly/analyze';
+
+function walkWorkflow(node: StaticFlowNode) {
+  if (isStaticStepNode(node)) {
+    console.log(`Step: ${node.key || node.name}`);
+  }
+
+  if (isStaticConditionalNode(node)) {
+    console.log(`Condition: ${node.condition}`);
+  }
+
+  // Recursively walk children
+  for (const child of getStaticChildren(node)) {
+    walkWorkflow(child);
+  }
+}
+
+const results = await analyzeWorkflow('./checkout.ts');
+for (const child of results[0].root.children) {
+  walkWorkflow(child);
+}
+```
+
+## Multiple workflows
+
+A single file can contain multiple workflows:
+
+```typescript
+const source = `
+  const workflowA = createWorkflow(depsA);
+  const workflowB = createWorkflow(depsB);
+
+  async function runA() {
+    return await workflowA(async (step) => { ... });
+  }
+
+  async function runB() {
+    return await workflowB(async (step) => { ... });
+  }
+`;
+
+const results = await analyzeWorkflowSource(source);
+console.log(results.length); // 2
+
+const wfA = results.find(r => r.root.workflowName === 'workflowA');
+const wfB = results.find(r => r.root.workflowName === 'workflowB');
+```
+
+## WASM loading
+
+The analyzer uses tree-sitter compiled to WebAssembly. WASM files are bundled with the package and loaded automatically.
+
+```typescript
+import { loadTreeSitter, getWasmCachePath } from 'awaitly/analyze';
+
+// Pre-load tree-sitter (optional, for faster first analysis)
+await loadTreeSitter();
+
+// Check where WASM files are cached
+console.log(getWasmCachePath());
+```
+
+## Use cases
+
+### Generate documentation
+
+```typescript
+const results = await analyzeWorkflow('./checkout.ts');
+const ir = results[0];
+
+console.log(`# ${ir.root.workflowName}\n`);
+console.log(`- ${ir.metadata.stats.totalSteps} steps`);
+console.log(`- ${ir.metadata.stats.conditionalCount} decision points`);
+console.log(`- ${ir.metadata.stats.parallelCount} parallel operations`);
+```
+
+### Build test coverage matrix
+
+```typescript
+function countPaths(node: StaticFlowNode): number {
+  if (isStaticConditionalNode(node)) {
+    const thenPaths = node.consequent.reduce((n, c) => n * countPaths(c), 1);
+    const elsePaths = (node.alternate || []).reduce((n, c) => n * countPaths(c), 1);
+    return thenPaths + elsePaths;
+  }
+  // ... handle other node types
+  return 1;
+}
+
+const results = await analyzeWorkflow('./checkout.ts');
+console.log(`Execution paths: ${countPaths(results[0].root)}`);
+```
+
+### Validate workflow complexity
+
+```typescript
+const results = await analyzeWorkflow('./checkout.ts');
+const stats = results[0].metadata.stats;
+
+if (stats.totalSteps > 20) {
+  console.warn('Consider breaking this workflow into smaller pieces');
+}
+
+if (stats.conditionalCount > 5) {
+  console.warn('High cyclomatic complexity');
+}
+```
+
+## Renderers
+
+Generate output from the IR using built-in renderers:
+
+### Mermaid renderer
+
+```typescript
+import { analyzeWorkflow, renderStaticMermaid } from 'awaitly/analyze';
+
+const results = await analyzeWorkflow('./checkout.ts');
+const mermaid = renderStaticMermaid(results[0], {
+  direction: 'TB',      // TB, LR, BT, RL
+  showKeys: false,      // Show step cache keys
+  showConditions: true, // Show condition text
+});
+
+console.log(mermaid);
+// flowchart TB
+//   start(("▶"))
+//   step_1["Fetch cart"]
+//   ...
+```
+
+### JSON renderer
+
+```typescript
+import { analyzeWorkflow, renderStaticJSON } from 'awaitly/analyze';
+
+const results = await analyzeWorkflow('./checkout.ts');
+const json = renderStaticJSON(results[0], { pretty: true });
+
+// For multiple workflows
+const multiJson = renderMultipleStaticJSON(results, {
+  filePath: './checkout.ts',
+  pretty: true,
+});
+```
+
+### Custom names
+
+Parallel and race nodes support custom names that appear in diagrams:
+
+```typescript
+// Object form with name option
+await step.parallel(
+  { user: () => deps.fetchUser(), posts: () => deps.fetchPosts() },
+  { name: 'Fetch user data' }
+);
+
+// Array form with name
+await step.parallel('Fetch all', () => allAsync([
+  deps.fetchUser(),
+  deps.fetchPosts(),
+]));
+```
+
+Both forms render with the custom name in Mermaid diagrams instead of generic "Parallel (all)".
+
+## Limitations
+
+- **No type information**: Uses pattern matching, not TypeScript's type system
+- **Dynamic code**: Template literals in step keys show as `<dynamic>`
+- **External imports**: Referenced workflows must be in the same file to resolve
+
+## Next
+
+[Learn about Visualization →](../visualization/)

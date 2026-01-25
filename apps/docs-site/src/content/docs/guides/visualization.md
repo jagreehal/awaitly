@@ -47,10 +47,10 @@ console.log(viz.renderAs('mermaid'));
 ## ASCII output
 
 ```
-┌── checkout ─────────────────────────────────────────────────────┐
+┌── checkout ──────────────────────────────────────────────────────┐
 │                                                                  │
-│  ✓ Fetch order [12ms]                                           │
-│  ✓ Charge card [45ms]                                           │
+│  ✓ Fetch order [12ms]                                            │
+│  ✓ Charge card [45ms]                                            │
 │                                                                  │
 │  Completed in 57ms                                               │
 │                                                                  │

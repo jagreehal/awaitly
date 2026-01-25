@@ -4,6 +4,7 @@ import starlight from '@astrojs/starlight';
 import starlightThemeNext from 'starlight-theme-next';
 import tailwindcss from '@tailwindcss/vite';
 import astroMermaid from 'astro-mermaid';
+import preact from '@astrojs/preact';
 
 // https://astro.build/config
 export default defineConfig({
@@ -12,6 +13,7 @@ export default defineConfig({
   // For local development, you can override with: BASE=/ pnpm dev
   base: process.env.BASE || '/awaitly',
   integrations: [
+    preact(),
     astroMermaid(),
       starlight({
       title: 'awaitly',
@@ -23,6 +25,11 @@ export default defineConfig({
         { icon: 'github', label: 'GitHub', href: 'https://github.com/jagreehal/awaitly' },
       ],
       sidebar: [
+        {
+          label: 'Playground',
+          slug: 'playground',
+          attrs: { class: 'sidebar-playground' },
+        },
         {
           label: 'Getting Started',
           items: [
@@ -51,6 +58,8 @@ export default defineConfig({
             { label: 'Static Analysis', slug: 'guides/static-analysis' },
             { label: 'Testing', slug: 'guides/testing' },
             { label: 'Batch Processing', slug: 'guides/batch-processing' },
+            { label: 'ESLint Plugin', slug: 'guides/eslint-plugin' },
+            { label: 'Claude Code Skill', slug: 'guides/claude-skill' },
           ],
         },
         {
@@ -77,6 +86,15 @@ export default defineConfig({
           label: 'Reference',
           items: [
             { label: 'API', slug: 'reference/api' },
+          ],
+        },
+        {
+          label: 'Comparison',
+          items: [
+            { label: 'Overview', slug: 'comparison' },
+            { label: 'vs try/catch', slug: 'comparison/awaitly-vs-try-catch' },
+            { label: 'vs neverthrow', slug: 'comparison/awaitly-vs-neverthrow' },
+            { label: 'vs Effect', slug: 'comparison/awaitly-vs-effect' },
           ],
         },
       ],

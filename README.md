@@ -717,6 +717,8 @@ Everything else is optional and documented in the [guides](https://jagreehal.git
 
 **Don't cache writes blindly.** Payments need carefully designed idempotency keys.
 
+**Catch mistakes automatically.** Use [eslint-plugin-awaitly](./packages/eslint-plugin-awaitly) to detect these patterns at lint time.
+
 ## Troubleshooting & FAQ
 
 - **Why is `UnexpectedError` in my result?** It's a safety net for unexpected throws. Map it to HTTP 500 at the boundary.

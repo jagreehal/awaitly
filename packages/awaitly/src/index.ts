@@ -93,6 +93,9 @@ export {
   ok,
   err,
 
+  // Error discriminants
+  UNEXPECTED_ERROR,
+
   // Type guards
   isOk,
   isErr,

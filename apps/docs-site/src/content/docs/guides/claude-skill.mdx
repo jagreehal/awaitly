@@ -1,0 +1,168 @@
+---
+title: Claude Code Skill
+description: Teach Claude Code the awaitly patterns for better AI-assisted development
+sidebar:
+  order: 16
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+The `awaitly-patterns` skill teaches [Claude Code](https://docs.anthropic.com/en/docs/claude-code) the correct patterns for writing awaitly workflows. When enabled, Claude understands the rules, helpers, and best practices.
+
+## What it provides
+
+The skill teaches Claude:
+
+- **step() forms** - When to use direct vs thunk form
+- **Error handling** - How step() handles early exit, no manual checking
+- **Step helpers** - `step.try()`, `step.retry()`, `step.withTimeout()`
+- **Concurrency** - Using `allAsync()` instead of `Promise.all()`
+- **Migration patterns** - Converting try/catch code to Result types
+- **Testing** - Using `unwrapOk`/`unwrapErr` assertions
+
+## Installation
+
+Copy the skill to your project's `.claude/skills` directory:
+
+```bash
+# From your project root
+mkdir -p .claude/skills
+cp -r node_modules/awaitly/.claude/skills/awaitly-patterns .claude/skills/
+```
+
+Or create the structure manually:
+
+```
+your-project/
+├── .claude/
+│   └── skills/
+│       └── awaitly-patterns/
+│           └── SKILL.md
+└── ...
+```
+
+<Aside type="tip">
+The skill is included in the awaitly package under `.claude/skills/awaitly-patterns/SKILL.md`.
+</Aside>
+
+## Usage
+
+Once installed, Claude Code automatically loads skills from your project's `.claude/skills` directory. You can invoke it explicitly:
+
+```
+/awaitly-patterns
+```
+
+Or Claude will use it contextually when you ask about:
+- Writing workflows
+- Migrating from try/catch
+- Debugging Result types
+- Using step helpers
+
+## Key rules Claude learns
+
+### R1: step() accepts both forms
+
+```typescript
+// Direct form - already started, can't retry/cache
+await step(deps.getUser(id));
+
+// Thunk form - deferred, enables retry/caching
+await step(() => deps.getUser(id));
+```
+
+**Rule**: If an operation must be re-executed (retry) or conditionally executed (cache), use the thunk form.
+
+### R2: step() handles early exit
+
+```typescript
+// Correct - step handles errors automatically
+const user = await step(() => deps.getUser(id));
+const order = await step(() => deps.createOrder(user));
+
+// Wrong - never check result.ok inside workflows
+const userResult = await deps.getUser(id);
+if (!userResult.ok) return userResult;  // Don't do this!
+```
+
+### R3: All async work through step()
+
+```typescript
+// Correct
+const user = await step(() => deps.getUser(id));
+const data = await step.try(() => fetch(url), { error: 'FETCH_ERROR' });
+
+// Wrong - bare await bypasses error handling
+const user = await deps.getUser(id);  // Don't do this!
+```
+
+### R4: No Promise.all()
+
+```typescript
+// Correct - allAsync preserves Result types
+const [user, posts] = await step(() => allAsync([
+  deps.getUser(id),
+  deps.getPosts(id),
+]));
+
+// Wrong - Promise.all loses type information
+const [user, posts] = await Promise.all([...]);  // Don't do this!
+```
+
+## Example conversation
+
+**You**: Help me migrate this function to awaitly:
+```typescript
+async function getOrder(id: string) {
+  try {
+    const user = await fetchUser(id);
+    const order = await createOrder(user);
+    return order;
+  } catch (e) {
+    throw new Error('Order failed');
+  }
+}
+```
+
+**Claude** (with skill): I'll migrate this to awaitly patterns...
+
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+import { run } from 'awaitly';
+
+// 1. Convert deps to return Results
+async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
+  const user = await db.find(id);
+  return user ? ok(user) : err('NOT_FOUND');
+}
+
+async function createOrder(user: User): AsyncResult<Order, 'ORDER_FAILED'> {
+  // ...
+}
+
+// 2. Use run() with step()
+async function getOrder(id: string) {
+  return run(async (step) => {
+    const user = await step(fetchUser(id));
+    const order = await step(createOrder(user));
+    return order;
+  });
+}
+```
+
+## Customizing the skill
+
+You can edit `.claude/skills/awaitly-patterns/SKILL.md` to:
+- Add your project-specific conventions
+- Include examples from your codebase
+- Emphasize patterns your team uses most
+
+## Without the skill
+
+Without the skill, Claude may:
+- Suggest `Promise.all()` instead of `allAsync()`
+- Forget to use thunks for retry/caching
+- Add manual `if (!result.ok)` checks inside workflows
+- Mix throwing and Result patterns inconsistently
+
+The skill ensures Claude gives you correct awaitly code from the start.

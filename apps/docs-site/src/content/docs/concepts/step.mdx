@@ -1,0 +1,274 @@
+---
+title: Steps
+description: The step() function and its variants
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+`step()` executes an operation within a workflow. If the operation fails, the workflow exits early.
+
+## Basic usage
+
+```typescript
+const workflow = createWorkflow({ fetchUser, fetchPosts });
+
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser('1'));
+  // If fetchUser returns err(), execution stops here and the error is returned
+
+  const posts = await step(fetchPosts(user.id));
+  return { user, posts };
+});
+/*
+Output (success):
+{ ok: true, value: { user: User, posts: Post[] } }
+
+Output (user not found):
+{ ok: false, error: 'NOT_FOUND' }
+*/
+```
+
+<Aside type="tip" title="Early exit">
+Unlike try/catch where you need explicit return statements, `step()` automatically exits the workflow on error. The error becomes the workflow's result.
+</Aside>
+
+## Using thunks for caching
+
+Pass a function (thunk) instead of calling directly to enable caching:
+
+```typescript
+// Without thunk - always executes
+const user = await step(fetchUser('1'));
+
+// With thunk - can be cached
+const user = await step(() => fetchUser('1'), { key: 'user:1' });
+```
+
+<Aside type="note">
+A thunk is just a function with no arguments that returns the value. Using thunks lets awaitly control when (and whether) to execute the operation.
+</Aside>
+
+## Step options
+
+```typescript
+const user = await step(() => fetchUser('1'), {
+  name: 'Fetch user',       // For visualization/logging
+  key: 'user:1',            // For caching/deduplication
+  retry: { attempts: 3 },   // Retry on failure
+  timeout: { ms: 5000 },    // Timeout after 5 seconds
+});
+```
+
+## step.try - wrap throwing code
+
+Convert exceptions into typed errors:
+
+```typescript
+const data = await step.try(
+  async () => {
+    const res = await fetch('/api/data');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  },
+  { error: 'FETCH_FAILED' as const }
+);
+/*
+Output (success):
+data contains the parsed JSON
+
+Output (failure):
+Workflow returns { ok: false, error: 'FETCH_FAILED' }
+*/
+```
+
+<Aside type="tip" title="Error type safety">
+The `as const` assertion is important. It tells TypeScript this is the literal string `'FETCH_FAILED'`, not just `string`.
+</Aside>
+
+The error type is added to the workflow's error union automatically.
+
+## step.fromResult - preserve error details
+
+When your operation returns a Result with rich error objects:
+
+```typescript
+type ApiError = { code: number; message: string };
+
+const callApi = async (): AsyncResult<Data, ApiError> => {
+  // Returns err({ code: 429, message: 'Rate limited' })
+};
+
+const data = await step.fromResult(
+  () => callApi(),
+  {
+    onError: (apiError) => ({
+      type: 'API_ERROR' as const,
+      ...apiError,
+    }),
+  }
+);
+/*
+Output (on rate limit):
+{ ok: false, error: { type: 'API_ERROR', code: 429, message: 'Rate limited' } }
+*/
+```
+
+## step.retry - retry with backoff
+
+```typescript
+const user = await step.retry(
+  () => fetchUser('1'),
+  {
+    attempts: 3,
+    backoff: 'exponential',  // 'fixed' | 'linear' | 'exponential'
+    delayMs: 100,            // Base delay
+    maxDelayMs: 5000,        // Cap for exponential
+    jitter: true,            // Add randomness
+    retryOn: (error) => error !== 'NOT_FOUND', // Don't retry NOT_FOUND
+  }
+);
+```
+
+### Backoff strategies visualized
+
+```text
+Fixed (delayMs: 100):
+#1: 100ms   ████
+#2: 100ms   ████
+#3: 100ms   ████
+
+Linear (delayMs: 100):
+#1: 100ms   ████
+#2: 200ms   ████████
+#3: 300ms   ████████████
+
+Exponential (delayMs: 100):
+#1: 100ms   ████
+#2: 200ms   ████████
+#3: 400ms   ████████████████
+#4: 800ms   ████████████████████████████████
+```
+
+<Aside type="note">
+Exponential backoff is recommended for network calls. It reduces load on struggling services while still retrying failed operations.
+</Aside>
+
+## step.withTimeout - add timeout
+
+```typescript
+const data = await step.withTimeout(
+  () => slowOperation(),
+  {
+    ms: 5000,
+    name: 'Slow operation', // For error messages
+  }
+);
+/*
+Output (completes in time):
+data contains the result
+
+Output (times out):
+{ ok: false, error: StepTimeoutError }
+*/
+```
+
+If the timeout is reached, the workflow gets a `StepTimeoutError`.
+
+## Combining retry and timeout
+
+```typescript
+const data = await step.retry(
+  () => step.withTimeout(() => fetchData(), { ms: 2000 }),
+  { attempts: 3, backoff: 'exponential' }
+);
+```
+
+Each attempt has a 2-second timeout. The whole operation retries up to 3 times.
+
+```text
+Timeline:
+├── Attempt 1 ──────────────► timeout at 2s
+│   wait 100ms
+├── Attempt 2 ──────────────► timeout at 2s
+│   wait 200ms
+├── Attempt 3 ──────────────► timeout at 2s (or success!)
+```
+
+## Parallel steps
+
+Run multiple steps concurrently:
+
+<Tabs>
+  <TabItem label="All or nothing">
+```typescript
+import { allAsync } from 'awaitly';
+
+const result = await workflow(async (step) => {
+  const [user, posts, comments] = await step(() =>
+    allAsync([
+      fetchUser('1'),
+      fetchPosts('1'),
+      fetchComments('1'),
+    ])
+  );
+  return { user, posts, comments };
+});
+/*
+Output (all succeed):
+{ ok: true, value: { user, posts, comments } }
+
+Output (any fails):
+{ ok: false, error: <first error> }
+*/
+```
+  </TabItem>
+  <TabItem label="Partial success">
+```typescript
+import { allSettled } from 'awaitly';
+
+const result = await workflow(async (step) => {
+  const results = await step(() =>
+    Promise.all([
+      fetchUser('1'),
+      fetchPosts('1'),
+      fetchComments('1'),
+    ]).then(allSettled)
+  );
+  // results contains all outcomes, even failures
+  return results;
+});
+```
+  </TabItem>
+</Tabs>
+
+## Named steps for visualization
+
+Give steps names to see them in workflow diagrams:
+
+```typescript
+const user = await step(() => fetchUser('1'), { name: 'Fetch user' });
+const posts = await step(() => fetchPosts(user.id), { name: 'Fetch posts' });
+/*
+Workflow diagram shows:
+┌─────────────┐     ┌─────────────┐
+│ Fetch user  │ ──► │ Fetch posts │
+└─────────────┘     └─────────────┘
+*/
+```
+
+See [Visualization](../../guides/visualization/) for details.
+
+## Step variants at a glance
+
+| Variant | Use when |
+|---------|----------|
+| `step(fn)` | Operation returns a Result |
+| `step.try(fn, opts)` | Operation throws exceptions |
+| `step.fromResult(fn, opts)` | Need to transform Result errors |
+| `step.retry(fn, opts)` | Operation might fail transiently |
+| `step.withTimeout(fn, opts)` | Operation might hang |
+
+## Next
+
+[Learn about Workflows →](../workflows/)

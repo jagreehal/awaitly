@@ -1,0 +1,66 @@
+{
+  "name": "eslint-plugin-awaitly",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "ESLint rules for awaitly workflow patterns - catch common mistakes like immediate execution and unstable cache keys",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "lint": "eslint .",
+    "clean": "rm -rf dist",
+    "quality": "pnpm type-check && pnpm test && pnpm lint"
+  },
+  "keywords": [
+    "eslint",
+    "eslintplugin",
+    "eslint-plugin",
+    "awaitly",
+    "workflow",
+    "result",
+    "typescript",
+    "linting"
+  ],
+  "author": "Jag Reehal <jag@jagreehal.com>",
+  "homepage": "https://github.com/jagreehal/awaitly#readme",
+  "bugs": {
+    "url": "https://github.com/jagreehal/awaitly/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jagreehal/awaitly.git"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "eslint": ">=8.0.0"
+  },
+  "devDependencies": {
+    "@types/eslint": "^9.6.1",
+    "@types/estree": "^1.0.8",
+    "@types/node": "^25.0.10",
+    "eslint": "^9.39.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

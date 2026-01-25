@@ -1709,7 +1709,33 @@ export async function run<T, E, C = void>(
                 });
               }
 
-              // Treat timeout as a thrown error for error handling
+              // Treat STEP_TIMEOUT as a typed error - exit directly without UNEXPECTED_ERROR wrapper
+              // This provides better DX: users get STEP_TIMEOUT directly in result.error
+              const totalDurationMs = performance.now() - overallStartTime;
+              emitEvent({
+                type: "step_error",
+                workflowId,
+                stepId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs: totalDurationMs,
+                error: thrown as unknown as E,
+              });
+              if (stepKey) {
+                emitEvent({
+                  type: "step_complete",
+                  workflowId,
+                  stepKey,
+                  name: stepName,
+                  ts: Date.now(),
+                  durationMs: totalDurationMs,
+                  result: err(thrown as unknown as E, { cause: thrown }),
+                  meta: { origin: "throw", thrown },
+                });
+              }
+              onError?.(thrown as unknown as E, stepName, context);
+              throw earlyExit(thrown as unknown as E, { origin: "throw", thrown });
             }
 
             // Handle other thrown errors (continue to error handling below)
@@ -2413,6 +2439,11 @@ export async function run<T, E, C = void>(
       // If the error is already an UnexpectedError (e.g., from resumed state),
       // return it directly without wrapping in another STEP_FAILURE
       if (isUnexpectedError(error.error)) {
+        return err(error.error, { cause: originalCause });
+      }
+      // If the error is a STEP_TIMEOUT, return it directly without wrapping
+      // This provides better DX: users get STEP_TIMEOUT directly in result.error
+      if (isStepTimeoutError(error.error)) {
         return err(error.error, { cause: originalCause });
       }
       const unexpectedError = unexpectedFromFailure(error);
