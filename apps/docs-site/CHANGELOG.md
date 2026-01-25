@@ -1,5 +1,11 @@
 # awaitly-docs
 
+## 1.2.0
+
+### Minor Changes
+
+- a21037f: Add a new “The Basics” getting-started guide and refresh the installation + first workflow docs, including updated sidebar navigation and local dev base-path notes.
+
 ## 1.1.1
 
 ### Patch Changes
