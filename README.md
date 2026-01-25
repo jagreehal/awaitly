@@ -1,6 +1,12 @@
-# awaitly
+<p align="center">
+  <img src="brand/awaitly-animated-morph.svg" alt="awaitly logo" width="120" height="120">
+</p>
 
-> Good things come to those who a-**wait**-ly.
+<h1 align="center">awaitly</h1>
+
+<p align="center">
+  <em>Good things come to those who a-<strong>wait</strong>-ly.</em>
+</p>
 
 Stop writing `try/catch` in every async handler.
 

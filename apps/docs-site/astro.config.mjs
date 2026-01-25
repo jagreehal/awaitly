@@ -18,6 +18,11 @@ export default defineConfig({
       starlight({
       title: 'awaitly',
       description: 'Typed async workflows with Result types and automatic error inference',
+      favicon: '/favicon.svg',
+      logo: {
+        src: './public/logo-animated.svg',
+        alt: 'awaitly',
+      },
       customCss: ['./src/styles/global.css'],
       plugins: [starlightThemeNext()],
       tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 3 },

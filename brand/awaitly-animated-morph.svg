@@ -1,0 +1,46 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    /* Straight line morphs directly into checkmark tick */
+    .mouth {
+      animation: morph-tick 0.5s ease-out 0.4s forwards;
+    }
+    @keyframes morph-tick {
+      0% {
+        d: path("M 35 68 L 50 68 L 65 68");
+      }
+      100% {
+        d: path("M 42 66 L 50 75 L 72 53");
+      }
+    }
+
+    /* Eyes blink */
+    .eye {
+      animation: blink 3s ease-in-out 1.2s infinite;
+      transform-origin: center;
+      transform-box: fill-box;
+    }
+    .eye-right {
+      animation-delay: 1.25s;
+    }
+    @keyframes blink {
+      0%, 4%, 8%, 100% { transform: scaleY(1); }
+      6% { transform: scaleY(0.1); }
+    }
+  </style>
+
+  <!-- Clock circle -->
+  <circle cx="50" cy="50" r="45" fill="none" stroke="#0f172a" stroke-width="3.5"/>
+
+  <!-- Clock tick marks -->
+  <line x1="50" y1="10" x2="50" y2="18" stroke="#0f172a" stroke-width="2.3"/>
+  <line x1="90" y1="50" x2="82" y2="50" stroke="#0f172a" stroke-width="2.3"/>
+  <line x1="50" y1="90" x2="50" y2="83" stroke="#0f172a" stroke-width="2.3"/>
+  <line x1="10" y1="50" x2="18" y2="50" stroke="#0f172a" stroke-width="2.3"/>
+
+  <!-- Eyes (with blink) -->
+  <circle class="eye" cx="37" cy="40" r="5" fill="#0f172a"/>
+  <circle class="eye eye-right" cx="63" cy="40" r="5" fill="#0f172a"/>
+
+  <!-- Mouth: straight line morphs to checkmark tick -->
+  <path class="mouth" d="M 35 68 L 50 68 L 65 68" fill="none" stroke="#0f172a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
