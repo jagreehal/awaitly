@@ -195,12 +195,18 @@ export interface StaticWorkflowNode extends StaticBaseNode {
   type: "workflow";
   /** Name of the workflow (from variable name or file name) */
   workflowName: string;
+  /** Source pattern: 'createWorkflow' or 'run' */
+  source: "createWorkflow" | "run";
   /** Dependencies declared in createWorkflow */
   dependencies: DependencyInfo[];
   /** Inferred error types from dependencies */
   errorTypes: string[];
   /** The workflow body */
   children: StaticFlowNode[];
+  /** Short description for labels/tooltips */
+  description?: string;
+  /** Full markdown documentation */
+  markdown?: string;
 }
 
 /**
@@ -287,6 +293,14 @@ export interface AnalyzerOptions {
   maxReferenceDepth?: number;
   /** Whether to include source locations in output */
   includeLocations?: boolean;
+  /** Filter which patterns to detect (default: 'all') */
+  detect?: "all" | "createWorkflow" | "run";
+  /**
+   * Assume 'run' is imported from awaitly even without an explicit import.
+   * Useful for analyzing snippets in docs, REPL, or tests.
+   * Default: false (strict mode - requires actual import)
+   */
+  assumeImported?: boolean;
 }
 
 // =============================================================================

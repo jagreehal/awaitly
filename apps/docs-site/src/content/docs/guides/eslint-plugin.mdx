@@ -1,0 +1,158 @@
+---
+title: ESLint Plugin
+description: Catch common awaitly mistakes with ESLint rules and autofixes
+sidebar:
+  order: 15
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+ESLint rules for awaitly workflow patterns. Catch common mistakes automatically with autofixes.
+
+## Installation
+
+<Tabs syncKey="package-manager">
+  <TabItem label="npm" icon="seti:npm">
+    ```sh
+    npm install eslint-plugin-awaitly --save-dev
+    ```
+  </TabItem>
+  <TabItem label="pnpm" icon="pnpm">
+    ```sh
+    pnpm add -D eslint-plugin-awaitly
+    ```
+  </TabItem>
+  <TabItem label="Yarn" icon="seti:yarn">
+    ```sh
+    yarn add --dev eslint-plugin-awaitly
+    ```
+  </TabItem>
+  <TabItem label="Bun" icon="bun">
+    ```sh
+    bun add --dev eslint-plugin-awaitly
+    ```
+  </TabItem>
+</Tabs>
+
+## Quick setup (ESLint v9)
+
+```js
+// eslint.config.js
+import awaitly from 'eslint-plugin-awaitly';
+
+export default [
+  ...awaitly.configs.recommended,
+  // your other configs
+];
+```
+
+## Rules
+
+### `awaitly/no-immediate-execution`
+
+**Severity**: error | **Autofix**: Yes
+
+Prevents `step(fn())` patterns where the function executes immediately instead of being wrapped in a thunk.
+
+```typescript
+// Bad - executes immediately, defeats caching/retries
+step(fetchUser('1'));
+step(deps.fetchUser('1'), { key: 'user:1' });
+
+// Good - thunk lets step control execution
+step(() => fetchUser('1'));
+step(() => deps.fetchUser('1'), { key: 'user:1' });
+```
+
+### `awaitly/require-thunk-for-key`
+
+**Severity**: error | **Autofix**: Yes
+
+When using `step()` with a `key` option, the first argument must be a thunk. Without a thunk, the cache is never checked.
+
+```typescript
+// Bad - key option is useless without thunk
+step(fetchUser('1'), { key: 'user:1' });
+
+// Good - thunk enables caching with key
+step(() => fetchUser('1'), { key: 'user:1' });
+```
+
+### `awaitly/stable-cache-keys`
+
+**Severity**: error | **Autofix**: No
+
+Prevents non-deterministic values like `Date.now()`, `Math.random()`, or `uuid()` in cache keys.
+
+```typescript
+// Bad - new key every time, cache never hits
+step(() => fetch(id), { key: `user:${Date.now()}` });
+step(() => fetch(id), { key: `user:${Math.random()}` });
+
+// Good - stable key enables caching
+step(() => fetch(id), { key: `user:${userId}` });
+```
+
+## Why these rules?
+
+The #1 mistake with awaitly is forgetting the thunk:
+
+```typescript
+// This looks correct but is wrong:
+const user = await step(fetchUser('1'), { key: 'user:1' });
+```
+
+The function `fetchUser('1')` executes **immediately** when JavaScript evaluates this line. The `step()` function receives the Promise (already started), not a function it can call. This defeats:
+
+- **Caching**: step can't check the cache before calling
+- **Retries**: step can't re-call on failure
+- **Resume**: step can't skip already-completed work
+
+The correct pattern:
+
+```typescript
+const user = await step(() => fetchUser('1'), { key: 'user:1' });
+```
+
+Now `step()` receives a function it can call **after** checking the cache.
+
+## Custom configuration
+
+To enable only specific rules:
+
+```js
+// eslint.config.js
+import awaitly from 'eslint-plugin-awaitly';
+
+export default [
+  {
+    plugins: {
+      awaitly,
+    },
+    rules: {
+      'awaitly/no-immediate-execution': 'error',
+      'awaitly/require-thunk-for-key': 'error',
+      'awaitly/stable-cache-keys': 'warn', // or 'off'
+    },
+  },
+];
+```
+
+## Editor integration
+
+With ESLint editor extensions, you'll see errors inline and can apply autofixes:
+
+- **VS Code**: [ESLint extension](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint)
+- **Cursor**: ESLint support built-in
+- **WebStorm/IntelliJ**: ESLint support built-in
+
+Enable "fix on save" for automatic corrections:
+
+```json
+// .vscode/settings.json
+{
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  }
+}
+```

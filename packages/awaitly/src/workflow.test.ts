@@ -3446,6 +3446,28 @@ describe("Step Timeout", () => {
         expect(result.value).toBe("fast");
       }
     });
+
+    it("returns STEP_TIMEOUT when operation exceeds timeout", async () => {
+      const result = await run(async (step) => {
+        return await step.withTimeout(
+          async () => {
+            await new Promise((r) => setTimeout(r, 1000));
+            return ok("slow");
+          },
+          { ms: 50, name: "slow-step" }
+        );
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok && isStepTimeoutError(result.error)) {
+        expect(result.error.type).toBe("STEP_TIMEOUT");
+        expect(result.error.timeoutMs).toBe(50);
+        expect(result.error.stepName).toBe("slow-step");
+      } else {
+        // Fail the test if it's not a StepTimeoutError
+        expect(isStepTimeoutError(result.ok ? null : result.error)).toBe(true);
+      }
+    });
   });
 
   describe("isStepTimeoutError type guard", () => {

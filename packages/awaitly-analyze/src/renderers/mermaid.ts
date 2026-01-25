@@ -32,6 +32,10 @@ export interface MermaidOptions {
   useSubgraphs?: boolean;
   /** Custom node styles */
   styles?: MermaidStyles;
+  /** Max markdown lines to include as comments (default: 10) */
+  maxMarkdownLines?: number;
+  /** Include markdown in output (default: true) */
+  includeMarkdown?: boolean;
 }
 
 export interface MermaidStyles {
@@ -51,15 +55,17 @@ const DEFAULT_OPTIONS: Required<MermaidOptions> = {
   showConditions: true,
   useSubgraphs: true,
   styles: {
-    step: "fill:#e1f5fe,stroke:#01579b",
-    parallel: "fill:#e8f5e9,stroke:#1b5e20",
-    race: "fill:#fff3e0,stroke:#e65100",
-    conditional: "fill:#fce4ec,stroke:#880e4f",
-    loop: "fill:#f3e5f5,stroke:#4a148c",
-    workflowRef: "fill:#e0f2f1,stroke:#004d40",
-    start: "fill:#c8e6c9,stroke:#2e7d32",
-    end: "fill:#ffcdd2,stroke:#c62828",
+    step: "fill:#e1f5fe,stroke:#01579b,color:#01579b",
+    parallel: "fill:#e8f5e9,stroke:#1b5e20,color:#1b5e20",
+    race: "fill:#fff3e0,stroke:#e65100,color:#bf360c",
+    conditional: "fill:#fce4ec,stroke:#880e4f,color:#880e4f",
+    loop: "fill:#f3e5f5,stroke:#4a148c,color:#4a148c",
+    workflowRef: "fill:#e0f2f1,stroke:#004d40,color:#004d40",
+    start: "fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20",
+    end: "fill:#ffcdd2,stroke:#c62828,color:#b71c1c",
   },
+  maxMarkdownLines: 10,
+  includeMarkdown: true,
 };
 
 // =============================================================================
@@ -90,6 +96,26 @@ export function renderStaticMermaid(
 
   // Add workflow title as comment
   lines.push(`  %% Workflow: ${ir.root.workflowName}`);
+
+  // Description (short) - always show if present
+  if (ir.root.description) {
+    lines.push(`  %% ${ir.root.description}`);
+  }
+
+  // Markdown (full docs) - first N lines as comments
+  if (opts.includeMarkdown && ir.root.markdown) {
+    lines.push(`  %%`);
+    const markdownLines = ir.root.markdown.trim().split("\n");
+    const maxLines = opts.maxMarkdownLines;
+    const displayLines = markdownLines.slice(0, maxLines);
+    for (const line of displayLines) {
+      lines.push(`  %% ${line}`);
+    }
+    if (markdownLines.length > maxLines) {
+      lines.push(`  %% ... (${markdownLines.length - maxLines} more lines)`);
+    }
+  }
+
   lines.push("");
 
   // Add start node

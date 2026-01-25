@@ -37,6 +37,7 @@ describe("renderStaticMermaid", () => {
         id: "workflow-1",
         type: "workflow",
         workflowName: "testWorkflow",
+        source: "createWorkflow",
         dependencies: [],
         errorTypes: [],
         children: [
@@ -77,6 +78,7 @@ describe("renderStaticMermaid", () => {
         id: "workflow-1",
         type: "workflow",
         workflowName: "testWorkflow",
+        source: "createWorkflow",
         dependencies: [],
         errorTypes: [],
         children: [

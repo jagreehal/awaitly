@@ -1,0 +1,478 @@
+---
+title: awaitly vs Effect
+description: Comparing awaitly with Effect for typed async workflows
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
+
+[Effect](https://effect.website/) is a powerful functional programming library for TypeScript. awaitly provides a simpler alternative for teams that want Result types and workflow orchestration without Effect's full complexity.
+
+## Philosophy Comparison
+
+```text
+Effect                              awaitly
+┌─────────────────────────┐         ┌──────────────────────────┐
+│  Full functional system │         │  Pragmatic Result types  │
+│  ────────────────────── │         │  ──────────────────────  │
+│  • Fibers & concurrency │         │  • Simple async/await    │
+│  • Dependency injection │         │  • Workflow orchestration│
+│  • Advanced scheduling  │         │  • Retry/timeout policies│
+│  • Resource management  │         │  • Automatic error union │
+│  • Comprehensive stdlib │         │  • Minimal API surface   │
+└─────────────────────────┘         └──────────────────────────┘
+```
+
+<Aside type="tip" title="When to choose awaitly">
+Choose awaitly when you want typed error handling and workflow resilience without adopting a full functional paradigm.
+</Aside>
+
+## Quick Comparison
+
+| Feature | awaitly | Effect |
+|---------|---------|--------|
+| Learning curve | Low | Steep |
+| Bundle size | ~3KB | ~50KB+ |
+| Result type | `Result<T, E>` | `Effect<A, E, R>` |
+| Error tracking | Automatic inference | Explicit typing |
+| Async model | Native Promises | Effect runtime |
+| Dependency injection | Simple context | Full DI system |
+| Scheduling | Retry policies | Schedule combinators |
+| Concurrency | Native Promise.all | Fibers |
+
+## Result Types
+
+### Creating Results
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, err, type Result } from 'awaitly';
+
+const divide = (a: number, b: number): Result<number, 'DIVIDE_BY_ZERO'> =>
+  b === 0 ? err('DIVIDE_BY_ZERO') : ok(a / b);
+
+const result = divide(10, 2);
+if (result.ok) {
+  console.log(result.value);
+}
+/*
+Output:
+5
+*/
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { Effect } from 'effect';
+
+const divide = (a: number, b: number) =>
+  b === 0
+    ? Effect.fail('DIVIDE_BY_ZERO' as const)
+    : Effect.succeed(a / b);
+
+// Must run through Effect runtime
+const program = divide(10, 2);
+Effect.runSync(program); // 5
+```
+  </TabItem>
+</Tabs>
+
+### Type Structure
+
+```text
+awaitly Result:
+         ┌─── Success value type
+         │       ┌─── Error type
+         ▼       ▼
+Result<number, 'DIVIDE_BY_ZERO'>
+
+Effect:
+         ┌─── Success value
+         │     ┌─── Error type
+         │     │     ┌─── Requirements (dependencies)
+         ▼     ▼     ▼
+Effect<number, 'DIVIDE_BY_ZERO', never>
+```
+
+<Aside type="note">
+Effect has a third type parameter for dependencies (Requirements). awaitly handles dependencies through `createWorkflow`.
+</Aside>
+
+## Error Handling
+
+### Error Type Inference
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+
+const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
+const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
+
+// Error types automatically inferred from dependencies
+const workflow = createWorkflow({ fetchUser, sendEmail });
+
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser('1'));
+  await step(sendEmail(user.email));
+  return user;
+});
+
+// TypeScript knows: result.error is 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { Effect, pipe } from 'effect';
+
+const fetchUser = (id: string) =>
+  Effect.fail('NOT_FOUND' as const).pipe(
+    Effect.map(() => ({ id, email: 'user@example.com' }))
+  );
+
+const sendEmail = (to: string) =>
+  Effect.fail('EMAIL_FAILED' as const).pipe(
+    Effect.map(() => undefined)
+  );
+
+// Must compose effects explicitly
+const program = pipe(
+  fetchUser('1'),
+  Effect.flatMap(user =>
+    pipe(
+      sendEmail(user.email),
+      Effect.map(() => user)
+    )
+  )
+);
+
+// TypeScript knows: E = 'NOT_FOUND' | 'EMAIL_FAILED'
+```
+  </TabItem>
+</Tabs>
+
+### Catching Errors
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser('1'));
+  return user;
+});
+
+if (!result.ok) {
+  switch (result.error) {
+    case 'NOT_FOUND':
+      console.log('User not found');
+      break;
+    case 'EMAIL_FAILED':
+      console.log('Email failed');
+      break;
+  }
+}
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { Effect } from 'effect';
+
+const handled = program.pipe(
+  Effect.catchTag('NOT_FOUND', () =>
+    Effect.succeed({ fallback: true })
+  ),
+  Effect.catchTag('EMAIL_FAILED', () =>
+    Effect.succeed({ emailSkipped: true })
+  )
+);
+```
+  </TabItem>
+</Tabs>
+
+## Retry and Scheduling
+
+awaitly uses retry policies while Effect uses Schedule combinators. Both achieve similar outcomes with different approaches.
+
+### Basic Retry
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+const result = await workflow(async (step) => {
+  const data = await step.retry(
+    () => fetchData(),
+    {
+      attempts: 3,
+      backoff: 'exponential',
+      delayMs: 100,
+    }
+  );
+  return data;
+});
+/*
+Retry timeline:
+Attempt 1: immediate
+Attempt 2: after 100ms
+Attempt 3: after 200ms
+*/
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { Effect, Schedule } from 'effect';
+
+const policy = Schedule.exponential('100 millis').pipe(
+  Schedule.compose(Schedule.recurs(3))
+);
+
+const program = fetchData.pipe(
+  Effect.retry(policy)
+);
+
+Effect.runPromise(program);
+```
+  </TabItem>
+</Tabs>
+
+### Backoff Visualization
+
+```text
+awaitly Exponential Backoff (delayMs: 100)
+────────────────────────────────────────────
+#1: 100ms   ████
+#2: 200ms   ████████
+#3: 400ms   ████████████████
+#4: 800ms   ████████████████████████████████
+```
+
+### With Timeout
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+const result = await workflow(async (step) => {
+  const data = await step.retry(
+    () => step.withTimeout(
+      () => fetchData(),
+      { ms: 5000 }
+    ),
+    { attempts: 3, backoff: 'exponential', delayMs: 100 }
+  );
+  return data;
+});
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { Effect, Schedule, Duration } from 'effect';
+
+const policy = Schedule.exponential('100 millis').pipe(
+  Schedule.compose(Schedule.recurs(3))
+);
+
+const program = fetchData.pipe(
+  Effect.timeout(Duration.seconds(5)),
+  Effect.retry(policy)
+);
+```
+  </TabItem>
+</Tabs>
+
+### With Jitter
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+const result = await step.retry(
+  () => fetchData(),
+  {
+    attempts: 5,
+    backoff: 'exponential',
+    delayMs: 100,
+    jitter: true, // Adds random variation
+  }
+);
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+const policy = Schedule.exponential('100 millis').pipe(
+  Schedule.jittered,
+  Schedule.compose(Schedule.recurs(5))
+);
+```
+  </TabItem>
+</Tabs>
+
+## Workflow Orchestration
+
+### Multi-step Workflows
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+
+const workflow = createWorkflow({
+  fetchUser,
+  validateOrder,
+  chargeCard,
+  sendConfirmation,
+});
+
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser(userId));
+  const order = await step(validateOrder(orderData));
+  const receipt = await step(chargeCard(order.total));
+  await step(sendConfirmation(user.email, receipt));
+  return { user, order, receipt };
+});
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { Effect, pipe } from 'effect';
+
+const program = pipe(
+  fetchUser(userId),
+  Effect.flatMap(user =>
+    pipe(
+      validateOrder(orderData),
+      Effect.flatMap(order =>
+        pipe(
+          chargeCard(order.total),
+          Effect.flatMap(receipt =>
+            pipe(
+              sendConfirmation(user.email, receipt),
+              Effect.map(() => ({ user, order, receipt }))
+            )
+          )
+        )
+      )
+    )
+  )
+);
+
+// Or with Effect.gen (generator syntax)
+const program = Effect.gen(function* () {
+  const user = yield* fetchUser(userId);
+  const order = yield* validateOrder(orderData);
+  const receipt = yield* chargeCard(order.total);
+  yield* sendConfirmation(user.email, receipt);
+  return { user, order, receipt };
+});
+```
+  </TabItem>
+</Tabs>
+
+### Parallel Operations
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { allAsync } from 'awaitly';
+
+const result = await workflow(async (step) => {
+  const [user, posts, comments] = await step(() =>
+    allAsync([
+      fetchUser('1'),
+      fetchPosts('1'),
+      fetchComments('1'),
+    ])
+  );
+  return { user, posts, comments };
+});
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { Effect } from 'effect';
+
+const program = Effect.all([
+  fetchUser('1'),
+  fetchPosts('1'),
+  fetchComments('1'),
+], { concurrency: 'unbounded' });
+```
+  </TabItem>
+</Tabs>
+
+## Caching and Persistence
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+const workflow = createWorkflow(deps, {
+  cache: new Map(),
+  resumeState: savedState, // Resume from previous run
+});
+
+const result = await workflow(async (step) => {
+  // Cached steps skip re-execution on resume
+  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  return user;
+});
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { Effect, Cache, Duration } from 'effect';
+
+const cache = Cache.make({
+  capacity: 100,
+  timeToLive: Duration.minutes(5),
+  lookup: (key: string) => fetchUser(key),
+});
+
+const program = Effect.gen(function* () {
+  const c = yield* cache;
+  return yield* c.get('1');
+});
+```
+  </TabItem>
+</Tabs>
+
+## When to Choose Each
+
+### Choose awaitly when:
+
+- **Gradual adoption**: You want to add Result types incrementally
+- **Team familiarity**: Your team is comfortable with async/await
+- **Simpler mental model**: You don't need fibers, layers, or advanced FP
+- **Workflow focus**: Your main need is step orchestration with resilience
+- **Bundle size matters**: You need a lightweight solution (~3KB vs ~50KB+)
+
+### Choose Effect when:
+
+- **Full FP paradigm**: You want a complete functional programming system
+- **Advanced concurrency**: You need fibers and structured concurrency
+- **Complex DI**: You need the Layer system for dependency injection
+- **Rich scheduling**: You need composable Schedule types
+- **Comprehensive stdlib**: You want Effect's extensive standard library
+
+## Comparison Summary
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                    Complexity Spectrum                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  try/catch ──────► awaitly ──────────────────► Effect       │
+│                                                             │
+│  Simple           Pragmatic Result types     Full FP system │
+│  No type safety   + workflow orchestration   + everything   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+<Aside type="tip" title="Migration Path">
+awaitly can serve as a stepping stone. If you later need Effect's advanced features, the Result type concepts transfer directly.
+</Aside>
+
+## Next Steps
+
+- [Getting Started with awaitly →](../getting-started/installation/)
+- [Workflows in depth →](../concepts/workflows/)
+- [Retries & Timeouts →](../guides/retries-timeouts/)

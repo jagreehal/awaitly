@@ -293,6 +293,10 @@ export type CausesOfDeps<Deps extends Record<string, AnyResultFn>> =
  * Returns E | UnexpectedError (safe default)
  */
 export type WorkflowOptions<E, C = void> = {
+  /** Short description for labels/tooltips (static analysis) */
+  description?: string;
+  /** Full markdown documentation (static analysis) */
+  markdown?: string;
   onError?: (error: E | UnexpectedError, stepName?: string, ctx?: C) => void;
   /**
    * Unified event stream for workflow and step lifecycle.
@@ -379,6 +383,10 @@ export type WorkflowOptions<E, C = void> = {
 export type WorkflowOptionsStrict<E, U, C = void> = {
   strict: true;              // discriminator
   catchUnexpected: (cause: unknown) => U;
+  /** Short description for labels/tooltips (static analysis) */
+  description?: string;
+  /** Full markdown documentation (static analysis) */
+  markdown?: string;
   onError?: (error: E | U, stepName?: string, ctx?: C) => void;
   /**
    * Unified event stream for workflow and step lifecycle.

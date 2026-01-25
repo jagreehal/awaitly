@@ -60,6 +60,8 @@ const DEFAULT_OPTIONS: Required<AnalyzerOptions> = {
   resolveReferences: false, // Not implemented in tree-sitter POC
   maxReferenceDepth: 5,
   includeLocations: true,
+  detect: "all",
+  assumeImported: false, // Strict by default - requires explicit import
 };
 
 // =============================================================================
@@ -100,15 +102,27 @@ export async function analyzeWorkflow(
   const definitions = findWorkflowDefinitions(tree.rootNode, ctx);
   definitions.forEach((d) => ctx.workflowNames.add(d.name));
 
-  // Find all createWorkflow calls
-  const workflowCalls = findWorkflowCalls(tree.rootNode, ctx);
-
-  // Analyze each workflow
   const results: StaticWorkflowIR[] = [];
-  for (const call of workflowCalls) {
-    const ir = analyzeWorkflowCall(call, ctx);
-    if (ir) {
-      results.push(ir);
+
+  // Find and analyze createWorkflow calls (unless filtered to run only)
+  if (opts.detect === "all" || opts.detect === "createWorkflow") {
+    const workflowCalls = findWorkflowCalls(tree.rootNode, ctx);
+    for (const call of workflowCalls) {
+      const ir = analyzeWorkflowCall(call, ctx);
+      if (ir) {
+        results.push(ir);
+      }
+    }
+  }
+
+  // Find and analyze run() calls (unless filtered to createWorkflow only)
+  if (opts.detect === "all" || opts.detect === "run") {
+    const runCalls = findRunCalls(tree.rootNode, ctx);
+    for (const call of runCalls) {
+      const ir = analyzeRunCall(call, ctx);
+      if (ir) {
+        results.push(ir);
+      }
     }
   }
 
@@ -139,13 +153,27 @@ export async function analyzeWorkflowSource(
   const definitions = findWorkflowDefinitions(tree.rootNode, ctx);
   definitions.forEach((d) => ctx.workflowNames.add(d.name));
 
-  const workflowCalls = findWorkflowCalls(tree.rootNode, ctx);
   const results: StaticWorkflowIR[] = [];
 
-  for (const call of workflowCalls) {
-    const ir = analyzeWorkflowCall(call, ctx);
-    if (ir) {
-      results.push(ir);
+  // Find and analyze createWorkflow calls (unless filtered to run only)
+  if (opts.detect === "all" || opts.detect === "createWorkflow") {
+    const workflowCalls = findWorkflowCalls(tree.rootNode, ctx);
+    for (const call of workflowCalls) {
+      const ir = analyzeWorkflowCall(call, ctx);
+      if (ir) {
+        results.push(ir);
+      }
+    }
+  }
+
+  // Find and analyze run() calls (unless filtered to createWorkflow only)
+  if (opts.detect === "all" || opts.detect === "run") {
+    const runCalls = findRunCalls(tree.rootNode, ctx);
+    for (const call of runCalls) {
+      const ir = analyzeRunCall(call, ctx);
+      if (ir) {
+        results.push(ir);
+      }
     }
   }
 
@@ -159,6 +187,52 @@ export async function analyzeWorkflowSource(
 interface WorkflowDefinition {
   name: string;
   createWorkflowCall: SyntaxNode;
+  /** Short description for labels/tooltips */
+  description?: string;
+  /** Full markdown documentation */
+  markdown?: string;
+}
+
+/**
+ * Extracted workflow options from createWorkflow call.
+ */
+interface WorkflowOptionsExtracted {
+  description?: string;
+  markdown?: string;
+}
+
+/**
+ * Extract workflow options (description, markdown) from an options object literal.
+ */
+function extractWorkflowOptions(
+  optionsNode: SyntaxNode,
+  ctx: AnalyzerContext
+): WorkflowOptionsExtracted {
+  const result: WorkflowOptionsExtracted = {};
+
+  if (optionsNode.type !== "object") {
+    return result;
+  }
+
+  for (const prop of optionsNode.namedChildren) {
+    if (prop.type === "pair") {
+      const keyNode = prop.childForFieldName("key");
+      const valueNode = prop.childForFieldName("value");
+
+      if (keyNode && valueNode) {
+        const key = getText(keyNode, ctx);
+        if (key === "description") {
+          const value = extractStringValue(valueNode, ctx);
+          if (value) result.description = value;
+        } else if (key === "markdown") {
+          const value = extractStringValue(valueNode, ctx);
+          if (value) result.markdown = value;
+        }
+      }
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -178,7 +252,19 @@ function findWorkflowDefinitions(
         if (funcText === "createWorkflow") {
           const workflowName = extractWorkflowName(node, ctx);
           if (workflowName) {
-            results.push({ name: workflowName, createWorkflowCall: node });
+            // Extract documentation options from second argument
+            const args = node.childForFieldName("arguments");
+            const optionsNode = args?.namedChildren[1]; // Second arg is options
+            const options = optionsNode
+              ? extractWorkflowOptions(optionsNode, ctx)
+              : {};
+
+            results.push({
+              name: workflowName,
+              createWorkflowCall: node,
+              description: options.description,
+              markdown: options.markdown,
+            });
           }
         }
       }
@@ -221,6 +307,321 @@ function findWorkflowCalls(root: SyntaxNode, ctx: AnalyzerContext): SyntaxNode[]
   });
 
   return results;
+}
+
+/**
+ * Find imported names for a given export from awaitly packages.
+ * Handles: import { run } from 'awaitly'
+ *          import { run as runWorkflow } from 'awaitly'
+ *          import { run } from '@awaitly/core'
+ * Skips:   import type { run } from 'awaitly' (type-only imports)
+ */
+function findAwaitlyImports(
+  root: SyntaxNode,
+  exportName: string,
+  ctx: AnalyzerContext
+): Set<string> {
+  const importedNames = new Set<string>();
+
+  traverseNode(root, (node) => {
+    if (node.type === "import_statement") {
+      // Skip type-only imports (import type { ... } from '...')
+      // These have a "type" keyword as a child
+      let isTypeOnly = false;
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.children[i];
+        if (child && child.type === "type") {
+          isTypeOnly = true;
+          break;
+        }
+      }
+      if (isTypeOnly) {
+        return;
+      }
+
+      // Check if importing from awaitly or @awaitly/*
+      const sourceNode = node.childForFieldName("source");
+      if (sourceNode) {
+        const sourceText = getText(sourceNode, ctx);
+        // Remove quotes and check if it's an awaitly package
+        const modulePath = sourceText.slice(1, -1);
+        if (modulePath === "awaitly" || modulePath.startsWith("@awaitly/")) {
+          // Find the import clause
+          for (const child of node.namedChildren) {
+            if (child.type === "import_clause") {
+              // Look for named imports
+              for (const clauseChild of child.namedChildren) {
+                if (clauseChild.type === "named_imports") {
+                  for (const specifier of clauseChild.namedChildren) {
+                    if (specifier.type === "import_specifier") {
+                      // Skip type-only specifiers (import { type run } from '...')
+                      // These have a "type" keyword as a child of the specifier
+                      let isTypeOnlySpecifier = false;
+                      for (const specChild of specifier.children) {
+                        if (specChild.type === "type") {
+                          isTypeOnlySpecifier = true;
+                          break;
+                        }
+                      }
+                      if (isTypeOnlySpecifier) {
+                        continue;
+                      }
+
+                      const nameNode = specifier.childForFieldName("name");
+                      const aliasNode = specifier.childForFieldName("alias");
+
+                      if (nameNode) {
+                        const importedName = getText(nameNode, ctx);
+                        if (importedName === exportName) {
+                          // Use alias if present, otherwise use original name
+                          const localName = aliasNode
+                            ? getText(aliasNode, ctx)
+                            : importedName;
+                          importedNames.add(localName);
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  return importedNames;
+}
+
+/**
+ * Check if an identifier at a given node is shadowed by a local declaration.
+ * Walks up the AST looking for variable/function declarations or parameters
+ * that would shadow the identifier before reaching module scope.
+ */
+function isIdentifierShadowed(
+  node: SyntaxNode,
+  identifierName: string,
+  ctx: AnalyzerContext
+): boolean {
+  let current: SyntaxNode | null = node.parent;
+
+  while (current) {
+    // Check for variable declarations in statement blocks
+    if (
+      current.type === "statement_block" ||
+      current.type === "program"
+    ) {
+      // Look for variable declarations before this node
+      for (const child of current.namedChildren) {
+        // Only check declarations that appear before our node
+        if (child.startIndex >= node.startIndex) break;
+
+        if (child.type === "lexical_declaration" || child.type === "variable_declaration") {
+          // Check each declarator
+          for (const declarator of child.namedChildren) {
+            if (declarator.type === "variable_declarator") {
+              const nameNode = declarator.childForFieldName("name");
+              if (nameNode && getText(nameNode, ctx) === identifierName) {
+                return true;
+              }
+            }
+          }
+        } else if (child.type === "function_declaration") {
+          const nameNode = child.childForFieldName("name");
+          if (nameNode && getText(nameNode, ctx) === identifierName) {
+            return true;
+          }
+        }
+      }
+    }
+
+    // Check function parameters
+    if (
+      current.type === "arrow_function" ||
+      current.type === "function_expression" ||
+      current.type === "function_declaration" ||
+      current.type === "method_definition"
+    ) {
+      const params = current.childForFieldName("parameters");
+      if (params) {
+        for (const param of params.namedChildren) {
+          // Handle simple identifier parameters
+          if (param.type === "identifier" && getText(param, ctx) === identifierName) {
+            return true;
+          }
+          // Handle destructuring patterns
+          if (param.type === "object_pattern" || param.type === "array_pattern") {
+            // For simplicity, check if the identifier appears anywhere in the pattern
+            let found = false;
+            traverseNode(param, (n) => {
+              if (n.type === "identifier" && getText(n, ctx) === identifierName) {
+                found = true;
+              }
+            });
+            if (found) return true;
+          }
+          // Handle assignment patterns (default values)
+          if (param.type === "assignment_pattern") {
+            const left = param.childForFieldName("left");
+            if (left?.type === "identifier" && getText(left, ctx) === identifierName) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+
+    // Stop at program level (module scope)
+    if (current.type === "program") break;
+
+    current = current.parent;
+  }
+
+  return false;
+}
+
+/**
+ * Find all run() calls in the AST.
+ * Only matches `run` when imported from 'awaitly' or '@awaitly/*'.
+ * Does not match method calls like `obj.run()` or locally-defined `run` functions.
+ */
+function findRunCalls(root: SyntaxNode, ctx: AnalyzerContext): SyntaxNode[] {
+  // First, find all imported names for 'run' from awaitly
+  const runImportNames = findAwaitlyImports(root, "run", ctx);
+
+  // If assumeImported is set, treat 'run' as valid even without import
+  // This is useful for docs, REPL, and test snippets
+  if (ctx.opts.assumeImported) {
+    runImportNames.add("run");
+  }
+
+  // If run is not imported from awaitly (and not assumed), return empty
+  if (runImportNames.size === 0) {
+    return [];
+  }
+
+  const results: SyntaxNode[] = [];
+
+  traverseNode(root, (node) => {
+    if (node.type === "call_expression") {
+      const funcNode = node.childForFieldName("function");
+      if (funcNode && funcNode.type === "identifier") {
+        const funcText = getText(funcNode, ctx);
+        // Only match if it's an imported run from awaitly
+        if (runImportNames.has(funcText)) {
+          // Check if the identifier is shadowed by a local declaration
+          if (isIdentifierShadowed(node, funcText, ctx)) {
+            return; // Skip - this is a shadowed local variable, not the import
+          }
+
+          // Verify first argument is a callback
+          const args = node.childForFieldName("arguments");
+          const firstArg = args?.namedChildren[0];
+          if (
+            firstArg?.type === "arrow_function" ||
+            firstArg?.type === "function_expression"
+          ) {
+            results.push(node);
+          }
+        }
+      }
+    }
+  });
+
+  return results;
+}
+
+/**
+ * Generate a unique name for a run() call based on file and line number.
+ * Format: run@<filename>:<line>
+ */
+function generateRunName(callNode: SyntaxNode, ctx: AnalyzerContext): string {
+  const line = callNode.startPosition.row + 1; // 0-indexed to 1-indexed
+  // Extract just the filename from the path
+  const filePath = ctx.filePath;
+  const fileName = filePath.includes("/")
+    ? filePath.split("/").pop() || filePath
+    : filePath.includes("\\")
+      ? filePath.split("\\").pop() || filePath
+      : filePath;
+  return `run@${fileName}:${line}`;
+}
+
+/**
+ * Analyze a run() call and extract the workflow structure.
+ */
+function analyzeRunCall(
+  callNode: SyntaxNode,
+  parentCtx: AnalyzerContext
+): StaticWorkflowIR | null {
+  // Get the callback argument
+  const args = callNode.childForFieldName("arguments");
+  const callbackNode = args?.namedChildren[0];
+
+  // Create fresh stats and warnings for this workflow
+  const workflowWarnings: AnalysisWarning[] = [];
+  const workflowStats = createEmptyStats();
+
+  // Create a workflow-scoped context
+  const ctx: AnalyzerContext = {
+    ...parentCtx,
+    warnings: workflowWarnings,
+    stats: workflowStats,
+  };
+
+  if (
+    !callbackNode ||
+    (callbackNode.type !== "arrow_function" &&
+      callbackNode.type !== "function_expression")
+  ) {
+    workflowWarnings.push({
+      code: "CALLBACK_NOT_FOUND",
+      message: "Could not find callback for run()",
+      location: getLocation(callNode, ctx),
+    });
+    return null;
+  }
+
+  // Generate synthetic name: run@<filename>:<line>
+  const workflowName = generateRunName(callNode, ctx);
+
+  // Extract the step parameter name from the callback signature
+  const stepParamName = extractStepParameterName(callbackNode, ctx);
+  const prevStepParamName = ctx.stepParameterName;
+  ctx.stepParameterName = stepParamName;
+
+  // Analyze the callback body
+  const children = analyzeCallback(callbackNode, ctx);
+
+  // Restore previous step parameter name
+  ctx.stepParameterName = prevStepParamName;
+
+  // Create the root workflow node
+  const rootNode: StaticWorkflowNode = {
+    id: generateId(),
+    type: "workflow",
+    workflowName,
+    source: "run",
+    dependencies: [], // run() has no declared dependencies
+    errorTypes: [],
+    children: wrapInSequence(children),
+    location: ctx.opts.includeLocations ? getLocation(callNode, ctx) : undefined,
+  };
+
+  // Create metadata with workflow-specific stats and warnings
+  const metadata: StaticAnalysisMetadata = {
+    analyzedAt: Date.now(),
+    filePath: ctx.filePath,
+    warnings: workflowWarnings,
+    stats: workflowStats,
+  };
+
+  return {
+    root: rootNode,
+    metadata,
+    references: new Map(),
+  };
 }
 
 /**
@@ -279,14 +680,26 @@ function analyzeWorkflowCall(
   ctx.currentWorkflow = prevWorkflow;
   ctx.stepParameterName = prevStepParamName;
 
+  // Find the definition to get documentation
+  // Access the root node through the tree property (available at runtime)
+  const treeRoot = (callNode as unknown as { tree?: { rootNode: SyntaxNode } })
+    .tree?.rootNode;
+  const definitions = treeRoot
+    ? findWorkflowDefinitions(treeRoot, parentCtx)
+    : [];
+  const definition = definitions.find((d) => d.name === workflowName);
+
   // Create the root workflow node
   const rootNode: StaticWorkflowNode = {
     id: generateId(),
     type: "workflow",
     workflowName,
+    source: "createWorkflow",
     dependencies: [], // Not implemented in POC
     errorTypes: [],
     children: wrapInSequence(children),
+    description: definition?.description,
+    markdown: definition?.markdown,
   };
 
   // Create metadata with workflow-specific stats and warnings

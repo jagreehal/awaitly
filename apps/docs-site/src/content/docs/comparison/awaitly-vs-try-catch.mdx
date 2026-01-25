@@ -1,0 +1,391 @@
+---
+title: awaitly vs try/catch
+description: Compare traditional error handling with Result types
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
+
+Traditional JavaScript uses `try/catch` for error handling. awaitly uses Result types that make errors explicit in the type system. This guide shows the same operations in both styles.
+
+## The Core Difference
+
+```text
+try/catch                           Result types
+─────────────────                   ─────────────────
+• Errors are implicit               • Errors are explicit
+• Any function can throw            • Errors in return type
+• Caught at runtime                 • Caught at compile time
+• Easy to forget handling           • TypeScript enforces handling
+```
+
+## Simple Operations
+
+### Parsing JSON
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { from } from 'awaitly';
+
+const parseJson = (str: string) => from(() => JSON.parse(str));
+
+const result = parseJson('{"name": "Alice"}');
+
+if (result.ok) {
+  console.log(result.value.name);
+} else {
+  console.log('Parse error:', result.error.message);
+}
+/*
+Output:
+Alice
+*/
+```
+  </TabItem>
+  <TabItem label="try/catch">
+```typescript
+const parseJson = (str: string) => {
+  try {
+    return JSON.parse(str);
+  } catch (error) {
+    console.log('Parse error:', error.message);
+    return null;
+  }
+};
+
+const result = parseJson('{"name": "Alice"}');
+
+if (result !== null) {
+  console.log(result.name);
+}
+/*
+Output:
+Alice
+*/
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="caution" title="The hidden problem">
+With try/catch, nothing in the type system tells you `parseJson` can fail. With Result types, the return type `Result<T, Error>` makes it explicit.
+</Aside>
+
+### API Calls
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+
+type FetchError = 'NETWORK_ERROR' | 'NOT_FOUND' | 'SERVER_ERROR';
+
+const fetchUser = async (id: string): AsyncResult<User, FetchError> => {
+  try {
+    const res = await fetch(`/api/users/${id}`);
+    if (!res.ok) {
+      if (res.status === 404) return err('NOT_FOUND');
+      return err('SERVER_ERROR');
+    }
+    return ok(await res.json());
+  } catch {
+    return err('NETWORK_ERROR');
+  }
+};
+
+// Caller MUST handle the error - TypeScript enforces it
+const result = await fetchUser('123');
+if (!result.ok) {
+  switch (result.error) {
+    case 'NOT_FOUND':
+      console.log('User not found');
+      break;
+    case 'NETWORK_ERROR':
+      console.log('Check your connection');
+      break;
+    case 'SERVER_ERROR':
+      console.log('Try again later');
+      break;
+  }
+}
+/*
+Output (on success):
+{ ok: true, value: { id: '123', name: 'Alice' } }
+
+Output (on 404):
+{ ok: false, error: 'NOT_FOUND' }
+*/
+```
+  </TabItem>
+  <TabItem label="try/catch">
+```typescript
+const fetchUser = async (id: string): Promise<User> => {
+  const res = await fetch(`/api/users/${id}`);
+  if (!res.ok) {
+    if (res.status === 404) throw new Error('NOT_FOUND');
+    throw new Error('SERVER_ERROR');
+  }
+  return res.json();
+};
+
+// Caller might forget to wrap in try/catch - no TypeScript warning!
+try {
+  const user = await fetchUser('123');
+  console.log(user.name);
+} catch (error) {
+  // What errors can this throw? TypeScript doesn't know.
+  if (error.message === 'NOT_FOUND') {
+    console.log('User not found');
+  } else {
+    console.log('Something went wrong');
+  }
+}
+```
+  </TabItem>
+</Tabs>
+
+## Error Type Safety
+
+### What can go wrong?
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+// The function signature tells you exactly what can fail
+const processPayment = async (
+  amount: number
+): AsyncResult<Receipt, 'INSUFFICIENT_FUNDS' | 'CARD_DECLINED' | 'NETWORK_ERROR'> => {
+  // ...
+};
+
+// TypeScript knows all possible errors
+const result = await processPayment(100);
+if (!result.ok) {
+  // Autocomplete shows: 'INSUFFICIENT_FUNDS' | 'CARD_DECLINED' | 'NETWORK_ERROR'
+  console.log(result.error);
+}
+```
+  </TabItem>
+  <TabItem label="try/catch">
+```typescript
+// No indication in the type what errors can occur
+const processPayment = async (amount: number): Promise<Receipt> => {
+  // ...
+};
+
+// You have to read the implementation or docs to know what can throw
+try {
+  const receipt = await processPayment(100);
+} catch (error) {
+  // What type is error? unknown
+  // What values can it have? Who knows
+}
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="tip" title="Documentation in types">
+With Result types, the possible errors are documented in the function signature. No need to dig through code or hope the docs are up to date.
+</Aside>
+
+## Chaining Operations
+
+### Sequential operations with early exit
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+
+const workflow = createWorkflow({ fetchUser, validateAge, createAccount });
+
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser('123'));
+  // If fetchUser fails, we stop here and return the error
+
+  const validated = await step(validateAge(user));
+  // If validateAge fails, we stop here
+
+  const account = await step(createAccount(validated));
+  // If createAccount fails, we stop here
+
+  return account;
+});
+
+// Error is: 'NOT_FOUND' | 'UNDERAGE' | 'DUPLICATE_EMAIL' | UnexpectedError
+// TypeScript inferred this automatically!
+```
+  </TabItem>
+  <TabItem label="try/catch">
+```typescript
+const createUserAccount = async (userId: string) => {
+  try {
+    const user = await fetchUser(userId);
+    // If fetchUser throws, we jump to catch
+
+    const validated = await validateAge(user);
+    // If validateAge throws, we jump to catch
+
+    const account = await createAccount(validated);
+    // If createAccount throws, we jump to catch
+
+    return account;
+  } catch (error) {
+    // What type of error is this?
+    // Which function threw it?
+    // How do we handle each case?
+    throw error; // Often just re-throw because we don't know
+  }
+};
+```
+  </TabItem>
+</Tabs>
+
+## Partial Success
+
+### When you want all results, even failures
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { allSettled, partition } from 'awaitly';
+
+const results = await Promise.all([
+  fetchUser('1'),
+  fetchUser('2'),
+  fetchUser('3'),
+]);
+
+const settled = allSettled(results);
+// Always succeeds - collects all outcomes
+
+const [successes, failures] = partition(results);
+console.log(`Found ${successes.length} users`);
+console.log(`Failed to find ${failures.length} users`);
+/*
+Output:
+Found 2 users
+Failed to find 1 users
+*/
+```
+  </TabItem>
+  <TabItem label="try/catch">
+```typescript
+const results = await Promise.allSettled([
+  fetchUser('1'),
+  fetchUser('2'),
+  fetchUser('3'),
+]);
+
+// Have to manually filter and extract values
+const successes = results
+  .filter(r => r.status === 'fulfilled')
+  .map(r => r.value);
+const failures = results
+  .filter(r => r.status === 'rejected')
+  .map(r => r.reason);
+
+console.log(`Found ${successes.length} users`);
+console.log(`Failed to find ${failures.length} users`);
+```
+  </TabItem>
+</Tabs>
+
+## Transforming Results
+
+### Mapping success values
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, map, andThen } from 'awaitly';
+
+const result = ok(5);
+
+// Transform the value
+const doubled = map(result, n => n * 2);
+// { ok: true, value: 10 }
+
+// Chain operations that might fail
+const validated = andThen(result, n =>
+  n > 0 ? ok(n) : err('NEGATIVE')
+);
+```
+  </TabItem>
+  <TabItem label="try/catch">
+```typescript
+const result = 5;
+
+// Transform the value - but no error handling built in
+const doubled = result * 2;
+
+// Chain operations that might fail - need manual try/catch
+try {
+  const validated = result > 0 ? result : (() => { throw 'NEGATIVE'; })();
+} catch (e) {
+  // ...
+}
+```
+  </TabItem>
+</Tabs>
+
+## When to Use Each
+
+### Use try/catch when:
+
+- Working with legacy code that throws
+- Wrapping third-party libraries (then convert to Result)
+- Truly exceptional conditions (out of memory, etc.)
+- Quick scripts where type safety isn't critical
+
+### Use Result types when:
+
+- Building new APIs or functions
+- Errors are part of normal flow (validation, not found, etc.)
+- You want TypeScript to track error types
+- You need to compose multiple fallible operations
+- You want self-documenting error handling
+
+## Wrapping Throwing Code
+
+You don't have to rewrite everything. Wrap existing code:
+
+```typescript
+import { from, fromPromise, tryAsync } from 'awaitly';
+
+// Wrap sync code
+const result1 = from(() => JSON.parse(jsonString));
+
+// Wrap promises
+const result2 = await fromPromise(fetch('/api/data'));
+
+// Wrap with custom error type
+const result3 = await tryAsync(
+  () => riskyOperation(),
+  (thrown) => ({
+    type: 'OPERATION_FAILED' as const,
+    cause: thrown,
+  })
+);
+```
+
+<Aside type="tip" title="Gradual adoption">
+You can adopt Result types gradually. Wrap boundary code (API calls, user input) with Result types while keeping internal code unchanged.
+</Aside>
+
+## Summary
+
+| Aspect | try/catch | Result types |
+|--------|-----------|--------------|
+| Error visibility | Hidden in runtime | Explicit in types |
+| Compiler help | None | Full type checking |
+| Documentation | Separate (if any) | In function signature |
+| Composition | Nested try/catch | Clean chaining |
+| Partial failure | Manual handling | Built-in (allSettled) |
+| Learning curve | Familiar | New pattern |
+
+## Next Steps
+
+- [Learn about Results →](../concepts/results/)
+- [Your First Workflow →](../getting-started/first-workflow/)
+- [Handling Errors →](../getting-started/error-handling/)

@@ -1,0 +1,131 @@
+---
+title: Comparison Overview
+description: Compare awaitly with try/catch, neverthrow, and Effect for error handling
+sidebar:
+  order: 0
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Here's the thing about software: it fails. Not sometimes. **Always**.
+
+The database takes a nap when you need it. The payment provider goes for coffee. The user types "banana" where you expected a number.
+
+Most programmers treat errors like embarrassing relatives—they pretend they don't exist until they show up and ruin everything. But what if we treated errors as first-class citizens?
+
+## Four Philosophies
+
+| | |
+|---|---|
+| **Safety Net (try/catch)** | **Railway (neverthrow)** |
+| Happy path first | Success track |
+| Slip and fall | Switch point |
+| Caught (maybe) | Error track |
+| | |
+| **Control Room (Effect)** | **Orchestrator (awaitly)** |
+| Blueprint | Declare steps |
+| Control panel | Auto-infer errors |
+| Execute | Execute with step() |
+
+## At a Glance
+
+| Approach | Error Visibility | Composability | Ergonomics | Bundle Size |
+|----------|-----------------|---------------|------------|-------------|
+| **try/catch** | Low (hidden) | Medium | High | Minimal |
+| **neverthrow** | High | High | Medium | Light |
+| **Effect** | Very High | Very High | Low → Medium | Heavy |
+| **awaitly** | High | High | High | Light |
+
+## Three Criteria for Great Error Handling
+
+Whatever approach you choose, evaluate it against these benchmarks:
+
+1. **Visible**: Can you see all the ways your code can fail just by looking at it?
+2. **Composable**: Do errors make it painful to combine functions together?
+3. **Honest**: Do your function signatures tell the truth about what might happen?
+
+## The Decision Tree
+
+```text
+Need to handle errors?
+        │
+        ▼
+   Simple use case? ──Yes──▶ try/catch
+        │
+       No
+        │
+        ▼
+   Complex business logic?
+        │
+        ▼
+   Want auto error inference? ──No──▶ neverthrow
+        │
+       Yes
+        │
+        ▼
+   Want async/await syntax? ──No──▶ neverthrow
+        │
+       Yes
+        │
+        ▼
+   Need full ecosystem (DI, layers, tracing)?
+        │
+       Yes ──▶ Effect
+        │
+       No ──▶ awaitly
+```
+
+## When to Use What
+
+### Start with try/catch if:
+- You're building something simple
+- You need to ship quickly
+- You're at system boundaries (HTTP handlers, event listeners)
+
+### Consider neverthrow when:
+- Your business logic has multiple failure modes
+- You want compiler-verified error handling
+- You prefer functional chaining (`.andThen()`)
+
+### Consider awaitly when:
+- You want Result types with familiar async/await syntax
+- You need automatic error type inference
+- You need retries, timeouts, and caching
+- Your team knows async/await but wants better error handling
+
+### Look at Effect when:
+- You need the full ecosystem (DI, layers, tracing)
+- Testability via pure dependency injection is critical
+- Your team has capacity to learn functional programming
+
+## Detailed Comparisons
+
+<CardGrid>
+  <Card title="vs try/catch" icon="warning">
+    Compare traditional exception handling with Result types. See why explicit errors catch bugs at compile time.
+
+    [Read comparison →](/comparison/awaitly-vs-try-catch/)
+  </Card>
+  <Card title="vs neverthrow" icon="rocket">
+    Both use Result types. Compare chaining (`.andThen()`) vs async/await (`step()`).
+
+    [Read comparison →](/comparison/awaitly-vs-neverthrow/)
+  </Card>
+  <Card title="vs Effect" icon="setting">
+    Compare lightweight orchestration vs full ecosystem. When is Effect's power worth the complexity?
+
+    [Read comparison →](/comparison/awaitly-vs-effect/)
+  </Card>
+</CardGrid>
+
+## The Uncomfortable Truth
+
+Errors aren't bugs—they're features. The difference between a junior and senior developer isn't bug-free code. It's designing around inevitable failure.
+
+**There's no "correct" choice.** Each approach is a tool:
+- Use **try/catch** when you need simplicity
+- Use **neverthrow** when you need functional composition
+- Use **awaitly** when you want familiar syntax with type safety
+- Use **Effect** when you need the full architectural toolkit
+
+But whatever you choose, **choose deliberately**. Your future self at 3 AM will thank you.
