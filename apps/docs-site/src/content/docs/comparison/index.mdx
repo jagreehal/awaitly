@@ -59,11 +59,6 @@ Want compiler-verified error handling (Result types)?
         │
    No ──▶ try/catch
         │
-       Yes
-        │
-        ▼
-Want to keep async/await ergonomics?
-        │
    Yes  │
         ▼
 Need full ecosystem (DI, layers, tracing)?
@@ -79,6 +74,18 @@ Need full ecosystem (DI, layers, tracing)?
    Yes ──▶ Effect
         │
    No  ──▶ neverthrow
+=======
+   Want async/await syntax? ──No──▶ neverthrow
+        │
+       Yes
+        │
+        ▼
+   Need full ecosystem (DI, layers, tracing)?
+        │
+       Yes ──▶ Effect
+        │
+       No ──▶ awaitly
+>>>>>>> origin/main
 ```
 
 ## When to Use What
