@@ -1,6 +1,6 @@
-# awaitly
+# eslint-plugin-awaitly
 
-## 1.7.0
+## 0.2.0
 
 ### Minor Changes
 
@@ -8,9 +8,3 @@
   - Improve static analysis coverage (detect `run()` calls, conditionals/loops/parallel/race patterns) and capture `createWorkflow` docs (`description`, `markdown`) for richer diagrams.
   - Add `eslint-plugin-awaitly` to catch common workflow mistakes (immediate execution, missing thunks for keyed steps, unstable cache keys).
   - Improve `awaitly` workflow DX: `STEP_TIMEOUT` is returned as a typed error (not wrapped) and workflows can include docs metadata for static analysis.
-
-## 1.6.0
-
-### Minor Changes
-
-- 946a2a0: Add documentation for OpenTelemetry integration and workflow visualization features

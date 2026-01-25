@@ -1,6 +1,6 @@
 {
   "name": "awaitly-analyze",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "type": "module",
   "description": "Static workflow analysis for awaitly using tree-sitter. Analyze workflow source code to extract structure and generate visualizations.",
   "main": "./dist/index.cjs",
