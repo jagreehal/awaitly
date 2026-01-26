@@ -21,7 +21,6 @@ import {
   ErrorOf,
   createWorkflow,
   ErrorsOfDeps,
-  allAsync,
   type WorkflowEvent,
   TaggedError,
   type TagOf,
@@ -284,7 +283,7 @@ async function _test6a() {
     expectType<{ traceId: string } | undefined>(ctx.context);
     expectType<string>(ctx.workflowId);
     expectType<AbortSignal | undefined>(ctx.signal);
-    expectType<((event: WorkflowEvent<unknown>) => void) | undefined>(ctx.onEvent);
+    expectType<((event: WorkflowEvent<unknown, { traceId: string }>) => void) | undefined>(ctx.onEvent);
     return step(() => fetchUser("123"));
   });
 
@@ -1263,6 +1262,7 @@ function _testWorkflowEventContextGeneric() {
     stepId: string;
     stepKey?: string;
     name?: string;
+    description?: string;
     ts: number;
     durationMs: number;
     error: AppError;
@@ -1823,17 +1823,24 @@ async function _test54WorkflowWithRunInference() {
 // =============================================================================
 
 async function _test55ExecutionOptionsType() {
+  type RequestContext = { requestId: string };
   const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> =>
     ok({ id, name: "Alice" });
 
-  const workflow = createWorkflow({ fetchUser });
+  // Create workflow with context type
+  const workflow = createWorkflow(
+    { fetchUser },
+    {
+      createContext: (): RequestContext => ({ requestId: "default" }),
+    }
+  );
 
   // All exec options should be accepted
   const execOptions = {
-    onEvent: (event: WorkflowEvent<"NOT_FOUND" | UnexpectedError, void>) => {},
+    onEvent: (event: WorkflowEvent<"NOT_FOUND" | UnexpectedError, RequestContext>) => {},
     onError: (error: "NOT_FOUND" | UnexpectedError) => {},
     signal: new AbortController().signal,
-    createContext: () => ({ requestId: "123" }),
+    createContext: (): RequestContext => ({ requestId: "123" }),
     resumeState: () => ({ steps: new Map() }),
     shouldRun: () => true,
     onBeforeStart: () => true,

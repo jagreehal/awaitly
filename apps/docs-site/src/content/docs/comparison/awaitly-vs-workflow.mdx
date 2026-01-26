@@ -40,10 +40,16 @@ Choose awaitly when you want typed error handling, platform flexibility, and exp
 | Retry Logic | `RetryableError` class | Retry options in step config |
 | Saga Pattern | Manual try/catch rollback | `createSagaWorkflow` with auto-compensation |
 | Static Analysis | Limited | `awaitly-analyze` with Mermaid diagrams |
+| ESLint Plugin | None | `eslint-plugin-awaitly` with 7 rules + autofixes |
 | Runtime Visualization | Limited | `awaitly/visualize` with multiple formats |
 | Platform Lock-in | Vercel only | Any Node.js environment |
 | Durability | Built-in (Vercel platform) | Configurable (PostgreSQL, Redis, etc.) |
 | Compiler Required | Yes (custom compiler) | No (standard TypeScript) |
+| Workflow Metadata | `getWorkflowMetadata()` | `WorkflowContext` (3rd callback arg) |
+| Step Metadata | `getStepMetadata()` with `attempt` | `onEvent` callback with retry events |
+| Hooks/Webhooks | `createHook()` with suspension | Custom implementation via `onEvent` |
+| AI Agents | `DurableAgent` class | Standard AI SDK (manual tool calling) |
+| Sleep | `sleep("5s")` built-in | Manual implementation |
 
 ## Core Patterns
 
@@ -95,7 +101,8 @@ export const userWorkflow = createWorkflow(
 
 export async function runWorkflow(id: string) {
   return await userWorkflow(async (step, { fetchUser }) => {
-    const user = await step(fetchUser(id));
+    // Use function wrapper for proper caching/resume
+    const user = await step(() => fetchUser(id), { key: "fetch-user" });
     return user;
   });
 }
@@ -111,6 +118,10 @@ export async function workflow() {
 ```
   </TabItem>
 </Tabs>
+
+<Aside type="tip" title="ESLint Plugin">
+Use `eslint-plugin-awaitly` to catch common mistakes. The `no-immediate-execution` and `require-thunk-for-key` rules detect when you forget the function wrapper (`step(fn())` instead of `step(() => fn())`) and autofix it for you.
+</Aside>
 
 ## Error Handling
 
@@ -135,7 +146,8 @@ async function processPayment(
 }
 
 // Configure retry for specific errors
-const payment = await step(processPayment(amount), {
+const payment = await step(() => processPayment(amount), {
+  key: "process-payment",
   retry: {
     attempts: 3,
     backoff: "exponential",
@@ -240,6 +252,66 @@ export async function raceWorkflow() {
 ```
   </TabItem>
 </Tabs>
+
+## Workflow Context & Metadata
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+export const myWorkflow = createWorkflow(
+  { myStep },
+  {
+    description: "Workflow with context",
+    onEvent: (event) => {
+      // Access retry metadata via events
+      if (event.type === "step_retry") {
+        console.log(`Retry attempt ${event.attempt}/${event.maxAttempts}`);
+      }
+    },
+  }
+);
+
+export async function runWorkflow() {
+  return await myWorkflow(async (step, deps, ctx) => {
+    // ctx contains: workflowId, onEvent, context, signal
+    console.log(`Workflow ID: ${ctx.workflowId}`);
+
+    // Check for cancellation
+    if (ctx.signal?.aborted) {
+      return err("CANCELLED");
+    }
+
+    const result = await step(() => deps.myStep(), { key: "my-step" });
+    return result;
+  });
+}
+```
+  </TabItem>
+  <TabItem label="Vercel Workflow">
+```typescript
+export async function myWorkflow() {
+  "use workflow";
+
+  // Access workflow metadata
+  const workflowCtx = getWorkflowMetadata();
+  console.log(`Workflow ID: ${workflowCtx.workflowId}`);
+
+  const result = await myStep();
+  return result;
+}
+
+async function myStep() {
+  "use step";
+  // Access step metadata inside step
+  const { attempt } = getStepMetadata();
+  console.log(`Attempt: ${attempt}`);
+  return "done";
+}
+```
+  </TabItem>
+</Tabs>
+
+**Key difference**: Vercel Workflow provides synchronous getters (`getStepMetadata()`, `getWorkflowMetadata()`) callable inside steps. awaitly provides `WorkflowContext` as a callback argument and retry info via `onEvent`.
 
 ## Saga Pattern (Distributed Transactions)
 
@@ -373,7 +445,7 @@ export async function runAIWorkflow(prompt: string) {
         }),
       }),
       prompt,
-    }));
+    }), { key: "generate-text" });
     return output;
   });
 }
@@ -381,25 +453,35 @@ export async function runAIWorkflow(prompt: string) {
   </TabItem>
   <TabItem label="Vercel Workflow">
 ```typescript
-import { generateObject } from "ai";
+import { DurableAgent } from "@workflow/ai/agent";
+import { getWritable } from "workflow";
 
-export async function aiWorkflow(prompt: string) {
+export async function aiWorkflow(messages: UIMessage[]) {
   "use workflow";
-  const result = await generateObject({
-    model: "openai/gpt-4",
-    schema: z.object({
-      quality: z.number(),
-      score: z.number(),
-    }),
-    prompt,
+
+  const writable = getWritable<UIMessageChunk>();
+
+  const agent = new DurableAgent({
+    model: "anthropic/claude-4-opus",
+    tools: {
+      getWeather: {
+        description: "Get weather for a city",
+        inputSchema: z.object({ city: z.string() }),
+        execute: getWeatherInfo,
+      },
+    },
   });
-  return result.object;
+
+  await agent.stream({
+    messages: convertToModelMessages(messages),
+    writable,
+  });
 }
 ```
   </TabItem>
 </Tabs>
 
-**Key difference**: awaitly uses the standard AI SDK v6 API, making it compatible with any AI provider (OpenAI, Anthropic, Ollama, etc.).
+**Key difference**: Vercel Workflow has `DurableAgent` with built-in tool registration, streaming via `getWritable()`, and multi-turn conversation support. awaitly uses standard AI SDK which is more flexible but requires manual tool orchestration.
 
 ## Static Analysis & Visualization
 
@@ -470,8 +552,8 @@ export const simpleWorkflow = createWorkflow(
 
 export async function simple(i: number) {
   return await simpleWorkflow(async (step, { add }) => {
-    const a = await step(add(i, 7));
-    const b = await step(add(a, 8));
+    const a = await step(() => add(i, 7), { key: "add-1" });
+    const b = await step(() => add(a, 8), { key: "add-2" });
     return b;
   });
 }
@@ -517,7 +599,7 @@ export async function runBatchWorkflow(items: string[]) {
           console.log(`Processed ${progress.processed}/${progress.total}`);
         },
       }
-    ));
+    ), { key: "batch-process" });
     return result;
   });
 }
@@ -544,7 +626,8 @@ export async function batchWorkflow(items: string[]) {
 - You want zero-config durability (handled by platform)
 - You prefer compiler magic over explicit types
 - You need tight integration with Vercel services
-- You're okay with platform lock-in
+- You need `DurableAgent` for AI workflows with streaming
+- You need `createHook()` for webhook-based workflow suspension
 
 ### Choose awaitly when:
 
@@ -568,6 +651,8 @@ export async function batchWorkflow(items: string[]) {
 │  Platform-integrated              Platform-agnostic         │
 │  Compiler magic                   Explicit types            │
 │  Zero-config durability           Bring your own store      │
+│  DurableAgent for AI              Standard AI SDK           │
+│  createHook() for webhooks        Custom via onEvent        │
 │  Vercel only                      Any Node.js environment   │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘

@@ -57,6 +57,27 @@ import { processInBatches } from 'awaitly/batch';
 import { withScope, createResource } from 'awaitly/resource';
 ```
 
+## Browser support
+
+awaitly works in both Node.js and browser environments. Bundlers (Vite, webpack, esbuild, Rollup) automatically resolve browser-safe code via conditional exports.
+
+```typescript
+// Works in browser - bundlers resolve the browser entry
+import { createVisualizer } from 'awaitly/visualize';
+
+const viz = createVisualizer({ workflowName: 'checkout' });
+```
+
+**Node.js-only features** throw helpful errors in browser:
+
+- `createDevServer` - requires `node:http`, `node:child_process`
+- `createLiveVisualizer` - requires `process.stdout`
+
+```typescript
+// In browser, this throws: "createDevServer is not available in browser..."
+import { createDevServer } from 'awaitly/visualize';
+```
+
 ## Verify installation
 
 Create a file and run it to verify everything works:
