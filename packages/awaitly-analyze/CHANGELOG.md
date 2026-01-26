@@ -1,5 +1,12 @@
 # awaitly-analyze
 
+## 5.0.0
+
+### Patch Changes
+
+- Updated dependencies [826eb3a]
+  - awaitly@1.10.0
+
 ## 4.0.0
 
 ### Minor Changes
