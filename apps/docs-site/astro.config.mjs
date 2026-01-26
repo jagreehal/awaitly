@@ -50,6 +50,18 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Foundations',
+          items: [
+            { label: 'Overview', slug: 'foundations' },
+            { label: 'Result Types', slug: 'foundations/result-types' },
+            { label: 'Workflows and Steps', slug: 'foundations/workflows-and-steps' },
+            { label: 'Control Flow', slug: 'foundations/control-flow' },
+            { label: 'Errors and Retries', slug: 'foundations/error-handling' },
+            { label: 'State and Resumption', slug: 'foundations/state-and-resumption' },
+            { label: 'Streaming', slug: 'foundations/streaming' },
+          ],
+        },
+        {
           label: 'Concepts',
           items: [
             { label: 'Results', slug: 'concepts/results' },
@@ -112,6 +124,7 @@ export default defineConfig({
             { label: 'vs try/catch', slug: 'comparison/awaitly-vs-try-catch' },
             { label: 'vs neverthrow', slug: 'comparison/awaitly-vs-neverthrow' },
             { label: 'vs Effect', slug: 'comparison/awaitly-vs-effect' },
+            { label: 'vs Vercel Workflow', slug: 'comparison/awaitly-vs-workflow' },
           ],
         },
       ],

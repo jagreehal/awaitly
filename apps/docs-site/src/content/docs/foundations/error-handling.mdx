@@ -1,0 +1,424 @@
+---
+title: Errors and Retries
+description: Unified error handling with automatic inference, retries, and timeouts
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+awaitly provides unified error handling: automatic type inference, structured error types, and resilience patterns like retries and timeouts.
+
+## Automatic Error Inference
+
+When you create a workflow, TypeScript computes the error union from your dependencies:
+
+```typescript
+const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
+const fetchPosts = async (id: string): AsyncResult<Post[], 'FETCH_ERROR'> => { /* ... */ };
+const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
+
+const workflow = createWorkflow({ fetchUser, fetchPosts, sendEmail });
+
+const result = await workflow(async (step) => { /* ... */ });
+// result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | UnexpectedError
+```
+
+Add a new dependency? The error union updates automatically.
+
+## UnexpectedError
+
+If code throws an exception (not a returned error), it becomes an `UnexpectedError`:
+
+```typescript
+const badOperation = async (): AsyncResult<string, 'KNOWN_ERROR'> => {
+  throw new Error('Something broke'); // Throws instead of returning err()
+};
+
+const workflow = createWorkflow({ badOperation });
+const result = await workflow(async (step) => {
+  return await step(badOperation());
+});
+
+if (!result.ok && result.error.type === 'UNEXPECTED') {
+  console.log(result.error.cause); // The original Error object
+}
+```
+
+<Aside type="note">
+`UnexpectedError` captures exceptions that weren't explicitly returned as `err()`. Use `step.try()` to convert them into typed errors.
+</Aside>
+
+## String Literals vs TaggedError
+
+Choose your error type based on complexity:
+
+```text
+Do you need data attached to the error?
+├── No → Use string literals: 'NOT_FOUND' | 'UNAUTHORIZED'
+└── Yes → Do you have 3+ error variants to handle?
+    ├── No → Object literal: { type: 'NOT_FOUND', id: string }
+    └── Yes → TaggedError with match()
+```
+
+| Use Case | Recommendation |
+|----------|---------------|
+| Simple distinct states | String literals: `'NOT_FOUND' \| 'UNAUTHORIZED'` |
+| Errors with context | TaggedError: `NotFoundError { id, resource }` |
+| Multiple variants to handle | TaggedError with `match()` |
+
+### String Literals
+
+Simple and sufficient for most cases:
+
+```typescript
+const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND' | 'FORBIDDEN'> => {
+  if (!session.valid) return err('FORBIDDEN');
+  const user = await db.find(id);
+  return user ? ok(user) : err('NOT_FOUND');
+};
+```
+
+### TaggedError for Rich Context
+
+When you need data attached to errors:
+
+```typescript
+import { TaggedError } from 'awaitly';
+
+class UserNotFoundError extends TaggedError('UserNotFoundError')<{
+  userId: string;
+  searchedAt: string;
+}> {}
+
+class UserForbiddenError extends TaggedError('UserForbiddenError')<{
+  userId: string;
+  reason: 'session_expired' | 'insufficient_permissions';
+}> {}
+
+const fetchUser = async (id: string): AsyncResult<User, UserNotFoundError | UserForbiddenError> => {
+  if (!session.valid) {
+    return err(new UserForbiddenError({ userId: id, reason: 'session_expired' }));
+  }
+  const user = await db.find(id);
+  if (!user) {
+    return err(new UserNotFoundError({ userId: id, searchedAt: 'users_table' }));
+  }
+  return ok(user);
+};
+```
+
+### Pattern Matching with TaggedError
+
+Use `TaggedError.match` for exhaustive handling:
+
+```typescript
+if (!result.ok) {
+  const response = TaggedError.match(result.error, {
+    UserNotFoundError: (e) => ({
+      status: 404,
+      body: { error: 'not_found', userId: e.userId },
+    }),
+    UserForbiddenError: (e) => ({
+      status: 403,
+      body: { error: 'forbidden', reason: e.reason },
+    }),
+  });
+
+  return res.status(response.status).json(response.body);
+}
+```
+
+<Aside type="tip" title="Exhaustive checking">
+Forget a handler? TypeScript shows an error. Add a new error type? TypeScript tells you everywhere it needs handling.
+</Aside>
+
+## Timeouts
+
+Limit how long a step can run:
+
+```typescript
+const data = await step.withTimeout(
+  () => slowOperation(),
+  { ms: 5000, name: 'Slow operation' }
+);
+```
+
+### Timeout Behavior Variants
+
+<Tabs>
+  <TabItem label="error (default)">
+```typescript
+// Default - return timeout error
+const data = await step.withTimeout(
+  () => slowOperation(),
+  { ms: 5000, onTimeout: 'error' }
+);
+// Returns StepTimeoutError on timeout
+```
+  </TabItem>
+  <TabItem label="option">
+```typescript
+// Treat timeout as optional - return undefined
+const data = await step.withTimeout(
+  () => optionalEnrichment(),
+  { ms: 1000, onTimeout: 'option' }
+);
+// data is undefined if timeout, no error
+```
+  </TabItem>
+  <TabItem label="custom">
+```typescript
+// Custom error type
+const data = await step.withTimeout(
+  () => apiCall(),
+  {
+    ms: 5000,
+    onTimeout: ({ name, ms }) => ({
+      _tag: 'API_TIMEOUT' as const,
+      operation: name,
+      waited: ms,
+    }),
+  }
+);
+```
+  </TabItem>
+</Tabs>
+
+### Checking Timeout Errors
+
+```typescript
+import { isStepTimeoutError, getStepTimeoutMeta } from 'awaitly/workflow';
+
+if (!result.ok && isStepTimeoutError(result.error)) {
+  const meta = getStepTimeoutMeta(result.error);
+  console.log(`${meta.name} timed out after ${meta.ms}ms`);
+}
+```
+
+## Retries
+
+Retry failed steps with configurable backoff:
+
+```typescript
+const data = await step.retry(
+  () => fetchData(),
+  {
+    attempts: 3,
+    backoff: 'exponential',
+    delayMs: 100,
+  }
+);
+```
+
+### Backoff Strategies
+
+```text
+Fixed Backoff (delayMs: 100)
+────────────────────────────
+Attempt │ Delay
+────────┼────────
+   1    │ 100ms
+   2    │ 100ms
+   3    │ 100ms
+
+Linear Backoff (delayMs: 100)
+─────────────────────────────
+Attempt │ Delay
+────────┼────────
+   1    │ 100ms
+   2    │ 200ms
+   3    │ 300ms
+
+Exponential Backoff (delayMs: 100)
+──────────────────────────────────
+Attempt │ Delay
+────────┼────────
+   1    │ 100ms
+   2    │ 200ms
+   3    │ 400ms
+   4    │ 800ms
+```
+
+<Aside type="tip" title="When to use each">
+- **Fixed**: Rate limiting, polling at regular intervals
+- **Linear**: Moderate backoff, predictable delays
+- **Exponential**: Network calls, external APIs, databases
+</Aside>
+
+### Capping Delays
+
+Prevent delays from growing too large:
+
+```typescript
+{
+  attempts: 10,
+  backoff: 'exponential',
+  delayMs: 100,
+  maxDelayMs: 5000, // Never wait more than 5 seconds
+}
+```
+
+### Adding Jitter
+
+Randomize delays to avoid thundering herd:
+
+```typescript
+{
+  attempts: 3,
+  backoff: 'exponential',
+  delayMs: 100,
+  jitter: true, // Adds ±50% random variation
+}
+```
+
+<Aside type="note" title="Why jitter matters">
+Without jitter, 1000 clients failing at the same time all retry at the same time. With jitter, retries spread across a time window, reducing load on recovering services.
+</Aside>
+
+### Conditional Retry
+
+Only retry certain errors:
+
+```typescript
+const user = await step.retry(
+  () => fetchUser('1'),
+  {
+    attempts: 3,
+    backoff: 'exponential',
+    retryOn: (error) => {
+      // Don't retry permanent failures
+      if (error === 'NOT_FOUND') return false;
+      if (error === 'INVALID_ID') return false;
+      // Retry transient failures
+      return true;
+    },
+  }
+);
+```
+
+<Aside type="tip" title="Retry only transient failures">
+Retrying `NOT_FOUND` or `UNAUTHORIZED` wastes resources. Only retry: network failures, timeouts, rate limits, and server errors (5xx).
+</Aside>
+
+## Combining Retry and Timeout
+
+Each attempt has its own timeout:
+
+```typescript
+const data = await step.retry(
+  () => step.withTimeout(() => fetchData(), { ms: 2000 }),
+  { attempts: 3, backoff: 'exponential', delayMs: 100 }
+);
+```
+
+```text
+Timeline:
+├── Attempt 1 ──────────────► timeout at 2s
+│   (wait 100ms)
+├── Attempt 2 ──────────────► timeout at 2s
+│   (wait 200ms)
+├── Attempt 3 ──────────────► success or final failure
+```
+
+## Via Step Options
+
+Configure retry and timeout directly in step options:
+
+```typescript
+const user = await step(() => fetchUser('1'), {
+  name: 'Fetch user',
+  retry: {
+    attempts: 3,
+    backoff: 'exponential',
+    delayMs: 100,
+    jitter: true,
+  },
+  timeout: {
+    ms: 5000,
+  },
+});
+```
+
+## Strict Mode
+
+Force explicit handling of unexpected errors:
+
+```typescript
+const workflow = createWorkflow(
+  { fetchUser, fetchPosts },
+  {
+    strict: true,
+    catchUnexpected: (thrown) => ({
+      type: 'UNEXPECTED' as const,
+      message: String(thrown),
+    }),
+  }
+);
+```
+
+## Summary Table
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `attempts` | `number` | required | Max retry attempts |
+| `backoff` | `'fixed' \| 'linear' \| 'exponential'` | `'fixed'` | Delay growth strategy |
+| `delayMs` | `number` | `0` | Base delay in milliseconds |
+| `maxDelayMs` | `number` | `undefined` | Maximum delay cap |
+| `jitter` | `boolean` | `false` | Add random variation |
+| `retryOn` | `(error) => boolean` | `() => true` | Condition for retry |
+
+## Complete Example
+
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+import { TaggedError } from 'awaitly';
+
+class NetworkError extends TaggedError('NetworkError')<{
+  endpoint: string;
+  statusCode?: number;
+}> {}
+
+class NotFoundError extends TaggedError('NotFoundError')<{
+  resource: string;
+  id: string;
+}> {}
+
+const fetchUserFromApi = async (id: string): AsyncResult<User, NetworkError | NotFoundError> => {
+  // Implementation
+};
+
+const workflow = createWorkflow({ fetchUserFromApi });
+
+const result = await workflow(async (step) => {
+  const user = await step.retry(
+    () => step.withTimeout(
+      () => fetchUserFromApi('123'),
+      { ms: 3000, name: 'Fetch user' }
+    ),
+    {
+      attempts: 3,
+      backoff: 'exponential',
+      delayMs: 200,
+      jitter: true,
+      retryOn: (error) => {
+        // Don't retry NOT_FOUND - user doesn't exist
+        if (error instanceof NotFoundError) return false;
+        // Retry network errors
+        return true;
+      },
+    }
+  );
+
+  return user;
+});
+
+if (!result.ok) {
+  TaggedError.match(result.error, {
+    NetworkError: (e) => console.log(`Network error: ${e.endpoint}`),
+    NotFoundError: (e) => console.log(`${e.resource} ${e.id} not found`),
+  });
+}
+```
+
+## Next
+
+[Learn about State and Resumption →](/foundations/state-and-resumption/)
