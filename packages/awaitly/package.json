@@ -1,6 +1,6 @@
 {
   "name": "awaitly",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "type": "module",
   "description": "Typed async workflows with automatic error inference. Build type-safe workflows with Result types, step caching, resume state, and human-in-the-loop support.",
   "main": "./dist/index.cjs",
