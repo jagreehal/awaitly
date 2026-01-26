@@ -1,5 +1,17 @@
 # eslint-plugin-awaitly
 
+## 0.4.0
+
+### Minor Changes
+
+- b589cb2: Add comprehensive documentation for `bindDeps` utility
+
+  - Added `bindDeps` to API reference with usage examples
+  - Created new "Dependency Binding" guide covering the `fn(args, deps)` pattern
+  - Added guide to navigation sidebar
+  - Includes examples for Express, React, Next.js integration
+  - Updated `.gitignore` to exclude `.astro/` build directory
+
 ## 0.3.0
 
 ### Minor Changes
