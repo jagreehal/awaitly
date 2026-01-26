@@ -1,5 +1,14 @@
 # awaitly-docs
 
+## 1.4.0
+
+### Minor Changes
+
+- 524ad8b: Add Foundations section and Vercel Workflow comparison
+
+  - Add new "Foundations" documentation section covering Result types, workflows, control flow, error handling, state/resumption, and streaming
+  - Add comparison page for awaitly vs Vercel Workflow SDK
+
 ## 1.3.0
 
 ### Minor Changes
