@@ -55,6 +55,8 @@ export default defineConfig({
     'tagged-error': 'src/tagged-error-entry.ts',
     errors: 'src/errors-entry.ts',
     cache: 'src/cache-entry.ts',
+    'bind-deps': 'src/bind-deps-entry.ts',
+    fetch: 'src/fetch-entry.ts',
 
     // =========================================================================
     // Glue library utilities
@@ -66,6 +68,11 @@ export default defineConfig({
     // Durable execution
     // =========================================================================
     durable: 'src/durable-entry.ts',
+
+    // =========================================================================
+    // Streaming
+    // =========================================================================
+    streaming: 'src/streaming-entry.ts',
   },
   format: ['cjs', 'esm'],
   dts: true,

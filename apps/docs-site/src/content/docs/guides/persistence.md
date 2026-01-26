@@ -3,6 +3,10 @@ title: Persistence
 description: Save and resume workflows across restarts
 ---
 
+:::caution[Options go to createWorkflow]
+Options like `resumeState` must be passed to `createWorkflow(deps, { resumeState })`, not when calling the workflow. Options passed to the executor are silently ignored.
+:::
+
 Save workflow state to a database and resume later. Completed steps return their cached results without re-executing.
 
 ## Quick Start Imports
@@ -20,6 +24,24 @@ import { stringifyState, parseState } from 'awaitly/persistence';
 import { createWorkflow, createResumeStateCollector, isStepComplete } from 'awaitly/workflow';
 import { stringifyState, parseState, createStatePersistence } from 'awaitly/persistence';
 ```
+
+:::danger[Always use stringifyState/parseState]
+`ResumeState.steps` is a `Map`, which **cannot be serialized with `JSON.stringify()`**. Maps become empty objects `{}` when serialized directly!
+
+```typescript
+// WRONG - Map becomes empty object!
+const json = JSON.stringify(state);
+const restored = JSON.parse(json);  // steps is {} not Map!
+```
+
+```typescript
+// CORRECT - preserves Map structure
+import { stringifyState, parseState } from 'awaitly/persistence';
+const json = stringifyState(state);
+const restored = parseState(json);  // steps is Map!
+```
+
+:::
 
 ## Collect state during execution
 

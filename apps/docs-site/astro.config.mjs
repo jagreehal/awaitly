@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import sitemap from '@astrojs/sitemap';
 import starlightThemeNext from 'starlight-theme-next';
 import tailwindcss from '@tailwindcss/vite';
 import astroMermaid from 'astro-mermaid';
@@ -14,8 +15,9 @@ export default defineConfig({
   base: process.env.BASE || '/awaitly',
   integrations: [
     preact(),
+    sitemap(),
     astroMermaid(),
-      starlight({
+    starlight({
       title: 'awaitly',
       description: 'Typed async workflows with Result types and automatic error inference',
       favicon: '/favicon.svg',
@@ -26,6 +28,9 @@ export default defineConfig({
       customCss: ['./src/styles/global.css'],
       plugins: [starlightThemeNext()],
       tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 3 },
+      editLink: {
+        baseUrl: 'https://github.com/jagreehal/awaitly/edit/main/apps/docs-site/',
+      },
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/jagreehal/awaitly' },
       ],
@@ -59,6 +64,7 @@ export default defineConfig({
             { label: 'Retries & Timeouts', slug: 'guides/retries-timeouts' },
             { label: 'Caching', slug: 'guides/caching' },
             { label: 'Persistence', slug: 'guides/persistence' },
+            { label: 'Streaming', slug: 'guides/streaming' },
             { label: 'Human-in-the-Loop', slug: 'guides/human-in-loop' },
             { label: 'Visualization', slug: 'guides/visualization' },
             { label: 'Static Analysis', slug: 'guides/static-analysis' },
@@ -68,6 +74,7 @@ export default defineConfig({
             { label: 'Claude Code Skill', slug: 'guides/claude-skill' },
             { label: 'Troubleshooting', slug: 'guides/troubleshooting' },
             { label: 'Framework Integration', slug: 'guides/framework-integration' },
+            { label: 'Dependency Binding', slug: 'guides/dependency-binding' },
             { label: 'Migration Guide', slug: 'guides/migration' },
           ],
         },

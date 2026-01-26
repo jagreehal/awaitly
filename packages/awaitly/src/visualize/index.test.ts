@@ -7,6 +7,8 @@ import {
   visualizeEvents,
   createIRBuilder,
   createLiveVisualizer,
+  combineEventHandlers,
+  createVisualizingWorkflow,
 } from "./index";
 import type { WorkflowEvent } from "../core";
 
@@ -695,5 +697,213 @@ describe("integration", () => {
     expect(output).toContain("Fetch user");
     expect(output).toContain("Fetch posts");
     expect(output).toContain("Completed");
+  });
+});
+
+// =============================================================================
+// combineEventHandlers Tests
+// =============================================================================
+
+describe("combineEventHandlers", () => {
+  it("calls all handlers in order", async () => {
+    const calls: string[] = [];
+
+    const handler1 = () => calls.push("handler1");
+    const handler2 = () => calls.push("handler2");
+    const handler3 = () => calls.push("handler3");
+
+    const combined = combineEventHandlers(handler1, handler2, handler3);
+    const workflow = createWorkflow(
+      { fetchUser },
+      { onEvent: combined }
+    );
+
+    await workflow(async (step) => {
+      return await step(() => fetchUser("1"), "Fetch");
+    });
+
+    // Each event type triggers all handlers
+    expect(calls.filter((c) => c === "handler1").length).toBeGreaterThan(0);
+    expect(calls.filter((c) => c === "handler2").length).toBeGreaterThan(0);
+    expect(calls.filter((c) => c === "handler3").length).toBeGreaterThan(0);
+  });
+
+  it("passes event to all handlers", async () => {
+    const events1: WorkflowEvent<unknown>[] = [];
+    const events2: WorkflowEvent<unknown>[] = [];
+
+    const combined = combineEventHandlers(
+      (e) => events1.push(e),
+      (e) => events2.push(e)
+    );
+
+    const workflow = createWorkflow(
+      { fetchUser },
+      { onEvent: combined }
+    );
+
+    await workflow(async (step) => {
+      return await step(() => fetchUser("1"), "Fetch");
+    });
+
+    expect(events1.length).toBe(events2.length);
+    expect(events1.length).toBeGreaterThan(0);
+
+    // Same events in same order
+    for (let i = 0; i < events1.length; i++) {
+      expect(events1[i].type).toBe(events2[i].type);
+    }
+  });
+
+  it("works with visualizer and custom logger", async () => {
+    const loggedTypes: string[] = [];
+    const viz = createVisualizer({ workflowName: "combined-test" });
+
+    const combined = combineEventHandlers(
+      viz.handleEvent,
+      (e) => loggedTypes.push(e.type)
+    );
+
+    const workflow = createWorkflow(
+      { fetchUser },
+      { onEvent: combined }
+    );
+
+    await workflow(async (step) => {
+      return await step(() => fetchUser("1"), "Fetch user");
+    });
+
+    // Visualizer should have processed events
+    const output = viz.render();
+    expect(output).toContain("combined-test");
+    expect(output).toContain("Fetch user");
+
+    // Logger should have received events
+    expect(loggedTypes).toContain("workflow_start");
+    expect(loggedTypes).toContain("step_start");
+    expect(loggedTypes).toContain("step_success");
+    expect(loggedTypes).toContain("workflow_success");
+  });
+});
+
+// =============================================================================
+// createVisualizingWorkflow Tests
+// =============================================================================
+
+describe("createVisualizingWorkflow", () => {
+  it("creates workflow and visualizer with correct API", () => {
+    const { workflow, visualizer } = createVisualizingWorkflow({ fetchUser });
+
+    expect(workflow).toBeTypeOf("function");
+    expect(visualizer.handleEvent).toBeTypeOf("function");
+    expect(visualizer.render).toBeTypeOf("function");
+    expect(visualizer.renderAs).toBeTypeOf("function");
+    expect(visualizer.reset).toBeTypeOf("function");
+  });
+
+  it("visualizes workflow execution", async () => {
+    const { workflow, visualizer } = createVisualizingWorkflow(
+      { fetchUser, fetchPosts },
+      { workflowName: "viz-workflow" }
+    );
+
+    await workflow(async (step) => {
+      const user = await step(() => fetchUser("1"), "Fetch user");
+      const posts = await step(() => fetchPosts(user.id), "Fetch posts");
+      return { user, posts };
+    });
+
+    const output = visualizer.render();
+    expect(output).toContain("viz-workflow");
+    expect(output).toContain("Fetch user");
+    expect(output).toContain("Fetch posts");
+    expect(output).toContain("✓");
+  });
+
+  it("supports forwardTo option", async () => {
+    const forwardedEvents: WorkflowEvent<unknown>[] = [];
+
+    const { workflow, visualizer } = createVisualizingWorkflow(
+      { fetchUser },
+      {
+        workflowName: "forward-test",
+        forwardTo: (e) => forwardedEvents.push(e),
+      }
+    );
+
+    await workflow(async (step) => {
+      return await step(() => fetchUser("1"), "Fetch user");
+    });
+
+    // Visualizer should work
+    const output = visualizer.render();
+    expect(output).toContain("forward-test");
+    expect(output).toContain("Fetch user");
+
+    // forwardTo should receive events
+    expect(forwardedEvents.length).toBeGreaterThan(0);
+    expect(forwardedEvents.some((e) => e.type === "workflow_start")).toBe(true);
+    expect(forwardedEvents.some((e) => e.type === "workflow_success")).toBe(true);
+  });
+
+  it("handles errors correctly", async () => {
+    const { workflow, visualizer } = createVisualizingWorkflow(
+      { fetchUser },
+      { workflowName: "error-test" }
+    );
+
+    const result = await workflow(async (step) => {
+      return await step(() => fetchUser("missing"), "Fetch user");
+    });
+
+    expect(result.ok).toBe(false);
+
+    const output = visualizer.render();
+    expect(output).toContain("error-test");
+    expect(output).toContain("✗"); // Error symbol
+  });
+
+  it("supports multiple output formats", async () => {
+    const { workflow, visualizer } = createVisualizingWorkflow(
+      { fetchUser },
+      { workflowName: "format-test" }
+    );
+
+    await workflow(async (step) => {
+      return await step(() => fetchUser("1"), "Fetch");
+    });
+
+    // ASCII
+    const ascii = visualizer.renderAs("ascii");
+    expect(ascii).toContain("format-test");
+
+    // Mermaid
+    const mermaid = visualizer.renderAs("mermaid");
+    expect(mermaid).toContain("flowchart TD");
+
+    // JSON
+    const json = visualizer.renderAs("json");
+    const parsed = JSON.parse(json);
+    expect(parsed.root.type).toBe("workflow");
+  });
+
+  it("passes visualizer options correctly", async () => {
+    const { workflow, visualizer } = createVisualizingWorkflow(
+      { fetchUser },
+      {
+        workflowName: "options-test",
+        showTimings: true,
+        showKeys: true,
+        detectParallel: false,
+      }
+    );
+
+    await workflow(async (step) => {
+      return await step(() => fetchUser("1"), { key: "user-key", name: "Fetch user" });
+    });
+
+    const ir = visualizer.getIR();
+    expect(ir.root.name).toBe("options-test");
+    expect(ir.root.children).toHaveLength(1);
   });
 });

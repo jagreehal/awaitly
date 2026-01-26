@@ -21,6 +21,7 @@ interface CLIOptions {
   showKeys: boolean;
   direction: "TB" | "LR" | "BT" | "RL";
   showConditions: boolean;
+  verbose: boolean;
   help: boolean;
 }
 
@@ -51,15 +52,54 @@ export async function cli(args: string[]): Promise<void> {
   }
 
   try {
+    // Verbose: Log file being analyzed
+    if (options.verbose) {
+      console.error(`Analyzing: ${filePath}`);
+      console.error("");
+      console.error("Patterns being searched:");
+      console.error("  - createWorkflow() definitions with invocations");
+      console.error("  - run() calls imported from 'awaitly'");
+      console.error("  - createSagaWorkflow() definitions with invocations");
+      console.error("  - runSaga() calls imported from 'awaitly'");
+      console.error("");
+    }
+
     // Run analysis
     const results = await analyzeWorkflow(filePath);
 
     if (results.length === 0) {
-      console.error("Warning: No workflows found in file.");
-      console.error(
-        "Ensure the file contains createWorkflow() definitions with invocations."
-      );
+      console.error(`Warning: No workflows found in ${filePath}`);
+      console.error("");
+      console.error("Patterns searched for:");
+      console.error("  - createWorkflow() definitions with invocations");
+      console.error("  - run() calls imported from 'awaitly'");
+      console.error("  - createSagaWorkflow() definitions with invocations");
+      console.error("  - runSaga() calls imported from 'awaitly'");
+      console.error("");
+      console.error("Common reasons no workflows were found:");
+      console.error("  1. The file defines workflows but doesn't invoke them");
+      console.error("  2. Workflows are defined in a different file");
+      console.error("  3. Import aliases aren't recognized");
+      console.error("  4. Saga workflows with runtime-only execution patterns");
+      console.error("  5. Dynamic patterns that can't be statically analyzed");
+      console.error("");
+      console.error("For saga workflows, consider using runtime visualization instead:");
+      console.error("  import { createVisualizer } from 'awaitly/visualize';");
       process.exit(0);
+    }
+
+    // Verbose: Log workflows found with stats
+    if (options.verbose) {
+      console.error(`Found ${results.length} workflow(s):`);
+      for (const ir of results) {
+        const stats = ir.metadata.stats;
+        console.error(`  - ${ir.root.workflowName} (source: ${ir.root.source})`);
+        console.error(`    Steps: ${stats.totalSteps}, Conditionals: ${stats.conditionalCount}, Parallel: ${stats.parallelCount}, Loops: ${stats.loopCount}`);
+        if (stats.sagaWorkflowCount && stats.sagaWorkflowCount > 0) {
+          console.error(`    Saga steps with compensation: ${stats.compensatedStepCount || 0}`);
+        }
+      }
+      console.error("");
     }
 
     // Print any warnings to stderr
@@ -78,10 +118,23 @@ export async function cli(args: string[]): Promise<void> {
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : String(error);
-    if (errorMessage.includes("WASM")) {
+
+    if (errorMessage.includes("WASM") || errorMessage.includes("tree-sitter")) {
+      console.error("Error: Failed to load tree-sitter parser.\n");
+      console.error("This may be due to:");
       console.error(
-        "Error: Failed to load tree-sitter. Try reinstalling awaitly."
+        "  - Corrupted installation (try: npm rebuild awaitly-analyze)"
       );
+      console.error("  - Missing WASM files (try reinstalling the package)");
+      console.error(
+        "  - Node.js version < 22 (awaitly-analyze requires Node.js >= 22)"
+      );
+      console.error("");
+      console.error("Workaround: Use the programmatic API instead:");
+      console.error("  import { analyzeWorkflow } from 'awaitly-analyze';");
+      console.error("  const results = await analyzeWorkflow('./workflow.ts');");
+      console.error("");
+      console.error(`Technical details: ${errorMessage}`);
     } else {
       console.error(`Parse error: ${errorMessage}`);
     }
@@ -100,12 +153,15 @@ function parseArgs(args: string[]): CLIOptions {
     showKeys: false,
     direction: "TB",
     showConditions: true,
+    verbose: false,
     help: false,
   };
 
   for (const arg of args) {
     if (arg === "--help" || arg === "-h") {
       options.help = true;
+    } else if (arg === "--verbose" || arg === "-v") {
+      options.verbose = true;
     } else if (arg.startsWith("--format=")) {
       const format = arg.slice("--format=".length);
       if (format === "mermaid" || format === "json") {
@@ -188,6 +244,7 @@ OPTIONS:
   --keys                 Show step cache keys in diagram
   --direction=<dir>      Diagram direction: TB, LR, BT, RL (default: TB)
   --no-conditions        Hide condition labels on edges
+  -v, --verbose          Show detailed analysis progress and stats
   -h, --help             Show this help message
 
 EXAMPLES:
@@ -202,6 +259,9 @@ EXAMPLES:
 
   # Horizontal layout with cache keys
   awaitly-analyze ./src/workflows/checkout.ts --direction=LR --keys
+
+  # Verbose output with stats
+  awaitly-analyze ./src/workflows/checkout.ts --verbose
 
 OUTPUT:
   For Mermaid format, outputs markdown with mermaid code blocks.

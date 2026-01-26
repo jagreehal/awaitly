@@ -66,6 +66,8 @@ export {
   map,
   mapError,
   match,
+  matchError,
+  type MatchErrorHandlers,
   andThen,
   tap,
   tapError,

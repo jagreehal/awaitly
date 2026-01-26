@@ -78,6 +78,7 @@ const workflow = createWorkflow(
     cache: new Map(),                    // Enable step caching
     onEvent: (event) => console.log(event), // Event stream
     strict: true,                        // Force explicit error handling
+    streamStore: createMemoryStreamStore(), // Enable streaming
   }
 );
 ```
@@ -180,6 +181,28 @@ const result = await workflow(async (step) => {
 ```
 
 See [Persistence](../../guides/persistence/) for details.
+
+### streamStore
+
+Enable streaming within workflows:
+
+```typescript
+import { createMemoryStreamStore } from 'awaitly/streaming';
+
+const workflow = createWorkflow(deps, {
+  streamStore: createMemoryStreamStore(),
+});
+
+const result = await workflow(async (step) => {
+  const writer = step.getWritable<string>({ namespace: 'tokens' });
+
+  await writer.write('Hello');
+  await writer.write(' World');
+  await writer.close();
+});
+```
+
+See [Streaming](../../guides/streaming/) for details.
 
 ### onEvent
 
@@ -293,6 +316,105 @@ const result = await workflow(async (step, deps, ctx) => {
   }
   return ok(response);
 });
+```
+
+## Execution-time options
+
+While `createWorkflow` accepts options at creation time, you may need different options for specific runs. Use `workflow.run()` for per-run configuration:
+
+<Tabs>
+  <TabItem label="workflow.run()">
+```typescript
+const workflow = createWorkflow({ fetchUser }, {
+  onEvent: defaultLogger,  // Creation-time default
+});
+
+// Normal run - uses creation-time options
+await workflow(async (step) => { /* ... */ });
+
+// Per-run options override creation-time
+await workflow.run(async (step) => {
+  const user = await step(() => fetchUser('1'));
+  return user;
+}, {
+  onEvent: vizualizer.handleEvent,  // Override for this run only
+  signal: controller.signal,         // Add signal for this run
+});
+```
+  </TabItem>
+  <TabItem label="workflow.with()">
+```typescript
+// Pre-bind options for repeated use
+const visualized = workflow.with({
+  onEvent: viz.handleEvent,
+});
+
+// All calls use viz.handleEvent
+await visualized(async (step) => { /* ... */ });
+await visualized(async (step) => { /* ... */ });
+
+// Chaining works
+const w = workflow
+  .with({ onEvent: viz.handleEvent })
+  .with({ signal: controller.signal });
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="tip" title="When to use each">
+- **`workflow(...)`** - Normal runs with creation-time options
+- **`workflow.run(..., exec)`** - One-off runs needing per-run options
+- **`workflow.with(exec)`** - Pre-bind options for a category of runs (e.g., all visualized runs)
+</Aside>
+
+### Override semantics
+
+Execution-time options override creation-time options:
+
+```typescript
+const workflow = createWorkflow(deps, {
+  onEvent: handlerA,        // Creation-time
+  signal: signalA,
+});
+
+// handlerB overrides handlerA for this run
+// signalA is NOT used (signalB takes over)
+await workflow.run(fn, {
+  onEvent: handlerB,        // Wins
+  signal: signalB,          // Wins
+});
+
+// Back to creation-time defaults
+await workflow(fn);  // Uses handlerA, signalA
+```
+
+### Available execution options
+
+| Option | Description |
+|--------|-------------|
+| `onEvent` | Event handler for this run |
+| `onError` | Error handler for this run |
+| `signal` | AbortSignal for this run |
+| `createContext` | Context factory for this run |
+| `resumeState` | Resume state for this run (can be async factory) |
+| `shouldRun` | Concurrency control hook |
+| `onBeforeStart` | Pre-start hook |
+| `onAfterStep` | Post-step hook for checkpointing |
+| `streamStore` | Stream store for this run |
+
+<Aside type="note">
+Options like `cache` and `strict` are **creation-time only**. They define the workflow's fundamental behavior and cannot be changed per-run.
+</Aside>
+
+### Merging with `.with()`
+
+When using `.with().run()`, caller options override bound options:
+
+```typescript
+const w2 = workflow.with({ onEvent: handlerB });
+
+// handlerC wins (caller overrides bound)
+await w2.run(fn, { onEvent: handlerC });
 ```
 
 ## Composing workflows

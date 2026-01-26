@@ -10,6 +10,7 @@ import type {
   ParallelNode,
   RaceNode,
   DecisionNode,
+  StreamNode,
   Renderer,
   RenderOptions,
   MermaidRenderOptions,
@@ -20,7 +21,7 @@ import type {
   HeatLevel,
   WorkflowHooks,
 } from "../types";
-import { isParallelNode, isRaceNode, isStepNode, isDecisionNode } from "../types";
+import { isParallelNode, isRaceNode, isStepNode, isDecisionNode, isStreamNode } from "../types";
 import { formatDuration } from "../utils/timing";
 import { getHeatLevel } from "../performance-analyzer";
 
@@ -48,6 +49,12 @@ function getStyleDefinitions(): string[] {
     "    classDef cached fill:#dbeafe,stroke:#3b82f6,stroke-width:3px,color:#1e40af",
     // Skipped - light gray with dashed border
     "    classDef skipped fill:#f9fafb,stroke:#d1d5db,stroke-width:2px,color:#6b7280,stroke-dasharray: 5 5",
+    // Stream - purple/violet, indicates streaming operation
+    "    classDef stream fill:#ede9fe,stroke:#8b5cf6,stroke-width:3px,color:#5b21b6",
+    // Stream active - purple with animation indicator
+    "    classDef streamActive fill:#ddd6fe,stroke:#7c3aed,stroke-width:3px,color:#4c1d95",
+    // Stream error - purple-red for stream errors
+    "    classDef streamError fill:#fce7f3,stroke:#db2777,stroke-width:3px,color:#9d174d",
   ];
 }
 
@@ -299,6 +306,8 @@ function renderNode(
     return renderRaceNode(node, options, lines, enhanced, hooks);
   } else if (isDecisionNode(node)) {
     return renderDecisionNode(node, options, lines, enhanced, hooks);
+  } else if (isStreamNode(node)) {
+    return renderStreamNode(node, options, lines);
   }
 
   // Fallback for sequence or unknown nodes
@@ -657,6 +666,62 @@ function renderDecisionNode(
 
   // If no branch was taken, return decision as exit
   return { entryId: decisionId, exitId: decisionId };
+}
+
+/**
+ * Render a stream node.
+ * Uses hexagonal shape to distinguish from regular steps.
+ */
+function renderStreamNode(
+  node: StreamNode,
+  options: RenderOptions,
+  lines: string[]
+): RenderResult {
+  const id = `stream_${node.namespace.replace(/[^a-zA-Z0-9]/g, "_")}_${generateNodeId("")}`;
+
+  // Format counts
+  const counts = `W:${node.writeCount} R:${node.readCount}`;
+
+  // Add state icon
+  let stateIcon = "";
+  switch (node.streamState) {
+    case "active":
+      stateIcon = "⟳ ";
+      break;
+    case "closed":
+      stateIcon = "✓ ";
+      break;
+    case "error":
+      stateIcon = "✗ ";
+      break;
+  }
+
+  // Format timing
+  const timing =
+    options.showTimings && node.durationMs !== undefined
+      ? ` ${formatDuration(node.durationMs)}`
+      : "";
+
+  // Backpressure indicator
+  const backpressure = node.backpressureOccurred ? "\\nbackpressure" : "";
+
+  // Combine label parts - use hexagon shape for streams
+  const label = `${stateIcon}stream:${escapeMermaidText(node.namespace)}\\n${counts}${backpressure}${timing}`;
+
+  // Determine class based on stream state
+  let nodeClass: string;
+  if (node.streamState === "error") {
+    nodeClass = "streamError";
+  } else if (node.streamState === "active") {
+    nodeClass = "streamActive";
+  } else {
+    nodeClass = "stream";
+  }
+
+  // Hexagonal shape for streams: {{label}}
+  lines.push(`    ${id}{{${label}}}:::${nodeClass}`);
+
+  return { entryId: id, exitId: id };
 }
 
 export { mermaidRenderer as default };

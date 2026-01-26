@@ -20,7 +20,8 @@
  * ```
  */
 
-import type { WorkflowEvent } from "../core";
+import type { WorkflowEvent, UnexpectedError } from "../core";
+import { createWorkflow, type Workflow, type AnyResultFn, type ErrorsOfDeps } from "../workflow";
 import type {
   OutputFormat,
   RenderOptions,
@@ -30,6 +31,7 @@ import type {
   DecisionBranchEvent,
   DecisionEndEvent,
   VisualizerOptions,
+  VisualizingWorkflowOptions,
   WorkflowIR,
 } from "./types";
 import { createIRBuilder } from "./ir-builder";
@@ -254,6 +256,97 @@ export function createVisualizer(
 // =============================================================================
 // Convenience Functions
 // =============================================================================
+
+/**
+ * Combine multiple event handlers into one.
+ * Use when you need visualization + logging + custom handlers.
+ *
+ * @example
+ * ```typescript
+ * const viz = createVisualizer({ workflowName: 'checkout' });
+ * const workflow = createWorkflow(deps, {
+ *   onEvent: combineEventHandlers(
+ *     viz.handleEvent,
+ *     (e) => console.log(e.type),
+ *     (e) => metrics.track(e),
+ *   ),
+ * });
+ * ```
+ */
+export function combineEventHandlers<E = unknown, C = void>(
+  ...handlers: Array<(event: WorkflowEvent<E, C>, ctx?: C) => void>
+): (event: WorkflowEvent<E, C>, ctx: C) => void {
+  return (event, ctx) => {
+    for (const handler of handlers) {
+      handler(event, ctx);
+    }
+  };
+}
+
+/**
+ * Create a workflow with built-in visualization support.
+ * Convenience function combining createWorkflow + createVisualizer.
+ *
+ * @example
+ * ```typescript
+ * const { workflow, visualizer } = createVisualizingWorkflow(deps, {
+ *   workflowName: 'checkout',
+ * });
+ *
+ * await workflow(async (step) => {
+ *   await step(() => validateCart(cart), 'Validate cart');
+ *   await step(() => processPayment(payment), 'Process payment');
+ * });
+ *
+ * console.log(visualizer.render()); // Shows step1 in ASCII tree
+ * ```
+ */
+export function createVisualizingWorkflow<
+  const Deps extends Readonly<Record<string, AnyResultFn>>,
+  C = void,
+>(
+  deps: Deps,
+  options?: VisualizingWorkflowOptions<ErrorsOfDeps<Deps>, C>
+): {
+  workflow: Workflow<ErrorsOfDeps<Deps>, Deps, C>;
+  visualizer: WorkflowVisualizer;
+} {
+  // Extract visualizer options
+  const {
+    workflowName,
+    detectParallel,
+    showTimings,
+    showKeys,
+    colors,
+    forwardTo,
+    ...workflowOptions
+  } = options ?? {};
+
+  // Create visualizer
+  const visualizer = createVisualizer({
+    workflowName,
+    detectParallel,
+    showTimings,
+    showKeys,
+    colors,
+  });
+
+  // Create event handler that combines visualization with optional forwarding
+  const onEvent = (event: WorkflowEvent<ErrorsOfDeps<Deps> | UnexpectedError, C>, ctx: C): void => {
+    visualizer.handleEvent(event as WorkflowEvent<unknown>);
+    if (forwardTo) {
+      forwardTo(event, ctx);
+    }
+  };
+
+  // Create workflow with visualization event handler
+  const workflow = createWorkflow<Deps, C>(deps, {
+    ...workflowOptions,
+    onEvent,
+  });
+
+  return { workflow, visualizer };
+}
 
 /**
  * Union type for all collectable/visualizable events (workflow + decision).

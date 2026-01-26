@@ -10,6 +10,7 @@ import type {
   ParallelNode,
   RaceNode,
   DecisionNode,
+  StreamNode,
   Renderer,
   RenderOptions,
   StepNode,
@@ -18,7 +19,7 @@ import type {
   EnhancedRenderOptions,
   HeatLevel,
 } from "../types";
-import { isParallelNode, isRaceNode, isStepNode, isDecisionNode } from "../types";
+import { isParallelNode, isRaceNode, isStepNode, isDecisionNode, isStreamNode } from "../types";
 import { formatDuration } from "../utils/timing";
 import {
   defaultColorScheme,
@@ -174,7 +175,7 @@ function canvasToString(canvas: Canvas): string {
 
 interface LayoutNode {
   id: string;
-  type: "step" | "parallel" | "race" | "decision" | "start" | "end";
+  type: "step" | "parallel" | "race" | "decision" | "start" | "end" | "stream";
   label: string[];
   state: string;
   x: number;
@@ -188,6 +189,8 @@ interface LayoutNode {
     isWinner?: boolean;
     heat?: number;
     verticalLayout?: boolean;
+    streamState?: "active" | "closed" | "error";
+    backpressureOccurred?: boolean;
   };
 }
 
@@ -325,6 +328,9 @@ function layoutFlowNode(
   if (isDecisionNode(node)) {
     return layoutDecisionNode(node, centerX, startY, maxWidth, options, enhanced);
   }
+  if (isStreamNode(node)) {
+    return layoutStreamNode(node, centerX, startY, maxWidth, options, enhanced);
+  }
   // Fallback
   const fallback = createSimpleNode(node.id, "step", ["?"], node.state, centerX, startY);
   return { node: fallback, bottomY: fallback.bottomY };
@@ -393,6 +399,63 @@ function layoutStepNode(
     centerX,
     bottomY: startY + height - 1,
     metadata: heat !== undefined ? { heat } : undefined,
+  };
+
+  return { node: layoutNode, bottomY: layoutNode.bottomY };
+}
+
+function layoutStreamNode(
+  node: StreamNode,
+  centerX: number,
+  startY: number,
+  maxWidth: number,
+  options: RenderOptions,
+  _enhanced?: EnhancedRenderOptions
+): LayoutFlowResult {
+  const name = `stream:${node.namespace}`;
+  const symbol = node.streamState === "active" ? "⟳"
+    : node.streamState === "closed" ? "✓"
+      : "✗";
+  const lines: string[] = [];
+
+  // Main label
+  const mainLabel = `${symbol} ${name}`;
+  const innerWidth = Math.min(maxWidth - BOX_PADDING * 2, 40);
+  lines.push(...wrapText(mainLabel, innerWidth));
+
+  // Write/Read counts
+  lines.push(`W:${node.writeCount} R:${node.readCount}`);
+
+  // Timing
+  if (options.showTimings && node.durationMs !== undefined) {
+    lines.push(`[${formatDuration(node.durationMs)}]`);
+  }
+
+  // Backpressure indicator
+  if (node.backpressureOccurred) {
+    lines.push("backpressure");
+  }
+
+  const labelWidth = Math.max(...lines.map(l => stripAnsi(l).length));
+  const width = Math.max(MIN_BOX_WIDTH, labelWidth + BOX_PADDING * 2);
+  const height = lines.length + 2;
+  const x = centerX - Math.floor(width / 2);
+
+  const layoutNode: LayoutNode = {
+    id: node.id,
+    type: "stream",
+    label: lines,
+    state: node.state,
+    x,
+    y: startY,
+    width,
+    height,
+    centerX,
+    bottomY: startY + height - 1,
+    metadata: {
+      streamState: node.streamState,
+      backpressureOccurred: node.backpressureOccurred,
+    },
   };
 
   return { node: layoutNode, bottomY: layoutNode.bottomY };
@@ -624,6 +687,16 @@ function measureFlowNode(
       }
     }
     return { width: Math.min(maxWidth, 30), height: 3 + childHeight };
+  }
+
+  if (isStreamNode(node)) {
+    const name = `stream:${node.namespace}`;
+    let lineCount = 2; // name + counts
+    if (options.showTimings && node.durationMs !== undefined) lineCount++;
+    if (node.backpressureOccurred) lineCount++;
+    const width = Math.min(maxWidth, Math.max(MIN_BOX_WIDTH, name.length + BOX_PADDING * 2 + 4));
+    const height = lineCount + 2;
+    return { width, height };
   }
 
   return { width: MIN_BOX_WIDTH, height: 3 };

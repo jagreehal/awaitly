@@ -31,6 +31,7 @@ import {
   mapErrorTry,
   mapTry,
   match,
+  matchError,
   ok,
   partition,
   PromiseRejectedError,
@@ -39,6 +40,7 @@ import {
   tapError,
   tryAsync,
   UnexpectedError,
+  UNEXPECTED_ERROR,
   unwrap,
   UnwrapError,
   unwrapOr,
@@ -2154,6 +2156,140 @@ describe("Type safety for new error types", () => {
 });
 
 // =============================================================================
-// NEW FEATURES: step(result), run.strict()
+// matchError() - exhaustive error matching
 // =============================================================================
 
+describe("matchError() - exhaustive error matching", () => {
+  it("matches string literal errors", () => {
+    type FetchError = "NOT_FOUND" | "FETCH_ERROR";
+    const error: FetchError | UnexpectedError = "NOT_FOUND";
+
+    const result = matchError(error, {
+      NOT_FOUND: () => 404,
+      FETCH_ERROR: () => 500,
+      UNEXPECTED_ERROR: () => 503,
+    });
+
+    expect(result).toBe(404);
+  });
+
+  it("matches different string literal error", () => {
+    type FetchError = "NOT_FOUND" | "FETCH_ERROR";
+    const error: FetchError | UnexpectedError = "FETCH_ERROR";
+
+    const result = matchError(error, {
+      NOT_FOUND: () => 404,
+      FETCH_ERROR: () => 500,
+      UNEXPECTED_ERROR: () => 503,
+    });
+
+    expect(result).toBe(500);
+  });
+
+  it("matches UnexpectedError", () => {
+    type FetchError = "NOT_FOUND" | "FETCH_ERROR";
+    const unexpectedError: UnexpectedError = {
+      type: UNEXPECTED_ERROR,
+      cause: { type: "UNCAUGHT_EXCEPTION", thrown: new Error("oops") },
+    };
+    const error: FetchError | UnexpectedError = unexpectedError;
+
+    const result = matchError(error, {
+      NOT_FOUND: () => 404,
+      FETCH_ERROR: () => 500,
+      UNEXPECTED_ERROR: (e) => {
+        expect(e.type).toBe(UNEXPECTED_ERROR);
+        return 503;
+      },
+    });
+
+    expect(result).toBe(503);
+  });
+
+  it("passes the error to the handler", () => {
+    type AppError = "A" | "B";
+    const error: AppError | UnexpectedError = "A";
+
+    const result = matchError(error, {
+      A: (e) => {
+        expect(e).toBe("A");
+        return "matched-A";
+      },
+      B: (e) => {
+        expect(e).toBe("B");
+        return "matched-B";
+      },
+      UNEXPECTED_ERROR: () => "unexpected",
+    });
+
+    expect(result).toBe("matched-A");
+  });
+
+  it("works with single string literal error type", () => {
+    type SingleError = "ONLY_ERROR";
+    const error: SingleError | UnexpectedError = "ONLY_ERROR";
+
+    const result = matchError(error, {
+      ONLY_ERROR: () => "single",
+      UNEXPECTED_ERROR: () => "unexpected",
+    });
+
+    expect(result).toBe("single");
+  });
+
+  it("returns different types from handlers", () => {
+    type FetchError = "NOT_FOUND" | "TIMEOUT";
+    const error: FetchError | UnexpectedError = "NOT_FOUND";
+
+    const result = matchError(error, {
+      NOT_FOUND: () => ({ code: 404, message: "Not found" }),
+      TIMEOUT: () => ({ code: 408, message: "Timeout" }),
+      UNEXPECTED_ERROR: (e) => ({ code: 500, message: "Unexpected", cause: e }),
+    });
+
+    expect(result).toEqual({ code: 404, message: "Not found" });
+  });
+
+  it("integrates with Result error handling", async () => {
+    type FetchError = "NOT_FOUND" | "FETCH_ERROR";
+    const fetchUser = async (
+      id: string
+    ): AsyncResult<{ id: string; name: string }, FetchError | UnexpectedError> => {
+      if (id === "unknown") return err("NOT_FOUND");
+      if (id === "error") return err("FETCH_ERROR");
+      return ok({ id, name: "Alice" });
+    };
+
+    const result = await fetchUser("unknown");
+
+    if (!result.ok) {
+      const httpStatus = matchError(result.error, {
+        NOT_FOUND: () => 404,
+        FETCH_ERROR: () => 500,
+        UNEXPECTED_ERROR: () => 503,
+      });
+      expect(httpStatus).toBe(404);
+    }
+  });
+
+  it("treats literal UNEXPECTED_ERROR as UnexpectedError", () => {
+    type AppError = "UNEXPECTED_ERROR" | "OTHER";
+    const error: AppError | UnexpectedError = "UNEXPECTED_ERROR";
+
+    matchError(error, {
+      OTHER: () => 200,
+      UNEXPECTED_ERROR: (e) => {
+        expect(typeof e).toBe("object");
+        expect(e).not.toBeNull();
+        if (typeof e === "object" && e !== null) {
+          expect((e as UnexpectedError).type).toBe(UNEXPECTED_ERROR);
+        }
+        return 500;
+      },
+    });
+  });
+});
+
+// =============================================================================
+// NEW FEATURES: step(result), run.strict()
+// =============================================================================

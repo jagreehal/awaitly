@@ -11,7 +11,7 @@ import {
   resetIdCounter,
   loadTreeSitter,
 } from "./index";
-import type { StaticFlowNode, StaticSequenceNode, StaticStepNode } from "./types";
+import type { StaticFlowNode, StaticSequenceNode, StaticStepNode, StaticSwitchNode } from "./types";
 
 describe("Tree-sitter POC", () => {
   beforeEach(() => {
@@ -485,6 +485,105 @@ async function run() {
 
       expect(stats?.loopCount).toBe(0);
       expect(stats?.totalSteps).toBe(1);
+    });
+  });
+
+  describe("Switch Statement Analysis", () => {
+    it("should analyze switch statements", async () => {
+      const code = `
+        import { run } from "awaitly";
+        run(async (step) => {
+          const status = await step(() => getStatus());
+          switch (status) {
+            case "active":
+              await step(() => handleActive());
+              break;
+            case "pending":
+              await step(() => handlePending());
+              break;
+            default:
+              await step(() => handleDefault());
+          }
+        });
+      `;
+      const results = await analyzeWorkflowSource(code);
+      expect(results).toHaveLength(1);
+
+      const children = results[0].root.children;
+      // Should have sequence with step + switch
+      expect(children[0].type).toBe("sequence");
+      const seq = children[0] as StaticSequenceNode;
+      expect(seq.children).toHaveLength(2);
+      expect(seq.children[1].type).toBe("switch");
+
+      const switchNode = seq.children[1] as StaticSwitchNode;
+      expect(switchNode.expression).toBe("status");
+      expect(switchNode.cases).toHaveLength(3);
+      expect(switchNode.cases[0].value).toBe('"active"');
+      expect(switchNode.cases[2].isDefault).toBe(true);
+    });
+
+    it("should not count switch without step calls", async () => {
+      const code = `
+        import { run } from "awaitly";
+        run(async (step) => {
+          const status = "active";
+          let result;
+          switch (status) {
+            case "active":
+              result = 1;
+              break;
+            case "pending":
+              result = 2;
+              break;
+            default:
+              result = 0;
+          }
+          await step(() => saveResult(result));
+        });
+      `;
+      const results = await analyzeWorkflowSource(code);
+      const stats = results[0]?.metadata?.stats;
+
+      // Switch without step calls should not be counted
+      expect(stats?.conditionalCount).toBe(0);
+      expect(stats?.totalSteps).toBe(1);
+    });
+
+    it("should analyze switch with createWorkflow", async () => {
+      const code = `
+        const workflow = createWorkflow({});
+
+        async function run() {
+          return await workflow(async (step, deps) => {
+            const role = await step(() => deps.getRole(), { key: 'role' });
+            switch (role) {
+              case "admin":
+                await step(() => deps.handleAdmin(), { key: 'admin' });
+                break;
+              case "user":
+                await step(() => deps.handleUser(), { key: 'user' });
+                break;
+            }
+          });
+        }
+      `;
+      const results = await analyzeWorkflowSource(code, { assumeImported: true });
+      expect(results).toHaveLength(1);
+
+      const stats = results[0]?.metadata?.stats;
+      expect(stats?.conditionalCount).toBe(1);
+      expect(stats?.totalSteps).toBe(3);
+
+      const children = results[0].root.children;
+      const seq = children[0] as StaticSequenceNode;
+      const switchNode = seq.children.find((c: StaticFlowNode) => c.type === "switch") as StaticSwitchNode;
+
+      expect(switchNode).toBeDefined();
+      expect(switchNode.expression).toBe("role");
+      expect(switchNode.cases).toHaveLength(2);
+      expect(switchNode.cases[0].value).toBe('"admin"');
+      expect(switchNode.cases[1].value).toBe('"user"');
     });
   });
 
@@ -1321,6 +1420,57 @@ async function run() {
         `;
 
         const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(0);
+      });
+
+      it("should not detect run() calls shadowed by later declarations in the same scope", async () => {
+        const source = `
+          import { run } from 'awaitly';
+
+          function wrapper() {
+            run(async (step) => {
+              await step(() => getUser(id));
+            });
+
+            const run = (fn) => fn();
+          }
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(0);
+      });
+
+      it("should not detect run() calls shadowed by var declarations in nested blocks", async () => {
+        const source = `
+          import { run } from 'awaitly';
+
+          function wrapper() {
+            run(async (step) => {
+              await step(() => getUser(id));
+            });
+
+            if (shouldOverride) {
+              var run = (fn) => fn();
+            }
+          }
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(0);
+      });
+
+      it("should not detect run() calls shadowed by top-level var declarations in nested blocks (assumeImported)", async () => {
+        const source = `
+          await run(async (step) => {
+            await step(() => getUser(id));
+          });
+
+          if (shouldOverride) {
+            var run = (fn) => fn();
+          }
+        `;
+
+        const results = await analyzeWorkflowSource(source, { assumeImported: true });
         expect(results).toHaveLength(0);
       });
 
@@ -2356,6 +2506,40 @@ Handles the complete checkout process:
         expect(results).toHaveLength(2);
         expect(results.some(r => r.root.source === "createWorkflow")).toBe(true);
         expect(results.some(r => r.root.source === "run")).toBe(true);
+      });
+    });
+
+    describe("Saga Workflow Analysis", () => {
+      it("should detect saga steps when saga context is destructured", async () => {
+        const source = `
+          import { createSagaWorkflow } from 'awaitly/saga';
+
+          const checkout = createSagaWorkflow({});
+
+          await checkout(async ({ step }) => {
+            await step(() => reserveInventory());
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(1);
+      });
+
+      it("should detect saga tryStep when destructured", async () => {
+        const source = `
+          import { createSagaWorkflow } from 'awaitly/saga';
+
+          const checkout = createSagaWorkflow({});
+
+          await checkout(async ({ tryStep }) => {
+            await tryStep(() => reserveInventory());
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(1);
       });
     });
   });

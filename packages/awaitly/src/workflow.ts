@@ -25,7 +25,36 @@ import {
   type ErrorOf,
   type CauseOf,
   type Err,
+  type StreamWritableOptions,
+  type StreamReadableOptions,
+  type StreamForEachStepOptions,
+  type StreamForEachResultType,
+  type StreamWriterInterface,
+  type StreamReaderInterface,
 } from "./core";
+
+import type {
+  StreamStore,
+  StreamItem,
+  StreamWriter,
+  StreamReader,
+  StreamWriteError,
+  StreamCloseError,
+  StreamReadError,
+  StreamEndedMarker,
+} from "./streaming/types";
+
+import {
+  streamWriteError,
+  streamReadError,
+  streamCloseError,
+  streamEnded,
+} from "./streaming/types";
+
+import {
+  createBackpressureController,
+  type BackpressureController,
+} from "./streaming/backpressure";
 
 // Re-export types and constants that workflow users commonly need
 export { UNEXPECTED_ERROR } from "./core";
@@ -38,6 +67,9 @@ export type {
   StepOptions,
 } from "./core";
 
+// Re-export streaming types for workflow users
+export type { StreamStore } from "./streaming/types";
+
 // =============================================================================
 // Step Cache Types
 // =============================================================================
@@ -46,6 +78,19 @@ export type {
  * Interface for step result caching.
  * Implement this interface to provide custom caching strategies.
  * A simple Map<string, Result> works for in-memory caching.
+ *
+ * ## When Cache is Populated
+ *
+ * The cache `set()` method is called after each step completes (success or error)
+ * when the step has a `key` option. Both calling patterns work identically:
+ *
+ * ```typescript
+ * // Function-wrapped pattern - cache is populated
+ * await step(() => fetchUser("1"), { key: "user:1" });
+ *
+ * // Direct AsyncResult pattern - cache is also populated
+ * await step(fetchUser("1"), { key: "user:1" });
+ * ```
  *
  * Note: Cache stores Result<unknown, unknown, unknown> because different steps
  * have different value/error/cause types. The actual runtime values are preserved;
@@ -135,6 +180,20 @@ export interface ResumeState {
  * 3. Collector automatically captures these events
  * 4. Call `getResumeState()` to get the collected `ResumeState`
  * 5. Persist state (e.g., to database) for later resume
+ *
+ * ## When step_complete Events Are Emitted
+ *
+ * Events are emitted for ANY step that has a `key` option, regardless of calling pattern:
+ *
+ * ```typescript
+ * // Function-wrapped pattern - emits step_complete
+ * await step(() => fetchUser("1"), { key: "user:1" });
+ *
+ * // Direct AsyncResult pattern - also emits step_complete
+ * await step(fetchUser("1"), { key: "user:1" });
+ * ```
+ *
+ * Both patterns above will emit `step_complete` events and be captured by the collector.
  *
  * ## Important Notes
  *
@@ -288,6 +347,79 @@ export type ErrorsOfDeps<Deps extends Record<string, AnyResultFn>> = {
 export type CausesOfDeps<Deps extends Record<string, AnyResultFn>> =
   CauseOf<Deps[keyof Deps]>;
 
+// =============================================================================
+// Execution Options (per-run overrides)
+// =============================================================================
+
+/**
+ * Execution-time options that can override creation-time options.
+ * Pass these to `workflow.run(fn, execOptions)` for per-run configuration.
+ *
+ * Rule: Use `workflow(...)` for normal runs. Use `workflow.run(...)` when you need per-run hooks/options.
+ *
+ * @example
+ * ```typescript
+ * const workflow = createWorkflow(deps, { cache, onEvent: defaultHandler });
+ *
+ * // Normal run uses creation-time options
+ * await workflow(async (step) => { ... });
+ *
+ * // Per-run options override creation-time options
+ * await workflow.run(async (step) => { ... }, { onEvent: viz.handleEvent });
+ *
+ * // Pre-bind defaults with .with() (overridable by .run())
+ * const visualized = workflow.with({ onEvent: viz.handleEvent });
+ * await visualized(async (step) => { ... });
+ * ```
+ */
+export type ExecutionOptions<E, C = void> = {
+  /**
+   * Event handler for workflow and step lifecycle events.
+   * Overrides `onEvent` from creation-time options.
+   */
+  onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
+  /**
+   * Error handler called when a step fails.
+   * Overrides `onError` from creation-time options.
+   */
+  onError?: (error: E | UnexpectedError, stepName?: string, ctx?: C) => void;
+  /**
+   * AbortSignal for workflow-level cancellation.
+   * Overrides `signal` from creation-time options.
+   */
+  signal?: AbortSignal;
+  /**
+   * Factory to create per-run context. Can be async.
+   * Overrides `createContext` from creation-time options.
+   */
+  createContext?: () => C | Promise<C>;
+  /**
+   * Resume state for workflow replay. Can be a factory function (sync or async).
+   * Overrides `resumeState` from creation-time options.
+   */
+  resumeState?: ResumeState | (() => ResumeState | Promise<ResumeState>);
+  /**
+   * Hook to check if workflow should run (concurrency control).
+   * Overrides `shouldRun` from creation-time options.
+   */
+  shouldRun?: (workflowId: string, context: C) => boolean | Promise<boolean>;
+  /**
+   * Hook called before workflow execution starts.
+   * Overrides `onBeforeStart` from creation-time options.
+   */
+  onBeforeStart?: (workflowId: string, context: C) => boolean | Promise<boolean>;
+  /**
+   * Hook called after each step completes (only for steps with a `key`).
+   * Overrides `onAfterStep` from creation-time options.
+   */
+  onAfterStep?: (
+    stepKey: string,
+    result: Result<unknown, unknown, unknown>,
+    workflowId: string,
+    context: C
+  ) => void | Promise<void>;
+};
+
 /**
  * Non-strict workflow options
  * Returns E | UnexpectedError (safe default)
@@ -372,6 +504,20 @@ export type WorkflowOptions<E, C = void> = {
    * @returns `true` to proceed, `false` to skip workflow execution
    */
   shouldRun?: (workflowId: string, context: C) => boolean | Promise<boolean>;
+  /**
+   * Stream store for streaming data within the workflow.
+   * Use with step.getWritable() and step.getReadable().
+   *
+   * @example
+   * ```typescript
+   * import { createMemoryStreamStore } from 'awaitly/streaming';
+   *
+   * const workflow = createWorkflow(deps, {
+   *   streamStore: createMemoryStreamStore(),
+   * });
+   * ```
+   */
+  streamStore?: StreamStore;
   catchUnexpected?: never;  // prevent footgun: can't use without strict: true
   strict?: false;           // default
 };
@@ -448,6 +594,11 @@ export type WorkflowOptionsStrict<E, U, C = void> = {
    * @returns `true` to proceed, `false` to skip workflow execution
    */
   shouldRun?: (workflowId: string, context: C) => boolean | Promise<boolean>;
+  /**
+   * Stream store for streaming data within the workflow.
+   * Use with step.getWritable() and step.getReadable().
+   */
+  streamStore?: StreamStore;
 };
 
 /**
@@ -489,6 +640,12 @@ export type WorkflowContext<C = void> = {
   signal?: AbortSignal;
 };
 
+/** Workflow function type (no args) */
+export type WorkflowFn<T, E, Deps, C = void> = (step: RunStep<E>, deps: Deps, ctx: WorkflowContext<C>) => T | Promise<T>;
+
+/** Workflow function type (with args) */
+export type WorkflowFnWithArgs<T, Args, E, Deps, C = void> = (step: RunStep<E>, deps: Deps, args: Args, ctx: WorkflowContext<C>) => T | Promise<T>;
+
 /**
  * Workflow return type (non-strict)
  * Supports both argument-less and argument-passing call patterns
@@ -504,7 +661,7 @@ export interface Workflow<E, Deps, C = void> {
    * Execute workflow without arguments (original API)
    * @param fn - Callback receives (step, deps, ctx) where ctx is workflow context (always provided)
    */
-  <T>(fn: (step: RunStep<E>, deps: Deps, ctx: WorkflowContext<C>) => T | Promise<T>): AsyncResult<T, E | UnexpectedError, unknown>;
+  <T>(fn: WorkflowFn<T, E, Deps, C>): AsyncResult<T, E | UnexpectedError, unknown>;
 
   /**
    * Execute workflow with typed arguments
@@ -513,9 +670,64 @@ export interface Workflow<E, Deps, C = void> {
    */
   <T, Args>(
     args: Args,
-    fn: (step: RunStep<E>, deps: Deps, args: Args, ctx: WorkflowContext<C>) => T | Promise<T>
+    fn: WorkflowFnWithArgs<T, Args, E, Deps, C>
   ): AsyncResult<T, E | UnexpectedError, unknown>;
+
+  /**
+   * Execute workflow with execution-time options (no args).
+   * Use this when you need per-run hooks/options.
+   * @param fn - Callback receives (step, deps, ctx)
+   * @param exec - Execution-time options that override creation-time options
+   */
+  run<T>(fn: WorkflowFn<T, E, Deps, C>, exec?: ExecutionOptions<E, C>): AsyncResult<T, E | UnexpectedError, unknown>;
+
+  /**
+   * Execute workflow with execution-time options (with args).
+   * Use this when you need per-run hooks/options.
+   * @param args - Typed arguments passed to the callback
+   * @param fn - Callback receives (step, deps, args, ctx)
+   * @param exec - Execution-time options that override creation-time options
+   */
+  run<T, Args>(args: Args, fn: WorkflowFnWithArgs<T, Args, E, Deps, C>, exec?: ExecutionOptions<E, C>): AsyncResult<T, E | UnexpectedError, unknown>;
+
+  /**
+   * Create a new workflow with pre-bound execution options.
+   * Options can be further overridden by `.run()`.
+   * @param exec - Execution-time options to pre-bind
+   * @returns A new Workflow with the options pre-bound
+   *
+   * @example
+   * ```typescript
+   * const visualized = workflow.with({ onEvent: viz.handleEvent });
+   * await visualized(async (step) => { ... }); // Uses viz.handleEvent
+   *
+   * // Chaining works
+   * const w = workflow.with({ onEvent }).with({ signal });
+   * await w.run(fn, { onError }); // All three options active
+   * ```
+   */
+  with(exec: ExecutionOptions<E, C>): Workflow<E, Deps, C>;
 }
+
+/**
+ * Execution-time options for strict mode workflows.
+ * Excludes `catchUnexpected` since that's fixed at creation time.
+ */
+export type ExecutionOptionsStrict<E, U, C = void> = {
+  onEvent?: (event: WorkflowEvent<E | U, C>, ctx: C) => void;
+  onError?: (error: E | U, stepName?: string, ctx?: C) => void;
+  signal?: AbortSignal;
+  createContext?: () => C | Promise<C>;
+  resumeState?: ResumeState | (() => ResumeState | Promise<ResumeState>);
+  shouldRun?: (workflowId: string, context: C) => boolean | Promise<boolean>;
+  onBeforeStart?: (workflowId: string, context: C) => boolean | Promise<boolean>;
+  onAfterStep?: (
+    stepKey: string,
+    result: Result<unknown, unknown, unknown>,
+    workflowId: string,
+    context: C
+  ) => void | Promise<void>;
+};
 
 /**
  * Workflow return type (strict)
@@ -529,7 +741,7 @@ export interface WorkflowStrict<E, U, Deps, C = void> {
    * Execute workflow without arguments (original API)
    * @param fn - Callback receives (step, deps, ctx) where ctx is workflow context (always provided)
    */
-  <T>(fn: (step: RunStep<E>, deps: Deps, ctx: WorkflowContext<C>) => T | Promise<T>): AsyncResult<T, E | U, unknown>;
+  <T>(fn: WorkflowFn<T, E, Deps, C>): AsyncResult<T, E | U, unknown>;
 
   /**
    * Execute workflow with typed arguments
@@ -538,8 +750,26 @@ export interface WorkflowStrict<E, U, Deps, C = void> {
    */
   <T, Args>(
     args: Args,
-    fn: (step: RunStep<E>, deps: Deps, args: Args, ctx: WorkflowContext<C>) => T | Promise<T>
+    fn: WorkflowFnWithArgs<T, Args, E, Deps, C>
   ): AsyncResult<T, E | U, unknown>;
+
+  /**
+   * Execute workflow with execution-time options (no args).
+   * Use this when you need per-run hooks/options.
+   */
+  run<T>(fn: WorkflowFn<T, E, Deps, C>, exec?: ExecutionOptionsStrict<E, U, C>): AsyncResult<T, E | U, unknown>;
+
+  /**
+   * Execute workflow with execution-time options (with args).
+   * Use this when you need per-run hooks/options.
+   */
+  run<T, Args>(args: Args, fn: WorkflowFnWithArgs<T, Args, E, Deps, C>, exec?: ExecutionOptionsStrict<E, U, C>): AsyncResult<T, E | U, unknown>;
+
+  /**
+   * Create a new workflow with pre-bound execution options.
+   * Options can be further overridden by `.run()`.
+   */
+  with(exec: ExecutionOptionsStrict<E, U, C>): WorkflowStrict<E, U, Deps, C>;
 }
 
 // =============================================================================
@@ -661,16 +891,20 @@ export interface WorkflowStrict<E, U, Deps, C = void> {
  *
  * @example
  * ```typescript
- * // With step caching
+ * // With step caching - both patterns work identically
  * const cache = new Map<string, Result<unknown, unknown>>();
  * const workflow = createWorkflow({ fetchUser }, { cache });
  *
  * const result = await workflow(async (step) => {
- *   // First call executes fetchUser
+ *   // Function-wrapped pattern with key - cached and emits step_complete
  *   const user1 = await step(() => fetchUser('1'), { key: 'user:1' });
- *   // Second call with same key uses cache (fetchUser not called again)
- *   const user2 = await step(() => fetchUser('1'), { key: 'user:1' });
- *   return user1; // user1 === user2
+ *
+ *   // Direct AsyncResult pattern with key - also cached and emits step_complete
+ *   const user2 = await step(fetchUser('1'), { key: 'user:2' });
+ *
+ *   // Same key uses cache (fetchUser not called again)
+ *   const user3 = await step(() => fetchUser('1'), { key: 'user:1' });
+ *   return { user1, user2, user3 }; // user1 === user3 (from cache)
  * });
  * ```
  *
@@ -745,43 +979,148 @@ export function createWorkflow<
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): any {
   type E = ErrorsOfDeps<Deps>;
+  type ExecOpts = ExecutionOptions<E, C> | ExecutionOptionsStrict<E, U, C>;
 
-  // Overloaded workflow executor function
-  // Signature 1: No args (original API)
-  function workflowExecutor<T>(
-    fn: (step: RunStep<E>, deps: Deps, ctx: WorkflowContext<C>) => T | Promise<T>
-  ): Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>>;
-  // Signature 2: With args (new API)
-  function workflowExecutor<T, Args>(
-    args: Args,
-    fn: (step: RunStep<E>, deps: Deps, args: Args, ctx: WorkflowContext<C>) => T | Promise<T>
-  ): Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>>;
-  // Implementation
-  async function workflowExecutor<T, Args = undefined>(
-    fnOrArgs: ((step: RunStep<E>, deps: Deps, ctx: WorkflowContext<C>) => T | Promise<T>) | Args,
-    maybeFn?: (step: RunStep<E>, deps: Deps, args: Args, ctx: WorkflowContext<C>) => T | Promise<T>
-  ): Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>> {
-    // Detect calling pattern: if second arg is a function, first arg is args
+  // ===========================================================================
+  // Helper: normalizeCall - extract args and fn from call signature
+  // ===========================================================================
+  type NormalizedCall<T, Args> =
+    | { args: undefined; fn: WorkflowFn<T, E, Deps, C> }
+    | { args: Args; fn: WorkflowFnWithArgs<T, Args, E, Deps, C> };
+
+  function normalizeCall<T>(
+    arg1: WorkflowFn<T, E, Deps, C>
+  ): { args: undefined; fn: WorkflowFn<T, E, Deps, C> };
+  function normalizeCall<T, Args>(
+    arg1: Args,
+    arg2: WorkflowFnWithArgs<T, Args, E, Deps, C>
+  ): { args: Args; fn: WorkflowFnWithArgs<T, Args, E, Deps, C> };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function normalizeCall(arg1: any, arg2?: any): NormalizedCall<any, any> {
+    // Runtime guard for misuse
+    if (typeof arg1 !== "function" && typeof arg2 !== "function") {
+      throw new TypeError("workflow(args?, fn, ...): fn must be a function");
+    }
+    // If arg2 is a function, we're in the "with args" pattern: workflow(args, fn)
     // This correctly handles functions as args (e.g., workflow(requestFactory, callback))
-    const hasArgs = typeof maybeFn === "function";
-    const args = hasArgs ? (fnOrArgs as Args) : undefined;
-    const userFn = hasArgs
-      ? maybeFn
-      : (fnOrArgs as (step: RunStep<E>, deps: Deps, ctx: WorkflowContext<C>) => T | Promise<T>);
+    return typeof arg2 === "function"
+      ? { args: arg1, fn: arg2 }
+      : { args: undefined, fn: arg1 };
+  }
+
+  // ===========================================================================
+  // Helper: pickExec - extract execution options from .run() call signature
+  // ===========================================================================
+  // For .run(fn, exec) -> exec is a2
+  // For .run(args, fn, exec) -> exec is a3
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function pickExec(_a1: any, a2: any, a3: any): ExecOpts | undefined {
+    // If a2 is a function, we have .run(args, fn, exec?) pattern -> exec is a3
+    // Otherwise, we have .run(fn, exec?) pattern -> exec is a2
+    return (typeof a2 === "function" ? a3 : a2) as ExecOpts | undefined;
+  }
+
+  // ===========================================================================
+  // Internal execute function - core workflow execution logic
+  // ===========================================================================
+  async function internalExecute<T, Args = undefined>(
+    normalized: NormalizedCall<T, Args>,
+    exec?: ExecOpts
+  ): Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>> {
+    const { args, fn: userFn } = normalized;
+    const hasArgs = args !== undefined;
+
+    // Detect common mistake: passing options to executor instead of createWorkflow
+    // Only warn if the object contains ONLY option keys (no other properties)
+    // This avoids false positives for legitimate args like { cache: true, userId: '123' }
+    if (hasArgs && typeof args === "object" && args !== null) {
+      const KNOWN_OPTION_KEYS = new Set([
+        "cache", "onEvent", "resumeState", "onError", "onBeforeStart",
+        "onAfterStep", "shouldRun", "createContext", "signal", "strict",
+        "catchUnexpected", "description", "markdown", "streamStore"
+      ]);
+      const argKeys = Object.keys(args as object);
+      const matchedOptions = argKeys.filter(k => KNOWN_OPTION_KEYS.has(k));
+      const nonOptionKeys = argKeys.filter(k => !KNOWN_OPTION_KEYS.has(k));
+
+      // Only warn if ALL keys are option keys (pure options object, not args with coincidental names)
+      if (matchedOptions.length > 0 && nonOptionKeys.length === 0) {
+        console.warn(
+          `awaitly: Detected workflow options (${matchedOptions.join(", ")}) ` +
+          `passed to workflow executor. Options are ignored here.\n` +
+          `Pass options to createWorkflow() instead:\n` +
+          `  const workflow = createWorkflow(deps, { ${matchedOptions.join(", ")} });\n` +
+          `  await workflow(async (step) => { ... });`
+        );
+      }
+    }
+
     // Generate workflowId for this run
     const workflowId = crypto.randomUUID();
 
-    // Create context for this run
-    const context = options?.createContext?.() as C;
+    // ===========================================================================
+    // Resolve hooks: exec?.x ?? options?.x (execution-time overrides creation-time)
+    // Note: exec.x = undefined does NOT override (uses creation-time)
+    //       exec.x = null DOES override (users asked for it)
+    // ===========================================================================
 
-    // Get workflow-level signal for cancellation (extracted early for workflowContext)
+    // Create context for this run (exec overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const workflowSignal = (options as any)?.signal as AbortSignal | undefined;
+    const createContextFn = exec?.createContext ?? (options as any)?.createContext;
+    const context = createContextFn ? await createContextFn() : undefined as C;
+
+    // Get workflow-level signal (exec overrides options)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const workflowSignal = (exec?.signal ?? (options as any)?.signal) as AbortSignal | undefined;
+
+    // Get event handler (exec overrides options)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const onEventHandler = exec?.onEvent ?? (options as any)?.onEvent;
+
+    // Get error handler (exec overrides options)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const onErrorHandler = exec?.onError ?? (options as any)?.onError;
+
+    // Get shouldRun hook (exec overrides options)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const shouldRunHook = (exec?.shouldRun ?? (options as any)?.shouldRun) as
+      | ((workflowId: string, context: C) => boolean | Promise<boolean>)
+      | undefined;
+
+    // Get onBeforeStart hook (exec overrides options)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const onBeforeStartHook = (exec?.onBeforeStart ?? (options as any)?.onBeforeStart) as
+      | ((workflowId: string, context: C) => boolean | Promise<boolean>)
+      | undefined;
+
+    // Get onAfterStep hook (exec overrides options)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const onAfterStepHook = (exec?.onAfterStep ?? (options as any)?.onAfterStep) as
+      | ((
+          stepKey: string,
+          result: Result<unknown, unknown, unknown>,
+          workflowId: string,
+          context: C
+        ) => void | Promise<void>)
+      | undefined;
+
+    // Get resumeState (exec overrides options) - keep lazy, only evaluate when needed
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const resumeStateOption = (exec?.resumeState ?? (options as any)?.resumeState) as
+      | ResumeState
+      | (() => ResumeState | Promise<ResumeState>)
+      | undefined;
+
+    // Get catchUnexpected for strict mode (only from creation-time options - cannot be overridden)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const catchUnexpected = (options as any)?.catchUnexpected as
+      | ((cause: unknown) => U)
+      | undefined;
 
     // Create workflow context object to pass to callback
     const workflowContext: WorkflowContext<C> = {
       workflowId,
-      onEvent: options?.onEvent as ((event: WorkflowEvent<unknown, C>) => void) | undefined,
+      onEvent: onEventHandler as ((event: WorkflowEvent<unknown, C>) => void) | undefined,
       context: context !== undefined ? context : undefined,
       signal: workflowSignal,
     };
@@ -791,25 +1130,12 @@ export function createWorkflow<
       // Add context to event only if:
       // 1. Event doesn't already have context (preserves replayed events or per-step overrides)
       // 2. Workflow actually has a context (don't add context: undefined property)
-      const eventWithContext = 
+      const eventWithContext =
         event.context !== undefined || context === undefined
           ? event
           : ({ ...event, context: context as C } as WorkflowEvent<E | U | UnexpectedError, C>);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (options as any)?.onEvent?.(eventWithContext, context);
+      onEventHandler?.(eventWithContext, context);
     };
-
-    // Check shouldRun hook (concurrency control) - called first
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const shouldRunHook = (options as any)?.shouldRun as
-      | ((workflowId: string, context: C) => boolean | Promise<boolean>)
-      | undefined;
-
-    // Get catchUnexpected for strict mode skip handling
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const catchUnexpected = (options as any)?.catchUnexpected as
-      | ((cause: unknown) => U)
-      | undefined;
 
     // Helper to create cancellation result
     const createCancelledResult = (reason?: string, lastStepKey?: string): Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown> => {
@@ -899,12 +1225,6 @@ export function createWorkflow<
       }
     }
 
-    // Check onBeforeStart hook (distributed locking/queue checking)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const onBeforeStartHook = (options as any)?.onBeforeStart as
-      | ((workflowId: string, context: C) => boolean | Promise<boolean>)
-      | undefined;
-
     if (onBeforeStartHook) {
       const hookStartTime = performance.now();
       try {
@@ -970,26 +1290,39 @@ export function createWorkflow<
       ts: startTs,
     });
 
-    // Get cache from options (or create one if resumeState is provided)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const resumeStateOption = (options as any)?.resumeState as
-      | ResumeState
-      | (() => ResumeState | Promise<ResumeState>)
-      | undefined;
+    // Get cache from options (cache is NOT overridable via exec - only from creation-time)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let cache = (options as any)?.cache as StepCache | undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const streamStore = (options as any)?.streamStore as StreamStore | undefined;
 
     // If resumeState is provided but cache isn't, auto-create an in-memory cache
     if (resumeStateOption && !cache) {
       cache = new Map<string, Result<unknown, unknown, unknown>>();
     }
 
-    // Pre-populate cache from resumeState
+    // Pre-populate cache from resumeState (lazily evaluated)
     if (resumeStateOption && cache) {
       const resumeState =
         typeof resumeStateOption === "function"
           ? await resumeStateOption()
           : resumeStateOption;
+
+      // Validate resumeState.steps is a Map (common mistake: JSON serialization loses Map)
+      if (!(resumeState.steps instanceof Map)) {
+        console.warn(
+          `awaitly: resumeState.steps is not a Map (got ${typeof resumeState.steps}). ` +
+            `This usually happens when state is serialized with JSON.stringify() directly.\n` +
+            `Use stringifyState() and parseState() from 'awaitly/persistence' instead:\n` +
+            `  import { stringifyState, parseState } from 'awaitly/persistence';\n` +
+            `  const json = stringifyState(state);  // Save this\n` +
+            `  const restored = parseState(json);   // Load this`
+        );
+        // Try to recover by converting plain object to Map
+        if (typeof resumeState.steps === "object" && resumeState.steps !== null) {
+          resumeState.steps = new Map(Object.entries(resumeState.steps));
+        }
+      }
 
       for (const [key, entry] of resumeState.steps) {
         const { result, meta } = entry;
@@ -1010,18 +1343,6 @@ export function createWorkflow<
       if (typeof opts === "string") return { name: opts };
       return opts ?? {};
     };
-
-    // Get onAfterStep hook (needed even without cache)
-    // Extract it here so it's available in the closure for createCachedStep
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const onAfterStepHook = (options as any)?.onAfterStep as
-      | ((
-          stepKey: string,
-          result: Result<unknown, unknown, unknown>,
-          workflowId: string,
-          context: C
-        ) => void | Promise<void>)
-      | undefined;
 
     // Track abort state and last step key for mid-execution cancellation
     let abortedDuringExecution = false;
@@ -1098,11 +1419,9 @@ export function createWorkflow<
 
     // Create a cached step wrapper
     const createCachedStep = (realStep: RunStep<E>): RunStep<E> => {
-      // If no cache, no onAfterStep, and no signal, return real step directly
-      // (we need the wrapper for signal-based cancellation checks)
-      if (!cache && !onAfterStepHook && !workflowSignal) {
-        return realStep;
-      }
+      // NOTE: We always create the wrapper because streaming methods (streamForEach, getWritable,
+      // getReadable) are defined on cachedStepFn, not realStep. Even without cache/hooks/signal/
+      // streamStore, the workflow may use step.streamForEach with async iterables.
 
       // Wrap the main step function
       const cachedStepFn = async <StepT, StepE extends E, StepC = unknown>(
@@ -1388,6 +1707,562 @@ export function createWorkflow<
         );
       };
 
+      // ===========================================================================
+      // Streaming Methods
+      // ===========================================================================
+
+      // Store active writers and their backpressure controllers
+      const activeWriters = new Map<string, {
+        writer: StreamWriter<unknown>;
+        backpressure: BackpressureController;
+        aborted: boolean;
+        closed: boolean;
+      }>();
+
+      // Store active readers
+      const activeReaders = new Map<string, {
+        reader: StreamReader<unknown>;
+        position: number;
+        closed: boolean;
+      }>();
+
+      cachedStepFn.getWritable = <T>(
+        options?: StreamWritableOptions
+      ): StreamWriterInterface<T> => {
+        const namespace = options?.namespace ?? "default";
+        const highWaterMark = options?.highWaterMark ?? 16;
+
+        if (!streamStore) {
+          throw new Error(
+            "streamStore is required to use getWritable(). " +
+            "Pass a streamStore to createWorkflow options."
+          );
+        }
+
+        // Check if writer already exists for this namespace
+        const existingKey = `${workflowId}:${namespace}`;
+        const existing = activeWriters.get(existingKey);
+        if (existing && !existing.closed && !existing.aborted) {
+          return existing.writer as StreamWriter<T>;
+        }
+
+        // Create backpressure controller
+        const backpressure = createBackpressureController({
+          highWaterMark,
+          onStateChange: (state) => {
+            emitEvent({
+              type: "stream_backpressure",
+              workflowId,
+              namespace,
+              bufferedCount: backpressure.bufferedCount,
+              state,
+              ts: Date.now(),
+            });
+          },
+        });
+
+        let position = 0;
+        let writable = true;
+        let aborted = false;
+        let closed = false;
+
+        // Emit stream_created event
+        emitEvent({
+          type: "stream_created",
+          workflowId,
+          namespace,
+          ts: Date.now(),
+        });
+
+        const writer: StreamWriter<T> = {
+          async write(value: T): AsyncResult<void, StreamWriteError> {
+            if (closed) {
+              return err(streamWriteError("closed", "Stream is closed"));
+            }
+            if (aborted) {
+              return err(streamWriteError("aborted", "Stream was aborted"));
+            }
+
+            // Check backpressure
+            if (backpressure.state === "paused") {
+              await backpressure.waitForDrain();
+            }
+
+            // Write to store
+            const item: StreamItem<T> = {
+              value,
+              position,
+              ts: Date.now(),
+            };
+
+            const result = await streamStore.append<T>(workflowId, namespace, item);
+            if (!result.ok) {
+              emitEvent({
+                type: "stream_error",
+                workflowId,
+                namespace,
+                error: result.error,
+                position,
+                ts: Date.now(),
+              });
+              return err(streamWriteError("store_error", result.error.message, result.error));
+            }
+
+            // Emit write event
+            emitEvent({
+              type: "stream_write",
+              workflowId,
+              namespace,
+              position,
+              ts: Date.now(),
+            });
+
+            position++;
+            backpressure.increment();
+
+            return ok(undefined);
+          },
+
+          async close(): AsyncResult<void, StreamCloseError> {
+            if (closed) {
+              return err(streamCloseError("already_closed", "Stream is already closed"));
+            }
+
+            const result = await streamStore.closeStream(workflowId, namespace);
+            if (!result.ok) {
+              return err(streamCloseError("store_error", result.error.message, result.error));
+            }
+
+            closed = true;
+            writable = false;
+
+            // Emit close event
+            emitEvent({
+              type: "stream_close",
+              workflowId,
+              namespace,
+              finalPosition: position,
+              ts: Date.now(),
+            });
+
+            // Clean up
+            activeWriters.delete(existingKey);
+
+            return ok(undefined);
+          },
+
+          abort(reason: unknown): void {
+            aborted = true;
+            writable = false;
+            closed = true;
+
+            emitEvent({
+              type: "stream_error",
+              workflowId,
+              namespace,
+              error: reason,
+              position,
+              ts: Date.now(),
+            });
+
+            // Clean up
+            activeWriters.delete(existingKey);
+          },
+
+          get writable() {
+            return writable;
+          },
+
+          get position() {
+            return position;
+          },
+
+          get namespace() {
+            return namespace;
+          },
+        };
+
+        activeWriters.set(existingKey, {
+          writer: writer as StreamWriter<unknown>,
+          backpressure,
+          aborted,
+          closed,
+        });
+
+        return writer;
+      };
+
+      cachedStepFn.getReadable = <T>(
+        options?: StreamReadableOptions
+      ): StreamReaderInterface<T> => {
+        const namespace = options?.namespace ?? "default";
+        const startIndex = options?.startIndex ?? 0;
+        const pollInterval = options?.pollInterval ?? 10;
+        const pollTimeout = options?.pollTimeout ?? 30000;
+
+        if (!streamStore) {
+          throw new Error(
+            "streamStore is required to use getReadable(). " +
+            "Pass a streamStore to createWorkflow options."
+          );
+        }
+
+        const existingKey = `${workflowId}:${namespace}:${startIndex}`;
+        const existing = activeReaders.get(existingKey);
+        if (existing && !existing.closed) {
+          return existing.reader as StreamReader<T>;
+        }
+
+        // Helper to decrement backpressure when items are consumed
+        const decrementBackpressure = () => {
+          const writerKey = `${workflowId}:${namespace}`;
+          const activeWriter = activeWriters.get(writerKey);
+          if (activeWriter) {
+            activeWriter.backpressure.decrement();
+          }
+        };
+
+        let position = startIndex;
+        let readable = true;
+        let closed = false;
+        let bufferedItems: StreamItem<T>[] = [];
+        let bufferIndex = 0;
+
+        const reader: StreamReader<T> = {
+          async read(): AsyncResult<T, StreamReadError | StreamEndedMarker> {
+            if (closed) {
+              return err(streamReadError("closed", "Reader is closed"));
+            }
+
+            // Check if we have buffered items
+            if (bufferIndex < bufferedItems.length) {
+              const item = bufferedItems[bufferIndex++];
+              position = item.position + 1;
+
+              // Release backpressure for consumed item
+              decrementBackpressure();
+
+              emitEvent({
+                type: "stream_read",
+                workflowId,
+                namespace,
+                position: item.position,
+                ts: Date.now(),
+              });
+
+              return ok(item.value);
+            }
+
+            // Poll for items from store with timeout
+            // We poll even if there's no active writer yet, as one may appear
+            const writerKey = `${workflowId}:${namespace}`;
+            const pollStart = Date.now();
+            let hasSeenWriter = activeWriters.has(writerKey);
+            let hasSeenMetadata = false;
+
+            // Check initial state
+            const initialMetaResult = await streamStore.getMetadata(workflowId, namespace);
+            hasSeenMetadata = initialMetaResult.ok && initialMetaResult.value !== undefined;
+
+            while (Date.now() - pollStart < pollTimeout) {
+              const result = await streamStore.read<T>(workflowId, namespace, position, 100);
+              if (!result.ok) {
+                return err(streamReadError("store_error", result.error.message, result.error));
+              }
+
+              const items = result.value;
+              if (items.length > 0) {
+                // Buffer items and return first
+                bufferedItems = items;
+                bufferIndex = 1;
+                const item = items[0];
+                position = item.position + 1;
+
+                // Release backpressure for consumed item
+                decrementBackpressure();
+
+                emitEvent({
+                  type: "stream_read",
+                  workflowId,
+                  namespace,
+                  position: item.position,
+                  ts: Date.now(),
+                });
+
+                return ok(item.value);
+              }
+
+              // Check current state
+              const writerActive = activeWriters.has(writerKey);
+              const metaResult = await streamStore.getMetadata(workflowId, namespace);
+              const metadataExists = metaResult.ok && metaResult.value !== undefined;
+
+              // Track if we've ever seen a writer or metadata
+              if (writerActive) hasSeenWriter = true;
+              if (metadataExists) hasSeenMetadata = true;
+
+              // Stream is closed - no more items coming
+              if (metaResult.ok && metaResult.value?.closed) {
+                readable = false;
+                return err(streamEnded(position));
+              }
+
+              // If we've seen a writer or metadata but now it's gone and empty,
+              // the stream has ended without more items
+              if (hasSeenWriter && !writerActive && !metadataExists) {
+                // Writer was created and removed without writing anything
+                readable = false;
+                return err(streamEnded(position));
+              }
+
+              if (hasSeenMetadata && !writerActive && metaResult.ok && !metaResult.value?.closed) {
+                // Stream exists, writer is gone, but stream not closed
+                // This means writer finished - wait a bit more for any pending writes
+                // then give up
+              }
+
+              // Stream is still open or writer may still appear - wait and poll again
+              await new Promise((resolve) => setTimeout(resolve, pollInterval));
+            }
+
+            // Poll timeout - treat as stream ended
+            readable = false;
+            return err(streamEnded(position));
+          },
+
+          close(): void {
+            closed = true;
+            readable = false;
+            bufferedItems = [];
+            activeReaders.delete(existingKey);
+          },
+
+          get readable() {
+            return readable;
+          },
+
+          get position() {
+            return position;
+          },
+
+          get namespace() {
+            return namespace;
+          },
+        };
+
+        activeReaders.set(existingKey, {
+          reader: reader as StreamReader<unknown>,
+          position,
+          closed,
+        });
+
+        return reader;
+      };
+
+      cachedStepFn.streamForEach = async <T, R, StepE extends E>(
+        source: StreamReaderInterface<T> | AsyncIterable<T>,
+        processor: (item: T, index: number) => AsyncResult<R, StepE>,
+        options?: StreamForEachStepOptions
+      ): Promise<StreamForEachResultType<R>> => {
+        const name = options?.name;
+        const checkpointInterval = options?.checkpointInterval ?? 1;
+        const concurrency = options?.concurrency ?? 1;
+        const results: R[] = [];
+        let processedCount = 0;
+        let lastPosition = -1;
+
+        // Helper to check if source is a StreamReader
+        const isStreamReader = (s: unknown): s is StreamReaderInterface<T> => {
+          return (
+            typeof s === "object" &&
+            s !== null &&
+            "read" in s &&
+            typeof (s as StreamReaderInterface<T>).read === "function"
+          );
+        };
+
+        // Helper to process a single item with step()
+        const processItem = async (
+          item: T,
+          itemIndex: number,
+          itemPosition: number,
+          namespace: string
+        ): Promise<{ index: number; position: number; result: R }> => {
+          const shouldCheckpoint = checkpointInterval > 0 && itemIndex % checkpointInterval === 0;
+          const stepKey = shouldCheckpoint
+            ? `stream-foreach:${namespace}:pos-${itemPosition}`
+            : undefined;
+          const stepName = name ? `${name}:item-${itemPosition}` : undefined;
+
+          const stepResult = await cachedStepFn(
+            () => processor(item, itemIndex),
+            { name: stepName, key: stepKey }
+          );
+
+          return { index: itemIndex, position: itemPosition, result: stepResult };
+        };
+
+        if (isStreamReader(source)) {
+          if (concurrency <= 1) {
+            // Sequential processing (original behavior)
+            let itemPosition = source.position;
+            let readResult = await source.read();
+            while (readResult.ok) {
+              const item = readResult.value;
+              const { result } = await processItem(item, processedCount, itemPosition, source.namespace);
+              results.push(result);
+              lastPosition = itemPosition;
+              processedCount++;
+              itemPosition = source.position;
+              readResult = await source.read();
+            }
+          } else {
+            // Concurrent processing - interleave reading and processing
+            const resultsMap = new Map<number, { position: number; result: R }>();
+            let itemIndex = 0;
+            let totalItems = 0;
+
+            // Track slots with wrapped promises that include slot index
+            type SlotResult = { slotIndex: number; index: number; position: number; result: R };
+            const slots: (Promise<SlotResult> | null)[] = new Array(concurrency).fill(null);
+
+            // Helper to find an empty slot, waiting if necessary
+            const getSlot = async (): Promise<number> => {
+              // First, check for empty slots
+              for (let i = 0; i < slots.length; i++) {
+                if (slots[i] === null) return i;
+              }
+              // No empty slots - wait for one to complete
+              const activePromises = slots.filter((s): s is Promise<SlotResult> => s !== null);
+              const completed = await Promise.race(activePromises);
+              resultsMap.set(completed.index, { position: completed.position, result: completed.result });
+              // Clear the slot that completed (we know which one from slotIndex)
+              slots[completed.slotIndex] = null;
+              return completed.slotIndex;
+            };
+
+            // Read and process items concurrently
+            let itemPosition = source.position;
+            let readResult = await source.read();
+
+            while (readResult.ok) {
+              const slotIndex = await getSlot();
+
+              // Capture current values for closure
+              const currentIndex = itemIndex;
+              const currentPosition = itemPosition;
+              const currentItem = readResult.value;
+              const currentSlot = slotIndex;
+
+              // Start processing in this slot, wrapping to include slot index
+              slots[slotIndex] = processItem(currentItem, currentIndex, currentPosition, source.namespace)
+                .then(r => ({ slotIndex: currentSlot, ...r }));
+              totalItems++;
+              itemIndex++;
+
+              // Read next item
+              itemPosition = source.position;
+              readResult = await source.read();
+            }
+
+            // Wait for all remaining slots to complete
+            for (let i = 0; i < slots.length; i++) {
+              if (slots[i] !== null) {
+                const result = await slots[i]!;
+                resultsMap.set(result.index, { position: result.position, result: result.result });
+              }
+            }
+
+            // Collect results in order
+            for (let i = 0; i < totalItems; i++) {
+              const entry = resultsMap.get(i);
+              if (entry) {
+                results.push(entry.result);
+                lastPosition = entry.position;
+                processedCount++;
+              }
+            }
+          }
+        } else {
+          // Process from AsyncIterable
+          if (concurrency <= 1) {
+            // Sequential processing
+            let index = 0;
+            for await (const item of source) {
+              const { result } = await processItem(item, index, index, "async-iterable");
+              results.push(result);
+              lastPosition = index;
+              processedCount++;
+              index++;
+            }
+          } else {
+            // Concurrent processing - interleave iteration and processing
+            const resultsMap = new Map<number, R>();
+            let itemIndex = 0;
+            let totalItems = 0;
+
+            // Track slots with wrapped promises that include slot index
+            type SlotResult = { slotIndex: number; index: number; position: number; result: R };
+            const slots: (Promise<SlotResult> | null)[] = new Array(concurrency).fill(null);
+
+            // Helper to find an empty slot, waiting if necessary
+            const getSlot = async (): Promise<number> => {
+              // First, check for empty slots
+              for (let i = 0; i < slots.length; i++) {
+                if (slots[i] === null) return i;
+              }
+              // No empty slots - wait for one to complete
+              const activePromises = slots.filter((s): s is Promise<SlotResult> => s !== null);
+              const completed = await Promise.race(activePromises);
+              resultsMap.set(completed.index, completed.result);
+              // Clear the slot that completed (we know which one from slotIndex)
+              slots[completed.slotIndex] = null;
+              return completed.slotIndex;
+            };
+
+            // Iterate and process items concurrently
+            for await (const item of source) {
+              const slotIndex = await getSlot();
+
+              // Capture current values for closure
+              const currentIndex = itemIndex;
+              const currentSlot = slotIndex;
+
+              // Start processing in this slot, wrapping to include slot index
+              slots[slotIndex] = processItem(item, currentIndex, currentIndex, "async-iterable")
+                .then(r => ({ slotIndex: currentSlot, ...r }));
+              totalItems++;
+              itemIndex++;
+            }
+
+            // Wait for all remaining slots to complete
+            for (let i = 0; i < slots.length; i++) {
+              if (slots[i] !== null) {
+                const result = await slots[i]!;
+                resultsMap.set(result.index, result.result);
+              }
+            }
+
+            // Collect results in order
+            for (let i = 0; i < totalItems; i++) {
+              // Use has() instead of checking result !== undefined because
+              // the processor may legitimately return ok(undefined)
+              if (resultsMap.has(i)) {
+                results.push(resultsMap.get(i) as R);
+                lastPosition = i;
+                processedCount++;
+              }
+            }
+          }
+        }
+
+        return {
+          results,
+          processedCount,
+          lastPosition,
+        };
+      };
+
       return cachedStepFn as RunStep<E>;
     };
 
@@ -1401,21 +2276,19 @@ export function createWorkflow<
     try {
       if (options?.strict === true) {
         // Strict mode - use run.strict for closed error union
-        const strictOptions = options as WorkflowOptionsStrict<E, U, C>;
         result = await run.strict<T, E | U, C>(wrappedFn as (step: RunStep<E | U>) => Promise<T> | T, {
-          onError: strictOptions.onError,
-          onEvent: strictOptions.onEvent as ((event: WorkflowEvent<E | U | UnexpectedError, C>, ctx: C) => void) | undefined,
-          catchUnexpected: strictOptions.catchUnexpected,
+          onError: onErrorHandler as ((error: E | U, stepName?: string, ctx?: C) => void) | undefined,
+          onEvent: onEventHandler as ((event: WorkflowEvent<E | U | UnexpectedError, C>, ctx: C) => void) | undefined,
+          catchUnexpected: catchUnexpected as (cause: unknown) => U,
           workflowId,
           context,
           _workflowSignal: workflowSignal,
         });
       } else {
         // Non-strict mode - use run with onError for typed errors + UnexpectedError
-        const normalOptions = options as WorkflowOptions<E, C> | undefined;
         result = await run<T, E, C>(wrappedFn as (step: RunStep<E | UnexpectedError>) => Promise<T> | T, {
-          onError: normalOptions?.onError ?? (() => {}),
-          onEvent: normalOptions?.onEvent,
+          onError: onErrorHandler ?? (() => {}),
+          onEvent: onEventHandler,
           workflowId,
           context,
           _workflowSignal: workflowSignal,
@@ -1579,7 +2452,106 @@ export function createWorkflow<
     return result as Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>;
   }
 
-  return workflowExecutor;
+  // ===========================================================================
+  // Create the workflow executor object with callable, run, and with methods
+  // ===========================================================================
+
+  // Callable workflow executor function
+  // Signature 1: No args (original API)
+  function workflowExecutor<T>(
+    fn: WorkflowFn<T, E, Deps, C>
+  ): Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>>;
+  // Signature 2: With args (new API)
+  function workflowExecutor<T, Args>(
+    args: Args,
+    fn: WorkflowFnWithArgs<T, Args, E, Deps, C>
+  ): Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>>;
+  // Implementation
+  function workflowExecutor<T, Args = undefined>(
+    fnOrArgs: WorkflowFn<T, E, Deps, C> | Args,
+    maybeFn?: WorkflowFnWithArgs<T, Args, E, Deps, C>
+  ): Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const normalized = normalizeCall(fnOrArgs as any, maybeFn as any);
+    // Cast is safe because T flows through internalExecute
+    return internalExecute(normalized) as Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>>;
+  }
+
+  // Add .run() method for execution-time options
+  // Signature 1: No args
+  function runWithOptions<T>(
+    fn: WorkflowFn<T, E, Deps, C>,
+    exec?: ExecOpts
+  ): Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>>;
+  // Signature 2: With args
+  function runWithOptions<T, Args>(
+    args: Args,
+    fn: WorkflowFnWithArgs<T, Args, E, Deps, C>,
+    exec?: ExecOpts
+  ): Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>>;
+  // Implementation
+  function runWithOptions<T, Args = undefined>(
+    fnOrArgs: WorkflowFn<T, E, Deps, C> | Args,
+    maybeFnOrExec?: WorkflowFnWithArgs<T, Args, E, Deps, C> | ExecOpts,
+    maybeExec?: ExecOpts
+  ): Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const normalized = normalizeCall(fnOrArgs as any, typeof maybeFnOrExec === "function" ? maybeFnOrExec as any : undefined);
+    const exec = pickExec(fnOrArgs, maybeFnOrExec, maybeExec);
+    // Cast is safe because T flows through internalExecute
+    return internalExecute(normalized, exec) as Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>>;
+  }
+
+  // Add .with() method for pre-binding execution options
+  function withOptions(boundExec: ExecOpts): Workflow<E, Deps, C> | WorkflowStrict<E, U, Deps, C> {
+    // Capture early to avoid monkeypatching issues
+    const baseRun = runWithOptions;
+
+    // Create callable that uses boundExec
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wrapped: any = <T, Args = undefined>(
+      fnOrArgs: WorkflowFn<T, E, Deps, C> | Args,
+      maybeFn?: WorkflowFnWithArgs<T, Args, E, Deps, C>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ): any => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const normalized = normalizeCall(fnOrArgs as any, maybeFn as any);
+      return normalized.args === undefined
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ? baseRun(normalized.fn as any, boundExec as any)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        : baseRun(normalized.args as any, normalized.fn as any, boundExec as any);
+    };
+
+    // Add .run() that merges boundExec with callerExec
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    wrapped.run = (fnOrArgs: any, maybeFnOrExec?: any, maybeExec?: any): any => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const normalized = normalizeCall(fnOrArgs as any, typeof maybeFnOrExec === "function" ? maybeFnOrExec as any : undefined);
+      const callerExec = pickExec(fnOrArgs, maybeFnOrExec, maybeExec);
+      // Merge: caller exec overrides bound exec
+      const merged = { ...boundExec, ...(callerExec ?? {}) };
+      return normalized.args === undefined
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ? baseRun(normalized.fn as any, merged as any)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        : baseRun(normalized.args as any, normalized.fn as any, merged as any);
+    };
+
+    // Add .with() that chains options
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    wrapped.with = (more: ExecOpts) => withOptions({ ...boundExec, ...more } as any);
+
+    return wrapped as Workflow<E, Deps, C> | WorkflowStrict<E, U, Deps, C>;
+  }
+
+  // Attach methods to workflowExecutor
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (workflowExecutor as any).run = runWithOptions;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (workflowExecutor as any).with = withOptions;
+
+  return workflowExecutor as Workflow<E, Deps, C> | WorkflowStrict<E, U, Deps, C>;
 }
 
 // =============================================================================

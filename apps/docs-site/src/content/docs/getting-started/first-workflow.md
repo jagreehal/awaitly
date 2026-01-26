@@ -44,6 +44,23 @@ import { createWorkflow } from 'awaitly/workflow';
 const loadUserData = createWorkflow({ fetchUser, fetchPosts });
 ```
 
+## Adding workflow options
+
+Options like caching, events, and resume state are passed to `createWorkflow`, not when calling the workflow:
+
+```typescript
+// Correct: Options go to createWorkflow
+const workflow = createWorkflow({ fetchUser }, {
+  cache: new Map(),
+  onEvent: (e) => console.log(e)
+});
+await workflow(async (step) => { ... });
+
+// Wrong: Options passed here are ignored
+const workflow = createWorkflow({ fetchUser });
+await workflow({ cache: new Map() }, async (step) => { ... }); // Ignored!
+```
+
 ## Run it
 
 Use `step()` to execute operations. If any step fails, the workflow exits early:

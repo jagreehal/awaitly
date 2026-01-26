@@ -26,6 +26,7 @@ import type {
   ActiveStepSnapshot,
   WorkflowHooks,
   HookExecution,
+  StreamNode,
 } from "./types";
 import { generateId } from "./utils/timing";
 import { detectParallelGroups, type ParallelDetectorOptions } from "./parallel-detector";
@@ -97,6 +98,17 @@ interface ActiveDecision {
   branchTaken?: string | boolean;
 }
 
+interface ActiveStream {
+  id: string;
+  namespace: string;
+  startTs: number;
+  writeCount: number;
+  readCount: number;
+  streamState: "active" | "closed" | "error";
+  backpressureOccurred: boolean;
+  finalPosition: number;
+}
+
 // =============================================================================
 // IR Builder
 // =============================================================================
@@ -127,6 +139,9 @@ export function createIRBuilder(options: IRBuilderOptions = {}) {
 
   // Active decisions (conditional branches)
   const decisionStack: ActiveDecision[] = [];
+
+  // Active streams (streaming operations)
+  const activeStreams = new Map<string, ActiveStream>();
 
   // Completed nodes at the current scope level
   let currentNodes: FlowNode[] = [];
@@ -504,6 +519,110 @@ export function createIRBuilder(options: IRBuilderOptions = {}) {
         lastUpdatedAt = Date.now();
         break;
       }
+
+      // Stream events
+      case "stream_created": {
+        const streamKey = `${event.workflowId}:${event.namespace}`;
+        activeStreams.set(streamKey, {
+          id: generateId(),
+          namespace: event.namespace,
+          startTs: event.ts,
+          writeCount: 0,
+          readCount: 0,
+          streamState: "active",
+          backpressureOccurred: false,
+          finalPosition: 0,
+        });
+        lastUpdatedAt = Date.now();
+        break;
+      }
+
+      case "stream_write": {
+        const streamKey = `${event.workflowId}:${event.namespace}`;
+        const stream = activeStreams.get(streamKey);
+        if (stream) {
+          stream.writeCount++;
+          stream.finalPosition = Math.max(stream.finalPosition, event.position);
+        }
+        lastUpdatedAt = Date.now();
+        break;
+      }
+
+      case "stream_read": {
+        const streamKey = `${event.workflowId}:${event.namespace}`;
+        const stream = activeStreams.get(streamKey);
+        if (stream) {
+          stream.readCount++;
+        }
+        lastUpdatedAt = Date.now();
+        break;
+      }
+
+      case "stream_close": {
+        const streamKey = `${event.workflowId}:${event.namespace}`;
+        const stream = activeStreams.get(streamKey);
+        if (stream) {
+          stream.streamState = "closed";
+          stream.finalPosition = event.finalPosition;
+          // Create StreamNode and add to current nodes
+          const node: StreamNode = {
+            type: "stream",
+            id: stream.id,
+            namespace: stream.namespace,
+            state: "success",
+            startTs: stream.startTs,
+            endTs: event.ts,
+            durationMs: event.ts - stream.startTs,
+            writeCount: stream.writeCount,
+            readCount: stream.readCount,
+            finalPosition: event.finalPosition,
+            streamState: "closed",
+            backpressureOccurred: stream.backpressureOccurred,
+          };
+          addNode(node);
+          activeStreams.delete(streamKey);
+        }
+        lastUpdatedAt = Date.now();
+        break;
+      }
+
+      case "stream_error": {
+        const streamKey = `${event.workflowId}:${event.namespace}`;
+        const stream = activeStreams.get(streamKey);
+        if (stream) {
+          stream.streamState = "error";
+          // Create StreamNode with error state and add to current nodes
+          const node: StreamNode = {
+            type: "stream",
+            id: stream.id,
+            namespace: stream.namespace,
+            state: "error",
+            error: event.error,
+            startTs: stream.startTs,
+            endTs: event.ts,
+            durationMs: event.ts - stream.startTs,
+            writeCount: stream.writeCount,
+            readCount: stream.readCount,
+            finalPosition: event.position,
+            streamState: "error",
+            backpressureOccurred: stream.backpressureOccurred,
+          };
+          addNode(node);
+          activeStreams.delete(streamKey);
+        }
+        lastUpdatedAt = Date.now();
+        break;
+      }
+
+      case "stream_backpressure": {
+        const streamKey = `${event.workflowId}:${event.namespace}`;
+        const stream = activeStreams.get(streamKey);
+        if (stream) {
+          stream.backpressureOccurred = true;
+        }
+        lastUpdatedAt = Date.now();
+        break;
+      }
     }
 
     // Capture snapshot after processing event (for time-travel)
@@ -638,7 +757,7 @@ export function createIRBuilder(options: IRBuilderOptions = {}) {
   }
 
   /**
-   * Get the current nodes including any active (running) steps.
+   * Get the current nodes including any active (running) steps and streams.
    */
   function getCurrentNodes(): FlowNode[] {
     const nodes = [...currentNodes];
@@ -655,6 +774,22 @@ export function createIRBuilder(options: IRBuilderOptions = {}) {
         ...(active.retryCount > 0 && { retryCount: active.retryCount }),
         ...(active.timedOut && { timedOut: true, timeoutMs: active.timeoutMs }),
       });
+    }
+
+    // Add active streams as running nodes
+    for (const [, stream] of activeStreams) {
+      nodes.push({
+        type: "stream",
+        id: stream.id,
+        namespace: stream.namespace,
+        state: "running",
+        startTs: stream.startTs,
+        writeCount: stream.writeCount,
+        readCount: stream.readCount,
+        finalPosition: stream.finalPosition,
+        streamState: stream.streamState,
+        backpressureOccurred: stream.backpressureOccurred,
+      } satisfies StreamNode);
     }
 
     return nodes;
@@ -710,6 +845,7 @@ export function createIRBuilder(options: IRBuilderOptions = {}) {
     activeSteps.clear();
     scopeStack.length = 0;
     decisionStack.length = 0;
+    activeStreams.clear();
     currentNodes = [];
     createdAt = Date.now();
     lastUpdatedAt = createdAt;

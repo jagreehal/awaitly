@@ -352,6 +352,23 @@ const logged = tap(result, user => console.log('Got user:', user.id));
 const loggedErr = tapError(result, e => console.error('Failed:', e));
 ```
 
+### Partial application at composition boundaries
+
+```typescript
+import { bindDeps } from 'awaitly/bind-deps';
+
+// Core function: explicit fn(args, deps) for testing
+const notify = (args: { name: string }, deps: { send: SendFn }) =>
+  deps.send(args.name);
+
+// At composition root: bind deps once
+const notifySlack = bindDeps(notify)(slackDeps);
+const notifyEmail = bindDeps(notify)(emailDeps);
+
+// Call sites are clean
+await notifySlack({ name: 'Alice' });
+```
+
 ---
 
 ## Error Types
@@ -592,6 +609,9 @@ import {
 
 // Full workflow (DI, retries, timeout)
 import { createWorkflow } from 'awaitly/workflow';
+
+// Partial application
+import { bindDeps } from 'awaitly/bind-deps';
 
 // Testing
 import { unwrapOk, unwrapErr } from 'awaitly/testing';

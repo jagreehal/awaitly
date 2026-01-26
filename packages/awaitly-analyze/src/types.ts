@@ -114,6 +114,31 @@ export interface StaticRaceNode extends StaticBaseNode {
 }
 
 /**
+ * Streaming operation in the workflow.
+ * Represents step.getWritable(), step.getReadable(), or step.streamForEach() calls.
+ */
+export interface StaticStreamNode extends StaticBaseNode {
+  type: "stream";
+  /** Type of streaming operation */
+  streamType: "write" | "read" | "forEach";
+  /** Stream namespace if statically determinable */
+  namespace?: string;
+  /** Configuration options extracted from the call */
+  options?: {
+    /** High-water mark for backpressure (getWritable) */
+    highWaterMark?: number | "<dynamic>";
+    /** Start index for resuming (getReadable) */
+    startIndex?: number | "<dynamic>";
+    /** Concurrency for parallel processing (streamForEach) */
+    concurrency?: number | "<dynamic>";
+    /** Checkpoint interval (streamForEach) */
+    checkpointInterval?: number | "<dynamic>";
+  };
+  /** The callee expression (e.g., "step.getWritable", "step.streamForEach") */
+  callee?: string;
+}
+
+/**
  * Conditional branch in the workflow.
  */
 export interface StaticConditionalNode extends StaticBaseNode {
@@ -128,6 +153,29 @@ export interface StaticConditionalNode extends StaticBaseNode {
   alternate?: StaticFlowNode[];
   /** For whenOr/unlessOr, the default value as source string */
   defaultValue?: string;
+}
+
+/**
+ * Switch case branch in a switch statement.
+ */
+export interface StaticSwitchCase {
+  /** Case value as source string (e.g., "'admin'", "Status.Active") */
+  value?: string;
+  /** Whether this is the default case */
+  isDefault: boolean;
+  /** Steps in this case branch */
+  body: StaticFlowNode[];
+}
+
+/**
+ * Switch statement in the workflow.
+ */
+export interface StaticSwitchNode extends StaticBaseNode {
+  type: "switch";
+  /** The switch expression as source code string */
+  expression: string;
+  /** All case branches including default */
+  cases: StaticSwitchCase[];
 }
 
 /**
@@ -176,6 +224,26 @@ export interface StaticUnknownNode extends StaticBaseNode {
 }
 
 /**
+ * A saga step in a saga workflow.
+ * Represents saga.step() or saga.tryStep() calls with optional compensation.
+ */
+export interface StaticSagaStepNode extends StaticBaseNode {
+  type: "saga-step";
+  /** The function being called (e.g., "deps.reserve", "deps.charge") */
+  callee?: string;
+  /** Whether this step has a compensation function */
+  hasCompensation: boolean;
+  /** The compensation function callee (e.g., "deps.release", "deps.refund") */
+  compensationCallee?: string;
+  /** Short description for labels/tooltips */
+  description?: string;
+  /** Full markdown documentation */
+  markdown?: string;
+  /** Whether this is a tryStep (error-mapped step) */
+  isTryStep?: boolean;
+}
+
+/**
  * Union of all static flow node types.
  */
 export type StaticFlowNode =
@@ -183,10 +251,13 @@ export type StaticFlowNode =
   | StaticSequenceNode
   | StaticParallelNode
   | StaticRaceNode
+  | StaticStreamNode
   | StaticConditionalNode
+  | StaticSwitchNode
   | StaticLoopNode
   | StaticWorkflowRefNode
-  | StaticUnknownNode;
+  | StaticUnknownNode
+  | StaticSagaStepNode;
 
 // =============================================================================
 // Static Workflow IR
@@ -199,8 +270,8 @@ export interface StaticWorkflowNode extends StaticBaseNode {
   type: "workflow";
   /** Name of the workflow (from variable name or file name) */
   workflowName: string;
-  /** Source pattern: 'createWorkflow' or 'run' */
-  source: "createWorkflow" | "run";
+  /** Source pattern: 'createWorkflow', 'run', 'createSagaWorkflow', or 'runSaga' */
+  source: "createWorkflow" | "run" | "createSagaWorkflow" | "runSaga";
   /** Dependencies declared in createWorkflow */
   dependencies: DependencyInfo[];
   /** Inferred error types from dependencies */
@@ -279,10 +350,16 @@ export interface AnalysisStats {
   raceCount: number;
   /** Number of loops */
   loopCount: number;
+  /** Number of streaming operations */
+  streamCount: number;
   /** Number of workflow references */
   workflowRefCount: number;
   /** Number of unknown/unanalyzable blocks */
   unknownCount: number;
+  /** Number of saga workflows found */
+  sagaWorkflowCount?: number;
+  /** Number of saga steps with compensation */
+  compensatedStepCount?: number;
 }
 
 /**
@@ -298,7 +375,7 @@ export interface AnalyzerOptions {
   /** Whether to include source locations in output */
   includeLocations?: boolean;
   /** Filter which patterns to detect (default: 'all') */
-  detect?: "all" | "createWorkflow" | "run";
+  detect?: "all" | "createWorkflow" | "run" | "createSagaWorkflow" | "runSaga";
   /**
    * Assume 'run' is imported from awaitly even without an explicit import.
    * Useful for analyzing snippets in docs, REPL, or tests.
@@ -472,8 +549,16 @@ export function isStaticRaceNode(node: StaticFlowNode): node is StaticRaceNode {
   return node.type === "race";
 }
 
+export function isStaticStreamNode(node: StaticFlowNode): node is StaticStreamNode {
+  return node.type === "stream";
+}
+
 export function isStaticConditionalNode(node: StaticFlowNode): node is StaticConditionalNode {
   return node.type === "conditional";
+}
+
+export function isStaticSwitchNode(node: StaticFlowNode): node is StaticSwitchNode {
+  return node.type === "switch";
 }
 
 export function isStaticLoopNode(node: StaticFlowNode): node is StaticLoopNode {
@@ -488,6 +573,10 @@ export function isStaticUnknownNode(node: StaticFlowNode): node is StaticUnknown
   return node.type === "unknown";
 }
 
+export function isStaticSagaStepNode(node: StaticFlowNode): node is StaticSagaStepNode {
+  return node.type === "saga-step";
+}
+
 /**
  * Check if a node has children.
  */
@@ -498,12 +587,14 @@ export function hasStaticChildren(
   | StaticParallelNode
   | StaticRaceNode
   | StaticConditionalNode
+  | StaticSwitchNode
   | StaticLoopNode {
   return (
     node.type === "sequence" ||
     node.type === "parallel" ||
     node.type === "race" ||
     node.type === "conditional" ||
+    node.type === "switch" ||
     node.type === "loop"
   );
 }
@@ -519,6 +610,8 @@ export function getStaticChildren(node: StaticFlowNode): StaticFlowNode[] {
       return node.children;
     case "conditional":
       return [...node.consequent, ...(node.alternate ?? [])];
+    case "switch":
+      return node.cases.flatMap((c) => c.body);
     case "loop":
       return node.body;
     default:

@@ -40,13 +40,15 @@ step(() => deps.fetchUser('1'), { key: 'user:1' });
 
 ### `awaitly/require-thunk-for-key` (error)
 
-When using `step()` with a `key` option, the first argument must be a thunk. Without a thunk, the cache is never checked.
+When using `step()` with a `key` option, the first argument must be a thunk. Without a thunk, the function executes immediately *before* the cache can be checked.
+
+**Important clarification**: The cache IS populated and `step_complete` events ARE emitted with the direct pattern. However, the operation runs regardless of cache state, defeating the purpose of caching.
 
 ```typescript
-// BAD - key option is useless without thunk
+// BAD - fetchUser() runs immediately, even if cache has value
 step(fetchUser('1'), { key: 'user:1' });
 
-// GOOD - thunk enables caching with key
+// GOOD - fetchUser() only runs on cache miss
 step(() => fetchUser('1'), { key: 'user:1' });
 ```
 
@@ -65,6 +67,22 @@ step(() => fetch(id), { key: `user:${Math.random()}` });
 step(() => fetch(id), { key: `user:${userId}` });
 ```
 
+### `awaitly/no-options-on-executor` (error)
+
+Prevents passing workflow options (like `cache`, `onEvent`, `resumeState`) to the workflow executor function. Options must be passed to `createWorkflow()` instead.
+
+```typescript
+// BAD - options are silently ignored here
+await workflow({ cache: new Map() }, async (step) => { ... });
+await workflow({ onEvent: handler }, async (step) => { ... });
+
+// GOOD - options go to createWorkflow
+const workflow = createWorkflow(deps, { cache: new Map() });
+await workflow(async (step) => { ... });
+```
+
+Detected option keys: `cache`, `onEvent`, `resumeState`, `onError`, `onBeforeStart`, `onAfterStep`, `shouldRun`, `createContext`, `signal`, `strict`, `catchUnexpected`, `description`, `markdown`.
+
 ## Why These Rules?
 
 The #1 mistake with awaitly is forgetting the thunk:
@@ -74,11 +92,13 @@ The #1 mistake with awaitly is forgetting the thunk:
 const user = await step(fetchUser('1'), { key: 'user:1' });
 ```
 
-The function `fetchUser('1')` executes **immediately** when JavaScript evaluates this line. The `step()` function receives the Promise (already started), not a function it can call. This defeats:
+The function `fetchUser('1')` executes **immediately** when JavaScript evaluates this line. The `step()` function receives the Promise (already started), not a function it can call.
 
-- **Caching**: step can't check the cache before calling
-- **Retries**: step can't re-call on failure
-- **Resume**: step can't skip already-completed work
+**Common misconception**: The cache IS populated and `step_complete` events ARE emitted with the direct pattern. However, the operation has already run before step() could check the cache. This defeats:
+
+- **Caching efficiency**: step can't skip execution on cache hit - the function already ran
+- **Retries**: step can't re-call on failure - it only has the Promise
+- **Resume**: step can't skip already-completed work - it already started
 
 The correct pattern:
 
@@ -86,7 +106,7 @@ The correct pattern:
 const user = await step(() => fetchUser('1'), { key: 'user:1' });
 ```
 
-Now `step()` receives a function it can call **after** checking the cache.
+Now `step()` receives a function it can call **after** checking the cache, and can skip execution entirely on cache hit.
 
 ## Configuration
 

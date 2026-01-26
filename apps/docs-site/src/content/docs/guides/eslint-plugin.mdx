@@ -93,6 +93,78 @@ step(() => fetch(id), { key: `user:${Math.random()}` });
 step(() => fetch(id), { key: `user:${userId}` });
 ```
 
+### `awaitly/no-floating-workflow`
+
+**Severity**: error | **Autofix**: No
+
+Detects `run()` calls that are not awaited, returned, or assigned. Floating workflows execute asynchronously without any way to handle their results.
+
+```typescript
+// Bad - fire-and-forget, no error handling
+run(async (step) => { ... });
+
+// Good - properly handled
+await run(async (step) => { ... });
+const result = await run(async (step) => { ... });
+return run(async (step) => { ... });
+```
+
+### `awaitly/no-floating-result`
+
+**Severity**: error | **Autofix**: No
+
+Detects `step()` calls whose Result is discarded without handling. Results should be assigned or their status checked.
+
+```typescript
+// Bad - Result ignored
+step(() => fetchUser());
+await step(() => fetchUser());
+
+// Good - Result captured
+const result = await step(() => fetchUser());
+return step(() => fetchUser());
+```
+
+### `awaitly/require-result-handling`
+
+**Severity**: warn | **Autofix**: No
+
+Warns when accessing `.value` on a Result without checking `.ok` first. This prevents runtime errors when the Result is an Err.
+
+```typescript
+// Bad - could throw if result is Err
+const result = await run(...);
+console.log(result.value);
+
+// Good - check .ok first
+const result = await run(...);
+if (result.ok) {
+  console.log(result.value);
+}
+
+// Good - early return pattern
+const result = await run(...);
+if (!result.ok) {
+  return result;
+}
+console.log(result.value);  // Safe after guard
+```
+
+### `awaitly/no-options-on-executor`
+
+**Severity**: error | **Autofix**: No
+
+Detects when workflow options (`cache`, `onEvent`, `resumeState`, etc.) are passed to the workflow executor function instead of `createWorkflow()`. Options passed to the executor are silently ignored.
+
+```typescript
+// Bad - options are ignored
+await workflow({ cache: new Map() }, async (step) => { ... });
+
+// Good - options passed to createWorkflow
+const workflow = createWorkflow(deps, { cache: new Map() });
+await workflow(async (step) => { ... });
+```
+
 ## Why these rules?
 
 The #1 mistake with awaitly is forgetting the thunk:
@@ -132,7 +204,11 @@ export default [
     rules: {
       'awaitly/no-immediate-execution': 'error',
       'awaitly/require-thunk-for-key': 'error',
-      'awaitly/stable-cache-keys': 'warn', // or 'off'
+      'awaitly/stable-cache-keys': 'error',
+      'awaitly/no-floating-workflow': 'error',
+      'awaitly/no-floating-result': 'error',
+      'awaitly/require-result-handling': 'warn',
+      'awaitly/no-options-on-executor': 'error',
     },
   },
 ];
