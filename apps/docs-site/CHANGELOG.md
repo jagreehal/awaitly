@@ -1,5 +1,22 @@
 # awaitly-docs
 
+## 1.3.0
+
+### Minor Changes
+
+- b589cb2: Add comprehensive documentation for `bindDeps` utility
+
+  - Added `bindDeps` to API reference with usage examples
+  - Created new "Dependency Binding" guide covering the `fn(args, deps)` pattern
+  - Added guide to navigation sidebar
+  - Includes examples for Express, React, Next.js integration
+  - Updated `.gitignore` to exclude `.astro/` build directory
+
+### Patch Changes
+
+- Updated dependencies [b589cb2]
+  - awaitly-analyze@4.0.0
+
 ## 1.2.0
 
 ### Minor Changes
