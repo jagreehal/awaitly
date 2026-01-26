@@ -133,6 +133,11 @@
       "import": "./dist/bind-deps.js",
       "require": "./dist/bind-deps.cjs"
     },
+    "./fetch": {
+      "types": "./dist/fetch.d.ts",
+      "import": "./dist/fetch.js",
+      "require": "./dist/fetch.cjs"
+    },
     "./singleflight": {
       "types": "./dist/singleflight.d.ts",
       "import": "./dist/singleflight.js",
@@ -147,6 +152,11 @@
       "types": "./dist/durable.d.ts",
       "import": "./dist/durable.js",
       "require": "./dist/durable.cjs"
+    },
+    "./streaming": {
+      "types": "./dist/streaming.d.ts",
+      "import": "./dist/streaming.js",
+      "require": "./dist/streaming.cjs"
     }
   },
   "files": [
@@ -160,7 +170,8 @@
     "test:watch": "vitest watch",
     "lint": "eslint .",
     "clean": "rm -rf dist",
-    "quality": "pnpm type-check && pnpm test && pnpm lint"
+    "tsd": "tsd --files src/index.test-d.ts",
+    "quality": "pnpm type-check && pnpm test && pnpm build && pnpm tsd && pnpm lint"
   },
   "keywords": [
     "awaitly",

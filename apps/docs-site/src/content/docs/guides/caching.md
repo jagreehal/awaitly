@@ -3,6 +3,10 @@ title: Caching
 description: Cache step results to avoid duplicate work
 ---
 
+:::caution[Options go to createWorkflow]
+Cache options must be passed to `createWorkflow(deps, { cache })`, not when calling the workflow. Options passed to the executor are silently ignored.
+:::
+
 Cache step results so they don't re-execute if the workflow runs again.
 
 ## Enable caching

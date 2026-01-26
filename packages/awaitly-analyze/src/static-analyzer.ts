@@ -22,8 +22,12 @@ import type {
   StaticParallelNode,
   StaticLoopNode,
   StaticConditionalNode,
+  StaticSwitchNode,
+  StaticSwitchCase,
   StaticRaceNode,
+  StaticStreamNode,
   StaticWorkflowRefNode,
+  StaticSagaStepNode,
   StaticRetryConfig,
   StaticTimeoutConfig,
   StaticAnalysisMetadata,
@@ -49,6 +53,12 @@ interface AnalyzerContext {
   currentWorkflow?: string;
   /** The name of the step parameter in the current callback (e.g., "step") */
   stepParameterName?: string;
+  /** Whether the saga context is destructured (e.g., `({ step })` instead of `saga`) */
+  isSagaDestructured?: boolean;
+  /** The alias for `step` when saga is destructured */
+  sagaStepAlias?: string;
+  /** The alias for `tryStep` when saga is destructured */
+  sagaTryStepAlias?: string;
 }
 
 // =============================================================================
@@ -126,6 +136,31 @@ export async function analyzeWorkflow(
     }
   }
 
+  // Find and analyze createSagaWorkflow calls (unless filtered)
+  if (opts.detect === "all" || opts.detect === "createSagaWorkflow") {
+    const sagaDefinitions = findSagaWorkflowDefinitions(tree.rootNode, ctx);
+    sagaDefinitions.forEach((d) => ctx.workflowNames.add(d.name));
+
+    const sagaCalls = findSagaWorkflowCalls(tree.rootNode, ctx);
+    for (const call of sagaCalls) {
+      const ir = analyzeSagaWorkflowCall(call, ctx);
+      if (ir) {
+        results.push(ir);
+      }
+    }
+  }
+
+  // Find and analyze runSaga() calls (unless filtered)
+  if (opts.detect === "all" || opts.detect === "runSaga") {
+    const runSagaCalls = findRunSagaCalls(tree.rootNode, ctx);
+    for (const call of runSagaCalls) {
+      const ir = analyzeRunSagaCall(call, ctx);
+      if (ir) {
+        results.push(ir);
+      }
+    }
+  }
+
   return results;
 }
 
@@ -171,6 +206,31 @@ export async function analyzeWorkflowSource(
     const runCalls = findRunCalls(tree.rootNode, ctx);
     for (const call of runCalls) {
       const ir = analyzeRunCall(call, ctx);
+      if (ir) {
+        results.push(ir);
+      }
+    }
+  }
+
+  // Find and analyze createSagaWorkflow calls (unless filtered)
+  if (opts.detect === "all" || opts.detect === "createSagaWorkflow") {
+    const sagaDefinitions = findSagaWorkflowDefinitions(tree.rootNode, ctx);
+    sagaDefinitions.forEach((d) => ctx.workflowNames.add(d.name));
+
+    const sagaCalls = findSagaWorkflowCalls(tree.rootNode, ctx);
+    for (const call of sagaCalls) {
+      const ir = analyzeSagaWorkflowCall(call, ctx);
+      if (ir) {
+        results.push(ir);
+      }
+    }
+  }
+
+  // Find and analyze runSaga() calls (unless filtered)
+  if (opts.detect === "all" || opts.detect === "runSaga") {
+    const runSagaCalls = findRunSagaCalls(tree.rootNode, ctx);
+    for (const call of runSagaCalls) {
+      const ir = analyzeRunSagaCall(call, ctx);
       if (ir) {
         results.push(ir);
       }
@@ -314,6 +374,7 @@ function findWorkflowCalls(root: SyntaxNode, ctx: AnalyzerContext): SyntaxNode[]
  * Handles: import { run } from 'awaitly'
  *          import { run as runWorkflow } from 'awaitly'
  *          import { run } from '@awaitly/core'
+ *          import { createSagaWorkflow } from 'awaitly/saga'
  * Skips:   import type { run } from 'awaitly' (type-only imports)
  */
 function findAwaitlyImports(
@@ -339,13 +400,13 @@ function findAwaitlyImports(
         return;
       }
 
-      // Check if importing from awaitly or @awaitly/*
+      // Check if importing from awaitly, awaitly/*, or @awaitly/*
       const sourceNode = node.childForFieldName("source");
       if (sourceNode) {
         const sourceText = getText(sourceNode, ctx);
         // Remove quotes and check if it's an awaitly package
         const modulePath = sourceText.slice(1, -1);
-        if (modulePath === "awaitly" || modulePath.startsWith("@awaitly/")) {
+        if (modulePath === "awaitly" || modulePath.startsWith("awaitly/") || modulePath.startsWith("@awaitly/")) {
           // Find the import clause
           for (const child of node.namedChildren) {
             if (child.type === "import_clause") {
@@ -395,6 +456,46 @@ function findAwaitlyImports(
 }
 
 /**
+ * Recursively search for var declarations within a node.
+ * Used to find function-scoped var declarations in nested blocks.
+ */
+function hasVarDeclaration(
+  node: SyntaxNode,
+  identifierName: string,
+  ctx: AnalyzerContext
+): boolean {
+  // Check if this node is a var declaration
+  if (node.type === "variable_declaration") {
+    for (const declarator of node.namedChildren) {
+      if (declarator.type === "variable_declarator") {
+        const nameNode = declarator.childForFieldName("name");
+        if (nameNode && getText(nameNode, ctx) === identifierName) {
+          return true;
+        }
+      }
+    }
+  }
+
+  // Don't recurse into nested functions (they have their own scope)
+  if (
+    node.type === "arrow_function" ||
+    node.type === "function_expression" ||
+    node.type === "function_declaration"
+  ) {
+    return false;
+  }
+
+  // Recursively check children
+  for (const child of node.namedChildren) {
+    if (hasVarDeclaration(child, identifierName, ctx)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Check if an identifier at a given node is shadowed by a local declaration.
  * Walks up the AST looking for variable/function declarations or parameters
  * that would shadow the identifier before reaching module scope.
@@ -412,13 +513,22 @@ function isIdentifierShadowed(
       current.type === "statement_block" ||
       current.type === "program"
     ) {
-      // Look for variable declarations before this node
+      // Check ALL declarations in the scope (not just before the call site)
+      // because const/let create TDZ and function declarations are hoisted
       for (const child of current.namedChildren) {
-        // Only check declarations that appear before our node
-        if (child.startIndex >= node.startIndex) break;
-
-        if (child.type === "lexical_declaration" || child.type === "variable_declaration") {
-          // Check each declarator
+        // Check let/const (block-scoped) at this level only
+        if (child.type === "lexical_declaration") {
+          for (const declarator of child.namedChildren) {
+            if (declarator.type === "variable_declarator") {
+              const nameNode = declarator.childForFieldName("name");
+              if (nameNode && getText(nameNode, ctx) === identifierName) {
+                return true;
+              }
+            }
+          }
+        }
+        // Check var (function-scoped) at this level only - nested vars handled below
+        else if (child.type === "variable_declaration") {
           for (const declarator of child.namedChildren) {
             if (declarator.type === "variable_declarator") {
               const nameNode = declarator.childForFieldName("name");
@@ -434,9 +544,16 @@ function isIdentifierShadowed(
           }
         }
       }
+
+      // At program scope, search nested blocks for var declarations (they're program-scoped)
+      if (current.type === "program") {
+        if (hasVarDeclaration(current, identifierName, ctx)) {
+          return true;
+        }
+      }
     }
 
-    // Check function parameters
+    // Check function parameters and search entire function body for var declarations
     if (
       current.type === "arrow_function" ||
       current.type === "function_expression" ||
@@ -469,6 +586,12 @@ function isIdentifierShadowed(
             }
           }
         }
+      }
+
+      // Search entire function body for var declarations (they're function-scoped)
+      const body = current.childForFieldName("body");
+      if (body && hasVarDeclaration(body, identifierName, ctx)) {
+        return true;
       }
     }
 
@@ -530,6 +653,932 @@ function findRunCalls(root: SyntaxNode, ctx: AnalyzerContext): SyntaxNode[] {
   });
 
   return results;
+}
+
+// =============================================================================
+// Saga Workflow Discovery
+// =============================================================================
+
+interface SagaWorkflowDefinition {
+  name: string;
+  createSagaWorkflowCall: SyntaxNode;
+  description?: string;
+  markdown?: string;
+}
+
+/**
+ * Find all createSagaWorkflow calls and extract saga workflow names.
+ */
+function findSagaWorkflowDefinitions(
+  root: SyntaxNode,
+  ctx: AnalyzerContext
+): SagaWorkflowDefinition[] {
+  const results: SagaWorkflowDefinition[] = [];
+
+  traverseNode(root, (node) => {
+    if (node.type === "call_expression") {
+      const funcNode = node.childForFieldName("function");
+      if (funcNode) {
+        const funcText = getText(funcNode, ctx);
+        if (funcText === "createSagaWorkflow") {
+          const workflowName = extractWorkflowName(node, ctx);
+          if (workflowName) {
+            const args = node.childForFieldName("arguments");
+            const optionsNode = args?.namedChildren[1];
+            const options = optionsNode
+              ? extractWorkflowOptions(optionsNode, ctx)
+              : {};
+
+            results.push({
+              name: workflowName,
+              createSagaWorkflowCall: node,
+              description: options.description,
+              markdown: options.markdown,
+            });
+          }
+        }
+      }
+    }
+  });
+
+  return results;
+}
+
+/**
+ * Find all calls to a saga workflow (saga invocations with callbacks).
+ */
+function findSagaWorkflowCalls(root: SyntaxNode, ctx: AnalyzerContext): SyntaxNode[] {
+  const definitions = findSagaWorkflowDefinitions(root, ctx);
+  const sagaNames = new Set(definitions.map((d) => d.name));
+
+  const results: SyntaxNode[] = [];
+
+  traverseNode(root, (node) => {
+    if (node.type === "call_expression") {
+      const funcNode = node.childForFieldName("function");
+      if (funcNode) {
+        const funcText = getText(funcNode, ctx);
+        if (sagaNames.has(funcText)) {
+          const args = node.childForFieldName("arguments");
+          if (args) {
+            const firstArg = args.namedChildren[0];
+            if (
+              firstArg?.type === "arrow_function" ||
+              firstArg?.type === "function_expression"
+            ) {
+              results.push(node);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  return results;
+}
+
+/**
+ * Find all runSaga() calls in the AST.
+ */
+function findRunSagaCalls(root: SyntaxNode, ctx: AnalyzerContext): SyntaxNode[] {
+  const runSagaImportNames = findAwaitlyImports(root, "runSaga", ctx);
+
+  if (ctx.opts.assumeImported) {
+    runSagaImportNames.add("runSaga");
+  }
+
+  if (runSagaImportNames.size === 0) {
+    return [];
+  }
+
+  const results: SyntaxNode[] = [];
+
+  traverseNode(root, (node) => {
+    if (node.type === "call_expression") {
+      const funcNode = node.childForFieldName("function");
+      if (funcNode && funcNode.type === "identifier") {
+        const funcText = getText(funcNode, ctx);
+        if (runSagaImportNames.has(funcText)) {
+          if (isIdentifierShadowed(node, funcText, ctx)) {
+            return;
+          }
+
+          const args = node.childForFieldName("arguments");
+          const firstArg = args?.namedChildren[0];
+          if (
+            firstArg?.type === "arrow_function" ||
+            firstArg?.type === "function_expression"
+          ) {
+            results.push(node);
+          }
+        }
+      }
+    }
+  });
+
+  return results;
+}
+
+/**
+ * Analyze a saga workflow call and extract the workflow structure.
+ */
+function analyzeSagaWorkflowCall(
+  callNode: SyntaxNode,
+  parentCtx: AnalyzerContext
+): StaticWorkflowIR | null {
+  const funcNode = callNode.childForFieldName("function");
+  const workflowName = funcNode ? getText(funcNode, parentCtx) : "<unknown>";
+
+  const args = callNode.childForFieldName("arguments");
+  const callbackNode = args?.namedChildren[0];
+
+  const workflowWarnings: AnalysisWarning[] = [];
+  const workflowStats = createEmptyStats();
+  workflowStats.sagaWorkflowCount = 1;
+
+  const ctx: AnalyzerContext = {
+    ...parentCtx,
+    warnings: workflowWarnings,
+    stats: workflowStats,
+  };
+
+  if (
+    !callbackNode ||
+    (callbackNode.type !== "arrow_function" &&
+      callbackNode.type !== "function_expression")
+  ) {
+    workflowWarnings.push({
+      code: "CALLBACK_NOT_FOUND",
+      message: `Could not find callback for saga workflow ${workflowName}`,
+      location: getLocation(callNode, ctx),
+    });
+    return null;
+  }
+
+  const prevWorkflow = ctx.currentWorkflow;
+  ctx.currentWorkflow = workflowName;
+
+  // Extract the saga parameter info from the callback signature
+  // e.g., `async (saga, deps) => {...}` -> { name: "saga", isDestructured: false }
+  // e.g., `async ({ step }, deps) => {...}` -> { isDestructured: true, stepAlias: "step" }
+  const sagaParamInfo = extractSagaParameterInfo(callbackNode, ctx);
+  const prevStepParamName = ctx.stepParameterName;
+  const prevIsSagaDestructured = ctx.isSagaDestructured;
+  const prevSagaStepAlias = ctx.sagaStepAlias;
+  const prevSagaTryStepAlias = ctx.sagaTryStepAlias;
+  ctx.stepParameterName = sagaParamInfo?.name;
+  ctx.isSagaDestructured = sagaParamInfo?.isDestructured;
+  ctx.sagaStepAlias = sagaParamInfo?.stepAlias;
+  ctx.sagaTryStepAlias = sagaParamInfo?.tryStepAlias;
+
+  const children = analyzeSagaCallback(callbackNode, ctx);
+
+  ctx.currentWorkflow = prevWorkflow;
+  ctx.stepParameterName = prevStepParamName;
+  ctx.isSagaDestructured = prevIsSagaDestructured;
+  ctx.sagaStepAlias = prevSagaStepAlias;
+  ctx.sagaTryStepAlias = prevSagaTryStepAlias;
+
+  const treeRoot = (callNode as unknown as { tree?: { rootNode: SyntaxNode } })
+    .tree?.rootNode;
+  const definitions = treeRoot
+    ? findSagaWorkflowDefinitions(treeRoot, parentCtx)
+    : [];
+  const definition = definitions.find((d) => d.name === workflowName);
+
+  const rootNode: StaticWorkflowNode = {
+    id: generateId(),
+    type: "workflow",
+    workflowName,
+    source: "createSagaWorkflow",
+    dependencies: [],
+    errorTypes: [],
+    children: wrapInSequence(children),
+    description: definition?.description,
+    markdown: definition?.markdown,
+  };
+
+  const metadata: StaticAnalysisMetadata = {
+    analyzedAt: Date.now(),
+    filePath: ctx.filePath,
+    warnings: workflowWarnings,
+    stats: workflowStats,
+  };
+
+  return {
+    root: rootNode,
+    metadata,
+    references: new Map(),
+  };
+}
+
+/**
+ * Analyze a runSaga() call and extract the workflow structure.
+ */
+function analyzeRunSagaCall(
+  callNode: SyntaxNode,
+  parentCtx: AnalyzerContext
+): StaticWorkflowIR | null {
+  const args = callNode.childForFieldName("arguments");
+  const callbackNode = args?.namedChildren[0];
+
+  const workflowWarnings: AnalysisWarning[] = [];
+  const workflowStats = createEmptyStats();
+  workflowStats.sagaWorkflowCount = 1;
+
+  const ctx: AnalyzerContext = {
+    ...parentCtx,
+    warnings: workflowWarnings,
+    stats: workflowStats,
+  };
+
+  if (
+    !callbackNode ||
+    (callbackNode.type !== "arrow_function" &&
+      callbackNode.type !== "function_expression")
+  ) {
+    workflowWarnings.push({
+      code: "CALLBACK_NOT_FOUND",
+      message: "Could not find callback for runSaga()",
+      location: getLocation(callNode, ctx),
+    });
+    return null;
+  }
+
+  const workflowName = generateSagaName(callNode, ctx);
+
+  const sagaParamInfo = extractSagaParameterInfo(callbackNode, ctx);
+  const prevStepParamName = ctx.stepParameterName;
+  const prevIsSagaDestructured = ctx.isSagaDestructured;
+  const prevSagaStepAlias = ctx.sagaStepAlias;
+  const prevSagaTryStepAlias = ctx.sagaTryStepAlias;
+  ctx.stepParameterName = sagaParamInfo?.name;
+  ctx.isSagaDestructured = sagaParamInfo?.isDestructured;
+  ctx.sagaStepAlias = sagaParamInfo?.stepAlias;
+  ctx.sagaTryStepAlias = sagaParamInfo?.tryStepAlias;
+
+  const children = analyzeSagaCallback(callbackNode, ctx);
+
+  ctx.stepParameterName = prevStepParamName;
+  ctx.isSagaDestructured = prevIsSagaDestructured;
+  ctx.sagaStepAlias = prevSagaStepAlias;
+  ctx.sagaTryStepAlias = prevSagaTryStepAlias;
+
+  const rootNode: StaticWorkflowNode = {
+    id: generateId(),
+    type: "workflow",
+    workflowName,
+    source: "runSaga",
+    dependencies: [],
+    errorTypes: [],
+    children: wrapInSequence(children),
+    location: ctx.opts.includeLocations ? getLocation(callNode, ctx) : undefined,
+  };
+
+  const metadata: StaticAnalysisMetadata = {
+    analyzedAt: Date.now(),
+    filePath: ctx.filePath,
+    warnings: workflowWarnings,
+    stats: workflowStats,
+  };
+
+  return {
+    root: rootNode,
+    metadata,
+    references: new Map(),
+  };
+}
+
+/**
+ * Generate a unique name for a runSaga() call based on file and line number.
+ */
+function generateSagaName(callNode: SyntaxNode, ctx: AnalyzerContext): string {
+  const line = callNode.startPosition.row + 1;
+  const filePath = ctx.filePath;
+  const fileName = filePath.includes("/")
+    ? filePath.split("/").pop() || filePath
+    : filePath.includes("\\")
+      ? filePath.split("\\").pop() || filePath
+      : filePath;
+  return `runSaga@${fileName}:${line}`;
+}
+
+/**
+ * Result of extracting saga parameter info.
+ */
+interface SagaParameterInfo {
+  /** The saga parameter name (when not destructured) */
+  name?: string;
+  /** Whether the saga context is destructured (e.g., `({ step })` instead of `saga`) */
+  isDestructured: boolean;
+  /** The alias for `step` when destructured (e.g., "step" or "s" from `{ step: s }`) */
+  stepAlias?: string;
+  /** The alias for `tryStep` when destructured */
+  tryStepAlias?: string;
+}
+
+/**
+ * Extract the saga parameter info from a saga workflow callback.
+ * e.g., `async (saga, deps) => {...}` -> { name: "saga", isDestructured: false }
+ * e.g., `async ({ step }, deps) => {...}` -> { isDestructured: true, stepAlias: "step" }
+ * e.g., `async ({ step: s, tryStep }, deps) => {...}` -> { isDestructured: true, stepAlias: "s", tryStepAlias: "tryStep" }
+ */
+function extractSagaParameterInfo(
+  callbackNode: SyntaxNode,
+  ctx: AnalyzerContext
+): SagaParameterInfo | undefined {
+  const params = callbackNode.childForFieldName("parameters");
+  if (!params) return undefined;
+
+  const firstParam = params.namedChildren[0];
+  if (!firstParam) return undefined;
+
+  if (firstParam.type === "identifier") {
+    return { name: getText(firstParam, ctx), isDestructured: false };
+  }
+
+  if (firstParam.type === "required_parameter") {
+    const patternNode = firstParam.childForFieldName("pattern");
+    if (patternNode) {
+      if (patternNode.type === "object_pattern") {
+        const aliases = extractSagaAliasesFromObjectPattern(patternNode, ctx);
+        if (aliases.stepAlias || aliases.tryStepAlias) {
+          return { isDestructured: true, ...aliases };
+        }
+      }
+      return { name: getText(patternNode, ctx), isDestructured: false };
+    }
+  }
+
+  // Handle direct object_pattern (no type annotation)
+  if (firstParam.type === "object_pattern") {
+    const aliases = extractSagaAliasesFromObjectPattern(firstParam, ctx);
+    if (aliases.stepAlias || aliases.tryStepAlias) {
+      return { isDestructured: true, ...aliases };
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Extract step and tryStep aliases from a saga destructuring pattern.
+ * e.g., `{ step }` -> { stepAlias: "step" }
+ * e.g., `{ step: s, tryStep: ts }` -> { stepAlias: "s", tryStepAlias: "ts" }
+ */
+function extractSagaAliasesFromObjectPattern(
+  objectPattern: SyntaxNode,
+  ctx: AnalyzerContext
+): { stepAlias?: string; tryStepAlias?: string } {
+  const result: { stepAlias?: string; tryStepAlias?: string } = {};
+
+  for (const child of objectPattern.namedChildren) {
+    // Handle pair_pattern: `step: s` or `step: s = fallback`
+    if (child.type === "pair_pattern") {
+      const keyNode = child.childForFieldName("key");
+      const valueNode = child.childForFieldName("value");
+
+      if (keyNode && valueNode) {
+        const key = getText(keyNode, ctx);
+        if (key === "step" || key === "tryStep") {
+          let alias: string;
+          // Handle assignment_pattern: `step: s = fallback`
+          if (valueNode.type === "assignment_pattern") {
+            const left = valueNode.childForFieldName("left");
+            alias = left ? getText(left, ctx) : getText(valueNode, ctx);
+          } else {
+            alias = getText(valueNode, ctx);
+          }
+          if (key === "step") {
+            result.stepAlias = alias;
+          } else {
+            result.tryStepAlias = alias;
+          }
+        }
+      }
+    }
+
+    // Handle shorthand_property_identifier_pattern: `{ step }` or `{ tryStep }`
+    if (child.type === "shorthand_property_identifier_pattern") {
+      const name = getText(child, ctx);
+      if (name === "step") {
+        result.stepAlias = "step";
+      } else if (name === "tryStep") {
+        result.tryStepAlias = "tryStep";
+      }
+    }
+
+    // Handle assignment_pattern: `{ step = fallback }` or `{ tryStep = fallback }`
+    if (child.type === "assignment_pattern") {
+      const left = child.childForFieldName("left");
+      if (left) {
+        const name = getText(left, ctx);
+        if (name === "step") {
+          result.stepAlias = "step";
+        } else if (name === "tryStep") {
+          result.tryStepAlias = "tryStep";
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Analyze a saga workflow callback function body.
+ */
+function analyzeSagaCallback(
+  callbackNode: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticFlowNode[] {
+  const body = callbackNode.childForFieldName("body");
+  if (!body) return [];
+
+  if (body.type === "statement_block") {
+    return analyzeSagaStatements(body.namedChildren, ctx);
+  }
+
+  return analyzeSagaExpression(body, ctx);
+}
+
+/**
+ * Analyze saga statements for saga step calls.
+ */
+function analyzeSagaStatements(
+  statements: SyntaxNode[],
+  ctx: AnalyzerContext
+): StaticFlowNode[] {
+  const results: StaticFlowNode[] = [];
+
+  for (const stmt of statements) {
+    const nodes = analyzeSagaStatement(stmt, ctx);
+    results.push(...nodes);
+  }
+
+  return results;
+}
+
+/**
+ * Analyze a single saga statement.
+ */
+function analyzeSagaStatement(
+  stmt: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticFlowNode[] {
+  switch (stmt.type) {
+    case "expression_statement": {
+      const expr = stmt.namedChildren[0];
+      if (expr) {
+        return analyzeSagaExpression(expr, ctx);
+      }
+      return [];
+    }
+
+    case "variable_declaration":
+    case "lexical_declaration":
+      return analyzeSagaVariableDeclaration(stmt, ctx);
+
+    case "return_statement": {
+      const returnExpr = stmt.childForFieldName("value");
+      if (returnExpr) {
+        return analyzeSagaExpression(returnExpr, ctx);
+      }
+      return [];
+    }
+
+    case "if_statement":
+      return analyzeSagaIfStatement(stmt, ctx);
+
+    case "for_statement":
+    case "for_in_statement":
+    case "while_statement":
+      return analyzeSagaLoopStatement(stmt, ctx);
+
+    case "switch_statement":
+      return analyzeSagaSwitchStatement(stmt, ctx);
+
+    default:
+      return [];
+  }
+}
+
+/**
+ * Analyze an expression for saga step calls.
+ */
+function analyzeSagaExpression(
+  expr: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticFlowNode[] {
+  if (expr.type === "await_expression") {
+    const inner = expr.namedChildren[0];
+    if (inner) {
+      return analyzeSagaExpression(inner, ctx);
+    }
+    return [];
+  }
+
+  if (expr.type === "parenthesized_expression") {
+    const inner = expr.namedChildren[0];
+    if (inner) {
+      return analyzeSagaExpression(inner, ctx);
+    }
+    return [];
+  }
+
+  if (expr.type === "call_expression") {
+    return analyzeSagaCallExpression(expr, ctx);
+  }
+
+  return [];
+}
+
+/**
+ * Analyze a saga variable declaration for step calls.
+ */
+function analyzeSagaVariableDeclaration(
+  decl: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticFlowNode[] {
+  const results: StaticFlowNode[] = [];
+
+  for (const child of decl.namedChildren) {
+    if (child.type === "variable_declarator") {
+      const value = child.childForFieldName("value");
+      if (value) {
+        results.push(...analyzeSagaExpression(value, ctx));
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Analyze a saga if statement.
+ */
+function analyzeSagaIfStatement(
+  ifStmt: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticFlowNode[] {
+  ctx.stats.conditionalCount++;
+
+  const conditionNode = ifStmt.childForFieldName("condition");
+  const consequentNode = ifStmt.childForFieldName("consequence");
+  const alternateNode = ifStmt.childForFieldName("alternative");
+
+  const condition = conditionNode
+    ? getText(conditionNode, ctx).replace(/^\(|\)$/g, "")
+    : "<unknown>";
+
+  const consequent = consequentNode
+    ? analyzeSagaBlock(consequentNode, ctx)
+    : [];
+
+  let alternate: StaticFlowNode[] | undefined;
+  if (alternateNode) {
+    if (alternateNode.type === "else_clause") {
+      const elseContent = alternateNode.namedChildren[0];
+      if (elseContent) {
+        alternate = analyzeSagaBlock(elseContent, ctx);
+      }
+    } else {
+      alternate = analyzeSagaBlock(alternateNode, ctx);
+    }
+  }
+
+  return [
+    {
+      id: generateId(),
+      type: "conditional",
+      condition,
+      helper: null,
+      consequent,
+      alternate: alternate?.length ? alternate : undefined,
+      location: ctx.opts.includeLocations ? getLocation(ifStmt, ctx) : undefined,
+    },
+  ];
+}
+
+/**
+ * Analyze a saga block.
+ */
+function analyzeSagaBlock(
+  node: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticFlowNode[] {
+  if (node.type === "statement_block") {
+    return analyzeSagaStatements(node.namedChildren, ctx);
+  }
+  return analyzeSagaStatement(node, ctx);
+}
+
+/**
+ * Analyze saga loop statements.
+ */
+function analyzeSagaLoopStatement(
+  loopStmt: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticFlowNode[] {
+  const bodyNode = loopStmt.childForFieldName("body");
+  if (!bodyNode) return [];
+
+  const bodyChildren = analyzeSagaBlock(bodyNode, ctx);
+  if (bodyChildren.length === 0) return [];
+
+  ctx.stats.loopCount++;
+
+  let loopType: "for" | "while" | "for-of" | "for-in" = "for";
+  if (loopStmt.type === "while_statement") {
+    loopType = "while";
+  } else if (loopStmt.type === "for_in_statement") {
+    const stmtText = getText(loopStmt, ctx);
+    loopType = stmtText.includes(" of ") ? "for-of" : "for-in";
+  }
+
+  const rightNode = loopStmt.childForFieldName("right");
+  const iterSource = rightNode ? getText(rightNode, ctx) : undefined;
+
+  return [
+    {
+      id: generateId(),
+      type: "loop",
+      loopType,
+      iterSource,
+      body: bodyChildren,
+      boundKnown: false,
+      location: ctx.opts.includeLocations ? getLocation(loopStmt, ctx) : undefined,
+    } as StaticLoopNode,
+  ];
+}
+
+/**
+ * Analyze a saga switch statement.
+ */
+function analyzeSagaSwitchStatement(
+  switchStmt: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticFlowNode[] {
+  const valueNode = switchStmt.childForFieldName("value");
+  const bodyNode = switchStmt.childForFieldName("body");
+
+  const expression = valueNode
+    ? getText(valueNode, ctx).replace(/^\(|\)$/g, "")
+    : "<unknown>";
+
+  const cases: StaticSwitchCase[] = [];
+  let hasStepCalls = false;
+
+  if (bodyNode) {
+    for (const caseNode of bodyNode.namedChildren) {
+      if (caseNode.type === "switch_case" || caseNode.type === "switch_default") {
+        const caseValueNode = caseNode.childForFieldName("value");
+        const isDefault = caseNode.type === "switch_default" || !caseValueNode;
+        const caseValue = caseValueNode ? getText(caseValueNode, ctx) : undefined;
+
+        // Analyze statements in the case body (all named children except the value)
+        const bodyStatements = caseNode.namedChildren.filter(
+          (n) => n !== caseValueNode
+        );
+        const body = analyzeSagaStatements(bodyStatements, ctx);
+
+        if (body.length > 0) {
+          hasStepCalls = true;
+        }
+
+        cases.push({
+          value: caseValue,
+          isDefault,
+          body,
+        });
+      }
+    }
+  }
+
+  // Only count if there are step calls inside
+  if (hasStepCalls) {
+    ctx.stats.conditionalCount++;
+  }
+
+  // If no step calls, return empty
+  if (!hasStepCalls) {
+    return [];
+  }
+
+  const switchNode: StaticSwitchNode = {
+    id: generateId(),
+    type: "switch",
+    expression,
+    cases,
+    location: ctx.opts.includeLocations ? getLocation(switchStmt, ctx) : undefined,
+  };
+
+  return [switchNode];
+}
+
+/**
+ * Analyze a saga call expression for saga.step() and saga.tryStep() calls.
+ * Handles both forms:
+ * - `saga.step()` when saga context is passed as identifier (e.g., `async (saga) => ...`)
+ * - `step()` when saga context is destructured (e.g., `async ({ step }) => ...`)
+ */
+function analyzeSagaCallExpression(
+  call: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticFlowNode[] {
+  const funcNode = call.childForFieldName("function");
+  if (!funcNode) return [];
+
+  const funcText = getText(funcNode, ctx);
+  const sagaParam = ctx.stepParameterName || "saga";
+
+  // When saga context is destructured, match against the destructured aliases
+  if (ctx.isSagaDestructured) {
+    // Check for step() calls (destructured from saga context)
+    if (ctx.sagaStepAlias && funcText === ctx.sagaStepAlias) {
+      return [analyzeSagaStepCall(call, ctx)];
+    }
+
+    // Check for tryStep() calls (destructured from saga context)
+    if (ctx.sagaTryStepAlias && funcText === ctx.sagaTryStepAlias) {
+      return [analyzeSagaTryStepCall(call, ctx)];
+    }
+
+    return [];
+  }
+
+  // Check for saga.step() calls
+  if (funcText === `${sagaParam}.step`) {
+    return [analyzeSagaStepCall(call, ctx)];
+  }
+
+  // Check for saga.tryStep() calls
+  if (funcText === `${sagaParam}.tryStep`) {
+    return [analyzeSagaTryStepCall(call, ctx)];
+  }
+
+  return [];
+}
+
+/**
+ * Analyze a saga.step() call.
+ * API: saga.step(() => deps.fn(), { compensate: () => deps.undo() })
+ */
+function analyzeSagaStepCall(
+  call: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticSagaStepNode {
+  ctx.stats.totalSteps++;
+
+  const args = call.childForFieldName("arguments");
+  const firstArg = args?.namedChildren[0];
+  const secondArg = args?.namedChildren[1];
+
+  let callee = "<unknown>";
+  if (firstArg) {
+    if (
+      firstArg.type === "arrow_function" ||
+      firstArg.type === "function_expression"
+    ) {
+      const body = firstArg.childForFieldName("body");
+      if (body) {
+        callee = extractCalleeFromFunctionBody(body, ctx);
+      }
+    } else {
+      callee = getText(firstArg, ctx);
+    }
+  }
+
+  // Extract compensation from options
+  const { hasCompensation, compensationCallee, name, description, markdown } =
+    extractSagaStepOptions(secondArg, ctx);
+
+  if (hasCompensation) {
+    ctx.stats.compensatedStepCount = (ctx.stats.compensatedStepCount || 0) + 1;
+  }
+
+  return {
+    id: generateId(),
+    type: "saga-step",
+    callee,
+    name,
+    description,
+    markdown,
+    hasCompensation,
+    compensationCallee,
+    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
+  };
+}
+
+/**
+ * Analyze a saga.tryStep() call.
+ * API: saga.tryStep(() => deps.fn(), { compensate: () => deps.undo(), mapError: (e) => ... })
+ */
+function analyzeSagaTryStepCall(
+  call: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticSagaStepNode {
+  ctx.stats.totalSteps++;
+
+  const args = call.childForFieldName("arguments");
+  const firstArg = args?.namedChildren[0];
+  const secondArg = args?.namedChildren[1];
+
+  let callee = "<unknown>";
+  if (firstArg) {
+    if (
+      firstArg.type === "arrow_function" ||
+      firstArg.type === "function_expression"
+    ) {
+      const body = firstArg.childForFieldName("body");
+      if (body) {
+        callee = extractCalleeFromFunctionBody(body, ctx);
+      }
+    } else {
+      callee = getText(firstArg, ctx);
+    }
+  }
+
+  const { hasCompensation, compensationCallee, name, description, markdown } =
+    extractSagaStepOptions(secondArg, ctx);
+
+  if (hasCompensation) {
+    ctx.stats.compensatedStepCount = (ctx.stats.compensatedStepCount || 0) + 1;
+  }
+
+  return {
+    id: generateId(),
+    type: "saga-step",
+    callee,
+    name,
+    description,
+    markdown,
+    hasCompensation,
+    compensationCallee,
+    isTryStep: true,
+    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
+  };
+}
+
+/**
+ * Extract saga step options including compensation.
+ */
+function extractSagaStepOptions(
+  optionsNode: SyntaxNode | undefined,
+  ctx: AnalyzerContext
+): {
+  hasCompensation: boolean;
+  compensationCallee?: string;
+  name?: string;
+  description?: string;
+  markdown?: string;
+} {
+  const result = {
+    hasCompensation: false,
+    compensationCallee: undefined as string | undefined,
+    name: undefined as string | undefined,
+    description: undefined as string | undefined,
+    markdown: undefined as string | undefined,
+  };
+
+  if (!optionsNode || optionsNode.type !== "object") {
+    return result;
+  }
+
+  for (const prop of optionsNode.namedChildren) {
+    if (prop.type === "pair") {
+      const keyNode = prop.childForFieldName("key");
+      const valueNode = prop.childForFieldName("value");
+
+      if (keyNode && valueNode) {
+        const key = getText(keyNode, ctx);
+
+        if (key === "compensate") {
+          result.hasCompensation = true;
+          if (
+            valueNode.type === "arrow_function" ||
+            valueNode.type === "function_expression"
+          ) {
+            const body = valueNode.childForFieldName("body");
+            if (body) {
+              result.compensationCallee = extractCalleeFromFunctionBody(body, ctx);
+            }
+          }
+        } else if (key === "name") {
+          const value = extractStringValue(valueNode, ctx);
+          if (value) result.name = value;
+        } else if (key === "description") {
+          const value = extractStringValue(valueNode, ctx);
+          if (value) result.description = value;
+        } else if (key === "markdown") {
+          const value = extractStringValue(valueNode, ctx);
+          if (value) result.markdown = value;
+        }
+      }
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -922,6 +1971,9 @@ function analyzeStatement(
     case "while_statement":
       return analyzeWhileStatement(stmt, ctx);
 
+    case "switch_statement":
+      return analyzeSwitchStatement(stmt, ctx);
+
     default:
       return [];
   }
@@ -1020,6 +2072,17 @@ function analyzeCallExpression(
   // Check for step.race - only match <stepParam>.race, not arbitrary .race()
   if (funcText === `${stepParam}.race`) {
     return analyzeRaceCall(call, ctx);
+  }
+
+  // Check for streaming methods - step.getWritable(), step.getReadable(), step.streamForEach()
+  if (funcText === `${stepParam}.getWritable`) {
+    return [analyzeStreamWritableCall(call, ctx)];
+  }
+  if (funcText === `${stepParam}.getReadable`) {
+    return [analyzeStreamReadableCall(call, ctx)];
+  }
+  if (funcText === `${stepParam}.streamForEach`) {
+    return [analyzeStreamForEachCall(call, ctx)];
   }
 
   // Check for conditional helpers: when(), unless(), whenOr(), unlessOr()
@@ -1633,6 +2696,157 @@ function analyzeRaceCall(
 }
 
 // =============================================================================
+// Streaming Analysis
+// =============================================================================
+
+/**
+ * Analyze a step.getWritable() call.
+ */
+function analyzeStreamWritableCall(
+  call: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticStreamNode {
+  ctx.stats.streamCount++;
+
+  const args = call.childForFieldName("arguments");
+  const optionsArg = args?.namedChildren[0];
+
+  const options = optionsArg ? extractStreamOptions(optionsArg, ctx) : {};
+
+  return {
+    id: generateId(),
+    type: "stream",
+    streamType: "write",
+    namespace: options.namespace,
+    options: options.highWaterMark !== undefined ? { highWaterMark: options.highWaterMark } : undefined,
+    callee: "step.getWritable",
+    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
+  };
+}
+
+/**
+ * Analyze a step.getReadable() call.
+ */
+function analyzeStreamReadableCall(
+  call: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticStreamNode {
+  ctx.stats.streamCount++;
+
+  const args = call.childForFieldName("arguments");
+  const optionsArg = args?.namedChildren[0];
+
+  const options = optionsArg ? extractStreamOptions(optionsArg, ctx) : {};
+
+  return {
+    id: generateId(),
+    type: "stream",
+    streamType: "read",
+    namespace: options.namespace,
+    options: options.startIndex !== undefined ? { startIndex: options.startIndex } : undefined,
+    callee: "step.getReadable",
+    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
+  };
+}
+
+/**
+ * Analyze a step.streamForEach() call.
+ */
+function analyzeStreamForEachCall(
+  call: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticStreamNode {
+  ctx.stats.streamCount++;
+
+  const args = call.childForFieldName("arguments");
+  // streamForEach(source, processor, options?)
+  const optionsArg = args?.namedChildren[2];
+
+  const options = optionsArg ? extractStreamForEachOptions(optionsArg, ctx) : {};
+
+  return {
+    id: generateId(),
+    type: "stream",
+    streamType: "forEach",
+    options: {
+      ...(options.concurrency !== undefined ? { concurrency: options.concurrency } : {}),
+      ...(options.checkpointInterval !== undefined ? { checkpointInterval: options.checkpointInterval } : {}),
+    },
+    callee: "step.streamForEach",
+    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
+  };
+}
+
+/**
+ * Extract stream options from an object literal.
+ */
+function extractStreamOptions(
+  optionsNode: SyntaxNode,
+  ctx: AnalyzerContext
+): { namespace?: string; highWaterMark?: number | "<dynamic>"; startIndex?: number | "<dynamic>" } {
+  const result: { namespace?: string; highWaterMark?: number | "<dynamic>"; startIndex?: number | "<dynamic>" } = {};
+
+  if (optionsNode.type !== "object") {
+    return result;
+  }
+
+  for (const prop of optionsNode.namedChildren) {
+    if (prop.type === "pair") {
+      const keyNode = prop.childForFieldName("key");
+      const valueNode = prop.childForFieldName("value");
+
+      if (keyNode && valueNode) {
+        const key = getText(keyNode, ctx);
+
+        if (key === "namespace") {
+          const value = extractStringValue(valueNode, ctx);
+          if (value && value !== "<dynamic>") result.namespace = value;
+        } else if (key === "highWaterMark") {
+          result.highWaterMark = extractNumberValue(valueNode, ctx);
+        } else if (key === "startIndex") {
+          result.startIndex = extractNumberValue(valueNode, ctx);
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Extract streamForEach options from an object literal.
+ */
+function extractStreamForEachOptions(
+  optionsNode: SyntaxNode,
+  ctx: AnalyzerContext
+): { concurrency?: number | "<dynamic>"; checkpointInterval?: number | "<dynamic>" } {
+  const result: { concurrency?: number | "<dynamic>"; checkpointInterval?: number | "<dynamic>" } = {};
+
+  if (optionsNode.type !== "object") {
+    return result;
+  }
+
+  for (const prop of optionsNode.namedChildren) {
+    if (prop.type === "pair") {
+      const keyNode = prop.childForFieldName("key");
+      const valueNode = prop.childForFieldName("value");
+
+      if (keyNode && valueNode) {
+        const key = getText(keyNode, ctx);
+
+        if (key === "concurrency") {
+          result.concurrency = extractNumberValue(valueNode, ctx);
+        } else if (key === "checkpointInterval") {
+          result.checkpointInterval = extractNumberValue(valueNode, ctx);
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+// =============================================================================
 // Conditional Analysis
 // =============================================================================
 
@@ -1696,6 +2910,70 @@ function analyzeBlock(
   }
   // Single statement (no braces)
   return analyzeStatement(node, ctx);
+}
+
+/**
+ * Analyze a switch statement.
+ */
+function analyzeSwitchStatement(
+  switchStmt: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticFlowNode[] {
+  const valueNode = switchStmt.childForFieldName("value");
+  const bodyNode = switchStmt.childForFieldName("body");
+
+  const expression = valueNode
+    ? getText(valueNode, ctx).replace(/^\(|\)$/g, "")
+    : "<unknown>";
+
+  const cases: StaticSwitchCase[] = [];
+  let hasStepCalls = false;
+
+  if (bodyNode) {
+    for (const caseNode of bodyNode.namedChildren) {
+      if (caseNode.type === "switch_case" || caseNode.type === "switch_default") {
+        const caseValueNode = caseNode.childForFieldName("value");
+        const isDefault = caseNode.type === "switch_default" || !caseValueNode;
+        const caseValue = caseValueNode ? getText(caseValueNode, ctx) : undefined;
+
+        // Analyze statements in the case body (all named children except the value)
+        const bodyStatements = caseNode.namedChildren.filter(
+          (n) => n !== caseValueNode
+        );
+        const body = analyzeStatements(bodyStatements, ctx);
+
+        if (body.length > 0) {
+          hasStepCalls = true;
+        }
+
+        cases.push({
+          value: caseValue,
+          isDefault,
+          body,
+        });
+      }
+    }
+  }
+
+  // Only count if there are step calls inside
+  if (hasStepCalls) {
+    ctx.stats.conditionalCount++;
+  }
+
+  // If no step calls, return empty
+  if (!hasStepCalls) {
+    return [];
+  }
+
+  const switchNode: StaticSwitchNode = {
+    id: generateId(),
+    type: "switch",
+    expression,
+    cases,
+    location: ctx.opts.includeLocations ? getLocation(switchStmt, ctx) : undefined,
+  };
+
+  return [switchNode];
 }
 
 /**
@@ -2074,8 +3352,11 @@ function createEmptyStats(): AnalysisStats {
     parallelCount: 0,
     raceCount: 0,
     loopCount: 0,
+    streamCount: 0,
     workflowRefCount: 0,
     unknownCount: 0,
+    sagaWorkflowCount: 0,
+    compensatedStepCount: 0,
   };
 }
 

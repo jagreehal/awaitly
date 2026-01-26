@@ -10,6 +10,7 @@ import type {
   ParallelNode,
   RaceNode,
   DecisionNode,
+  StreamNode,
   Renderer,
   RenderOptions,
   StepNode,
@@ -19,7 +20,7 @@ import type {
   WorkflowHooks,
   HookExecution,
 } from "../types";
-import { isParallelNode, isRaceNode, isStepNode, isDecisionNode } from "../types";
+import { isParallelNode, isRaceNode, isStepNode, isDecisionNode, isStreamNode } from "../types";
 import { formatDuration } from "../utils/timing";
 import {
   bold,
@@ -308,6 +309,8 @@ function renderNodes(
       lines.push(...renderRaceNode(node, options, colors, depth, hooks));
     } else if (isDecisionNode(node)) {
       lines.push(...renderDecisionNode(node, options, colors, depth, hooks));
+    } else if (isStreamNode(node)) {
+      lines.push(renderStreamNode(node, options, colors));
     }
   }
 
@@ -403,6 +406,47 @@ function renderStepNode(
       ? dim(` ${formatDuration(hookExec.durationMs)}`)
       : "";
     line += ` ${hookSymbol}${hookTiming}`;
+  }
+
+  return line;
+}
+
+/**
+ * Render a stream node.
+ */
+function renderStreamNode(
+  node: StreamNode,
+  options: RenderOptions,
+  colors: ReturnType<typeof Object.assign>
+): string {
+  // Use stream-specific symbol
+  const stateSymbol = node.streamState === "active"
+    ? colorize("⟳", colors.running)
+    : node.streamState === "closed"
+      ? colorize("✓", colors.success)
+      : colorize("✗", colors.error);
+
+  const name = `stream:${node.namespace}`;
+  const nameColored = colorByState(name, node.state, colors);
+
+  // Show write/read counts
+  const counts = dim(`[W:${node.writeCount} R:${node.readCount}]`);
+
+  let line = `${stateSymbol} ${nameColored} ${counts}`;
+
+  // Add timing if available and requested
+  if (options.showTimings && node.durationMs !== undefined) {
+    line += ` ${dim(`[${formatDuration(node.durationMs)}]`)}`;
+  }
+
+  // Add backpressure indicator if occurred
+  if (node.backpressureOccurred) {
+    line += dim(" [backpressure]");
+  }
+
+  // Add final position
+  if (node.streamState === "closed") {
+    line += dim(` pos:${node.finalPosition}`);
   }
 
   return line;

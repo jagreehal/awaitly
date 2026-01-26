@@ -33,12 +33,15 @@ import {
   pendingApproval,
   Duration,
   type DurationType,
+  UNEXPECTED_ERROR,
 } from "./index";
 // These are exported via awaitly/match and awaitly/retry entry points.
 // We import from source here because tsd can't resolve self-referencing package imports.
 // The public exports are validated by the build process (tsup generates .d.ts from these sources).
 import { Match } from "./match";
 import { Schedule } from "./schedule";
+import { CircuitOpenError } from "./circuit-breaker";
+import { matchError as matchErrorCore, type MatchErrorHandlers as MatchErrorHandlersCore } from "./core-entry";
 
 // =============================================================================
 // TEST HELPERS
@@ -75,6 +78,62 @@ async function _test1() {
     // Error type includes UnexpectedError because exceptions are always possible
     expectType<AppError | UnexpectedError>(result.error);
   }
+}
+
+// =============================================================================
+// TEST 1B: CircuitOpenError type discriminant
+// =============================================================================
+
+function _test1bCircuitOpenErrorTypeDiscriminant() {
+  const error = new CircuitOpenError({
+    circuitName: "example",
+    state: "OPEN",
+    retryAfterMs: 1000,
+  });
+
+  expectType<"CIRCUIT_OPEN">(error.type);
+}
+
+// =============================================================================
+// TEST 1BB: UNEXPECTED_ERROR type discriminant
+// =============================================================================
+
+function _test1bbUnexpectedErrorConstType() {
+  expectType<"UNEXPECTED_ERROR">(UNEXPECTED_ERROR);
+}
+
+// =============================================================================
+// TEST 1C: matchError exported from awaitly/core
+// =============================================================================
+
+function _test1cMatchErrorCoreExport() {
+  type CoreError = "A" | "B";
+  const handlers: MatchErrorHandlersCore<CoreError, number> = {
+    A: () => 1,
+    B: () => 2,
+    UNEXPECTED_ERROR: () => 3,
+  };
+  const error: CoreError | UnexpectedError = "A";
+  const result = matchErrorCore(error, handlers);
+  expectType<number>(result);
+}
+
+// =============================================================================
+// TEST 1D: matchError should allow literal "UNEXPECTED_ERROR" in user errors
+// =============================================================================
+
+function _test1dMatchErrorLiteralConflict() {
+  type AppError = "UNEXPECTED_ERROR" | "A";
+  const handlers: MatchErrorHandlersCore<AppError, number> = {
+    A: () => 1,
+    UNEXPECTED_ERROR: (e) => {
+      expectType<UnexpectedError>(e);
+      return 2;
+    },
+  };
+  const error: AppError | UnexpectedError = "A";
+  const result = matchErrorCore(error, handlers);
+  expectType<number>(result);
 }
 
 // =============================================================================
@@ -1678,4 +1737,109 @@ function _test51ScheduleDelays() {
 
   // delays should be array of Duration
   expectType<DurationType[]>(delays);
+}
+
+// =============================================================================
+// TEST 52: workflow.run() infers types correctly
+// =============================================================================
+
+async function _test52WorkflowRunInference() {
+  const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> =>
+    ok({ id, name: "Alice" });
+
+  const workflow = createWorkflow({ fetchUser });
+
+  // workflow.run(fn) should infer T as number
+  const result1 = await workflow.run(async (step) => {
+    return 123;
+  });
+  expectType<Result<number, "NOT_FOUND" | UnexpectedError, unknown>>(result1);
+
+  // workflow.run(fn, exec) with exec options
+  const result2 = await workflow.run(
+    async (step) => {
+      return "hello";
+    },
+    { onEvent: () => {} }
+  );
+  expectType<Result<string, "NOT_FOUND" | UnexpectedError, unknown>>(result2);
+}
+
+// =============================================================================
+// TEST 53: workflow.with() returns correct type and infers args
+// =============================================================================
+
+async function _test53WorkflowWithInference() {
+  const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> =>
+    ok({ id, name: "Alice" });
+
+  const workflow = createWorkflow({ fetchUser });
+  const w2 = workflow.with({ onEvent: () => {} });
+
+  // w2(fn) should work and infer T
+  const result1 = await w2(async (step) => {
+    return 42;
+  });
+  expectType<Result<number, "NOT_FOUND" | UnexpectedError, unknown>>(result1);
+
+  // w2(args, fn) should infer Args
+  const result2 = await w2(
+    { userId: "1" },
+    async (step, deps, args) => {
+      // args.userId should be string
+      expectType<string>(args.userId);
+      return args.userId;
+    }
+  );
+  expectType<Result<string, "NOT_FOUND" | UnexpectedError, unknown>>(result2);
+}
+
+// =============================================================================
+// TEST 54: workflow.with().run() infers Args and T
+// =============================================================================
+
+async function _test54WorkflowWithRunInference() {
+  const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> =>
+    ok({ id, name: "Alice" });
+
+  const workflow = createWorkflow({ fetchUser });
+  const w2 = workflow.with({ onEvent: () => {} });
+
+  // w2.run(args, fn, exec) should infer Args and T
+  const result = await w2.run(
+    { userId: "1", count: 5 },
+    async (step, deps, args) => {
+      expectType<string>(args.userId);
+      expectType<number>(args.count);
+      return { id: args.userId, total: args.count };
+    },
+    { signal: new AbortController().signal }
+  );
+  expectType<Result<{ id: string; total: number }, "NOT_FOUND" | UnexpectedError, unknown>>(result);
+}
+
+// =============================================================================
+// TEST 55: ExecutionOptions type is compatible with workflow methods
+// =============================================================================
+
+async function _test55ExecutionOptionsType() {
+  const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> =>
+    ok({ id, name: "Alice" });
+
+  const workflow = createWorkflow({ fetchUser });
+
+  // All exec options should be accepted
+  const execOptions = {
+    onEvent: (event: WorkflowEvent<"NOT_FOUND" | UnexpectedError, void>) => {},
+    onError: (error: "NOT_FOUND" | UnexpectedError) => {},
+    signal: new AbortController().signal,
+    createContext: () => ({ requestId: "123" }),
+    resumeState: () => ({ steps: new Map() }),
+    shouldRun: () => true,
+    onBeforeStart: () => true,
+    onAfterStep: () => {},
+  };
+
+  // Should compile without error
+  await workflow.run(async (step) => 1, execOptions);
 }

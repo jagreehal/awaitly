@@ -4,7 +4,7 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["dist/**", "src/__fixtures__/**"],
+    ignores: ["dist/**", "src/__fixtures__/**", "tsup.config.bundled_*.mjs"],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

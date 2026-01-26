@@ -110,6 +110,26 @@ export interface RaceNode extends BaseNode {
 }
 
 /**
+ * Stream operation node.
+ * Tracks streaming events (write, read, close, error, backpressure).
+ */
+export interface StreamNode extends BaseNode {
+  type: "stream";
+  /** Stream namespace identifier */
+  namespace: string;
+  /** Total number of write operations */
+  writeCount: number;
+  /** Total number of read operations */
+  readCount: number;
+  /** Final position when stream closed */
+  finalPosition: number;
+  /** Current stream state */
+  streamState: "active" | "closed" | "error";
+  /** Whether backpressure was encountered during streaming */
+  backpressureOccurred: boolean;
+}
+
+/**
  * Decision point - conditional branch (if/switch).
  * Shows which branch was taken and why.
  */
@@ -142,7 +162,7 @@ export interface DecisionBranch {
 /**
  * Union of all flow node types.
  */
-export type FlowNode = StepNode | SequenceNode | ParallelNode | RaceNode | DecisionNode;
+export type FlowNode = StepNode | SequenceNode | ParallelNode | RaceNode | DecisionNode | StreamNode;
 
 /**
  * Root node representing the entire workflow.
@@ -183,7 +203,8 @@ export interface WorkflowIR {
 
 // Re-export ScopeType from core for consistency
 export type { ScopeType } from "../core";
-import type { ScopeType } from "../core";
+import type { ScopeType, WorkflowEvent, UnexpectedError } from "../core";
+import type { WorkflowOptions } from "../workflow";
 
 /**
  * Event emitted when entering a parallel/race scope.
@@ -370,6 +391,26 @@ export interface VisualizerOptions {
 }
 
 /**
+ * Options for createVisualizingWorkflow convenience factory.
+ * Combines WorkflowOptions with VisualizerOptions.
+ *
+ * @example
+ * ```typescript
+ * const { workflow, visualizer } = createVisualizingWorkflow(deps, {
+ *   workflowName: 'checkout',
+ *   showTimings: true,
+ *   forwardTo: (event) => console.log(event.type),
+ * });
+ * ```
+ */
+export interface VisualizingWorkflowOptions<E, C = void>
+  extends Omit<WorkflowOptions<E, C>, "onEvent">,
+    VisualizerOptions {
+  /** Forward events to additional handler (runs after visualization) */
+  forwardTo?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
+}
+
+/**
  * Options for live visualization.
  */
 export interface LiveVisualizerOptions extends VisualizerOptions {
@@ -416,6 +457,13 @@ export function isRaceNode(node: FlowNode): node is RaceNode {
  */
 export function isDecisionNode(node: FlowNode): node is DecisionNode {
   return node.type === "decision";
+}
+
+/**
+ * Check if a node is a StreamNode.
+ */
+export function isStreamNode(node: FlowNode): node is StreamNode {
+  return node.type === "stream";
 }
 
 /**

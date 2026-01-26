@@ -219,6 +219,67 @@ export const isPromiseRejectedError = (e: unknown): e is PromiseRejectedError =>
   (e as PromiseRejectedError).type === PROMISE_REJECTED;
 
 // =============================================================================
+// Error Matching
+// =============================================================================
+
+/**
+ * Type for exhaustive error handlers mapping string literal errors and UnexpectedError.
+ * Each key in E gets a handler, plus UNEXPECTED_ERROR is required.
+ * Note: "UNEXPECTED_ERROR" is excluded from E to avoid intersection conflicts when users
+ * have that literal in their error union - the UNEXPECTED_ERROR handler always receives
+ * the UnexpectedError object type, not the string literal.
+ */
+export type MatchErrorHandlers<E extends string, R> = {
+  [K in Exclude<E, "UNEXPECTED_ERROR">]: (error: K) => R;
+} & {
+  UNEXPECTED_ERROR: (error: UnexpectedError) => R;
+};
+
+/**
+ * Exhaustive pattern matching for error types.
+ * Handles both string literal errors and UnexpectedError, ensuring all cases are covered.
+ *
+ * @param error - The error to match (string literal or UnexpectedError)
+ * @param handlers - Object with a handler for each error case plus UNEXPECTED_ERROR
+ * @returns The result of the matched handler
+ *
+ * @example
+ * ```typescript
+ * type FetchError = "NOT_FOUND" | "FETCH_ERROR";
+ * const result: Result<User, FetchError | UnexpectedError> = await fetchUser();
+ *
+ * if (!result.ok) {
+ *   return matchError(result.error, {
+ *     NOT_FOUND: () => 404,
+ *     FETCH_ERROR: () => 500,
+ *     UNEXPECTED_ERROR: (e) => { throw e.cause; }  // Required by types
+ *   });
+ * }
+ * ```
+ */
+export function matchError<E extends string, R>(
+  error: E | UnexpectedError,
+  handlers: MatchErrorHandlers<E, R>
+): R {
+  // Handle UnexpectedError objects
+  if (isUnexpectedError(error)) {
+    return handlers.UNEXPECTED_ERROR(error);
+  }
+  // Handle the string literal "UNEXPECTED_ERROR" - wrap it in an UnexpectedError object
+  // to maintain the typed contract that UNEXPECTED_ERROR handler receives an object
+  if (error === "UNEXPECTED_ERROR") {
+    const syntheticError: UnexpectedError = {
+      type: UNEXPECTED_ERROR,
+      cause: { type: "UNCAUGHT_EXCEPTION", thrown: error },
+    };
+    return handlers.UNEXPECTED_ERROR(syntheticError);
+  }
+  // Cast to the excluded type since we've handled UNEXPECTED_ERROR above
+  type StringErrors = Exclude<E, "UNEXPECTED_ERROR">;
+  return handlers[error as StringErrors](error as StringErrors);
+}
+
+// =============================================================================
 // Type Utilities
 // =============================================================================
 
@@ -818,6 +879,203 @@ export interface RunStep<E = unknown> {
     options: TimeoutOptions & { name?: string; key?: string }
   ) => Promise<T>;
 
+  // ===========================================================================
+  // Streaming Methods
+  // ===========================================================================
+
+  /**
+   * Get a writable stream for this workflow.
+   *
+   * Use this to write values that can be consumed by readers
+   * (e.g., HTTP response streaming, AI token streaming).
+   *
+   * @param options - Stream options (namespace, highWaterMark)
+   * @returns StreamWriter for writing values
+   *
+   * @example
+   * ```typescript
+   * const writer = step.getWritable<string>({ namespace: 'ai-response' });
+   *
+   * await step(() => generateAI({
+   *   prompt: 'Hello',
+   *   onToken: async (token) => { await writer.write(token); }
+   * }), { key: 'generate' });
+   *
+   * await writer.close();
+   * ```
+   */
+  getWritable: <T>(options?: StreamWritableOptions) => StreamWriterInterface<T>;
+
+  /**
+   * Get a readable stream for this workflow.
+   *
+   * Use this to consume values from a stream, with support for
+   * resuming from a specific position.
+   *
+   * @param options - Read options (namespace, startIndex)
+   * @returns StreamReader for reading values
+   *
+   * @example
+   * ```typescript
+   * const reader = step.getReadable<string>({ namespace: 'ai-response' });
+   *
+   * let result = await reader.read();
+   * while (result.ok) {
+   *   response.write(result.value);
+   *   result = await reader.read();
+   * }
+   * ```
+   */
+  getReadable: <T>(options?: StreamReadableOptions) => StreamReaderInterface<T>;
+
+  /**
+   * Process stream items with checkpointing.
+   *
+   * Combines streaming with batch processing - each item is processed
+   * and checkpointed, enabling resume from the last successful item.
+   *
+   * @param source - StreamReader or AsyncIterable to process
+   * @param processor - Function to process each item
+   * @param options - Processing options
+   * @returns Results from all processed items
+   *
+   * @example
+   * ```typescript
+   * const reader = step.getReadable<Message>({ namespace: 'messages' });
+   *
+   * const result = await step.streamForEach(
+   *   reader,
+   *   async (message, index) => {
+   *     const processed = await processMessage(message);
+   *     return ok(processed);
+   *   },
+   *   { name: 'process-messages', checkpointInterval: 10 }
+   * );
+   *
+   * console.log(`Processed ${result.value.processedCount} messages`);
+   * ```
+   */
+  streamForEach: <T, R, StepE extends E>(
+    source: StreamReaderInterface<T> | AsyncIterable<T>,
+    processor: (item: T, index: number) => AsyncResult<R, StepE>,
+    options?: StreamForEachStepOptions
+  ) => Promise<StreamForEachResultType<R>>;
+
+}
+
+// =============================================================================
+// Streaming Types (minimal interfaces for RunStep)
+// =============================================================================
+
+/**
+ * Options for getWritable.
+ */
+export interface StreamWritableOptions {
+  /** Named streams (default: 'default') */
+  namespace?: string;
+  /** Backpressure threshold (default: 16) */
+  highWaterMark?: number;
+}
+
+/**
+ * Options for getReadable.
+ */
+export interface StreamReadableOptions {
+  /** Named streams (default: 'default') */
+  namespace?: string;
+  /** Resume from position (0-indexed) */
+  startIndex?: number;
+  /** Poll interval in ms when waiting for new items (default: 10) */
+  pollInterval?: number;
+  /** Stop polling after this many ms with no new items (default: 30000) */
+  pollTimeout?: number;
+}
+
+/**
+ * Options for streamForEach.
+ */
+export interface StreamForEachStepOptions {
+  /** Name for the operation (used in events) */
+  name?: string;
+  /** Checkpoint after every N items (default: 1) */
+  checkpointInterval?: number;
+  /** Maximum concurrent processors (default: 1 = sequential) */
+  concurrency?: number;
+}
+
+/**
+ * Result from streamForEach operation.
+ */
+export interface StreamForEachResultType<R> {
+  /** Results from each processed item */
+  results: R[];
+  /** Total items processed */
+  processedCount: number;
+  /** Position of last processed item */
+  lastPosition: number;
+}
+
+/**
+ * Writable stream interface used in RunStep.
+ * @see StreamWriter in awaitly/streaming for full interface
+ */
+export interface StreamWriterInterface<T> {
+  write(value: T): AsyncResult<void, StreamWriteErrorType>;
+  close(): AsyncResult<void, StreamCloseErrorType>;
+  abort(reason: unknown): void;
+  readonly writable: boolean;
+  readonly position: number;
+  readonly namespace: string;
+}
+
+/**
+ * Readable stream interface used in RunStep.
+ * @see StreamReader in awaitly/streaming for full interface
+ */
+export interface StreamReaderInterface<T> {
+  read(): AsyncResult<T, StreamReadErrorType | StreamEndedMarkerType>;
+  close(): void;
+  readonly readable: boolean;
+  readonly position: number;
+  readonly namespace: string;
+}
+
+/**
+ * Stream write error type.
+ */
+export interface StreamWriteErrorType {
+  type: "STREAM_WRITE_ERROR";
+  reason: "closed" | "aborted" | "store_error";
+  message: string;
+  cause?: unknown;
+}
+
+/**
+ * Stream read error type.
+ */
+export interface StreamReadErrorType {
+  type: "STREAM_READ_ERROR";
+  reason: "closed" | "store_error";
+  message: string;
+  cause?: unknown;
+}
+
+/**
+ * Stream close error type.
+ */
+export interface StreamCloseErrorType {
+  type: "STREAM_CLOSE_ERROR";
+  reason: "already_closed" | "store_error";
+  message: string;
+  cause?: unknown;
+}
+
+/**
+ * Stream ended marker type.
+ */
+export interface StreamEndedMarkerType {
+  type: "STREAM_ENDED";
+  finalPosition: number;
 }
 
 // =============================================================================
@@ -939,6 +1197,56 @@ export type WorkflowEvent<E, C = unknown> =
       ts: number;
       durationMs: number;
       error: E;
+      context?: C;
+    }
+  // Stream events
+  | {
+      type: "stream_created";
+      workflowId: string;
+      namespace: string;
+      ts: number;
+      context?: C;
+    }
+  | {
+      type: "stream_write";
+      workflowId: string;
+      namespace: string;
+      position: number;
+      ts: number;
+      context?: C;
+    }
+  | {
+      type: "stream_read";
+      workflowId: string;
+      namespace: string;
+      position: number;
+      ts: number;
+      context?: C;
+    }
+  | {
+      type: "stream_close";
+      workflowId: string;
+      namespace: string;
+      finalPosition: number;
+      ts: number;
+      context?: C;
+    }
+  | {
+      type: "stream_error";
+      workflowId: string;
+      namespace: string;
+      error: unknown;
+      position: number;
+      ts: number;
+      context?: C;
+    }
+  | {
+      type: "stream_backpressure";
+      workflowId: string;
+      namespace: string;
+      bufferedCount: number;
+      state: "paused" | "flowing";
+      ts: number;
       context?: C;
     }
   // Workflow cancellation event

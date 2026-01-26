@@ -13,8 +13,10 @@ import type {
   StaticParallelNode,
   StaticRaceNode,
   StaticConditionalNode,
+  StaticSwitchNode,
   StaticLoopNode,
   StaticWorkflowRefNode,
+  StaticSagaStepNode,
 } from "../types";
 
 // =============================================================================
@@ -49,6 +51,8 @@ export interface MermaidStyles {
   conditional?: string;
   loop?: string;
   workflowRef?: string;
+  sagaStep?: string;
+  sagaCompensation?: string;
   start?: string;
   end?: string;
 }
@@ -67,6 +71,8 @@ const DEFAULT_OPTIONS: Required<MermaidOptions> = {
     conditional: "fill:#fce4ec,stroke:#880e4f,color:#880e4f",
     loop: "fill:#f3e5f5,stroke:#4a148c,color:#4a148c",
     workflowRef: "fill:#e0f2f1,stroke:#004d40,color:#004d40",
+    sagaStep: "fill:#fff8e1,stroke:#ff6f00,color:#e65100",
+    sagaCompensation: "fill:#ffebee,stroke:#c62828,color:#b71c1c",
     start: "fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20",
     end: "fill:#ffcdd2,stroke:#c62828,color:#b71c1c",
   },
@@ -178,6 +184,8 @@ export function renderStaticMermaid(
   lines.push(`  classDef conditionalStyle ${opts.styles.conditional}`);
   lines.push(`  classDef loopStyle ${opts.styles.loop}`);
   lines.push(`  classDef workflowRefStyle ${opts.styles.workflowRef}`);
+  lines.push(`  classDef sagaStepStyle ${opts.styles.sagaStep}`);
+  lines.push(`  classDef sagaCompensationStyle ${opts.styles.sagaCompensation}`);
   lines.push(`  classDef startStyle ${opts.styles.start}`);
   lines.push(`  classDef endStyle ${opts.styles.end}`);
 
@@ -282,11 +290,17 @@ function renderNode(
     case "conditional":
       return renderConditionalNode(node, context, lines);
 
+    case "switch":
+      return renderSwitchNode(node as StaticSwitchNode, context, lines);
+
     case "loop":
       return renderLoopNode(node, context, lines);
 
     case "workflow-ref":
       return renderWorkflowRefNode(node, context, lines);
+
+    case "saga-step":
+      return renderSagaStepNode(node as StaticSagaStepNode, context, lines);
 
     case "unknown":
       return renderUnknownNode(node, context, lines);
@@ -491,6 +505,50 @@ function renderConditionalNode(
   };
 }
 
+function renderSwitchNode(
+  node: StaticSwitchNode,
+  context: RenderContext,
+  lines: string[]
+): RenderResult {
+  const decisionId = `switch_${++context.nodeCounter}`;
+
+  // Diamond shape for switch expression
+  const expressionLabel = truncate(node.expression, 30);
+  lines.push(`  ${decisionId}{${escapeLabel(expressionLabel)}}`);
+  context.styleClasses.set(decisionId, "conditionalStyle");
+
+  const lastNodeIds: string[] = [];
+
+  for (const switchCase of node.cases) {
+    const caseLabel = switchCase.isDefault ? "default" : (switchCase.value || "?");
+
+    if (switchCase.body.length > 0) {
+      const branchResult = renderNodes(switchCase.body, context, lines);
+      if (branchResult.firstNodeId) {
+        context.edges.push({
+          from: decisionId,
+          to: branchResult.firstNodeId,
+          label: truncate(caseLabel, 20),
+        });
+        lastNodeIds.push(...branchResult.lastNodeIds);
+      }
+    } else {
+      // Empty case - falls through or skip
+      lastNodeIds.push(decisionId);
+    }
+  }
+
+  // If no cases matched anything, decision is exit
+  if (lastNodeIds.length === 0) {
+    lastNodeIds.push(decisionId);
+  }
+
+  return {
+    firstNodeId: decisionId,
+    lastNodeIds,
+  };
+}
+
 function renderLoopNode(
   node: StaticLoopNode,
   context: RenderContext,
@@ -551,6 +609,62 @@ function renderWorkflowRefNode(
   const label = `[[${node.workflowName}]]`;
   lines.push(`  ${nodeId}${label}`);
   context.styleClasses.set(nodeId, "workflowRefStyle");
+
+  return {
+    firstNodeId: nodeId,
+    lastNodeIds: [nodeId],
+  };
+}
+
+function renderSagaStepNode(
+  node: StaticSagaStepNode,
+  context: RenderContext,
+  lines: string[]
+): RenderResult {
+  const nodeId = `saga_step_${++context.nodeCounter}`;
+  let label = node.name ?? node.callee ?? "saga step";
+
+  if (context.opts.showKeys && node.key) {
+    label = `${label}\\n[${node.key}]`;
+  }
+
+  // Add description to label when showStepDescriptions is enabled
+  if (context.opts.showStepDescriptions && node.description) {
+    label = `${label}\\n${truncate(node.description, 40)}`;
+  }
+
+  // Add compensation indicator
+  if (node.hasCompensation) {
+    const compensationLabel = node.compensationCallee
+      ? `🔄 ${node.compensationCallee}`
+      : "🔄 compensated";
+    label = `${label}\\n${compensationLabel}`;
+  }
+
+  // Add tryStep indicator
+  if (node.isTryStep) {
+    label = `${label}\\n(try)`;
+  }
+
+  // Add markdown as Mermaid comments when includeStepMarkdown is enabled
+  if (context.opts.includeStepMarkdown && node.markdown) {
+    const markdownLines = node.markdown.trim().split("\n");
+    const maxLines = context.opts.maxMarkdownLines;
+    const displayLines = markdownLines.slice(0, maxLines);
+    lines.push(`  %% Saga Step: ${node.name ?? node.callee ?? "saga step"}`);
+    for (const line of displayLines) {
+      lines.push(`  %% ${line}`);
+    }
+    if (markdownLines.length > maxLines) {
+      lines.push(`  %% ... (${markdownLines.length - maxLines} more lines)`);
+    }
+  }
+
+  lines.push(`  ${nodeId}[${escapeLabel(label)}]`);
+
+  // Use compensation style if step has compensation, otherwise saga step style
+  const styleClass = node.hasCompensation ? "sagaCompensationStyle" : "sagaStepStyle";
+  context.styleClasses.set(nodeId, styleClass);
 
   return {
     firstNodeId: nodeId,

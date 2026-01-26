@@ -104,6 +104,10 @@ export {
   isStepTimeoutError,
   getStepTimeoutMeta,
 
+  // Error matching
+  type MatchErrorHandlers,
+  matchError,
+
   // Unwrap
   UnwrapError,
   unwrap,

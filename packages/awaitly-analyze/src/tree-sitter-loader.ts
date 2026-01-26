@@ -92,22 +92,49 @@ function loadWebTreeSitter(): TreeSitterModule {
 
 /**
  * Get the directory containing bundled WASM files.
+ * Works correctly for both main entry (dist/index.js) and CLI (dist/cli/index.js).
  */
 function getBundledWasmDir(): string {
+  let baseDir: string;
+
   try {
     if (typeof import.meta?.url === "string") {
-      const thisFile = fileURLToPath(import.meta.url);
-      return join(dirname(thisFile), "wasm");
+      baseDir = dirname(fileURLToPath(import.meta.url));
+    } else if (typeof __dirname === "string") {
+      baseDir = __dirname;
+    } else {
+      baseDir = dirname(__filename);
     }
   } catch {
-    // Fall through to CJS approach
+    baseDir = __dirname ?? dirname(__filename);
   }
 
-  if (typeof __dirname === "string") {
-    return join(__dirname, "wasm");
+  // Try current directory first (for dist/index.js)
+  let wasmDir = join(baseDir, "wasm");
+  if (existsSync(join(wasmDir, "tree-sitter-typescript.wasm"))) {
+    return wasmDir;
   }
 
-  return join(dirname(__filename), "wasm");
+  // Try parent directory (for dist/cli/index.js -> dist/wasm/)
+  wasmDir = join(baseDir, "..", "wasm");
+  if (existsSync(join(wasmDir, "tree-sitter-typescript.wasm"))) {
+    return wasmDir;
+  }
+
+  // Fallback: search up the directory tree for dist/wasm
+  let searchDir = baseDir;
+  for (let i = 0; i < 5; i++) {
+    const candidate = join(searchDir, "dist", "wasm");
+    if (existsSync(join(candidate, "tree-sitter-typescript.wasm"))) {
+      return candidate;
+    }
+    const parent = dirname(searchDir);
+    if (parent === searchDir) break;
+    searchDir = parent;
+  }
+
+  // Return the original expected path for better error messages
+  return join(baseDir, "wasm");
 }
 
 /**

@@ -100,6 +100,9 @@ src/_analyze/
 # Turbo
 .turbo
 
+# Astro build/cache directory
+.astro/
+
 # Temp
 __temp
 

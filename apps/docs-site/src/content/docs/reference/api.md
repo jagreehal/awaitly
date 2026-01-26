@@ -278,6 +278,99 @@ timeoutPolicies.api                 // Timeout presets
 servicePolicies.httpApi             // Combined presets
 ```
 
+## Streaming
+
+### Setup
+
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+import { createMemoryStreamStore, createFileStreamStore } from 'awaitly/streaming';
+
+createMemoryStreamStore()                    // In-memory store
+createFileStreamStore({ directory, fs })     // File-based store
+createWorkflow(deps, { streamStore })        // Enable streaming
+```
+
+### Step methods
+
+```typescript
+step.getWritable<T>(options?)       // Create stream writer
+step.getReadable<T>(options?)       // Create stream reader
+step.streamForEach(source, fn, opts) // Batch process stream
+
+// Options
+{ namespace?: string, highWaterMark?: number }  // Writer options
+{ namespace?: string, startIndex?: number }     // Reader options
+{ name?, checkpointInterval?, concurrency? }    // streamForEach options
+```
+
+### StreamWriter
+
+```typescript
+writer.write(value)                 // Write item → AsyncResult<void, StreamWriteError>
+writer.close()                      // Close stream → AsyncResult<void, StreamCloseError>
+writer.abort(reason)                // Abort with error
+writer.writable                     // Whether writable
+writer.position                     // Items written
+writer.namespace                    // Stream namespace
+```
+
+### StreamReader
+
+```typescript
+reader.read()                       // Read next → AsyncResult<T, StreamReadError | StreamEndedMarker>
+reader.close()                      // Stop reading
+reader.readable                     // Whether more data may exist
+reader.position                     // Current position
+reader.namespace                    // Stream namespace
+```
+
+### External access
+
+```typescript
+import { getStreamReader } from 'awaitly/streaming';
+
+getStreamReader<T>({                // Create reader outside workflow
+  store,
+  workflowId,
+  namespace?,
+  startIndex?,
+  pollInterval?,
+  pollTimeout?,
+})
+```
+
+### Transformers
+
+```typescript
+import { toAsyncIterable, map, filter, chunk, ... } from 'awaitly/streaming';
+
+toAsyncIterable(reader)             // Convert to for-await-of
+map(source, fn)                     // Transform items
+mapAsync(source, fn)                // Async transform
+filter(source, predicate)           // Filter items
+flatMap(source, fn)                 // Transform to multiple
+flatMapAsync(source, fn)            // Async flatMap
+chunk(source, size)                 // Batch into arrays
+take(source, count)                 // Limit items
+skip(source, count)                 // Skip items
+takeWhile(source, predicate)        // Take while true
+skipWhile(source, predicate)        // Skip while true
+collect(source)                     // Collect to array
+reduce(source, fn, initial)         // Fold to single value
+pipe(source, ...transforms)         // Compose transforms (up to 4 typed)
+```
+
+### Type guards
+
+```typescript
+isStreamEnded(error)                // error is StreamEndedMarker
+isStreamWriteError(error)           // error is StreamWriteError
+isStreamReadError(error)            // error is StreamReadError
+isStreamStoreError(error)           // error is StreamStoreError
+isStreamBackpressureError(error)    // error is StreamBackpressureError
+```
+
 ## Persistence
 
 ```typescript
@@ -447,6 +540,27 @@ WorkflowHarness<E, Deps>            // Test harness interface
 MockFunction<T, E>                  // Mock function interface
 ScriptedOutcome<T, E>               // Scripted step outcome
 WorkflowSnapshot                    // Snapshot for comparison
+```
+
+### Streaming types
+
+```typescript
+StreamWriter<T>                     // Writable stream interface
+StreamReader<T>                     // Readable stream interface
+StreamStore                         // Storage backend interface
+StreamItem<T>                       // Item with value, position, timestamp
+StreamMetadata                      // Stream info (length, closed, timestamps)
+StreamOptions                       // Writer options (namespace, highWaterMark)
+StreamReadOptions                   // Reader options (namespace, startIndex)
+StreamForEachOptions                // Batch processing options
+StreamForEachResult<R>              // Batch processing result
+StreamWriteError                    // Write failure error
+StreamReadError                     // Read failure error
+StreamCloseError                    // Close failure error
+StreamStoreError                    // Storage error
+StreamEndedMarker                   // End of stream marker
+StreamBackpressureError             // Backpressure error
+BackpressureController              // Backpressure control interface
 ```
 
 ### Static Analysis types
