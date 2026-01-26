@@ -175,3 +175,54 @@ export {
   type PropsOf,
 } from "./tagged-error";
 
+// =============================================================================
+// Workflow Engine (re-exported for convenience)
+// =============================================================================
+
+export {
+  // Types
+  type AnyResultFn,
+  type ErrorsOfDeps,
+  type CausesOfDeps,
+  type WorkflowOptions,
+  type WorkflowOptionsStrict,
+  type ExecutionOptions,
+  type ExecutionOptionsStrict,
+  type Workflow,
+  type WorkflowStrict,
+  type WorkflowFn,
+  type WorkflowFnWithArgs,
+  type WorkflowContext,
+  type StepCache,
+  type ResumeState,
+  type ResumeStateEntry,
+  type WorkflowCancelledError,
+
+  // Functions
+  createWorkflow,
+  isStepComplete,
+  createResumeStateCollector,
+  isWorkflowCancelled,
+  pendingApproval,
+} from "./workflow";
+
+// =============================================================================
+// Duration (re-exported for convenience)
+// =============================================================================
+
+export {
+  type Duration as DurationType,
+  Duration,
+  millis,
+  seconds,
+  minutes,
+  hours,
+  days,
+  toMillis,
+  toSeconds,
+  toMinutes,
+  toHours,
+  toDays,
+  isDuration,
+} from "./duration";
+

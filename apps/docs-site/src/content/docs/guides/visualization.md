@@ -886,6 +886,97 @@ The dev server provides:
 - Real-time updates via WebSocket
 - Export/import workflow runs
 
+## Browser support
+
+The visualization module works in browser environments. Bundlers (Vite, webpack, esbuild, Rollup) automatically resolve a browser-safe entry point.
+
+### Browser-safe features
+
+All visualization features work in browser:
+
+```typescript
+import {
+  createVisualizer,
+  createVisualizingWorkflow,
+  createEventCollector,
+  combineEventHandlers,
+  visualizeEvents,
+  trackIf,
+  trackSwitch,
+  trackDecision,
+  asciiRenderer,
+  mermaidRenderer,
+  htmlRenderer,
+  createTimeTravelController,
+  createPerformanceAnalyzer,
+} from 'awaitly/visualize';
+```
+
+### Node.js-only features
+
+These features require Node.js and throw helpful errors in browser:
+
+| Feature | Reason | Browser Error |
+|---------|--------|---------------|
+| `createDevServer` | Uses `node:http`, `node:child_process` | "createDevServer is not available in browser..." |
+| `createLiveVisualizer` | Uses `process.stdout` | "createLiveVisualizer is not available in browser..." |
+
+```typescript
+// In browser, this throws a helpful error
+import { createDevServer } from 'awaitly/visualize';
+
+try {
+  createDevServer({ port: 3377 }); // Throws in browser
+} catch (e) {
+  console.log(e.message);
+  // "createDevServer is not available in browser. It requires Node.js (node:http, node:child_process)."
+}
+```
+
+### Type-only imports
+
+You can still import types for Node-only features in browser code:
+
+```typescript
+import type { DevServer, DevServerOptions } from 'awaitly/visualize';
+import type { LiveVisualizer } from 'awaitly/visualize';
+
+// Types work fine - only runtime calls throw
+function configureServer(options: DevServerOptions) {
+  // This type is available in browser
+}
+```
+
+### React/Vue/Svelte usage
+
+Use visualization in frontend frameworks:
+
+```typescript
+// React example
+import { useState, useEffect } from 'react';
+import { createVisualizer } from 'awaitly/visualize';
+import { createWorkflow } from 'awaitly/workflow';
+
+function WorkflowDashboard() {
+  const [output, setOutput] = useState('');
+
+  useEffect(() => {
+    const viz = createVisualizer({ workflowName: 'dashboard' });
+    const workflow = createWorkflow(deps, {
+      onEvent: viz.handleEvent,
+    });
+
+    workflow(async (step) => {
+      await step(() => fetchData(), { name: 'Fetch data' });
+    }).then(() => {
+      setOutput(viz.renderAs('mermaid'));
+    });
+  }, []);
+
+  return <pre>{output}</pre>;
+}
+```
+
 ## Next
 
 [Learn about Testing →](../testing/)
