@@ -1,0 +1,585 @@
+---
+title: awaitly vs Vercel Workflow
+description: Comparing awaitly with Vercel Workflow for durable async workflows
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
+
+[Vercel Workflow](https://vercel.com/docs/workflows) is a durable execution engine for TypeScript that uses compiler directives (`"use workflow"`, `"use step"`) to create long-running, resumable workflows. awaitly provides explicit Result types and workflow orchestration that runs anywhere Node.js runs.
+
+## Philosophy Comparison
+
+```text
+Vercel Workflow                     awaitly
+┌─────────────────────────┐         ┌──────────────────────────┐
+│   Compiler magic        │         │   Explicit types         │
+│  ────────────────────── │         │  ──────────────────────  │
+│  • "use step" directive │         │  • AsyncResult<T, E>     │
+│  • "use workflow"       │         │  • createWorkflow()      │
+│  • Platform durability  │         │  • Tagged errors         │
+│  • Zero-config setup    │         │  • Platform-agnostic     │
+│  • Vercel integration   │         │  • Bring your own store  │
+└─────────────────────────┘         └──────────────────────────┘
+```
+
+<Aside type="tip" title="When to choose awaitly">
+Choose awaitly when you want typed error handling, platform flexibility, and explicit control over workflow behavior without compiler transformation.
+</Aside>
+
+## Quick Comparison
+
+| Feature | Vercel Workflow | awaitly |
+|---------|----------------|---------|
+| Step Definition | `"use step"` directive | Return `AsyncResult<T, E>` |
+| Workflow Definition | `"use workflow"` directive | `createWorkflow()` factory |
+| Error Handling | `throw Error` / `RetryableError` | `return err(error)` with `TaggedError` |
+| Type Safety | Basic TypeScript | Enhanced with Result types |
+| Parallel Execution | `Promise.all()` | `step.parallel()` with named steps |
+| Race Conditions | `Promise.race()` | `step.race()` with `anyAsync()` |
+| Retry Logic | `RetryableError` class | Retry options in step config |
+| Saga Pattern | Manual try/catch rollback | `createSagaWorkflow` with auto-compensation |
+| Static Analysis | Limited | `awaitly-analyze` with Mermaid diagrams |
+| Runtime Visualization | Limited | `awaitly/visualize` with multiple formats |
+| Platform Lock-in | Vercel only | Any Node.js environment |
+| Durability | Built-in (Vercel platform) | Configurable (PostgreSQL, Redis, etc.) |
+| Compiler Required | Yes (custom compiler) | No (standard TypeScript) |
+
+## Core Patterns
+
+### Defining Steps
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, err, type AsyncResult, TaggedError } from "awaitly";
+
+class UserNotFoundError extends TaggedError("UserNotFoundError")<{ id: string }> {}
+
+async function fetchUser(id: string): AsyncResult<User, UserNotFoundError> {
+  const user = await db.findUser(id);
+  if (!user) {
+    return err(new UserNotFoundError({ id }));
+  }
+  return ok(user);
+}
+```
+  </TabItem>
+  <TabItem label="Vercel Workflow">
+```typescript
+async function fetchUser(id: string): Promise<User> {
+  "use step";
+  const user = await db.findUser(id);
+  if (!user) {
+    throw new Error("User not found");
+  }
+  return user;
+}
+```
+  </TabItem>
+</Tabs>
+
+**Key difference**: awaitly makes error types explicit in the function signature. The compiler tracks what can fail.
+
+### Creating Workflows
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { createWorkflow } from "awaitly/workflow";
+
+export const userWorkflow = createWorkflow(
+  { fetchUser },
+  { description: "Fetch user workflow" }
+);
+
+export async function runWorkflow(id: string) {
+  return await userWorkflow(async (step, { fetchUser }) => {
+    const user = await step(fetchUser(id));
+    return user;
+  });
+}
+```
+  </TabItem>
+  <TabItem label="Vercel Workflow">
+```typescript
+export async function workflow() {
+  "use workflow";
+  const user = await fetchUser("123");
+  return user;
+}
+```
+  </TabItem>
+</Tabs>
+
+## Error Handling
+
+### Retryable vs Fatal Errors
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+class InvalidAmountError extends TaggedError("InvalidAmountError")<{ amount: number }> {}
+class AmountTooLargeError extends TaggedError("AmountTooLargeError")<{ amount: number }> {}
+
+async function processPayment(
+  amount: number
+): AsyncResult<PaymentResult, InvalidAmountError | AmountTooLargeError> {
+  if (amount < 0) {
+    return err(new InvalidAmountError({ amount }));
+  }
+  if (amount > 10000) {
+    return err(new AmountTooLargeError({ amount }));
+  }
+  return ok(await chargeCard(amount));
+}
+
+// Configure retry for specific errors
+const payment = await step(processPayment(amount), {
+  retry: {
+    attempts: 3,
+    backoff: "exponential",
+    initialDelay: 100,
+  },
+});
+```
+  </TabItem>
+  <TabItem label="Vercel Workflow">
+```typescript
+async function processPayment(amount: number) {
+  "use step";
+  if (amount < 0) {
+    throw new RetryableError("Invalid amount");
+  }
+  if (amount > 10000) {
+    throw new Error("Amount too large"); // Fatal
+  }
+  return await chargeCard(amount);
+}
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="note">
+awaitly's tagged errors are type-safe. You can't accidentally forget to handle an error type—the compiler will tell you.
+</Aside>
+
+## Parallel Execution
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+export const parallelWorkflow = createWorkflow(
+  { fetchUser, fetchPosts, fetchComments },
+  { description: "Parallel fetch workflow" }
+);
+
+export async function runParallelWorkflow(id: string) {
+  return await parallelWorkflow(async (step, deps) => {
+    // Named object form (recommended - better type inference)
+    const { user, posts, comments } = await step.parallel({
+      user: () => deps.fetchUser(id),
+      posts: () => deps.fetchPosts(id),
+      comments: () => deps.fetchComments(id),
+    }, { name: "Fetch all data" });
+
+    return { user, posts, comments };
+  });
+}
+```
+  </TabItem>
+  <TabItem label="Vercel Workflow">
+```typescript
+export async function parallelWorkflow() {
+  "use workflow";
+  const [user, posts, comments] = await Promise.all([
+    fetchUser(id),
+    fetchPosts(id),
+    fetchComments(id),
+  ]);
+  return { user, posts, comments };
+}
+```
+  </TabItem>
+</Tabs>
+
+**Key difference**: awaitly's `step.parallel()` provides named steps for better observability and type inference.
+
+## Race Conditions
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { anyAsync } from "awaitly";
+
+export const raceWorkflow = createWorkflow(
+  { fetchFromPrimary, fetchFromFallback },
+  { description: "Race workflow" }
+);
+
+export async function runRaceWorkflow() {
+  return await raceWorkflow(async (step, deps) => {
+    const result = await step.race("Fastest API", () =>
+      anyAsync([deps.fetchFromPrimary(), deps.fetchFromFallback()])
+    );
+    return result;
+  });
+}
+```
+  </TabItem>
+  <TabItem label="Vercel Workflow">
+```typescript
+export async function raceWorkflow() {
+  "use workflow";
+  const result = await Promise.race([
+    fetchFromPrimary(),
+    fetchFromFallback(),
+  ]);
+  return result;
+}
+```
+  </TabItem>
+</Tabs>
+
+## Saga Pattern (Distributed Transactions)
+
+This is where awaitly shines. Compare manual rollback with automatic compensation.
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { createSagaWorkflow } from "awaitly/saga";
+
+export const orderProcessingSaga = createSagaWorkflow(
+  {
+    reserveInventory,
+    releaseInventory,
+    processPayment,
+    refundPayment,
+    createShippingLabel,
+  },
+  {
+    onEvent: (event) => {
+      if (event.type === "saga_compensation_start") {
+        console.log(`Rolling back ${event.stepCount} steps...`);
+      }
+    },
+  }
+);
+
+export async function processOrder(request: OrderRequest) {
+  return await orderProcessingSaga(async (saga, deps) => {
+    await saga.step(
+      () => deps.reserveInventory(request.items),
+      {
+        name: "reserve-inventory",
+        compensate: async () => {
+          await deps.releaseInventory(request.items);
+        },
+      }
+    );
+
+    const payment = await saga.step(
+      () => deps.processPayment(request.paymentMethod),
+      {
+        name: "process-payment",
+        compensate: async (p: PaymentResult) => {
+          await deps.refundPayment(p.transactionId, p.amount);
+        },
+      }
+    );
+
+    const label = await saga.step(
+      () => deps.createShippingLabel(request.address),
+      {
+        name: "create-shipping-label",
+        compensate: async (label: ShippingLabel) => {
+          await cancelShippingLabel(label.trackingNumber);
+        },
+      }
+    );
+
+    return { orderId: "...", payment, label };
+  });
+}
+```
+  </TabItem>
+  <TabItem label="Vercel Workflow">
+```typescript
+export async function orderWorkflow(request: OrderRequest) {
+  "use workflow";
+  let reservation, payment, label;
+
+  try {
+    reservation = await reserveInventory(request.items);
+    payment = await processPayment(request.paymentMethod);
+    label = await createShippingLabel(request.address);
+    return { orderId: "...", payment, label };
+  } catch (error) {
+    // Manual rollback - must track state yourself
+    if (label) await cancelShippingLabel(label.trackingNumber);
+    if (payment) await refundPayment(payment.transactionId);
+    if (reservation) await releaseInventory(request.items);
+    throw error;
+  }
+}
+```
+  </TabItem>
+</Tabs>
+
+```text
+awaitly Saga Compensation Flow
+──────────────────────────────────────────────────
+
+SUCCESS PATH:
+  reserve ──► payment ──► shipping ──► DONE
+
+FAILURE PATH (shipping fails):
+  reserve ──► payment ──► shipping ✗
+                              │
+              ◄───────────────┘ auto-compensate
+              │
+  release ◄── refund ◄── (LIFO order)
+```
+
+<Aside type="tip" title="Automatic Compensation">
+awaitly's `createSagaWorkflow` automatically runs compensation in reverse order (LIFO) when any step fails. No manual rollback code needed.
+</Aside>
+
+## AI Integration
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { generateText, Output } from "ai";
+import { createOllama } from "ai-sdk-ollama";
+
+const ollama = createOllama({ baseURL: process.env.OLLAMA_BASE_URL });
+const MODEL = ollama("granite4:latest");
+
+export const aiWorkflow = createWorkflow(
+  {},
+  { description: "AI workflow" }
+);
+
+export async function runAIWorkflow(prompt: string) {
+  return await aiWorkflow(async (step) => {
+    const { output } = await step(() => generateText({
+      model: MODEL,
+      output: Output.object({
+        schema: z.object({
+          quality: z.number(),
+          score: z.number(),
+        }),
+      }),
+      prompt,
+    }));
+    return output;
+  });
+}
+```
+  </TabItem>
+  <TabItem label="Vercel Workflow">
+```typescript
+import { generateObject } from "ai";
+
+export async function aiWorkflow(prompt: string) {
+  "use workflow";
+  const result = await generateObject({
+    model: "openai/gpt-4",
+    schema: z.object({
+      quality: z.number(),
+      score: z.number(),
+    }),
+    prompt,
+  });
+  return result.object;
+}
+```
+  </TabItem>
+</Tabs>
+
+**Key difference**: awaitly uses the standard AI SDK v6 API, making it compatible with any AI provider (OpenAI, Anthropic, Ollama, etc.).
+
+## Static Analysis & Visualization
+
+awaitly provides tooling that Vercel Workflow doesn't offer.
+
+### Static Analysis
+
+```bash
+npx awaitly-analyze workflow.ts
+```
+
+Generates Mermaid diagrams showing:
+- Workflow structure
+- Step dependencies
+- Parallel execution
+- Conditional logic
+- Saga compensation paths
+
+### Runtime Visualization
+
+```typescript
+import { createVisualizer } from "awaitly/visualize";
+
+const viz = createVisualizer({ workflowName: "my-workflow" });
+
+const workflow = createWorkflow(
+  { myDeps },
+  {
+    onEvent: viz.handleEvent,
+  }
+);
+
+// After execution
+console.log(viz.render()); // ASCII visualization
+console.log(viz.renderAs("mermaid")); // Mermaid diagram
+```
+
+```text
+Example ASCII Output
+────────────────────────────────────────────
+
+my-workflow [completed in 234ms]
+├─ fetch-user [completed 45ms]
+├─ validate-order [completed 12ms]
+├─ charge-card [completed 156ms]
+│  └─ (retry #1 after 100ms)
+└─ send-email [completed 21ms]
+```
+
+## Migration Patterns
+
+### Pattern 1: Simple Sequential Workflow
+
+<Tabs>
+  <TabItem label="awaitly (After)">
+```typescript
+import { ok, type AsyncResult } from "awaitly";
+import { createWorkflow } from "awaitly/workflow";
+
+async function add(a: number, b: number): AsyncResult<number, never> {
+  return ok(a + b);
+}
+
+export const simpleWorkflow = createWorkflow(
+  { add },
+  { description: "Simple workflow" }
+);
+
+export async function simple(i: number) {
+  return await simpleWorkflow(async (step, { add }) => {
+    const a = await step(add(i, 7));
+    const b = await step(add(a, 8));
+    return b;
+  });
+}
+```
+  </TabItem>
+  <TabItem label="Vercel Workflow (Before)">
+```typescript
+async function add(a: number, b: number): Promise<number> {
+  "use step";
+  return a + b;
+}
+
+export async function simple(i: number) {
+  "use workflow";
+  const a = await add(i, 7);
+  const b = await add(a, 8);
+  return b;
+}
+```
+  </TabItem>
+</Tabs>
+
+### Pattern 2: Batch Processing
+
+<Tabs>
+  <TabItem label="awaitly (After)">
+```typescript
+import { processInBatches } from "awaitly/batch";
+
+export const batchWorkflow = createWorkflow(
+  { processItem },
+  { description: "Batch processing workflow" }
+);
+
+export async function runBatchWorkflow(items: string[]) {
+  return await batchWorkflow(async (step, { processItem }) => {
+    const result = await step(() => processInBatches(
+      items,
+      processItem,
+      {
+        batchSize: 50,
+        onProgress: (progress) => {
+          console.log(`Processed ${progress.processed}/${progress.total}`);
+        },
+      }
+    ));
+    return result;
+  });
+}
+```
+  </TabItem>
+  <TabItem label="Vercel Workflow (Before)">
+```typescript
+export async function batchWorkflow(items: string[]) {
+  "use workflow";
+  const chunks = chunk(items, 50);
+  for (const batch of chunks) {
+    await Promise.all(batch.map(processItem));
+  }
+}
+```
+  </TabItem>
+</Tabs>
+
+## When to Choose Each
+
+### Choose Vercel Workflow when:
+
+- You're already on Vercel's platform
+- You want zero-config durability (handled by platform)
+- You prefer compiler magic over explicit types
+- You need tight integration with Vercel services
+- You're okay with platform lock-in
+
+### Choose awaitly when:
+
+- You want maximum type safety with explicit error handling
+- You need to run workflows anywhere (not just Vercel)
+- You want static analysis and visualization tools
+- You need saga pattern support out of the box
+- You want standard TypeScript (no custom compiler)
+- You need fine-grained control over retry policies
+- You want better observability with named steps
+
+## Comparison Summary
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                    Platform Spectrum                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Vercel Workflow ─────────────────────────────► awaitly     │
+│                                                             │
+│  Platform-integrated              Platform-agnostic         │
+│  Compiler magic                   Explicit types            │
+│  Zero-config durability           Bring your own store      │
+│  Vercel only                      Any Node.js environment   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+<Aside type="tip" title="Portability">
+awaitly workflows are just TypeScript—no special compiler, no platform requirements. Deploy to Vercel, AWS, GCP, your own servers, or run locally.
+</Aside>
+
+## Next Steps
+
+- [Getting Started with awaitly](/getting-started/installation/)
+- [Saga / Compensation patterns](/advanced/saga-compensation/)
+- [Static Analysis](/guides/static-analysis/)
+- [Visualization](/guides/visualization/)

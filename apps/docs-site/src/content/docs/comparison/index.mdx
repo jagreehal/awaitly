@@ -13,7 +13,7 @@ The database takes a nap when you need it. The payment provider goes for coffee.
 
 Most programmers treat errors like embarrassing relatives—they pretend they don't exist until they show up and ruin everything. But what if we treated errors as first-class citizens?
 
-## Four Philosophies
+## Five Philosophies
 
 | | |
 |---|---|
@@ -26,6 +26,11 @@ Most programmers treat errors like embarrassing relatives—they pretend they do
 | Blueprint | Declare steps |
 | Control panel | Auto-infer errors |
 | Execute | Execute with step() |
+| | |
+| **Platform (Vercel Workflow)** | |
+| "use step" directive | |
+| Compiler transforms code | |
+| Platform handles durability | |
 
 ## At a Glance
 
@@ -128,6 +133,11 @@ Need full ecosystem (DI, layers, tracing)?
     Compare lightweight orchestration vs full ecosystem. When is Effect's power worth the complexity?
 
     [Read comparison →](/comparison/awaitly-vs-effect/)
+  </Card>
+  <Card title="vs Vercel Workflow" icon="external">
+    Compare compiler directives with explicit Result types. See when platform integration beats portability.
+
+    [Read comparison →](/comparison/awaitly-vs-workflow/)
   </Card>
 </CardGrid>
 

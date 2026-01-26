@@ -1,0 +1,360 @@
+---
+title: Workflows and Steps
+description: Compose Result-returning operations with run() and createWorkflow()
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Workflows compose multiple Result-returning operations. The `step()` function unwraps Results automatically—if any step fails, the workflow exits early with that error.
+
+## The step() Function
+
+`step()` is the core of workflow composition. It unwraps a Result, returning the value on success or exiting the workflow on error:
+
+```typescript
+import { run } from 'awaitly';
+
+const result = await run(async (step) => {
+  // If fetchUser returns err('NOT_FOUND'), workflow exits here
+  const user = await step(fetchUser('123'));
+
+  // This only runs if fetchUser succeeded
+  const posts = await step(fetchPosts(user.id));
+
+  return { user, posts };
+});
+
+if (result.ok) {
+  console.log(result.value.user.name);
+} else {
+  // result.error is 'NOT_FOUND' | 'FETCH_ERROR'
+  console.log('Failed:', result.error);
+}
+```
+
+```text
+Execution flow:
+
+fetchUser('123')
+     │
+     ├── ok(user) ──► fetchPosts(user.id)
+     │                      │
+     │                      ├── ok(posts) ──► return { user, posts }
+     │                      │
+     │                      └── err ──► exit workflow
+     │
+     └── err ──► exit workflow
+```
+
+<Aside type="tip" title="Early exit">
+Unlike try/catch where you need explicit return statements, `step()` automatically exits the workflow on error. The error becomes the workflow's result.
+</Aside>
+
+## run() - One-Off Workflows
+
+Use `run()` for simple, one-off workflows:
+
+```typescript
+import { ok, err, run, type AsyncResult } from 'awaitly';
+
+const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
+  const user = await db.find(id);
+  return user ? ok(user) : err('NOT_FOUND');
+};
+
+const getOrders = async (userId: string): AsyncResult<Order[], 'FETCH_ERROR'> => {
+  return ok(await db.orders.findByUser(userId));
+};
+
+const result = await run(async (step) => {
+  const user = await step(getUser('123'));
+  const orders = await step(getOrders(user.id));
+  return { user, orders };
+});
+```
+
+## createWorkflow() - Reusable Workflows
+
+For reusable workflows with automatic error type inference, use `createWorkflow()`:
+
+<Tabs>
+  <TabItem label="With inference">
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+
+const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
+const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
+
+// Error types inferred from dependencies
+const workflow = createWorkflow({ fetchUser, sendEmail });
+
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser('1'));
+  await step(sendEmail(user.email));
+  return user;
+});
+
+// result.error is automatically typed as:
+// 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
+```
+  </TabItem>
+  <TabItem label="How it works">
+```typescript
+// awaitly extracts error types from your dependencies:
+
+fetchUser: AsyncResult<User, 'NOT_FOUND'>
+                              ▲
+                              │ extracted
+                              ▼
+sendEmail: AsyncResult<void, 'EMAIL_FAILED'>
+                             ▲
+                             │ extracted
+                             ▼
+workflow error = 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="tip" title="Why inference matters">
+With automatic inference, you never forget to handle an error type. Add a new dependency, and TypeScript immediately warns you about the new error cases.
+</Aside>
+
+## When to Use Each
+
+| Scenario | Use |
+|----------|-----|
+| One-off workflow | `run()` |
+| Reusable workflow | `createWorkflow()` |
+| Need automatic error inference | `createWorkflow()` |
+| Need caching or resume | `createWorkflow()` |
+| Testing with mocks | `run()` |
+| Dependencies known at compile time | `createWorkflow()` |
+
+## Step Options
+
+Give steps names and keys for visualization and caching:
+
+```typescript
+const user = await step(() => fetchUser('1'), {
+  name: 'Fetch user',       // For visualization/logging
+  key: 'user:1',            // For caching/deduplication
+});
+```
+
+### Using Thunks for Caching
+
+Pass a function (thunk) instead of calling directly to enable caching:
+
+```typescript
+// Without thunk - always executes
+const user = await step(fetchUser('1'));
+
+// With thunk - can be cached
+const user = await step(() => fetchUser('1'), { key: 'user:1' });
+```
+
+<Aside type="note">
+A thunk is a function with no arguments that returns the value. Using thunks lets awaitly control when (and whether) to execute the operation.
+</Aside>
+
+## step.try() - Wrap Throwing Code
+
+Convert exceptions into typed errors:
+
+```typescript
+const data = await step.try(
+  async () => {
+    const res = await fetch('/api/data');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  },
+  { error: 'FETCH_FAILED' as const }
+);
+```
+
+<Aside type="tip" title="Error type safety">
+The `as const` assertion is important. It tells TypeScript this is the literal string `'FETCH_FAILED'`, not just `string`.
+</Aside>
+
+## step.fromResult() - Preserve Error Details
+
+When your operation returns a Result with rich error objects:
+
+```typescript
+type ApiError = { code: number; message: string };
+
+const callApi = async (): AsyncResult<Data, ApiError> => {
+  // Returns err({ code: 429, message: 'Rate limited' })
+};
+
+const data = await step.fromResult(
+  () => callApi(),
+  {
+    onError: (apiError) => ({
+      type: 'API_ERROR' as const,
+      ...apiError,
+    }),
+  }
+);
+// On rate limit: { ok: false, error: { type: 'API_ERROR', code: 429, message: 'Rate limited' } }
+```
+
+## Workflow Options
+
+### cache
+
+Enable step caching to avoid re-executing completed steps:
+
+```typescript
+const workflow = createWorkflow(deps, {
+  cache: new Map(),
+});
+
+const result = await workflow(async (step) => {
+  // This step runs once, even if workflow is called multiple times
+  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  return user;
+});
+```
+
+### onEvent
+
+Subscribe to workflow events for logging or visualization:
+
+```typescript
+const workflow = createWorkflow(deps, {
+  onEvent: (event) => {
+    switch (event.type) {
+      case 'step_start':
+        console.log('Starting:', event.name);
+        break;
+      case 'step_complete':
+        console.log('Completed:', event.name, event.durationMs, 'ms');
+        break;
+      case 'step_error':
+        console.error('Failed:', event.name, event.error);
+        break;
+    }
+  },
+});
+```
+
+### signal (Cancellation)
+
+Cancel workflows externally:
+
+```typescript
+import { isWorkflowCancelled } from 'awaitly/workflow';
+
+const controller = new AbortController();
+const workflow = createWorkflow(deps, { signal: controller.signal });
+
+// Start workflow
+const resultPromise = workflow(async (step) => {
+  const user = await step(() => fetchUser('1'), { key: 'fetch-user' });
+  await step(() => sendEmail(user.email), { key: 'send-email' });
+  return user;
+});
+
+// Cancel from outside
+setTimeout(() => controller.abort('timeout'), 5000);
+
+const result = await resultPromise;
+if (!result.ok && isWorkflowCancelled(result.error)) {
+  console.log('Cancelled:', result.error.reason);
+}
+```
+
+## Execution-Time Options
+
+Override options for specific runs with `workflow.run()`:
+
+```typescript
+const workflow = createWorkflow({ fetchUser }, {
+  onEvent: defaultLogger,
+});
+
+// Normal run - uses creation-time options
+await workflow(async (step) => { /* ... */ });
+
+// Per-run options override creation-time
+await workflow.run(async (step) => {
+  const user = await step(() => fetchUser('1'));
+  return user;
+}, {
+  onEvent: visualizer.handleEvent,
+  signal: controller.signal,
+});
+```
+
+Or pre-bind options with `.with()`:
+
+```typescript
+const visualized = workflow.with({
+  onEvent: viz.handleEvent,
+});
+
+// All calls use viz.handleEvent
+await visualized(async (step) => { /* ... */ });
+```
+
+## Step Variants at a Glance
+
+| Variant | Use when |
+|---------|----------|
+| `step(fn)` | Operation returns a Result |
+| `step.try(fn, opts)` | Operation throws exceptions |
+| `step.fromResult(fn, opts)` | Need to transform Result errors |
+| `step.retry(fn, opts)` | Operation might fail transiently |
+| `step.withTimeout(fn, opts)` | Operation might hang |
+
+## Complete Example
+
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+
+type User = { id: string; name: string; email: string };
+type Post = { id: number; title: string };
+
+const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
+  id === '1' ? ok({ id: '1', name: 'Alice', email: 'alice@example.com' }) : err('NOT_FOUND');
+
+const fetchPosts = async (userId: string): AsyncResult<Post[], 'FETCH_ERROR'> =>
+  ok([{ id: 1, title: 'Hello World' }]);
+
+const sendWelcome = async (email: string): AsyncResult<void, 'EMAIL_FAILED'> =>
+  ok(undefined);
+
+const onboardUser = createWorkflow({ fetchUser, fetchPosts, sendWelcome });
+
+const result = await onboardUser(async (step) => {
+  const user = await step(fetchUser('1'));
+  const posts = await step(fetchPosts(user.id));
+  await step(sendWelcome(user.email));
+
+  return { user, postCount: posts.length };
+});
+
+if (result.ok) {
+  console.log(`${result.value.user.name} has ${result.value.postCount} posts`);
+} else {
+  // TypeScript knows all possible errors
+  switch (result.error) {
+    case 'NOT_FOUND':
+      console.log('User not found');
+      break;
+    case 'FETCH_ERROR':
+      console.log('Failed to fetch posts');
+      break;
+    case 'EMAIL_FAILED':
+      console.log('Failed to send welcome email');
+      break;
+  }
+}
+```
+
+## Next
+
+[Learn about Control Flow patterns →](/foundations/control-flow/)

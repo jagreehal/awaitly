@@ -1,0 +1,362 @@
+---
+title: Control Flow
+description: Sequential, parallel, and race patterns for workflow execution
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+awaitly provides patterns for controlling how operations execute: sequentially, in parallel, or racing to first success.
+
+## Sequential Execution
+
+By default, steps execute sequentially. Each step waits for the previous one to complete:
+
+```typescript
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser('1'));        // First
+  const posts = await step(fetchPosts(user.id));  // Second (after user)
+  const comments = await step(fetchComments(posts[0].id)); // Third (after posts)
+
+  return { user, posts, comments };
+});
+```
+
+```text
+Execution timeline:
+
+fetchUser ─────┐
+               └──► fetchPosts ─────┐
+                                    └──► fetchComments ─────┐
+                                                            └──► return
+```
+
+Use sequential execution when operations depend on each other's results.
+
+## Parallel Execution
+
+Use `allAsync` to run independent operations concurrently:
+
+```typescript
+import { allAsync } from 'awaitly';
+
+const result = await workflow(async (step) => {
+  const [user, notifications, settings] = await step(() =>
+    allAsync([
+      fetchUser('1'),
+      fetchNotifications('1'),
+      fetchSettings('1'),
+    ])
+  );
+
+  return { user, notifications, settings };
+});
+```
+
+```text
+Execution timeline:
+
+┌─ fetchUser ────────────────────┐
+│                                │
+├─ fetchNotifications ───────┐   │
+│                            │   │
+└─ fetchSettings ────────────┴───┴──► all complete ──► return
+```
+
+### Fail-Fast Behavior
+
+`allAsync` stops on the first error:
+
+```typescript
+const result = await allAsync([
+  fetchUser('1'),        // Takes 100ms, succeeds
+  fetchPosts('999'),     // Takes 50ms, fails with 'NOT_FOUND'
+  fetchComments('1'),    // Takes 200ms, never completes (cancelled)
+]);
+
+// result.ok === false
+// result.error === 'NOT_FOUND'
+```
+
+<Aside type="note">
+When one operation fails, the others are effectively abandoned. Use fail-fast when any failure means the overall operation should stop.
+</Aside>
+
+## Collecting All Results
+
+Use `allSettledAsync` to run all operations and collect results, even if some fail:
+
+```typescript
+import { allSettledAsync } from 'awaitly';
+
+const result = await allSettledAsync([
+  fetchUser('1'),      // Succeeds
+  fetchPosts('999'),   // Fails
+  fetchComments('1'),  // Succeeds
+]);
+
+// Returns ok([values]) only if ALL succeed
+// Returns err([SettledError]) if ANY fail
+if (result.ok) {
+  const [user, posts, comments] = result.value;
+} else {
+  for (const error of result.error) {
+    console.log('Failed:', error.error);
+  }
+}
+```
+
+<Aside type="tip" title="Partial success handling">
+If you need to process whatever succeeded regardless of failures, use `partition()` after collecting Results from `Promise.all()`:
+
+```typescript
+import { partition } from 'awaitly';
+
+const results = await Promise.all([
+  fetchUser('1'),
+  fetchUser('2'),
+  fetchUser('999'),
+]);
+
+const [users, errors] = partition(results);
+// users: successfully fetched users
+// errors: error values from failed fetches
+```
+</Aside>
+
+## Partitioning Results
+
+Separate successes from failures:
+
+```typescript
+import { partition } from 'awaitly';
+
+const results = await Promise.all([
+  fetchUser('1'),
+  fetchUser('2'),
+  fetchUser('999'),
+]);
+
+const [successes, failures] = partition(results);
+// successes: [User, User]
+// failures: ['NOT_FOUND']
+
+console.log(`Found ${successes.length} users, ${failures.length} not found`);
+```
+
+## Race to First Success
+
+Use `anyAsync` to get the first successful result:
+
+```typescript
+import { anyAsync } from 'awaitly';
+
+const result = await anyAsync([
+  fetchFromPrimary(id),   // Main API
+  fetchFromBackup(id),    // Backup API
+  fetchFromCache(id),     // Local cache
+]);
+
+if (result.ok) {
+  // Got data from whichever responded first successfully
+  console.log(result.value);
+}
+```
+
+```text
+Execution timeline:
+
+┌─ fetchFromPrimary ──────────────────┐
+│                                     │
+├─ fetchFromBackup ────────┐          │
+│                          │          │
+└─ fetchFromCache ─┐       │          │
+                   │       │          │
+                   └───────┴──────────┴──► first success wins
+```
+
+<Aside type="note" title="Use cases for anyAsync">
+- Querying multiple API endpoints and using first response
+- Trying primary and backup services
+- Racing timeout vs actual operation
+</Aside>
+
+## Parallel with Dependencies
+
+Some operations depend on others. Combine sequential and parallel:
+
+```typescript
+const result = await workflow(async (step) => {
+  // First: fetch user
+  const user = await step(fetchUser('1'));
+
+  // Then: fetch user's data in parallel
+  const [posts, friends, settings] = await step(() =>
+    allAsync([
+      fetchPosts(user.id),
+      fetchFriends(user.id),
+      fetchSettings(user.id),
+    ])
+  );
+
+  return { user, posts, friends, settings };
+});
+```
+
+```text
+Execution timeline:
+
+fetchUser ─────┐
+               │
+               └──► ┌─ fetchPosts ────────────┐
+                    │                         │
+                    ├─ fetchFriends ──────┐   │
+                    │                     │   │
+                    └─ fetchSettings ─────┴───┴──► return
+```
+
+## Named Parallel Operations
+
+Give parallel groups a name for visualization:
+
+```typescript
+const result = await workflow(async (step) => {
+  const [user, posts] = await step(
+    () => allAsync([fetchUser('1'), fetchPosts('1')]),
+    { name: 'Fetch user data' }
+  );
+
+  return { user, posts };
+});
+
+// Visualization shows "Fetch user data" as a single step
+```
+
+## With Timeout
+
+Add a timeout to parallel operations:
+
+```typescript
+const result = await workflow(async (step) => {
+  const data = await step.withTimeout(
+    () => allAsync([fetchUser('1'), fetchPosts('1')]),
+    { ms: 5000, name: 'Fetch user data' }
+  );
+
+  return data;
+});
+```
+
+## Mapping Over Arrays
+
+Process arrays with typed errors:
+
+```typescript
+const userIds = ['1', '2', '3'];
+
+const results = await allAsync(
+  userIds.map((id) => fetchUser(id))
+);
+
+if (results.ok) {
+  // results.value is User[]
+  console.log(results.value.map((u) => u.name));
+}
+```
+
+## Error Handling in Parallel
+
+Errors from parallel operations preserve their types:
+
+```typescript
+const fetchUser = async (id: string): AsyncResult<User, 'USER_NOT_FOUND'> => { /* ... */ };
+const fetchPosts = async (id: string): AsyncResult<Post[], 'POSTS_ERROR'> => { /* ... */ };
+
+const result = await allAsync([fetchUser('1'), fetchPosts('1')]);
+// result.error is: 'USER_NOT_FOUND' | 'POSTS_ERROR'
+```
+
+## Bounded Concurrency
+
+For large sets, limit concurrent operations:
+
+```typescript
+import { processInBatches } from 'awaitly/batch';
+
+const result = await processInBatches(
+  userIds,
+  (id) => fetchUser(id),
+  {
+    batchSize: 20,    // Process 20 at a time
+    concurrency: 5,   // But only 5 concurrent
+  }
+);
+```
+
+See [Batch Processing](/guides/batch-processing/) for details.
+
+## Pattern Summary
+
+| Pattern | Function | Behavior |
+|---------|----------|----------|
+| Sequential | Default `step()` chaining | Wait for each to complete |
+| Parallel (fail-fast) | `allAsync([...])` | Stop on first error |
+| Parallel (collect all) | `allSettledAsync([...])` | Collect all outcomes |
+| Race to first | `anyAsync([...])` | Return first success |
+| Partition | `partition([...])` | Separate successes/failures |
+
+## Complete Example
+
+```typescript
+import { allAsync, partition, ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+
+type User = { id: string; name: string };
+type Notification = { id: string; message: string };
+
+const fetchUser = async (id: string): AsyncResult<User, 'USER_NOT_FOUND'> => {
+  const user = await db.users.find(id);
+  return user ? ok(user) : err('USER_NOT_FOUND');
+};
+
+const sendNotification = async (
+  userId: string,
+  message: string
+): AsyncResult<Notification, 'SEND_FAILED'> => {
+  try {
+    const notification = await notificationService.send(userId, message);
+    return ok(notification);
+  } catch {
+    return err('SEND_FAILED');
+  }
+};
+
+const notifyUsers = createWorkflow({ fetchUser, sendNotification });
+
+const result = await notifyUsers(async (step) => {
+  const userIds = ['1', '2', '3', '4', '5'];
+
+  // Fetch all users in parallel
+  const usersResult = await step(() =>
+    allAsync(userIds.map((id) => fetchUser(id)))
+  );
+
+  // Send notifications in parallel
+  const notifications = await step(() =>
+    allAsync(
+      usersResult.map((user) =>
+        sendNotification(user.id, 'Hello!')
+      )
+    )
+  );
+
+  return { notified: notifications.length };
+});
+
+if (result.ok) {
+  console.log(`Notified ${result.value.notified} users`);
+}
+```
+
+## Next
+
+[Learn about Errors and Retries →](/foundations/error-handling/)

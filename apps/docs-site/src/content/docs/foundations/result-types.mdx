@@ -1,0 +1,362 @@
+---
+title: Result Types
+description: The foundation of typed error handling in awaitly
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+A `Result<T, E>` represents either success (`ok`) or failure (`err`). It replaces try/catch with explicit typing, giving you compile-time guarantees about error handling.
+
+## Why Results?
+
+<Tabs>
+  <TabItem label="With Results">
+```typescript
+const result = await fetchUser('123');
+
+if (result.ok) {
+  console.log(result.value.name);
+} else {
+  // TypeScript knows result.error is 'NOT_FOUND'
+  console.log(`User ${result.error}`);
+}
+```
+  </TabItem>
+  <TabItem label="With try/catch">
+```typescript
+try {
+  const user = await fetchUser('123');
+  console.log(user.name);
+} catch (error) {
+  // What type is error? TypeScript doesn't know
+  console.log(error);
+}
+```
+  </TabItem>
+</Tabs>
+
+Results give you:
+- **Type safety**: TypeScript knows exactly what errors can occur
+- **Explicit handling**: Errors are part of the return type, not hidden
+- **Composability**: Results chain together naturally
+
+## Type Structure
+
+```text
+         ┌─── The success value type
+         │       ┌─── The error type
+         ▼       ▼
+Result<Value, Error>
+
+Examples:
+Result<number, 'DIVIDE_BY_ZERO'>      → number on success, 'DIVIDE_BY_ZERO' on failure
+Result<User, 'NOT_FOUND'>             → User on success, 'NOT_FOUND' on failure
+Result<Order, 'INVALID' | 'EXPIRED'>  → Order on success, one of two errors on failure
+```
+
+## Creating Results
+
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+
+// Synchronous
+const divide = (a: number, b: number): Result<number, 'DIVIDE_BY_ZERO'> =>
+  b === 0 ? err('DIVIDE_BY_ZERO') : ok(a / b);
+
+// Asynchronous
+const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
+  const user = await db.users.find(id);
+  return user ? ok(user) : err('NOT_FOUND');
+};
+```
+
+<Aside type="tip" title="AsyncResult vs Promise">
+`AsyncResult<T, E>` is just `Promise<Result<T, E>>`. Use it to make async function signatures cleaner.
+</Aside>
+
+## Checking Results
+
+Check `result.ok` to determine success or failure:
+
+```typescript
+const result = divide(10, 2);
+
+if (result.ok) {
+  console.log(result.value); // 5
+} else {
+  console.log(result.error); // TypeScript knows this is 'DIVIDE_BY_ZERO'
+}
+```
+
+After checking `result.ok`, TypeScript narrows the type:
+- If `result.ok` is `true`, you can access `result.value`
+- If `result.ok` is `false`, you can access `result.error`
+
+### Type Guards
+
+Use `isOk` and `isErr` for functional-style checks:
+
+```typescript
+import { isOk, isErr } from 'awaitly';
+
+const result = divide(10, 0);
+
+if (isOk(result)) {
+  console.log(result.value);
+}
+
+if (isErr(result)) {
+  console.log(result.error); // 'DIVIDE_BY_ZERO'
+}
+```
+
+## Transforming Results
+
+### map - Transform the Value
+
+Transform the success value, leaving errors unchanged:
+
+```typescript
+import { map } from 'awaitly';
+
+const result = ok(5);
+const doubled = map(result, (n) => n * 2);
+// { ok: true, value: 10 }
+```
+
+<Aside type="note">
+`map` only runs the function if the Result is `ok`. If it's `err`, the error passes through unchanged.
+</Aside>
+
+### mapError - Transform the Error
+
+Transform the error, leaving success values unchanged:
+
+```typescript
+import { mapError } from 'awaitly';
+
+const result = err('NOT_FOUND');
+const mapped = mapError(result, (e) => ({ type: e, status: 404 }));
+// { ok: false, error: { type: 'NOT_FOUND', status: 404 } }
+```
+
+### andThen - Chain Operations
+
+Chain operations that might fail. The function only runs if the previous result was `ok`:
+
+```typescript
+import { andThen } from 'awaitly';
+
+const result = ok(10);
+const chained = andThen(result, (n) =>
+  n > 0 ? ok(n * 2) : err('NEGATIVE')
+);
+// { ok: true, value: 20 }
+
+const negative = ok(-5);
+const failed = andThen(negative, (n) =>
+  n > 0 ? ok(n * 2) : err('NEGATIVE')
+);
+// { ok: false, error: 'NEGATIVE' }
+```
+
+### match - Pattern Match
+
+Handle both cases in one expression:
+
+```typescript
+import { match } from 'awaitly';
+
+const result = divide(10, 2);
+const message = match(
+  result,
+  (value) => `Success: ${value}`,
+  (error) => `Error: ${error}`
+);
+// "Success: 5"
+```
+
+## Unwrapping
+
+### unwrap - Get Value or Throw
+
+<Aside type="caution" title="Use sparingly">
+`unwrap` throws if the result is an error. Use it only when you're certain the result is ok, or at application boundaries.
+</Aside>
+
+```typescript
+import { unwrap } from 'awaitly';
+
+const result = divide(10, 2);
+const value = unwrap(result); // 5
+
+const badResult = divide(10, 0);
+const boom = unwrap(badResult); // Throws!
+```
+
+### unwrapOr - Get Value or Default
+
+Return a default value on error:
+
+```typescript
+import { unwrapOr } from 'awaitly';
+
+const result = divide(10, 0);
+const value = unwrapOr(result, 0); // 0
+```
+
+### unwrapOrElse - Get Value or Compute Default
+
+Compute the default from the error:
+
+```typescript
+import { unwrapOrElse } from 'awaitly';
+
+const result = divide(10, 0);
+const value = unwrapOrElse(result, (error) => {
+  console.log('Failed with:', error);
+  return 0;
+});
+// Logs: Failed with: DIVIDE_BY_ZERO
+// Returns: 0
+```
+
+## Wrapping Throwing Code
+
+### from - Wrap Sync Functions
+
+Convert exceptions into Results:
+
+```typescript
+import { from } from 'awaitly';
+
+const result = from(() => JSON.parse('{"valid": true}'));
+// { ok: true, value: { valid: true } }
+
+const invalid = from(() => JSON.parse('not json'));
+// { ok: false, error: SyntaxError }
+```
+
+### fromPromise - Wrap Async Functions
+
+```typescript
+import { fromPromise } from 'awaitly';
+
+const result = await fromPromise(fetch('/api/data'));
+// Success: { ok: true, value: Response }
+// Network error: { ok: false, error: TypeError }
+```
+
+### tryAsync - Wrap with Custom Error
+
+Convert exceptions into typed errors:
+
+```typescript
+import { tryAsync } from 'awaitly';
+
+const result = await tryAsync(
+  () => fetch('/api/data').then(r => r.json()),
+  (thrown) => ({ type: 'FETCH_FAILED' as const, cause: thrown })
+);
+// Success: { ok: true, value: { ...data } }
+// Failure: { ok: false, error: { type: 'FETCH_FAILED', cause: Error } }
+```
+
+<Aside type="tip" title="When to use each">
+- **from**: Wrapping sync code that might throw
+- **fromPromise**: Wrapping promises where you want the raw error
+- **tryAsync**: Wrapping async code with custom typed errors
+</Aside>
+
+## Batch Operations
+
+### all - Fail Fast
+
+Returns the first error encountered, or all values if everything succeeds:
+
+```typescript
+import { all } from 'awaitly';
+
+const results = [ok(1), ok(2), ok(3)];
+const combined = all(results);
+// { ok: true, value: [1, 2, 3] }
+
+const withError = [ok(1), err('FAILED'), ok(3)];
+const failed = all(withError);
+// { ok: false, error: 'FAILED' }
+```
+
+### allSettled - Collect All Outcomes
+
+Always succeeds, returning every outcome:
+
+```typescript
+import { allSettled } from 'awaitly';
+
+const results = [ok(1), err('A'), ok(3), err('B')];
+const settled = allSettled(results);
+// {
+//   ok: true,
+//   value: [
+//     { status: 'ok', value: 1 },
+//     { status: 'err', error: 'A' },
+//     { status: 'ok', value: 3 },
+//     { status: 'err', error: 'B' },
+//   ]
+// }
+```
+
+### partition - Separate Successes and Failures
+
+```typescript
+import { partition } from 'awaitly';
+
+const results = [ok(1), err('A'), ok(3)];
+const [successes, failures] = partition(results);
+// successes: [1, 3]
+// failures: ['A']
+```
+
+<Aside type="tip" title="When to use each">
+- **all**: When any failure should stop everything (transactions, validation)
+- **allSettled**: When you want all outcomes regardless of failures
+- **partition**: When you need to process successes and failures separately
+</Aside>
+
+## Async Versions
+
+Most operations have async variants for working with promises:
+
+```typescript
+import { allAsync, anyAsync } from 'awaitly';
+
+const results = await allAsync([
+  fetchUser('1'),
+  fetchPosts('1'),
+  fetchComments('1'),
+]);
+// All succeed: { ok: true, value: [User, Post[], Comment[]] }
+// One fails: { ok: false, error: 'NOT_FOUND' }
+```
+
+## Summary
+
+| Function | Purpose |
+|----------|---------|
+| `ok(value)` | Create success Result |
+| `err(error)` | Create failure Result |
+| `map(result, fn)` | Transform success value |
+| `mapError(result, fn)` | Transform error |
+| `andThen(result, fn)` | Chain operations |
+| `match(result, onOk, onErr)` | Pattern match |
+| `unwrap(result)` | Get value or throw |
+| `unwrapOr(result, default)` | Get value or default |
+| `from(fn)` | Wrap sync throwing code |
+| `fromPromise(promise)` | Wrap async throwing code |
+| `tryAsync(fn, mapError)` | Wrap with custom error |
+| `all(results)` | Combine, fail on first error |
+| `partition(results)` | Separate successes/failures |
+
+## Next
+
+[Learn about Workflows and Steps →](/foundations/workflows-and-steps/)
