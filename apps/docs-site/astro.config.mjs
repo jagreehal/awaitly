@@ -68,6 +68,7 @@ export default defineConfig({
             { label: 'Claude Code Skill', slug: 'guides/claude-skill' },
             { label: 'Troubleshooting', slug: 'guides/troubleshooting' },
             { label: 'Framework Integration', slug: 'guides/framework-integration' },
+            { label: 'Dependency Binding', slug: 'guides/dependency-binding' },
             { label: 'Migration Guide', slug: 'guides/migration' },
           ],
         },

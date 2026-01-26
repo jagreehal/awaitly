@@ -98,6 +98,38 @@ tap(result, fn)                     // Side effect on success
 tapError(result, fn)                // Side effect on error
 ```
 
+## Function Composition
+
+### bindDeps
+
+Partial application utility for the `fn(args, deps)` pattern. Transforms a function from `fn(args, deps) => out` into a curried form: `(deps) => (args) => out`.
+
+Use at composition boundaries to bind dependencies once, then call with arguments. Keep core implementations in the explicit `fn(args, deps)` form for testing.
+
+```typescript
+import { bindDeps } from 'awaitly/bind-deps';
+
+// Core function: explicit fn(args, deps) for testing
+const notify = (args: { name: string }, deps: { send: SendFn }) =>
+  deps.send(args.name);
+
+// At composition boundary: bind deps once
+const notifySlack = bindDeps(notify)(slackDeps);
+const notifyEmail = bindDeps(notify)(emailDeps);
+
+// Call sites are clean
+await notifySlack({ name: 'Alice' });
+await notifyEmail({ name: 'Bob' });
+```
+
+**Type inference**: All types (Args, Deps, Out) are preserved and inferred automatically.
+
+**Works with**:
+- Sync functions returning primitives or objects
+- Async functions returning promises
+- Functions returning `Result<T, E>` or `AsyncResult<T, E>`
+- Complex object types for both args and deps
+
 ## Batch Operations
 
 ```typescript

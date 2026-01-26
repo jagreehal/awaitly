@@ -55,6 +55,7 @@ export default defineConfig({
     'tagged-error': 'src/tagged-error-entry.ts',
     errors: 'src/errors-entry.ts',
     cache: 'src/cache-entry.ts',
+    'bind-deps': 'src/bind-deps-entry.ts',
 
     // =========================================================================
     // Glue library utilities
