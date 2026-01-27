@@ -1952,7 +1952,10 @@ function analyzeStatement(
 
     case "return_statement": {
       // Analyze return expression
-      const returnExpr = stmt.childForFieldName("value");
+      // Note: tree-sitter TypeScript doesn't use "value" field for return_statement,
+      // the return expression is just a named child
+      const returnExpr =
+        stmt.childForFieldName("value") ?? stmt.namedChildren[0];
       if (returnExpr) {
         return analyzeExpression(returnExpr, ctx);
       }
@@ -1973,6 +1976,37 @@ function analyzeStatement(
 
     case "switch_statement":
       return analyzeSwitchStatement(stmt, ctx);
+
+    case "try_statement": {
+      // Analyze try block and catch/finally blocks
+      const results: StaticFlowNode[] = [];
+
+      // Analyze the try body
+      const body = stmt.childForFieldName("body");
+      if (body && body.type === "statement_block") {
+        results.push(...analyzeStatements(body.namedChildren, ctx));
+      }
+
+      // Analyze catch clause if present
+      const handler = stmt.childForFieldName("handler");
+      if (handler && handler.type === "catch_clause") {
+        const catchBody = handler.childForFieldName("body");
+        if (catchBody && catchBody.type === "statement_block") {
+          results.push(...analyzeStatements(catchBody.namedChildren, ctx));
+        }
+      }
+
+      // Analyze finally clause if present
+      const finalizer = stmt.childForFieldName("finalizer");
+      if (finalizer && finalizer.type === "finally_clause") {
+        const finallyBody = finalizer.childForFieldName("body");
+        if (finallyBody && finallyBody.type === "statement_block") {
+          results.push(...analyzeStatements(finallyBody.namedChildren, ctx));
+        }
+      }
+
+      return results;
+    }
 
     default:
       return [];
@@ -2008,6 +2042,69 @@ function analyzeExpression(
   // Handle call expressions
   if (expr.type === "call_expression") {
     return analyzeCallExpression(expr, ctx);
+  }
+
+  // Handle array expressions - recurse into elements
+  // This catches patterns like [step(), step()] in Promise.all([...])
+  if (expr.type === "array") {
+    const results: StaticFlowNode[] = [];
+    for (const element of expr.namedChildren) {
+      results.push(...analyzeExpression(element, ctx));
+    }
+    return results;
+  }
+
+  // Handle arrow functions - recurse into body (for .map callbacks etc.)
+  // This catches patterns like items.map(x => step(...))
+  if (expr.type === "arrow_function" || expr.type === "function_expression") {
+    const body = expr.childForFieldName("body");
+    if (body) {
+      if (body.type === "statement_block") {
+        return analyzeStatements(body.namedChildren, ctx);
+      }
+      return analyzeExpression(body, ctx);
+    }
+    return [];
+  }
+
+  // Handle ternary expressions - analyze both branches
+  // This catches patterns like condition ? step1() : step2()
+  if (expr.type === "ternary_expression") {
+    const results: StaticFlowNode[] = [];
+    const consequence = expr.childForFieldName("consequence");
+    const alternative = expr.childForFieldName("alternative");
+    if (consequence) results.push(...analyzeExpression(consequence, ctx));
+    if (alternative) results.push(...analyzeExpression(alternative, ctx));
+    return results;
+  }
+
+  // Handle object expressions - recurse into property values
+  // This catches patterns like { tools: { execute: async () => step(...) } }
+  if (expr.type === "object") {
+    const results: StaticFlowNode[] = [];
+    for (const child of expr.namedChildren) {
+      if (child.type === "pair") {
+        const value = child.childForFieldName("value");
+        if (value) {
+          results.push(...analyzeExpression(value, ctx));
+        }
+      } else if (child.type === "shorthand_property_identifier") {
+        // Shorthand like { foo } - skip, no step calls here
+      } else if (child.type === "spread_element") {
+        // Spread like { ...obj } - analyze the spread expression
+        const spreadArg = child.namedChildren[0];
+        if (spreadArg) {
+          results.push(...analyzeExpression(spreadArg, ctx));
+        }
+      } else if (child.type === "method_definition") {
+        // Object method like { async foo() { ... } }
+        const body = child.childForFieldName("body");
+        if (body && body.type === "statement_block") {
+          results.push(...analyzeStatements(body.namedChildren, ctx));
+        }
+      }
+    }
+    return results;
   }
 
   return [];
@@ -2085,6 +2182,11 @@ function analyzeCallExpression(
     return [analyzeStreamForEachCall(call, ctx)];
   }
 
+  // Check for step.sleep() - sleep for a duration
+  if (funcText === `${stepParam}.sleep`) {
+    return [analyzeSleepCall(call, ctx)];
+  }
+
   // Check for conditional helpers: when(), unless(), whenOr(), unlessOr()
   if (["when", "unless", "whenOr", "unlessOr"].includes(funcText)) {
     return analyzeConditionalHelper(
@@ -2111,6 +2213,17 @@ function analyzeCallExpression(
   // Check for workflow references (calls to other workflows)
   if (isLikelyWorkflowCall(call, funcText, ctx)) {
     return analyzeWorkflowRefCall(call, funcText, ctx);
+  }
+
+  // Fallback: for unrecognized calls, still analyze their arguments
+  // This catches patterns like Promise.all([step(), step()])
+  const args = call.childForFieldName("arguments");
+  if (args) {
+    const results: StaticFlowNode[] = [];
+    for (const arg of args.namedChildren) {
+      results.push(...analyzeExpression(arg, ctx));
+    }
+    return results;
   }
 
   return [];
@@ -2370,6 +2483,54 @@ function analyzeStepTimeoutCall(
     markdown: options.markdown,
     retry: options.retry,
     timeout,
+    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
+  };
+}
+
+/**
+ * Analyze a step.sleep() call.
+ * API: step.sleep(duration, { name?, key?, description? })
+ * - duration: string (e.g., "5s", "100ms") or Duration object (e.g., seconds(5))
+ * - options: optional object with name, key, description
+ */
+function analyzeSleepCall(
+  call: SyntaxNode,
+  ctx: AnalyzerContext
+): StaticStepNode {
+  ctx.stats.totalSteps++;
+
+  const args = call.childForFieldName("arguments");
+  const argList = args?.namedChildren || [];
+
+  // First argument is the duration (string or Duration object)
+  const durationArg = argList[0];
+  let durationText: string | undefined;
+  if (durationArg) {
+    const rawText = getText(durationArg, ctx);
+    // Check if it's a string literal like "5s" or "100ms"
+    if (durationArg.type === "string") {
+      // Remove quotes from string literals
+      durationText = rawText.slice(1, -1);
+    } else {
+      // For Duration objects or other expressions, use the raw text
+      durationText = rawText;
+    }
+  }
+
+  // Second argument is options (name, key, description)
+  const optionsArg = argList[1];
+  const options = optionsArg ? extractStepOptions(optionsArg, ctx) : {};
+
+  // Generate a default name if none provided
+  const defaultName = durationText ? `sleep ${durationText}` : "sleep";
+
+  return {
+    id: generateId(),
+    type: "step",
+    callee: "step.sleep",
+    key: options.key,
+    name: options.name ?? defaultName,
+    description: options.description,
     location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
   };
 }

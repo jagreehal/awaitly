@@ -291,6 +291,7 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 | Duration helpers | `awaitly/workflow` |
 | Tagged errors | `awaitly` |
 | Pattern matching | `awaitly` |
+| Functional utilities (`pipe`, `flow`, `compose`, `R` namespace) | `awaitly/functional` |
 | Pre-built errors (`TimeoutError`, `RetryExhaustedError`, `RateLimitError`, etc.) | `awaitly/errors` |
 
 ---
@@ -303,6 +304,7 @@ For optimal bundle size, import from specific entry points:
 |-------------|----------|
 | `awaitly` | Result types, transforms, and `run()` for composition |
 | `awaitly/workflow` | Workflow engine (`createWorkflow`, `Duration`, etc.) |
+| `awaitly/functional` | Functional utilities (`pipe`, `flow`, `compose`, `R` namespace) |
 | `awaitly/hitl` | Human-in-the-loop (`createApprovalStep`, `isPendingApproval`, etc.) |
 | `awaitly/persistence` | State serialization (`stringifyState`, `parseState`) |
 | `awaitly/batch` | Batch processing only |
@@ -324,6 +326,7 @@ For optimal bundle size, import from specific entry points:
 | Flaky external APIs | Circuit Breaker | `createCircuitBreaker()` |
 | Rate-limited APIs | Rate Limiter | `createRateLimiter()` |
 | Rich typed errors | Tagged Errors | `TaggedError()`, `TimeoutError`, etc. |
+| Functional composition | Pipe/Flow | `pipe()`, `flow()`, `R.map()`, etc. |
 
 ---
 

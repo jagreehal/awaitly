@@ -277,6 +277,15 @@
       "types": "./dist/streaming.d.ts",
       "import": "./dist/streaming.js",
       "require": "./dist/streaming.cjs"
+    },
+    "./functional": {
+      "browser": {
+        "types": "./dist/functional.d.ts",
+        "import": "./dist/functional.js"
+      },
+      "types": "./dist/functional.d.ts",
+      "import": "./dist/functional.js",
+      "require": "./dist/functional.cjs"
     }
   },
   "files": [

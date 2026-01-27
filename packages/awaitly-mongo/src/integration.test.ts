@@ -1,0 +1,64 @@
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { createMongoPersistence } from "./index";
+import { durable } from "awaitly/durable";
+import { ok, err, type AsyncResult } from "awaitly";
+
+const TEST_CONNECTION_STRING = process.env.TEST_MONGODB_URI ??
+  (process.env.CI ? "mongodb://localhost:27017/test_awaitly" : undefined);
+const shouldSkip = !TEST_CONNECTION_STRING && !process.env.CI;
+
+describe.skipIf(shouldSkip)("Integration with durable.run", () => {
+  it(
+    "should work with durable.run",
+    async () => {
+      const connectionString = TEST_CONNECTION_STRING || "mongodb://localhost:27017/test_awaitly";
+      const store = await createMongoPersistence({
+        connectionString,
+        collection: `test_integration_${Date.now()}`,
+      });
+
+      // Test basic store operations first
+      await store.save("test-key", { steps: new Map() }, { test: true });
+      const loaded = await store.load("test-key");
+      expect(loaded).toBeDefined();
+
+      // Define a simple workflow
+      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> => {
+        if (id === "123") {
+          return ok({ id: "123", name: "Alice" });
+        }
+        return err("NOT_FOUND");
+      };
+
+      const createOrder = async (user: { id: string; name: string }): AsyncResult<{ id: string; userId: string }, "EMPTY"> => {
+        return ok({ id: "order-1", userId: user.id });
+      };
+
+      // Run workflow
+      const result1 = await durable.run(
+        { fetchUser, createOrder },
+        async (step, { fetchUser, createOrder }) => {
+          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          const order = await step(() => createOrder(user), { key: "create-order" });
+          return order;
+        },
+        {
+          id: `test-workflow-${Date.now()}`,
+          store,
+        }
+      );
+
+      if (!result1.ok) {
+        console.error("Workflow failed:", result1.error);
+      }
+      expect(result1.ok).toBe(true);
+      if (result1.ok) {
+        expect(result1.value.id).toBe("order-1");
+      }
+
+      // Clean up
+      await store.delete("test-key");
+    },
+    20000 // 20 second timeout
+  );
+});

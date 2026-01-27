@@ -74,6 +74,11 @@ export default defineConfig({
     // Streaming
     // =========================================================================
     streaming: 'src/streaming-entry.ts',
+
+    // =========================================================================
+    // Functional programming utilities
+    // =========================================================================
+    functional: 'src/functional-entry.ts',
   },
   format: ['cjs', 'esm'],
   dts: true,

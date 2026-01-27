@@ -195,6 +195,87 @@ Timeline:
 ├── Attempt 3 ──────────────► timeout at 2s (or success!)
 ```
 
+## step.sleep - pause execution
+
+Pause execution for a specified duration. Use for intentional delays between operations (rate limiting, polling intervals, debouncing). Respects workflow cancellation.
+
+### Basic usage
+
+```typescript
+// String duration
+await step.sleep("5s", { name: "rate-limit-delay" });
+
+// Duration object
+import { seconds, millis } from 'awaitly/workflow';
+await step.sleep(seconds(5), { key: "my-sleep" });
+await step.sleep(millis(100));
+```
+
+### With options
+
+```typescript
+await step.sleep("2s", {
+  name: "Polling delay",      // For visualization/logging
+  key: "poll-delay",          // For caching/deduplication
+  ttl: 5000,                  // Cache TTL in milliseconds
+  description: "Wait before next poll attempt"
+});
+```
+
+### Rate limiting example
+
+```typescript
+const result = await workflow(async (step) => {
+  const data = await step(() => fetchData());
+  
+  // Respect rate limits - wait 1 second between requests
+  await step.sleep("1s", { name: "Rate limit delay" });
+  
+  const moreData = await step(() => fetchMoreData());
+  return { data, moreData };
+});
+```
+
+### Polling example
+
+```typescript
+const result = await workflow(async (step) => {
+  let status = await step(() => checkStatus());
+  
+  // Poll every 2 seconds until complete
+  while (status !== "complete") {
+    await step.sleep("2s", { name: "Poll interval" });
+    status = await step(() => checkStatus());
+  }
+  
+  return status;
+});
+```
+
+### Cancellation
+
+`step.sleep` respects workflow cancellation. If the workflow is cancelled during sleep, it throws an `AbortError`:
+
+```typescript
+const controller = new AbortController();
+const workflow = createWorkflow({}, { signal: controller.signal });
+
+const resultPromise = workflow(async (step) => {
+  await step.sleep("10s", { name: "Long sleep" });
+  return "completed";
+});
+
+// Cancel after 1 second
+setTimeout(() => controller.abort(), 1000);
+
+const result = await resultPromise;
+// result.ok is false, error is WorkflowCancelledError
+```
+
+<Aside type="tip" title="Duration formats">
+You can use string durations like `"5s"`, `"100ms"`, `"2m"`, or Duration objects from `awaitly/workflow` like `seconds(5)`, `millis(100)`.
+</Aside>
+
 ## Parallel steps
 
 Run multiple steps concurrently:
@@ -268,6 +349,7 @@ See [Visualization](../../guides/visualization/) for details.
 | `step.fromResult(fn, opts)` | Need to transform Result errors |
 | `step.retry(fn, opts)` | Operation might fail transiently |
 | `step.withTimeout(fn, opts)` | Operation might hang |
+| `step.sleep(duration, opts)` | Need intentional delay (rate limiting, polling) |
 
 ## Next
 

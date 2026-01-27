@@ -28,6 +28,7 @@ import {
   isWorkflowCancelled,
   WorkflowCancelledError,
 } from "./workflow-entry";
+import { createMemoryCache } from "./persistence";
 
 describe("run() - do-notation style", () => {
   it("executes steps sequentially and returns final value", async () => {
@@ -2142,6 +2143,231 @@ describe("createWorkflow()", () => {
       expect(stepStartEvents).toHaveLength(0);
       expect(stepErrorEvents).toHaveLength(0);
       expect(cacheHitEvents).toHaveLength(1);
+    });
+
+    it("respects per-step TTL in step options", async () => {
+      vi.useFakeTimers();
+
+      let callCount = 0;
+      const expensiveOp = async (): AsyncResult<number, "ERROR"> => {
+        callCount++;
+        return ok(callCount);
+      };
+
+      const cache = createMemoryCache({ ttl: 10000 }); // Global 10s TTL
+      const workflow = createWorkflow({ expensiveOp }, { cache });
+
+      // First run with short TTL
+      const result1 = await workflow(async (step) => {
+        return await step(() => expensiveOp(), { key: "op:1", ttl: 500 }); // 500ms TTL
+      });
+
+      expect(result1.ok).toBe(true);
+      if (result1.ok) expect(result1.value).toBe(1);
+
+      // Immediately run again - should hit cache
+      const result2 = await workflow(async (step) => {
+        return await step(() => expensiveOp(), { key: "op:1", ttl: 500 });
+      });
+
+      expect(result2.ok).toBe(true);
+      if (result2.ok) expect(result2.value).toBe(1); // Cached
+      expect(callCount).toBe(1);
+
+      // Advance time past per-step TTL but within global TTL
+      vi.advanceTimersByTime(600);
+
+      // Run again - should NOT hit cache (per-step TTL expired)
+      const result3 = await workflow(async (step) => {
+        return await step(() => expensiveOp(), { key: "op:1", ttl: 500 });
+      });
+
+      expect(result3.ok).toBe(true);
+      if (result3.ok) expect(result3.value).toBe(2); // Fresh call
+      expect(callCount).toBe(2);
+
+      vi.useRealTimers();
+    });
+
+    it("per-step TTL overrides global cache TTL", async () => {
+      vi.useFakeTimers();
+
+      let callCount = 0;
+      const expensiveOp = async (): AsyncResult<number, "ERROR"> => {
+        callCount++;
+        return ok(callCount);
+      };
+
+      const cache = createMemoryCache({ ttl: 500 }); // Short global TTL
+      const workflow = createWorkflow({ expensiveOp }, { cache });
+
+      // Set entry with longer per-step TTL
+      const result1 = await workflow(async (step) => {
+        return await step(() => expensiveOp(), { key: "long-ttl", ttl: 5000 }); // 5s TTL
+      });
+
+      expect(result1.ok).toBe(true);
+      if (result1.ok) expect(result1.value).toBe(1);
+
+      // Advance time past global TTL but within per-step TTL
+      vi.advanceTimersByTime(600);
+
+      // Should still hit cache (per-step TTL overrides global)
+      const result2 = await workflow(async (step) => {
+        return await step(() => expensiveOp(), { key: "long-ttl", ttl: 5000 });
+      });
+
+      expect(result2.ok).toBe(true);
+      if (result2.ok) expect(result2.value).toBe(1); // Still cached
+      expect(callCount).toBe(1);
+
+      // Advance past per-step TTL
+      vi.advanceTimersByTime(5000);
+
+      const result3 = await workflow(async (step) => {
+        return await step(() => expensiveOp(), { key: "long-ttl", ttl: 5000 });
+      });
+
+      expect(result3.ok).toBe(true);
+      if (result3.ok) expect(result3.value).toBe(2); // Fresh call
+      expect(callCount).toBe(2);
+
+      vi.useRealTimers();
+    });
+
+    it("supports TTL in step.try", async () => {
+      vi.useFakeTimers();
+
+      let callCount = 0;
+
+      const cache = createMemoryCache();
+      const workflow = createWorkflow({}, { cache });
+
+      const result1 = await workflow(async (step) => {
+        return await step.try(
+          () => {
+            callCount++;
+            return callCount;
+          },
+          { error: "ERROR" as const, key: "try:1", ttl: 500 }
+        );
+      });
+
+      expect(result1.ok).toBe(true);
+      if (result1.ok) expect(result1.value).toBe(1);
+
+      // Immediate retry - should hit cache
+      const result2 = await workflow(async (step) => {
+        return await step.try(
+          () => {
+            callCount++;
+            return callCount;
+          },
+          { error: "ERROR" as const, key: "try:1", ttl: 500 }
+        );
+      });
+
+      expect(result2.ok).toBe(true);
+      if (result2.ok) expect(result2.value).toBe(1); // Cached
+      expect(callCount).toBe(1);
+
+      // Advance past TTL
+      vi.advanceTimersByTime(600);
+
+      const result3 = await workflow(async (step) => {
+        return await step.try(
+          () => {
+            callCount++;
+            return callCount;
+          },
+          { error: "ERROR" as const, key: "try:1", ttl: 500 }
+        );
+      });
+
+      expect(result3.ok).toBe(true);
+      if (result3.ok) expect(result3.value).toBe(2); // Fresh call
+      expect(callCount).toBe(2);
+
+      vi.useRealTimers();
+    });
+
+    it("supports TTL in step.fromResult", async () => {
+      vi.useFakeTimers();
+
+      let callCount = 0;
+      const resultOp = async (): AsyncResult<number, "RESULT_ERROR"> => {
+        callCount++;
+        return ok(callCount);
+      };
+
+      const cache = createMemoryCache();
+      const workflow = createWorkflow({}, { cache });
+
+      const result1 = await workflow(async (step) => {
+        return await step.fromResult(
+          () => resultOp(),
+          { error: "MAPPED_ERROR" as const, key: "from:1", ttl: 500 }
+        );
+      });
+
+      expect(result1.ok).toBe(true);
+      if (result1.ok) expect(result1.value).toBe(1);
+
+      // Immediate retry - should hit cache
+      const result2 = await workflow(async (step) => {
+        return await step.fromResult(
+          () => resultOp(),
+          { error: "MAPPED_ERROR" as const, key: "from:1", ttl: 500 }
+        );
+      });
+
+      expect(result2.ok).toBe(true);
+      if (result2.ok) expect(result2.value).toBe(1); // Cached
+      expect(callCount).toBe(1);
+
+      // Advance past TTL
+      vi.advanceTimersByTime(600);
+
+      const result3 = await workflow(async (step) => {
+        return await step.fromResult(
+          () => resultOp(),
+          { error: "MAPPED_ERROR" as const, key: "from:1", ttl: 500 }
+        );
+      });
+
+      expect(result3.ok).toBe(true);
+      if (result3.ok) expect(result3.value).toBe(2); // Fresh call
+      expect(callCount).toBe(2);
+
+      vi.useRealTimers();
+    });
+
+    it("works without TTL (backward compatibility)", async () => {
+      let callCount = 0;
+      const expensiveOp = async (): AsyncResult<number, "ERROR"> => {
+        callCount++;
+        return ok(callCount);
+      };
+
+      const cache = createMemoryCache(); // No global TTL
+      const workflow = createWorkflow({ expensiveOp }, { cache });
+
+      // First run without TTL
+      const result1 = await workflow(async (step) => {
+        return await step(() => expensiveOp(), { key: "op:1" }); // No TTL
+      });
+
+      expect(result1.ok).toBe(true);
+      if (result1.ok) expect(result1.value).toBe(1);
+
+      // Second run - should hit cache (entries without TTL don't expire)
+      const result2 = await workflow(async (step) => {
+        return await step(() => expensiveOp(), { key: "op:1" });
+      });
+
+      expect(result2.ok).toBe(true);
+      if (result2.ok) expect(result2.value).toBe(1); // Cached
+      expect(callCount).toBe(1);
     });
   });
 
@@ -5069,5 +5295,206 @@ describe("createWorkflow with execution-time options", () => {
 
     expect(result.ok).toBe(true);
     expect(events.length).toBeGreaterThan(0);
+  });
+});
+
+// =============================================================================
+// step.sleep() Tests
+// =============================================================================
+
+describe("step.sleep() method", () => {
+  it("completes after specified duration (string)", async () => {
+    const startTime = Date.now();
+    const result = await run(async (step) => {
+      await step.sleep("100ms", { name: "short-sleep" });
+      return Date.now() - startTime;
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toBeGreaterThanOrEqual(90); // Allow timing variance
+    }
+  });
+
+  it("completes after specified duration (Duration object)", async () => {
+    const { millis } = await import("./duration");
+    const startTime = Date.now();
+    const result = await run(async (step) => {
+      await step.sleep(millis(100), { name: "short-sleep" });
+      return Date.now() - startTime;
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toBeGreaterThanOrEqual(90);
+    }
+  });
+
+  it("respects workflow cancellation", async () => {
+    const controller = new AbortController();
+
+    const workflow = createWorkflow({}, { signal: controller.signal });
+
+    const resultPromise = workflow.run(async (step) => {
+      await step.sleep("5s", { name: "long-sleep" });
+      return "completed";
+    });
+
+    // Cancel after 50ms
+    setTimeout(() => controller.abort(), 50);
+
+    const result = await resultPromise;
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(isWorkflowCancelled(result.error)).toBe(true);
+    }
+  });
+
+  it("handles invalid duration string as unexpected error", async () => {
+    const result = await run(async (step) => {
+      await step.sleep("invalid", { name: "bad-sleep" });
+      return "completed";
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(isUnexpectedError(result.error)).toBe(true);
+    }
+  });
+
+  it("emits step events", async () => {
+    const events: WorkflowEvent<unknown>[] = [];
+
+    await run(
+      async (step) => {
+        await step.sleep("10ms", { name: "test-sleep" });
+      },
+      { onEvent: (e) => events.push(e) }
+    );
+
+    const stepStart = events.find(
+      (e) => e.type === "step_start" && e.name === "test-sleep"
+    );
+    const stepSuccess = events.find(
+      (e) => e.type === "step_success" && e.name === "test-sleep"
+    );
+
+    expect(stepStart).toBeDefined();
+    expect(stepSuccess).toBeDefined();
+  });
+
+  it("works with createWorkflow", async () => {
+    const workflow = createWorkflow();
+    const startTime = Date.now();
+
+    const result = await workflow.run(async (step) => {
+      await step.sleep("50ms", { name: "workflow-sleep" });
+      return Date.now() - startTime;
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toBeGreaterThanOrEqual(40);
+    }
+  });
+
+  it("default name uses duration string", async () => {
+    const events: WorkflowEvent<unknown>[] = [];
+
+    await run(
+      async (step) => {
+        await step.sleep("25ms");
+      },
+      { onEvent: (e) => events.push(e) }
+    );
+
+    const stepStart = events.find((e) => e.type === "step_start");
+    expect(stepStart).toBeDefined();
+    if (stepStart && stepStart.type === "step_start") {
+      expect(stepStart.name).toBe("sleep 25ms");
+    }
+  });
+
+  it("caches sleep steps by key", async () => {
+    const events: WorkflowEvent<unknown>[] = [];
+    const cache = createMemoryCache();
+    const workflow = createWorkflow(
+      {},
+      { cache, onEvent: (e) => events.push(e) }
+    );
+
+    // First run - cache miss, actually sleeps
+    const result1 = await workflow(async (step) => {
+      await step.sleep("10ms", { key: "sleep:1" });
+      return "done";
+    });
+    expect(result1.ok).toBe(true);
+
+    const cacheMissEvents = events.filter((e) => e.type === "step_cache_miss");
+    expect(cacheMissEvents).toHaveLength(1);
+
+    // Clear events
+    events.length = 0;
+
+    // Second run - cache hit, should not actually sleep
+    const result2 = await workflow(async (step) => {
+      await step.sleep("10ms", { key: "sleep:1" });
+      return "done";
+    });
+    expect(result2.ok).toBe(true);
+
+    // Should have cache hit event
+    const cacheHitEvents = events.filter((e) => e.type === "step_cache_hit");
+    expect(cacheHitEvents).toHaveLength(1);
+  });
+});
+
+describe("Double-wrap detection", () => {
+  it("demonstrates the double-wrap mistake pattern", async () => {
+    // This test demonstrates what happens when users mistakenly return ok()
+    // from the workflow executor - the value gets double-wrapped
+    const result = await run(async (step) => {
+      const value = await step(() => ok(42));
+      return ok({ answer: value }); // MISTAKE: returning ok() from executor
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Double-wrapped: result.value is { ok: true, value: { answer: 42 } }
+      expect(result.value).toHaveProperty("ok", true);
+      expect((result.value as { ok: boolean; value: { answer: number } }).value.answer).toBe(42);
+      // The symptom: direct property access returns undefined!
+      expect((result.value as { answer?: number }).answer).toBeUndefined();
+    }
+  });
+
+  it("shows correct pattern: returning raw value", async () => {
+    // This test demonstrates the correct pattern - return raw values
+    const result = await run(async (step) => {
+      const value = await step(() => ok(42));
+      return { answer: value }; // CORRECT: return raw value
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.answer).toBe(42);
+    }
+  });
+
+  it("shows the symptom with createWorkflow too", async () => {
+    const fetchNumber = async (): AsyncResult<number, "ERROR"> => ok(42);
+    const workflow = createWorkflow({ fetchNumber });
+
+    const result = await workflow(async (step, { fetchNumber }) => {
+      const num = await step(fetchNumber());
+      return ok({ data: num }); // MISTAKE
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Double-wrapped
+      expect(result.value).toHaveProperty("ok", true);
+      expect((result.value as { data?: number }).data).toBeUndefined();
+    }
   });
 });

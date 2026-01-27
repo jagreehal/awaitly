@@ -408,6 +408,42 @@ if (!result.ok) {
 }
 ```
 
+### Returning `ok()` from workflow executor (double-wrapping)
+
+A common mistake: workflow executors should return **raw values**, not `ok()`.
+
+<Tabs>
+  <TabItem label="Problem">
+```typescript
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser('1'));
+  return ok({ user });  // Wrong! Causes double-wrapping
+});
+// result.value is { ok: true, value: { user: ... } }
+// result.value.user is undefined!
+```
+  </TabItem>
+  <TabItem label="Solution">
+```typescript
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser('1'));
+  return { user };  // Correct: return raw value
+});
+// result.value is { user: ... }
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="caution" title="Why this happens">
+awaitly automatically wraps your return value in `ok()`. If you return `ok({ user })`, the final result becomes `ok(ok({ user }))` - nested Results.
+
+**Symptom**: `result.value.response` returns `undefined` even though data exists (it's at `result.value.value.response`).
+</Aside>
+
+**Mental model:**
+- **step()** accepts `Result | AsyncResult` and unwraps them
+- **Workflow executors** return raw values; awaitly wraps them
+
 ## Getting Help
 
 If you're still stuck:

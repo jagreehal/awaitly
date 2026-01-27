@@ -37,6 +37,14 @@ step.try(fn, { onError })           // Dynamic error from caught value
 step.try(fn, { error, name, key })  // With tracing options
 ```
 
+### step.sleep
+
+```typescript
+step.sleep(duration, options?)       // Pause execution for duration
+// duration: string ("5s", "100ms") | Duration object
+// options: { name?, key?, ttl?, description? }
+```
+
 ### Low-level run
 
 ```typescript
@@ -129,6 +137,114 @@ await notifyEmail({ name: 'Bob' });
 - Async functions returning promises
 - Functions returning `Result<T, E>` or `AsyncResult<T, E>`
 - Complex object types for both args and deps
+
+### pipe
+
+Left-to-right function composition. Pipe a value through a series of functions.
+
+```typescript
+import { pipe } from 'awaitly/functional';
+
+pipe(value, fn1, fn2, fn3)           // Transform value through functions
+pipe(result, R.map(fn), R.flatMap(fn)) // With Result combinators
+```
+
+### flow
+
+Compose functions left-to-right, returning a new function.
+
+```typescript
+import { flow } from 'awaitly/functional';
+
+flow(fn1, fn2, fn3)                  // Returns composed function
+const transform = flow(double, addOne);
+```
+
+### compose
+
+Compose functions right-to-left (opposite of flow).
+
+```typescript
+import { compose } from 'awaitly/functional';
+
+compose(fn1, fn2, fn3)                // Returns composed function (right-to-left)
+```
+
+### identity
+
+Identity function - returns its argument unchanged.
+
+```typescript
+import { identity } from 'awaitly/functional';
+
+identity(value)                       // Returns value unchanged
+```
+
+### Result Combinators (Sync)
+
+```typescript
+import { map, flatMap, bimap, mapError, tap, tapError, match, recover, recoverWith, getOrElse, getOrElseLazy } from 'awaitly/functional';
+
+map(result, fn)                      // Transform success value
+flatMap(result, fn)                  // Transform and flatten (chain)
+bimap(result, onOk, onErr)           // Transform both value and error
+mapError(result, fn)                 // Transform error value
+tap(result, fn)                      // Side effect on success
+tapError(result, fn)                 // Side effect on error
+match(result, { ok, err })           // Pattern match
+recover(result, fn)                  // Recover with fallback value
+recoverWith(result, fn)              // Recover with Result
+getOrElse(result, defaultValue)      // Get value or default
+getOrElseLazy(result, fn)            // Get value or compute default lazily
+```
+
+### Result Combinators (Async)
+
+```typescript
+import { mapAsync, flatMapAsync, tapAsync, tapErrorAsync } from 'awaitly/functional';
+
+mapAsync(result, fn)                  // Transform success value asynchronously
+flatMapAsync(result, fn)              // Async flatMap
+tapAsync(result, fn)                  // Async side effect on success
+tapErrorAsync(result, fn)            // Async side effect on error
+```
+
+### Collection Utilities
+
+```typescript
+import { all, allAsync, allSettled, allSettledAsync, any, anyAsync, race, traverse, traverseAsync, traverseParallel } from 'awaitly/functional';
+
+all(results)                         // All succeed (sync, short-circuits)
+allAsync(results)                    // All succeed (async, parallel, fails fast)
+allSettled(results)                  // Collect all (sync, separates ok/err)
+allSettledAsync(results)             // Collect all (async, separates ok/err)
+any(results)                         // First success (sync)
+anyAsync(results)                    // First success (async, returns immediately)
+race(results)                        // First to complete wins
+traverse(items, fn)                  // Sequence through function (stops on error)
+traverseAsync(items, fn)             // Async sequence
+traverseParallel(items, fn)          // Parallel execution, fails fast
+```
+
+### R namespace (Pipeable)
+
+Curried Result combinators for use in `pipe()`.
+
+```typescript
+import { R } from 'awaitly/functional';
+
+R.map(fn)                            // Curried map
+R.flatMap(fn)                        // Curried flatMap
+R.bimap(onOk, onErr)                 // Curried bimap
+R.mapError(fn)                       // Curried mapError
+R.tap(fn)                            // Curried tap
+R.tapError(fn)                       // Curried tapError
+R.match({ ok, err })                 // Curried match
+R.recover(fn)                        // Curried recover
+R.recoverWith(fn)                    // Curried recoverWith
+R.getOrElse(defaultValue)            // Curried getOrElse
+R.getOrElseLazy(fn)                  // Curried getOrElseLazy
+```
 
 ## Batch Operations
 
@@ -581,3 +697,943 @@ AnalysisWarning                     // Analysis warning
 AnalysisStats                       // Step/conditional/parallel counts
 AnalyzerOptions                     // Analyzer configuration
 ```
+
+## Export Index (Complete)
+
+This section is a mechanically-complete index of all public exports (grouped by entrypoint).
+It exists to ensure the reference stays exhaustive even as the API grows.
+
+```text
+[awaitly] (118)
+- Duration
+- DurationType
+- PROMISE_REJECTED
+- STEP_TIMEOUT_MARKER
+- TaggedError
+- UNEXPECTED_ERROR
+- UnwrapError
+- all
+- allAsync
+- allSettled
+- allSettledAsync
+- andThen
+- any
+- anyAsync
+- bimap
+- createResumeStateCollector
+- createWorkflow
+- days
+- err
+- from
+- fromNullable
+- fromPromise
+- getStepTimeoutMeta
+- hours
+- hydrate
+- isDuration
+- isErr
+- isOk
+- isPromiseRejectedError
+- isSerializedResult
+- isStepComplete
+- isStepTimeoutError
+- isUnexpectedError
+- isWorkflowCancelled
+- map
+- mapError
+- mapErrorTry
+- mapTry
+- match
+- matchError
+- millis
+- minutes
+- ok
+- orElse
+- orElseAsync
+- partition
+- pendingApproval
+- recover
+- recoverAsync
+- run
+- seconds
+- tap
+- tapError
+- toDays
+- toHours
+- toMillis
+- toMinutes
+- toSeconds
+- tryAsync
+- type AnyResultFn
+- type AsyncResult
+- type BackoffStrategy
+- type CauseOf
+- type CausesOfDeps
+- type EmptyInputError
+- type Err
+- type ErrorByTag
+- type ErrorOf
+- type Errors
+- type ErrorsOfDeps
+- type ExecutionOptions
+- type ExecutionOptionsStrict
+- type ExtractCause
+- type ExtractError
+- type ExtractValue
+- type MatchErrorHandlers
+- type MaybeAsyncResult
+- type Ok
+- type PromiseRejectedError
+- type PromiseRejectionCause
+- type PropsOf
+- type Result
+- type ResumeState
+- type ResumeStateEntry
+- type RetryOptions
+- type RunOptions
+- type RunOptionsWithCatch
+- type RunOptionsWithoutCatch
+- type RunStep
+- type ScopeType
+- type SettledError
+- type StepCache
+- type StepOptions
+- type StepTimeoutError
+- type StepTimeoutMarkerMeta
+- type TagOf
+- type TaggedErrorBase
+- type TaggedErrorConstructor
+- type TaggedErrorCreateOptions
+- type TaggedErrorOptions
+- type TimeoutOptions
+- type UnexpectedCause
+- type UnexpectedError
+- type UnexpectedStepFailureCause
+- type Workflow
+- type WorkflowCancelledError
+- type WorkflowContext
+- type WorkflowEvent
+- type WorkflowFn
+- type WorkflowFnWithArgs
+- type WorkflowOptions
+- type WorkflowOptionsStrict
+- type WorkflowStrict
+- unwrap
+- unwrapOr
+- unwrapOrElse
+- zip
+- zipAsync
+
+[awaitly/adapters] (10)
+- fromCallback
+- fromEvent
+- isEventEmitterLike
+- isEventTimeoutError
+- isInvalidEmitterError
+- type EventConfig
+- type EventEmitterLike
+- type EventTimeoutError
+- type InvalidEmitterError
+- type NodeCallback
+
+[awaitly/batch] (8)
+- BatchConfig
+- BatchOptions
+- BatchProcessingError
+- BatchProgress
+- InvalidBatchConfigError
+- batchPresets
+- isBatchProcessingError
+- isInvalidBatchConfigError
+
+[awaitly/bind-deps] (1)
+- bindDeps
+
+[awaitly/cache] (14)
+- cached
+- cachedFunction
+- cachedWithTTL
+- createCache
+- createCache
+- once
+- type Cache
+- type CacheConfig
+- type CacheEntry
+- type CacheOptions
+- type CacheStats
+- type CachedFunctionOptions
+- type DurationInput
+- type MemoizedFunction
+- type OnceFunction
+
+[awaitly/circuit-breaker] (8)
+- CircuitOpenError
+- circuitBreakerPresets
+- createCircuitBreaker
+- isCircuitOpenError
+- type CircuitBreaker
+- type CircuitBreakerConfig
+- type CircuitBreakerStats
+- type CircuitState
+
+[awaitly/conditional] (7)
+- createConditionalHelpers
+- type ConditionalContext
+- type ConditionalOptions
+- unless
+- unlessOr
+- when
+- whenOr
+
+[awaitly/core] (74)
+- Match
+- TaggedError
+- UnwrapError
+- all
+- allAsync
+- allSettled
+- allSettledAsync
+- andThen
+- any
+- anyAsync
+- bimap
+- err
+- exhaustive
+- from
+- fromNullable
+- fromPromise
+- hydrate
+- isErr
+- isOk
+- isOneOf
+- isSerializedResult
+- isTag
+- isUnexpectedError
+- map
+- mapError
+- mapErrorTry
+- mapTry
+- match
+- matchError
+- matchOrElse
+- matchTag
+- matchTags
+- matchValue
+- ok
+- orElse
+- orElseAsync
+- orElseValue
+- partition
+- recover
+- recoverAsync
+- tap
+- tapError
+- tryAsync
+- type AsyncResult
+- type CauseOf
+- type EmptyInputError
+- type Err
+- type ErrorByTag
+- type ErrorOf
+- type Errors
+- type ExtractCause
+- type ExtractError
+- type ExtractValue
+- type MatchErrorHandlers
+- type Matcher
+- type MaybeAsyncResult
+- type Ok
+- type PromiseRejectedError
+- type PromiseRejectionCause
+- type PropsOf
+- type Result
+- type SettledError
+- type TagOf
+- type Tagged
+- type TaggedErrorBase
+- type TaggedErrorConstructor
+- type TaggedErrorCreateOptions
+- type TaggedErrorOptions
+- type UnexpectedCause
+- type UnexpectedError
+- type UnexpectedStepFailureCause
+- unwrap
+- unwrapOr
+- unwrapOrElse
+
+[awaitly/devtools] (10)
+- createConsoleLogger
+- createDevtools
+- quickVisualize
+- renderDiff
+- type Devtools
+- type DevtoolsOptions
+- type RunDiff
+- type StepDiff
+- type TimelineEntry
+- type WorkflowRun
+
+[awaitly/durable] (17)
+- createFileStatePersistence
+- createMemoryStatePersistence
+- durable
+- isConcurrentExecution
+- isPersistenceError
+- isVersionMismatch
+- isWorkflowCancelled
+- type ConcurrentExecutionError
+- type DurableOptions
+- type DurableWorkflowEvent
+- type FileStatePersistenceOptions
+- type FileSystemInterface
+- type MemoryStatePersistenceOptions
+- type PersistenceError
+- type StatePersistence
+- type VersionMismatchError
+- type WorkflowCancelledError
+
+[awaitly/duration] (32)
+- Duration
+- DurationType
+- add
+- clamp
+- days
+- divide
+- equals
+- format
+- greaterThan
+- greaterThanOrEqual
+- hours
+- infinity
+- isDuration
+- isFinite
+- isInfinite
+- isZero
+- lessThan
+- lessThanOrEqual
+- max
+- millis
+- min
+- minutes
+- multiply
+- parse
+- seconds
+- subtract
+- toDays
+- toHours
+- toMillis
+- toMinutes
+- toSeconds
+- zero
+
+[awaitly/errors] (21)
+- CircuitBreakerOpenError
+- CompensationError
+- NetworkError
+- NotFoundError
+- RateLimitError
+- RetryExhaustedError
+- TimeoutError
+- UnauthorizedError
+- ValidationError
+- isAwaitlyError
+- isCircuitBreakerOpenError
+- isCompensationError
+- isNetworkError
+- isNotFoundError
+- isRateLimitError
+- isRetryExhaustedError
+- isTimeoutError
+- isUnauthorizedError
+- isValidationError
+- makeError
+- type AwaitlyError
+
+[awaitly/fetch] (7)
+- fetchArrayBuffer
+- fetchBlob
+- fetchJson
+- fetchText
+- type DefaultFetchError
+- type FetchErrorMapper
+- type FetchOptions
+
+[awaitly/hitl] (33)
+- clearStep
+- createApprovalChecker
+- createApprovalStateCollector
+- createApprovalStep
+- createApprovalWebhookHandler
+- createHITLOrchestrator
+- createMemoryApprovalStore
+- createMemoryWorkflowStateStore
+- gatedStep
+- getPendingApprovals
+- hasPendingApproval
+- injectApproval
+- isApprovalRejected
+- isPendingApproval
+- pendingApproval
+- type ApprovalNeededContext
+- type ApprovalRejected
+- type ApprovalResolvedContext
+- type ApprovalStatus
+- type ApprovalStepOptions
+- type ApprovalStore
+- type ApprovalWebhookRequest
+- type ApprovalWebhookResponse
+- type GatedStepOptions
+- type HITLExecutionResult
+- type HITLOrchestrator
+- type HITLOrchestratorOptions
+- type HITLWorkflowFactoryOptions
+- type NotificationChannel
+- type PendingApproval
+- type PollerOptions
+- type SavedWorkflowState
+- type WorkflowStateStore
+
+[awaitly/match] (11)
+- Match
+- exhaustive
+- isOneOf
+- isTag
+- matchOrElse
+- matchTag
+- matchTags
+- matchValue
+- orElseValue
+- type Matcher
+- type Tagged
+
+[awaitly/otel] (7)
+- createAutotelAdapter
+- createAutotelEventHandler
+- type AutotelAdapter
+- type AutotelAdapterConfig
+- type AutotelMetrics
+- type AutotelTraceFn
+- withAutotelTracing
+
+[awaitly/persistence] (46)
+- composeMigrations
+- createFileCache
+- createHydratingCache
+- createKVCache
+- createKeyRemoveMigration
+- createKeyRenameMigration
+- createMemoryCache
+- createStatePersistence
+- createValueTransformMigration
+- createVersionedState
+- createVersionedStateLoader
+- deserializeCause
+- deserializeEntry
+- deserializeMeta
+- deserializeResult
+- deserializeState
+- isMigrationError
+- isVersionIncompatibleError
+- migrateState
+- parseState
+- parseVersionedState
+- serializeCause
+- serializeEntry
+- serializeMeta
+- serializeResult
+- serializeState
+- stringifyState
+- stringifyVersionedState
+- type FileCacheOptions
+- type FileSystemInterface
+- type KVCacheOptions
+- type KeyValueStore
+- type MemoryCacheOptions
+- type MigrationError
+- type MigrationFn
+- type Migrations
+- type SerializedCause
+- type SerializedEntry
+- type SerializedMeta
+- type SerializedResult
+- type SerializedState
+- type StatePersistence
+- type Version
+- type VersionIncompatibleError
+- type VersionedState
+- type VersionedWorkflowConfig
+
+[awaitly/policies] (20)
+- conditionalPolicy
+- createPolicyApplier
+- createPolicyBundle
+- createPolicyRegistry
+- envPolicy
+- mergePolicies
+- retryPolicies
+- retryPolicy
+- servicePolicies
+- stepOptions
+- timeoutPolicies
+- timeoutPolicy
+- type NamedPolicy
+- type Policy
+- type PolicyFactory
+- type PolicyRegistry
+- type StepOptionsBuilder
+- type WithPoliciesOptions
+- withPolicies
+- withPolicy
+
+[awaitly/ratelimit] (23)
+- createCombinedLimiter
+- createConcurrencyLimiter
+- createCostBasedRateLimiter
+- createFixedWindowLimiter
+- createRateLimiter
+- isQueueFullError
+- isRateLimitExceededError
+- rateLimiterPresets
+- type CombinedLimiterConfig
+- type ConcurrencyLimiter
+- type ConcurrencyLimiterConfig
+- type ConcurrencyLimiterStats
+- type CostBasedRateLimiter
+- type CostBasedRateLimiterConfig
+- type CostBasedRateLimiterStats
+- type FixedWindowLimiter
+- type FixedWindowLimiterConfig
+- type FixedWindowLimiterStats
+- type QueueFullError
+- type RateLimitExceededError
+- type RateLimiter
+- type RateLimiterConfig
+- type RateLimiterStats
+
+[awaitly/reliability] (61)
+- CircuitOpenError
+- circuitBreakerPresets
+- conditionalPolicy
+- createCircuitBreaker
+- createCombinedLimiter
+- createConcurrencyLimiter
+- createCostBasedRateLimiter
+- createFixedWindowLimiter
+- createPolicyApplier
+- createPolicyBundle
+- createPolicyRegistry
+- createRateLimiter
+- createSagaWorkflow
+- envPolicy
+- isCircuitOpenError
+- isQueueFullError
+- isRateLimitExceededError
+- isSagaCompensationError
+- mergePolicies
+- rateLimiterPresets
+- retryPolicies
+- retryPolicy
+- runSaga
+- servicePolicies
+- stepOptions
+- timeoutPolicies
+- timeoutPolicy
+- type CircuitBreaker
+- type CircuitBreakerConfig
+- type CircuitBreakerStats
+- type CircuitState
+- type CombinedLimiterConfig
+- type CompensationAction
+- type ConcurrencyLimiter
+- type ConcurrencyLimiterConfig
+- type ConcurrencyLimiterStats
+- type CostBasedRateLimiter
+- type CostBasedRateLimiterConfig
+- type CostBasedRateLimiterStats
+- type FixedWindowLimiter
+- type FixedWindowLimiterConfig
+- type FixedWindowLimiterStats
+- type NamedPolicy
+- type Policy
+- type PolicyFactory
+- type PolicyRegistry
+- type QueueFullError
+- type RateLimitExceededError
+- type RateLimiter
+- type RateLimiterConfig
+- type RateLimiterStats
+- type SagaCompensationError
+- type SagaContext
+- type SagaEvent
+- type SagaResult
+- type SagaStepOptions
+- type SagaWorkflowOptions
+- type StepOptionsBuilder
+- type WithPoliciesOptions
+- withPolicies
+- withPolicy
+
+[awaitly/resource] (5)
+- Resource
+- ResourceCleanupError
+- ResourceScope
+- createResourceScope
+- isResourceCleanupError
+
+[awaitly/retry] (44)
+- Duration
+- DurationType
+- Schedule
+- ScheduleDecision
+- ScheduleState
+- ScheduleType
+- addDelay
+- andThen
+- days
+- delays
+- exponential
+- fibonacci
+- fixed
+- forever
+- hours
+- intersect
+- isDuration
+- jittered
+- linear
+- map
+- maxDelay
+- millis
+- minDelay
+- minutes
+- modifyDelay
+- once
+- recurs
+- run
+- seconds
+- spaced
+- stop
+- tap
+- toDays
+- toHours
+- toMillis
+- toMinutes
+- toSeconds
+- union
+- untilInput
+- untilOutput
+- upTo
+- upToElapsed
+- whileInput
+- whileOutput
+
+[awaitly/saga] (10)
+- createSagaWorkflow
+- isSagaCompensationError
+- runSaga
+- type CompensationAction
+- type SagaCompensationError
+- type SagaContext
+- type SagaEvent
+- type SagaResult
+- type SagaStepOptions
+- type SagaWorkflowOptions
+
+[awaitly/singleflight] (3)
+- createSingleflightGroup
+- singleflight
+- type SingleflightOptions
+
+[awaitly/streaming] (66)
+- AsyncTransformFn
+- BackpressureCallback
+- BackpressureController
+- BackpressureOptions
+- BackpressureState
+- ExternalReaderOptions
+- FileStreamStoreOptions
+- FileSystemInterface
+- FilterFn
+- MemoryStreamStoreOptions
+- STREAM_BACKPRESSURE_ERROR
+- STREAM_CLOSE_ERROR
+- STREAM_ENDED
+- STREAM_READ_ERROR
+- STREAM_STORE_ERROR
+- STREAM_WRITE_ERROR
+- StreamBackpressureError
+- StreamCloseError
+- StreamEndedMarker
+- StreamError
+- StreamForEachOptions
+- StreamForEachResult
+- StreamItem
+- StreamMetadata
+- StreamOptions
+- StreamReadError
+- StreamReadOptions
+- StreamReader
+- StreamStore
+- StreamStoreError
+- StreamWriteError
+- StreamWriter
+- TransformFn
+- Unsubscribe
+- chunk
+- collect
+- createBackpressureController
+- createFileStreamStore
+- createMemoryStreamStore
+- createTestableMemoryStreamStore
+- filter
+- flatMap
+- flatMapAsync
+- getStreamReader
+- isStreamBackpressureError
+- isStreamEnded
+- isStreamReadError
+- isStreamStoreError
+- isStreamWriteError
+- map
+- mapAsync
+- pipe
+- reduce
+- shouldApplyBackpressure
+- skip
+- skipWhile
+- streamBackpressureError
+- streamCloseError
+- streamEnded
+- streamReadError
+- streamStoreError
+- streamWriteError
+- take
+- takeWhile
+- toAsyncIterable
+- type TestableMemoryStreamStore
+
+[awaitly/tagged-error] (8)
+- TaggedError
+- type ErrorByTag
+- type PropsOf
+- type TagOf
+- type TaggedErrorBase
+- type TaggedErrorConstructor
+- type TaggedErrorCreateOptions
+- type TaggedErrorOptions
+
+[awaitly/testing] (34)
+- assertEventEmitted
+- assertEventNotEmitted
+- assertEventSequence
+- compareSnapshots
+- createMockFn
+- createSagaHarness
+- createSnapshot
+- createTestClock
+- createWorkflowHarness
+- errOutcome
+- expectErr
+- expectOk
+- formatEvent
+- formatEvents
+- formatResult
+- okOutcome
+- throwOutcome
+- type AssertionResult
+- type CompensationInvocation
+- type EventAssertionOptions
+- type MockFunction
+- type MockSagaContext
+- type MockStep
+- type SagaHarness
+- type SagaStepOptions
+- type ScriptedOutcome
+- type StepInvocation
+- type TestHarnessOptions
+- type WorkflowHarness
+- type WorkflowSnapshot
+- unwrapErr
+- unwrapErrAsync
+- unwrapOk
+- unwrapOkAsync
+
+[awaitly/visualize] (94)
+- ActiveStepSnapshot
+- BaseNode
+- CollectableEvent
+- ColorScheme
+- DecisionBranch
+- DecisionBranchEvent
+- DecisionEndEvent
+- DecisionEvent
+- DecisionNode
+- DecisionStartEvent
+- EnhancedRenderOptions
+- FlowNode
+- FlowchartRenderOptions
+- HTMLRenderOptions
+- HTMLTheme
+- HeatLevel
+- HeatmapData
+- HookExecution
+- HookLog
+- HookState
+- IRSnapshot
+- LayoutDirection
+- LiveVisualizerOptions
+- LoggerOutput
+- LoggerRenderOptions
+- MermaidRenderOptions
+- NodePerformance
+- OutputFormat
+- ParallelNode
+- RaceNode
+- RenderOptions
+- Renderer
+- ScopeEndEvent
+- ScopeEvent
+- ScopeStartEvent
+- ScopeType
+- SequenceNode
+- ServerMessage
+- StepLog
+- StepNode
+- StepSkippedEvent
+- StepState
+- StreamNode
+- TimeTravelState
+- VisualizerOptions
+- VisualizingWorkflowOptions
+- WebVisualizerMessage
+- WorkflowHooks
+- WorkflowIR
+- WorkflowNode
+- WorkflowSummary
+- WorkflowVisualizer
+- asciiRenderer
+- combineEventHandlers
+- createDevServer
+- createEventCollector
+- createIRBuilder
+- createLiveVisualizer
+- createParallelDetector
+- createPerformanceAnalyzer
+- createTimeTravelController
+- createVisualizer
+- createVisualizingWorkflow
+- defaultColorScheme
+- detectParallelGroups
+- flowchartRenderer
+- getHeatLevel
+- hasChildren
+- htmlRenderer
+- isDecisionNode
+- isParallelNode
+- isRaceNode
+- isSequenceNode
+- isStepNode
+- isStreamNode
+- loggerRenderer
+- mermaidRenderer
+- renderToHTML
+- trackDecision
+- trackIf
+- trackSwitch
+- type DecisionTracker
+- type DevServer
+- type DevServerOptions
+- type IRBuilderOptions
+- type IfTracker
+- type LiveVisualizer
+- type ParallelDetectorOptions
+- type PerformanceAnalyzer
+- type SwitchTracker
+- type TimeTravelController
+- type TimeTravelOptions
+- type WorkflowRun
+- visualizeEvents
+
+[awaitly/webhook] (28)
+- composeValidators
+- createEventHandler
+- createExpressHandler
+- createResultMapper
+- createSimpleHandler
+- createWebhookHandler
+- defaultUnexpectedErrorMapper
+- defaultValidationErrorMapper
+- isValidationError
+- requireFields
+- sendWebhookResponse
+- toWebhookRequest
+- type ErrorMapping
+- type ErrorResponseBody
+- type EventHandler
+- type EventMessage
+- type EventProcessingResult
+- type EventTriggerConfig
+- type ExpressLikeRequest
+- type ExpressLikeResponse
+- type SimpleHandlerConfig
+- type ValidationError
+- type ValidationResult
+- type WebhookHandler
+- type WebhookHandlerConfig
+- type WebhookRequest
+- type WebhookResponse
+- validationError
+
+[awaitly/workflow] (50)
+- Duration
+- DurationType
+- STEP_TIMEOUT_MARKER
+- UNEXPECTED_ERROR
+- createResumeStateCollector
+- createWorkflow
+- days
+- getStepTimeoutMeta
+- hours
+- isDuration
+- isStepComplete
+- isStepTimeoutError
+- isWorkflowCancelled
+- millis
+- minutes
+- run
+- seconds
+- toDays
+- toHours
+- toMillis
+- toMinutes
+- toSeconds
+- type AnyResultFn
+- type BackoffStrategy
+- type CausesOfDeps
+- type ErrorsOfDeps
+- type ExecutionOptions
+- type ExecutionOptionsStrict
+- type ResumeState
+- type ResumeStateEntry
+- type RetryOptions
+- type RunOptions
+- type RunOptionsWithCatch
+- type RunOptionsWithoutCatch
+- type RunStep
+- type ScopeType
+- type StepCache
+- type StepOptions
+- type StepTimeoutError
+- type StepTimeoutMarkerMeta
+- type TimeoutOptions
+- type Workflow
+- type WorkflowCancelledError
+- type WorkflowContext
+- type WorkflowEvent
+- type WorkflowFn
+- type WorkflowFnWithArgs
+- type WorkflowOptions
+- type WorkflowOptionsStrict
+- type WorkflowStrict
+
+```
+

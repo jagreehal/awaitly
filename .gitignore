@@ -105,4 +105,4 @@ src/_analyze/
 
 # Temp
 __temp
-
+tsup.config.bundled_*.mjs

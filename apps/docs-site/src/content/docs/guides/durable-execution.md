@@ -71,9 +71,33 @@ const store = createFileStatePersistence({
 await store.init();
 ```
 
-### Custom Store (Production)
+### PostgreSQL Store (Production)
 
-Implement the `StatePersistence` interface:
+```typescript
+import { createPostgresPersistence } from 'awaitly-postgres';
+
+const store = await createPostgresPersistence({
+  connectionString: process.env.DATABASE_URL,
+});
+```
+
+[Learn more about PostgreSQL persistence →](./postgres-persistence)
+
+### MongoDB Store (Production)
+
+```typescript
+import { createMongoPersistence } from 'awaitly-mongo';
+
+const store = await createMongoPersistence({
+  connectionString: process.env.MONGODB_URI,
+});
+```
+
+[Learn more about MongoDB persistence →](./mongo-persistence)
+
+### Custom Store (Advanced)
+
+Implement the `StatePersistence` interface for other backends:
 
 ```typescript
 import { createStatePersistence } from 'awaitly/persistence';

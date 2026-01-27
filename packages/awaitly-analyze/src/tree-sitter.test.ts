@@ -2343,6 +2343,128 @@ await run(async (step) => {
       });
     });
 
+    describe("step.sleep() detection", () => {
+      it("should detect step.sleep with string duration", async () => {
+        const source = `
+          await run(async (step) => {
+            await step.sleep("5s", { name: "rate-limit-delay" });
+            return "done";
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source, { assumeImported: true });
+        expect(results).toHaveLength(1);
+
+        const root = results[0]?.root;
+        const children = root?.children || [];
+
+        let sleepStep: StaticStepNode | undefined;
+        if (children[0]?.type === "sequence") {
+          sleepStep = (children[0] as StaticSequenceNode).children[0] as StaticStepNode;
+        } else if (children[0]?.type === "step") {
+          sleepStep = children[0] as StaticStepNode;
+        }
+
+        expect(sleepStep?.type).toBe("step");
+        expect(sleepStep?.callee).toBe("step.sleep");
+        expect(sleepStep?.name).toBe("rate-limit-delay");
+      });
+
+      it("should detect step.sleep with Duration object", async () => {
+        const source = `
+          await run(async (step) => {
+            await step.sleep(seconds(5), { key: "my-sleep" });
+            return "done";
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source, { assumeImported: true });
+        expect(results).toHaveLength(1);
+
+        const root = results[0]?.root;
+        const children = root?.children || [];
+
+        let sleepStep: StaticStepNode | undefined;
+        if (children[0]?.type === "sequence") {
+          sleepStep = (children[0] as StaticSequenceNode).children[0] as StaticStepNode;
+        } else if (children[0]?.type === "step") {
+          sleepStep = children[0] as StaticStepNode;
+        }
+
+        expect(sleepStep?.type).toBe("step");
+        expect(sleepStep?.callee).toBe("step.sleep");
+        expect(sleepStep?.key).toBe("my-sleep");
+        // Name should include the Duration call text since no explicit name
+        expect(sleepStep?.name).toBe("sleep seconds(5)");
+      });
+
+      it("should detect step.sleep without options", async () => {
+        const source = `
+          await run(async (step) => {
+            await step.sleep("100ms");
+            return "done";
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source, { assumeImported: true });
+        expect(results).toHaveLength(1);
+
+        const root = results[0]?.root;
+        const children = root?.children || [];
+
+        let sleepStep: StaticStepNode | undefined;
+        if (children[0]?.type === "sequence") {
+          sleepStep = (children[0] as StaticSequenceNode).children[0] as StaticStepNode;
+        } else if (children[0]?.type === "step") {
+          sleepStep = children[0] as StaticStepNode;
+        }
+
+        expect(sleepStep?.type).toBe("step");
+        expect(sleepStep?.callee).toBe("step.sleep");
+        expect(sleepStep?.name).toBe("sleep 100ms");
+      });
+
+      it("should extract description from step.sleep options", async () => {
+        const source = `
+          await run(async (step) => {
+            await step.sleep("2s", {
+              name: "throttle-delay",
+              description: "Rate limiting pause"
+            });
+            return "done";
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source, { assumeImported: true });
+        const root = results[0]?.root;
+        const children = root?.children || [];
+
+        let sleepStep: StaticStepNode | undefined;
+        if (children[0]?.type === "sequence") {
+          sleepStep = (children[0] as StaticSequenceNode).children[0] as StaticStepNode;
+        } else if (children[0]?.type === "step") {
+          sleepStep = children[0] as StaticStepNode;
+        }
+
+        expect(sleepStep?.name).toBe("throttle-delay");
+        expect(sleepStep?.description).toBe("Rate limiting pause");
+      });
+
+      it("should count step.sleep in totalSteps stat", async () => {
+        const source = `
+          await run(async (step) => {
+            await step(() => doFirst());
+            await step.sleep("1s");
+            await step(() => doSecond());
+            return "done";
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source, { assumeImported: true });
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(3);
+      });
+    });
+
     describe("Workflow Documentation Extraction", () => {
       it("should extract description from createWorkflow options", async () => {
         const source = `
@@ -2540,6 +2662,268 @@ Handles the complete checkout process:
         const results = await analyzeWorkflowSource(source);
         expect(results).toHaveLength(1);
         expect(results[0]?.metadata?.stats?.totalSteps).toBe(1);
+      });
+    });
+  });
+
+  describe("Additional Expression Patterns", () => {
+    describe("Promise.all with steps", () => {
+      it("should detect steps inside Promise.all array", async () => {
+        const source = `
+          const myWorkflow = createWorkflow({});
+
+          await myWorkflow(async (step) => {
+            await Promise.all([
+              step(() => fetchUser(), { key: 'user' }),
+              step(() => fetchPosts(), { key: 'posts' }),
+            ]);
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(2);
+
+        // Check the steps are detected
+        const root = results[0]?.root;
+        const sequence = root?.children[0] as StaticSequenceNode;
+        expect(sequence?.type).toBe("sequence");
+
+        // The steps should be in the sequence
+        const steps = sequence?.children.filter((c) => c.type === "step") as StaticStepNode[];
+        expect(steps.length).toBe(2);
+        expect(steps[0]?.key).toBe("user");
+        expect(steps[1]?.key).toBe("posts");
+      });
+
+      it("should detect steps inside nested Promise.all", async () => {
+        const source = `
+          const myWorkflow = createWorkflow({});
+
+          await myWorkflow(async (step) => {
+            const results = await Promise.all([
+              Promise.all([
+                step(() => task1(), { key: 'task1' }),
+                step(() => task2(), { key: 'task2' }),
+              ]),
+              step(() => task3(), { key: 'task3' }),
+            ]);
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(3);
+      });
+    });
+
+    describe("Array.map with steps", () => {
+      it("should detect steps inside .map arrow function", async () => {
+        const source = `
+          const myWorkflow = createWorkflow({});
+
+          await myWorkflow(async (step) => {
+            const items = ['a', 'b', 'c'];
+            await Promise.all(items.map(item =>
+              step(() => processItem(item), { key: \`item-\${item}\` })
+            ));
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        // Should detect the step inside the map callback
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(1);
+      });
+
+      it("should detect steps inside .map with block body", async () => {
+        const source = `
+          const myWorkflow = createWorkflow({});
+
+          await myWorkflow(async (step) => {
+            const items = ['a', 'b', 'c'];
+            await Promise.all(items.map(item => {
+              return step(() => processItem(item), { key: \`item-\${item}\` });
+            }));
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(1);
+      });
+    });
+
+    describe("Ternary expressions with steps", () => {
+      it("should detect steps in ternary expression branches", async () => {
+        const source = `
+          const myWorkflow = createWorkflow({});
+
+          await myWorkflow(async (step) => {
+            const result = condition
+              ? await step(() => fetchFromA(), { key: 'fromA' })
+              : await step(() => fetchFromB(), { key: 'fromB' });
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(2);
+      });
+
+      it("should detect nested ternary steps", async () => {
+        const source = `
+          const myWorkflow = createWorkflow({});
+
+          await myWorkflow(async (step) => {
+            const result = condA
+              ? await step(() => taskA(), { key: 'a' })
+              : condB
+                ? await step(() => taskB(), { key: 'b' })
+                : await step(() => taskC(), { key: 'c' });
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(3);
+      });
+    });
+
+    describe("Nested function expressions", () => {
+      it("should detect steps in nested arrow functions", async () => {
+        const source = `
+          const myWorkflow = createWorkflow({});
+
+          await myWorkflow(async (step) => {
+            const handler = async () => {
+              await step(() => handleEvent(), { key: 'handle' });
+            };
+            await handler();
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(1);
+      });
+
+      it("should detect steps in function expressions", async () => {
+        const source = `
+          const myWorkflow = createWorkflow({});
+
+          await myWorkflow(async (step) => {
+            const handler = async function() {
+              await step(() => handleEvent(), { key: 'handle' });
+            };
+            await handler();
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(1);
+      });
+    });
+
+    describe("Complex real-world patterns", () => {
+      it("should detect steps in AI SDK tool execute patterns", async () => {
+        const source = `
+          const myWorkflow = createWorkflow({});
+
+          await myWorkflow(async (step) => {
+            const result = await generateText({
+              tools: {
+                searchWeb: tool({
+                  execute: async (params) => {
+                    return await step(() => searchAPI(params.query), { key: 'search' });
+                  }
+                }),
+                fetchUrl: tool({
+                  execute: async ({ url }) => {
+                    return await step(() => fetchContent(url), { key: 'fetch' });
+                  }
+                }),
+              }
+            });
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(2);
+      });
+
+      it("should detect steps in forEach-style callbacks", async () => {
+        const source = `
+          const myWorkflow = createWorkflow({});
+
+          await myWorkflow(async (step) => {
+            await someAsyncIterator.forEach(async (item) => {
+              await step(() => process(item), { key: \`process-\${item.id}\` });
+            });
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(1);
+      });
+    });
+
+    describe("Try-catch blocks", () => {
+      it("should detect steps inside try block", async () => {
+        const source = `
+          const myWorkflow = createWorkflow({});
+
+          await myWorkflow(async (step) => {
+            try {
+              await step(() => riskyOperation(), { key: 'risky' });
+            } catch (error) {
+              console.error(error);
+            }
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(1);
+      });
+
+      it("should detect steps in both try and catch blocks", async () => {
+        const source = `
+          const myWorkflow = createWorkflow({});
+
+          await myWorkflow(async (step) => {
+            try {
+              await step(() => riskyOperation(), { key: 'risky' });
+            } catch (error) {
+              await step(() => handleError(error), { key: 'handle-error' });
+            }
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(2);
+      });
+
+      it("should detect steps in finally block", async () => {
+        const source = `
+          const myWorkflow = createWorkflow({});
+
+          await myWorkflow(async (step) => {
+            try {
+              await step(() => doWork(), { key: 'work' });
+            } finally {
+              await step(() => cleanup(), { key: 'cleanup' });
+            }
+          });
+        `;
+
+        const results = await analyzeWorkflowSource(source);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.metadata?.stats?.totalSteps).toBe(2);
       });
     });
   });

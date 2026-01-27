@@ -12,6 +12,7 @@ A `Result<T, E>` represents either success (`ok`) or failure (`err`). It replace
 <Tabs>
   <TabItem label="With Results">
 ```typescript
+// fetchUser returns AsyncResult<User, 'NOT_FOUND'>
 const result = await fetchUser('123');
 
 if (result.ok) {
