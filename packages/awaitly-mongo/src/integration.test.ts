@@ -3,14 +3,15 @@ import { createMongoPersistence } from "./index";
 import { durable } from "awaitly/durable";
 import { ok, err, type AsyncResult } from "awaitly";
 
-const TEST_CONNECTION_STRING = process.env.TEST_MONGODB_URI;
+const TEST_CONNECTION_STRING = process.env.TEST_MONGODB_URI ??
+  (process.env.CI ? "mongodb://localhost:27017/test_awaitly" : undefined);
 const shouldSkip = !TEST_CONNECTION_STRING && !process.env.CI;
 
 describe.skipIf(shouldSkip)("Integration with durable.run", () => {
   it(
     "should work with durable.run",
     async () => {
-      const connectionString = TEST_CONNECTION_STRING || "mongodb://127.0.0.1:27019/test_awaitly";
+      const connectionString = TEST_CONNECTION_STRING || "mongodb://localhost:27017/test_awaitly";
       const store = await createMongoPersistence({
         connectionString,
         collection: `test_integration_${Date.now()}`,

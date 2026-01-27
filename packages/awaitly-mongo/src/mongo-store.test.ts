@@ -4,14 +4,15 @@ import type { MongoClient, Db } from "mongodb";
 import { MongoClient as MongoClientImpl } from "mongodb";
 
 // Test database connection - use environment variables or defaults
-const TEST_CONNECTION_STRING = process.env.TEST_MONGODB_URI;
+const TEST_CONNECTION_STRING = process.env.TEST_MONGODB_URI ??
+  (process.env.CI ? "mongodb://localhost:27017/test_awaitly" : undefined);
 const TEST_DB_CONFIG = {
   connectionString: TEST_CONNECTION_STRING ?? "mongodb://localhost:27017",
   database: process.env.TEST_MONGODB_DB ?? "test_awaitly",
 };
 
-// Skip tests if database is not available (but run in CI)
-const shouldSkip = !TEST_CONNECTION_STRING && !process.env.TEST_MONGODB_URI && !process.env.CI;
+// Skip tests if database is not available (only skip locally when no connection configured)
+const shouldSkip = !TEST_CONNECTION_STRING && !process.env.CI;
 
 describe.skipIf(shouldSkip)("MongoKeyValueStore", () => {
   let client: MongoClient;

@@ -16,16 +16,16 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_awaitly
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
         ports:
-          - 5433:5432
+          - 5432:5432
 
       mongodb:
         image: mongo:7
@@ -37,7 +37,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
         ports:
-          - 27019:27017
+          - 27017:27017
 
     steps:
       - uses: actions/checkout@v4
@@ -75,8 +75,8 @@ jobs:
       - name: Test
         run: pnpm test
         env:
-          TEST_POSTGRES_CONNECTION_STRING: postgresql://test:test@localhost:5433/postgres
-          TEST_MONGODB_URI: mongodb://localhost:27019/test_awaitly
+          TEST_POSTGRES_CONNECTION_STRING: postgresql://postgres:postgres@localhost:5432/test_awaitly
+          TEST_MONGODB_URI: mongodb://localhost:27017/test_awaitly
 
   dependabot-auto-merge:
     needs: build-and-test

@@ -3,13 +3,14 @@ import { createPostgresPersistence } from "./index";
 import { durable } from "awaitly/durable";
 import { ok, err, type AsyncResult } from "awaitly";
 
-const TEST_CONNECTION_STRING = process.env.TEST_POSTGRES_CONNECTION_STRING;
+const TEST_CONNECTION_STRING = process.env.TEST_POSTGRES_CONNECTION_STRING ??
+  (process.env.CI ? "postgresql://postgres:postgres@localhost:5432/test_awaitly" : undefined);
 const shouldSkip = !TEST_CONNECTION_STRING && !process.env.CI;
 
 describe.skipIf(shouldSkip)("Integration with durable.run", () => {
   it("should work with durable.run", async () => {
     const store = await createPostgresPersistence({
-      connectionString: TEST_CONNECTION_STRING || "postgresql://test:test@localhost:5433/postgres",
+      connectionString: TEST_CONNECTION_STRING || "postgresql://postgres:postgres@localhost:5432/test_awaitly",
       tableName: `test_integration_${Date.now()}`,
     });
 

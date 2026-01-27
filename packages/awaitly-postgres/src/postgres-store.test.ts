@@ -4,18 +4,19 @@ import type { Pool } from "pg";
 import { Pool as PgPool } from "pg";
 
 // Test database connection - use environment variables or defaults
-const TEST_CONNECTION_STRING = process.env.TEST_POSTGRES_CONNECTION_STRING;
+const TEST_CONNECTION_STRING = process.env.TEST_POSTGRES_CONNECTION_STRING ??
+  (process.env.CI ? "postgresql://postgres:postgres@localhost:5432/test_awaitly" : undefined);
 const TEST_DB_CONFIG = TEST_CONNECTION_STRING
   ? undefined
   : {
       host: process.env.TEST_POSTGRES_HOST ?? "localhost",
       port: parseInt(process.env.TEST_POSTGRES_PORT ?? "5432", 10),
-      database: process.env.TEST_POSTGRES_DB ?? "postgres", // Use postgres default database
+      database: process.env.TEST_POSTGRES_DB ?? "test_awaitly",
       user: process.env.TEST_POSTGRES_USER ?? "postgres",
       password: process.env.TEST_POSTGRES_PASSWORD ?? "postgres",
     };
 
-// Skip tests if database is not available (but run in CI)
+// Skip tests if database is not available (only skip locally when no connection configured)
 const shouldSkip = !TEST_CONNECTION_STRING && !process.env.TEST_POSTGRES_HOST && !process.env.CI;
 
 describe.skipIf(shouldSkip)("PostgresKeyValueStore", () => {
