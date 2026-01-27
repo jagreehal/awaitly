@@ -1,0 +1,380 @@
+---
+title: AI Integration Patterns
+description: Patterns for integrating awaitly with AI SDKs, streaming, and tool calling
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers patterns for integrating awaitly with AI SDKs like OpenAI, Anthropic, or Vercel AI SDK. The key challenges are handling streaming responses, multi-phase tool calling, and wrapping tool execution in steps.
+
+## Streaming Output Collection
+
+AI streams are typically **single-use AsyncIterables**. You must accumulate content while iterating - you cannot iterate twice.
+
+<Tabs>
+  <TabItem label="Pattern">
+```typescript
+const result = await workflow(async (step) => {
+  // Stream the AI response
+  const stream = await step(() => generateStream(prompt));
+
+  // Accumulate while iterating (streams are single-use!)
+  let text = '';
+  for await (const chunk of stream) {
+    if (chunk.delta) {
+      text += chunk.delta;
+    }
+  }
+
+  return { text, finishReason: stream.finishReason };
+});
+```
+  </TabItem>
+  <TabItem label="Common Mistake">
+```typescript
+// WRONG: Can't iterate a stream twice
+const stream = await step(() => generateStream(prompt));
+
+// First iteration consumes the stream
+for await (const chunk of stream) {
+  console.log(chunk);
+}
+
+// Second iteration gets nothing!
+let text = '';
+for await (const chunk of stream) {
+  text += chunk.delta;  // Never executes
+}
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="caution" title="delta vs content">
+Many AI SDKs provide both `delta` (incremental) and `content` (accumulated). Use `delta` when accumulating yourself. Check your SDK's documentation for the exact property names.
+</Aside>
+
+## Tool Calling Phases
+
+AI models with tool calling often complete in multiple phases:
+
+1. **First phase**: Model returns `finish_reason: "tool_calls"` with tool invocations
+2. **Tool execution**: Your code runs the requested tools
+3. **Second phase**: Model continues with tool results, may return more tool calls
+4. **Final phase**: Model returns `finish_reason: "stop"` with final response
+
+```typescript
+const result = await workflow(async (step) => {
+  let messages = [{ role: 'user', content: prompt }];
+
+  while (true) {
+    const response = await step(() => chat(messages), {
+      key: `chat:${messages.length}`
+    });
+
+    // Final response - model is done
+    if (response.finishReason === 'stop') {
+      return response.content;
+    }
+
+    // Tool calls - execute and continue
+    if (response.finishReason === 'tool_calls') {
+      const toolResults = await executeTools(step, response.toolCalls);
+      messages = [
+        ...messages,
+        { role: 'assistant', tool_calls: response.toolCalls },
+        ...toolResults.map(r => ({ role: 'tool', ...r })),
+      ];
+      continue;
+    }
+
+    // Unexpected finish reason
+    throw new Error(`Unexpected finish reason: ${response.finishReason}`);
+  }
+});
+```
+
+## Tool Execution in Steps
+
+When executing tools, wrap each tool call in a step for:
+- **Caching**: Resume from cached tool results on retry
+- **Observability**: Track tool execution in workflow events
+- **Error handling**: Isolate tool failures
+
+### Stable Key Generation
+
+The key challenge is generating stable, unique keys for tool calls:
+
+<Tabs>
+  <TabItem label="With toolCallId (recommended)">
+```typescript
+// Most reliable - use the SDK-provided toolCallId
+async function executeTools(step, toolCalls) {
+  return Promise.all(
+    toolCalls.map(async (call) => {
+      const result = await step(
+        () => runTool(call.name, call.arguments),
+        {
+          key: `tool:${call.name}:${call.id}`,  // SDK's unique ID
+          name: `Tool: ${call.name}`,
+        }
+      );
+      return { tool_call_id: call.id, content: JSON.stringify(result) };
+    })
+  );
+}
+```
+  </TabItem>
+  <TabItem label="With argument hash">
+```typescript
+// When toolCallId isn't available, hash the arguments
+import { createHash } from 'crypto';
+
+function hashArgs(args: unknown): string {
+  return createHash('sha256')
+    .update(JSON.stringify(args))
+    .digest('hex')
+    .slice(0, 8);
+}
+
+async function executeTools(step, toolCalls) {
+  return Promise.all(
+    toolCalls.map(async (call) => {
+      const result = await step(
+        () => runTool(call.name, call.arguments),
+        {
+          key: `tool:${call.name}:${hashArgs(call.arguments)}`,
+          name: `Tool: ${call.name}`,
+        }
+      );
+      return { tool_call_id: call.id, content: JSON.stringify(result) };
+    })
+  );
+}
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="tip" title="Why stable keys matter">
+Without stable keys, retrying a workflow re-executes all tool calls. With stable keys, cached results are reused, saving time and API costs.
+</Aside>
+
+## Wrapping Tools with Steps
+
+A pattern for creating step-wrapped tool executors:
+
+```typescript
+// Pattern: Create tool executors that close over step
+function createToolExecutors(step: RunStep<AppError>) {
+  return {
+    searchDocs: async (query: string, toolCallId?: string) => {
+      const key = toolCallId
+        ? `search:${toolCallId}`
+        : `search:${hashArgs({ query })}`;
+
+      return step(
+        () => searchDocuments(query),
+        { key, name: 'Search documents' }
+      );
+    },
+
+    getWeather: async (location: string, toolCallId?: string) => {
+      const key = toolCallId
+        ? `weather:${toolCallId}`
+        : `weather:${hashArgs({ location })}`;
+
+      return step(
+        () => fetchWeather(location),
+        { key, name: 'Get weather' }
+      );
+    },
+  };
+}
+
+// Usage in workflow
+const result = await workflow(async (step) => {
+  const tools = createToolExecutors(step);
+
+  // Tools are now step-wrapped
+  const docs = await tools.searchDocs('awaitly patterns', 'call_123');
+  const weather = await tools.getWeather('San Francisco', 'call_456');
+
+  return { docs, weather };
+});
+```
+
+## Complete Example: Chat with Tools
+
+Here's a complete example combining all patterns:
+
+```typescript
+import { ok, err, createWorkflow, type AsyncResult } from 'awaitly';
+
+// Define tool implementations
+const toolImplementations = {
+  searchDocs: async (args: { query: string }): AsyncResult<string[], 'SEARCH_ERROR'> => {
+    // Your search implementation
+    return ok(['Result 1', 'Result 2']);
+  },
+  getWeather: async (args: { location: string }): AsyncResult<{ temp: number }, 'WEATHER_ERROR'> => {
+    return ok({ temp: 72 });
+  },
+};
+
+type ToolName = keyof typeof toolImplementations;
+type AppError = 'SEARCH_ERROR' | 'WEATHER_ERROR' | 'AI_ERROR';
+
+// Create workflow with dependencies
+const chatWorkflow = createWorkflow({
+  ...toolImplementations,
+  chat: async (messages: Message[]): AsyncResult<ChatResponse, 'AI_ERROR'> => {
+    // Your AI SDK call
+    return ok({ content: '', finishReason: 'stop', toolCalls: [] });
+  },
+});
+
+// Execute workflow
+const result = await chatWorkflow(async (step, deps) => {
+  let messages: Message[] = [{ role: 'user', content: 'What is the weather?' }];
+  let iterations = 0;
+  const maxIterations = 10;
+
+  while (iterations++ < maxIterations) {
+    const response = await step(
+      () => deps.chat(messages),
+      { key: `chat:${iterations}`, name: `Chat iteration ${iterations}` }
+    );
+
+    if (response.finishReason === 'stop') {
+      return { content: response.content, iterations };
+    }
+
+    if (response.finishReason === 'tool_calls') {
+      const toolResults = await Promise.all(
+        response.toolCalls.map(async (call) => {
+          const impl = deps[call.name as ToolName];
+          if (!impl) {
+            return {
+              tool_call_id: call.id,
+              content: JSON.stringify({ error: `Unknown tool: ${call.name}` }),
+            };
+          }
+
+          const result = await step(
+            () => impl(call.arguments),
+            {
+              key: `tool:${call.name}:${call.id}`,
+              name: `Tool: ${call.name}`,
+            }
+          );
+
+          return {
+            tool_call_id: call.id,
+            content: JSON.stringify(result),
+          };
+        })
+      );
+
+      messages = [
+        ...messages,
+        { role: 'assistant', tool_calls: response.toolCalls },
+        ...toolResults.map(r => ({ role: 'tool' as const, ...r })),
+      ];
+      continue;
+    }
+  }
+
+  return { content: 'Max iterations reached', iterations };
+});
+
+if (result.ok) {
+  console.log('Response:', result.value.content);
+  console.log('Iterations:', result.value.iterations);
+} else {
+  console.error('Error:', result.error);
+}
+```
+
+## Vercel AI SDK Integration
+
+When using the Vercel AI SDK with awaitly:
+
+```typescript
+import { streamText, tool } from 'ai';
+import { createWorkflow, ok, err } from 'awaitly';
+
+const aiWorkflow = createWorkflow({
+  generateText: async (prompt: string): AsyncResult<string, 'AI_ERROR'> => {
+    try {
+      const { text } = await generateText({
+        model: openai('gpt-4o'),
+        prompt,
+      });
+      return ok(text);
+    } catch (e) {
+      return err('AI_ERROR', { cause: e });
+    }
+  },
+});
+
+const result = await aiWorkflow(async (step, { generateText }) => {
+  const response = await step(
+    () => generateText('Explain awaitly in one sentence'),
+    { key: 'explain', name: 'Generate explanation' }
+  );
+
+  return response;  // Return raw value, not ok(response)!
+});
+```
+
+<Aside type="caution" title="Return raw values">
+Remember: workflow executors return raw values. awaitly wraps them automatically.
+See [Troubleshooting: Double-wrapping](/guides/troubleshooting/#returning-ok-from-workflow-executor-double-wrapping).
+</Aside>
+
+## Error Handling for AI Calls
+
+AI APIs can fail in various ways. Use `step.try` for SDK calls that throw:
+
+```typescript
+const result = await workflow(async (step) => {
+  // For SDK calls that throw on error
+  const response = await step.try(
+    () => openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: prompt }],
+    }),
+    {
+      error: 'AI_ERROR' as const,
+      name: 'OpenAI chat completion',
+    }
+  );
+
+  return response.choices[0].message.content;
+});
+```
+
+Or wrap SDK calls in Result-returning functions for consistent error handling:
+
+```typescript
+async function chat(messages: Message[]): AsyncResult<ChatResponse, 'AI_ERROR' | 'RATE_LIMITED'> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages,
+    });
+    return ok(response);
+  } catch (e) {
+    if (e instanceof RateLimitError) {
+      return err('RATE_LIMITED', { cause: e });
+    }
+    return err('AI_ERROR', { cause: e });
+  }
+}
+```
+
+## Related
+
+- [Retries & Timeouts](/guides/retries-timeouts/) - Handling transient AI API failures
+- [Streaming](/guides/streaming/) - Working with awaitly's stream store
+- [Troubleshooting](/guides/troubleshooting/) - Common issues and solutions

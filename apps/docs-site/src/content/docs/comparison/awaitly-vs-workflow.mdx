@@ -48,7 +48,7 @@ Choose awaitly when you want typed error handling, platform flexibility, and exp
 | Workflow Metadata | `getWorkflowMetadata()` | `WorkflowContext` (3rd callback arg) |
 | Step Metadata | `getStepMetadata()` with `attempt` | `onEvent` callback with retry events |
 | Hooks/Webhooks | `createHook()` with suspension | Custom implementation via `onEvent` |
-| AI Agents | `DurableAgent` class | Standard AI SDK (manual tool calling) |
+| AI Agents | `DurableAgent` class | Any AI SDK (manual tool calling) |
 | Sleep | `sleep("5s")` built-in | Manual implementation |
 
 ## Core Patterns
@@ -173,7 +173,7 @@ async function processPayment(amount: number) {
 </Tabs>
 
 <Aside type="note">
-awaitly's tagged errors are type-safe. You can't accidentally forget to handle an error type—the compiler will tell you.
+awaitly's tagged errors are type-safe. You can't accidentally forget to handle an error type. The compiler will tell you.
 </Aside>
 
 ## Parallel Execution
@@ -423,30 +423,32 @@ awaitly's `createSagaWorkflow` automatically runs compensation in reverse order 
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { generateText, Output } from "ai";
-import { createOllama } from "ai-sdk-ollama";
+import { streamText } from "ai";
+import { createWorkflow } from "awaitly/workflow";
+import { createMemoryStreamStore } from "awaitly/streaming";
 
-const ollama = createOllama({ baseURL: process.env.OLLAMA_BASE_URL });
-const MODEL = ollama("granite4:latest");
+const streamStore = createMemoryStreamStore();
 
 export const aiWorkflow = createWorkflow(
   {},
-  { description: "AI workflow" }
+  { description: "AI workflow", streamStore }
 );
 
 export async function runAIWorkflow(prompt: string) {
   return await aiWorkflow(async (step) => {
-    const { output } = await step(() => generateText({
-      model: MODEL,
-      output: Output.object({
-        schema: z.object({
-          quality: z.number(),
-          score: z.number(),
-        }),
-      }),
+    const writer = step.getWritable<string>({ namespace: "ai-tokens" });
+
+    await step(() => streamText({
+      model: openai("gpt-4"),
       prompt,
-    }), { key: "generate-text" });
-    return output;
+      onChunk: async ({ chunk }) => {
+        if (chunk.type === "text-delta") {
+          await writer.write(chunk.text);
+        }
+      },
+    }), { key: "stream-text" });
+
+    await writer.close();
   });
 }
 ```
@@ -481,7 +483,7 @@ export async function aiWorkflow(messages: UIMessage[]) {
   </TabItem>
 </Tabs>
 
-**Key difference**: Vercel Workflow has `DurableAgent` with built-in tool registration, streaming via `getWritable()`, and multi-turn conversation support. awaitly uses standard AI SDK which is more flexible but requires manual tool orchestration.
+**Key difference**: Both support streaming. awaitly uses `step.getWritable<T>()` with pluggable stores (memory, file), Vercel Workflow uses platform `getWritable()`. Vercel Workflow has `DurableAgent` with built-in tool registration. awaitly uses any AI SDK which is more flexible but requires manual tool orchestration.
 
 ## Static Analysis & Visualization
 
@@ -651,7 +653,7 @@ export async function batchWorkflow(items: string[]) {
 │  Platform-integrated              Platform-agnostic         │
 │  Compiler magic                   Explicit types            │
 │  Zero-config durability           Bring your own store      │
-│  DurableAgent for AI              Standard AI SDK           │
+│  DurableAgent for AI              Any AI SDK                │
 │  createHook() for webhooks        Custom via onEvent        │
 │  Vercel only                      Any Node.js environment   │
 │                                                             │
@@ -659,7 +661,7 @@ export async function batchWorkflow(items: string[]) {
 ```
 
 <Aside type="tip" title="Portability">
-awaitly workflows are just TypeScript—no special compiler, no platform requirements. Deploy to Vercel, AWS, GCP, your own servers, or run locally.
+awaitly workflows are just TypeScript. No special compiler, no platform requirements. Deploy to Vercel, AWS, GCP, your own servers, or run locally.
 </Aside>
 
 ## Next Steps

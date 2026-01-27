@@ -6,6 +6,7 @@ import noFloatingWorkflow from './rules/no-floating-workflow.js';
 import noFloatingResult from './rules/no-floating-result.js';
 import requireResultHandling from './rules/require-result-handling.js';
 import noOptionsOnExecutor from './rules/no-options-on-executor.js';
+import noDoubleWrapResult from './rules/no-double-wrap-result.js';
 
 const rules = {
   'no-immediate-execution': noImmediateExecution,
@@ -15,6 +16,7 @@ const rules = {
   'no-floating-result': noFloatingResult,
   'require-result-handling': requireResultHandling,
   'no-options-on-executor': noOptionsOnExecutor,
+  'no-double-wrap-result': noDoubleWrapResult,
 };
 
 const configs: Record<string, Linter.Config[]> = {
@@ -31,6 +33,7 @@ const configs: Record<string, Linter.Config[]> = {
         'awaitly/no-floating-result': 'error',
         'awaitly/require-result-handling': 'warn',
         'awaitly/no-options-on-executor': 'error',
+        'awaitly/no-double-wrap-result': 'error',
       },
     },
   ],

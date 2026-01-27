@@ -179,7 +179,7 @@ Total max wait: 1400ms
 
 ### Exponential Backoff
 
-Delay doubles each time. The standard for network calls—reduces load on struggling services.
+Delay doubles each time. The standard for network calls. Reduces load on struggling services.
 
 ```typescript
 { attempts: 5, backoff: 'exponential', delayMs: 100 }
@@ -267,7 +267,7 @@ Attempt │ Calculated │ Actual  │ Visual
 
 ## Adding Jitter
 
-Randomize delays to avoid the "thundering herd" problem—when many clients retry simultaneously after a service recovers.
+Randomize delays to avoid the "thundering herd" problem, when many clients retry simultaneously after a service recovers.
 
 ```typescript
 {
@@ -314,7 +314,7 @@ const actualDelay = baseDelay - jitterRange + (Math.random() * jitterRange * 2);
 
 ## Conditional Retry
 
-Only retry certain errors—don't retry permanent failures:
+Only retry certain errors. Don't retry permanent failures:
 
 ```typescript
 const user = await step.retry(

@@ -69,6 +69,11 @@ workflow error = 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
 With automatic inference, you never forget to handle an error type. Add a new dependency, and TypeScript immediately warns you about the new error cases.
 </Aside>
 
+<Aside type="caution" title="Return raw values, not Result">
+Workflow executors return raw values. awaitly wraps them automatically.
+See [Troubleshooting: Double-wrapping](/guides/troubleshooting/#returning-ok-from-workflow-executor-double-wrapping).
+</Aside>
+
 ### With options
 
 ```typescript
@@ -285,7 +290,7 @@ Cancelled: timeout
 - A step throws `AbortError` (e.g., from `fetch` respecting the signal)
 - Abort fires during the last step but the step completes successfully
 
-**Typed errors are preserved:** If a step returns `err("KNOWN_ERROR")` even while abort is signaled, that typed error is returned—not masked as cancellation.
+**Typed errors are preserved:** If a step returns `err("KNOWN_ERROR")` even while abort is signaled, that typed error is returned, not masked as cancellation.
 </Aside>
 
 **Passing signal to operations:**

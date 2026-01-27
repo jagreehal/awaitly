@@ -11,6 +11,9 @@
  * 3. Utilities for transforming and combining Results
  */
 
+import { parse as parseDuration, toMillis } from "./duration";
+import type { Duration as DurationType } from "./duration";
+
 // =============================================================================
 // Core Result Types
 // =============================================================================
@@ -388,6 +391,12 @@ export type StepOptions = {
    * When specified, each attempt will be aborted after the timeout duration.
    */
   timeout?: TimeoutOptions;
+
+  /**
+   * Time-to-live for this step's cache entry in milliseconds.
+   * Overrides any global cache TTL. Requires `key` for caching.
+   */
+  ttl?: number;
 };
 
 // =============================================================================
@@ -675,8 +684,8 @@ export interface RunStep<E = unknown> {
   try: <T, const Err extends E>(
     operation: () => T | Promise<T>,
     options:
-      | { error: Err; name?: string; key?: string }
-      | { onError: (cause: unknown) => Err; name?: string; key?: string }
+      | { error: Err; name?: string; key?: string; ttl?: number }
+      | { onError: (cause: unknown) => Err; name?: string; key?: string; ttl?: number }
   ) => Promise<T>;
 
   /**
@@ -709,8 +718,8 @@ export interface RunStep<E = unknown> {
   fromResult: <T, ResultE, const Err extends E>(
     operation: () => Result<T, ResultE, unknown> | AsyncResult<T, ResultE, unknown>,
     options:
-      | { error: Err; name?: string; key?: string }
-      | { onError: (resultError: ResultE) => Err; name?: string; key?: string }
+      | { error: Err; name?: string; key?: string; ttl?: number }
+      | { onError: (resultError: ResultE) => Err; name?: string; key?: string; ttl?: number }
   ) => Promise<T>;
 
   /**
@@ -878,6 +887,31 @@ export interface RunStep<E = unknown> {
       | ((signal: AbortSignal) => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>),
     options: TimeoutOptions & { name?: string; key?: string }
   ) => Promise<T>;
+
+  /**
+   * Pause execution for a specified duration.
+   *
+   * Use this for intentional delays between operations (rate limiting,
+   * polling intervals, debouncing). Respects workflow cancellation.
+   *
+   * @param duration - Duration as string ("5s", "100ms") or Duration object
+   * @param options - Optional name, key for caching, ttl, description
+   * @returns Promise that resolves after the duration
+   * @throws {AbortError} If the workflow is cancelled during sleep
+   *
+   * @example
+   * ```typescript
+   * // String duration
+   * await step.sleep("5s", { name: "rate-limit-delay" });
+   *
+   * // Duration object
+   * await step.sleep(seconds(5), { key: "my-sleep" });
+   * ```
+   */
+  sleep(
+    duration: string | DurationType,
+    options?: { name?: string; key?: string; ttl?: number; description?: string }
+  ): Promise<void>;
 
   // ===========================================================================
   // Streaming Methods
@@ -2575,6 +2609,59 @@ export async function run<T, E, C = void>(
       );
     };
 
+    // step.sleep: Pause execution for a specified duration
+    stepFn.sleep = (
+      duration: string | DurationType,
+      options?: { name?: string; key?: string; ttl?: number; description?: string }
+    ): Promise<void> => {
+      // Parse duration
+      const d = typeof duration === "string" ? parseDuration(duration) : duration;
+      if (!d) {
+        throw new Error(`step.sleep: invalid duration '${duration}'`);
+      }
+      const ms = toMillis(d);
+
+      // Generate step name
+      const stepName = options?.name ?? `sleep ${typeof duration === "string" ? duration : `${ms}ms`}`;
+
+      // Delegate to stepFn with a cancellation-aware sleep operation
+      return stepFn(
+        async (): AsyncResult<void, never> => {
+          // Check if already aborted
+          if (_workflowSignal?.aborted) {
+            const e = new Error("Sleep aborted");
+            e.name = "AbortError";
+            throw e;
+          }
+
+          return new Promise<Result<void, never>>((resolve, reject) => {
+            // Using object to avoid prefer-const warning while allowing
+            // onAbort to reference the timeout before it's assigned
+            const state = { timeoutId: undefined as ReturnType<typeof setTimeout> | undefined };
+
+            const onAbort = () => {
+              if (state.timeoutId) clearTimeout(state.timeoutId);
+              const e = new Error("Sleep aborted");
+              e.name = "AbortError";
+              reject(e);
+            };
+
+            _workflowSignal?.addEventListener("abort", onAbort, { once: true });
+
+            state.timeoutId = setTimeout(() => {
+              _workflowSignal?.removeEventListener("abort", onAbort);
+              resolve(ok(undefined));
+            }, ms);
+          });
+        },
+        {
+          name: stepName,
+          key: options?.key,
+          description: options?.description,
+        }
+      );
+    };
+
     // step.parallel: Execute parallel operations with scope events
     // Supports two overloads:
     // 1. Named object form: step.parallel({ user: () => fetchUser(id) }, { name: 'Fetch' })
@@ -2894,6 +2981,30 @@ export async function run<T, E, C = void>(
 
     const step = stepFn as RunStep<E | UnexpectedError>;
     const value = await fn(step);
+
+    // Dev-only warning: Detect common mistake of returning ok() or err() from executor
+    if (
+      process.env.NODE_ENV !== "production" &&
+      value !== null &&
+      typeof value === "object" &&
+      "ok" in value &&
+      typeof (value as { ok: unknown }).ok === "boolean"
+    ) {
+      const maybeResult = value as { ok: boolean; value?: unknown; error?: unknown };
+      if (
+        (maybeResult.ok === true && "value" in maybeResult) ||
+        (maybeResult.ok === false && "error" in maybeResult)
+      ) {
+        console.warn(
+          `awaitly: Workflow executor returned a Result-like object. ` +
+            `Return raw values, not ok() or err().\n\n` +
+            `  Incorrect: return ok({ data });\n` +
+            `  Correct:   return { data };\n\n` +
+            `See: https://awaitly.dev/guides/troubleshooting/#returning-ok-from-workflow-executor-double-wrapping`
+        );
+      }
+    }
+
     return ok(value);
   } catch (error) {
     // If a catchUnexpected mapper threw, propagate without re-processing

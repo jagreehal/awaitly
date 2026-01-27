@@ -405,9 +405,22 @@ const result = await workflow(async (step) => {
 ### Step Caching and Resume
 
 ```typescript
+// Option 1: In-memory (simple)
 const workflow = createWorkflow(deps, {
   cache: new Map(),
   resumeState: savedState, // Resume from previous run
+});
+
+// Option 2: Database persistence (awaitly-mongo or awaitly-postgres)
+import { createMongoPersistence } from 'awaitly-mongo';
+// or: import { createPostgresPersistence } from 'awaitly-postgres';
+
+const store = await createMongoPersistence({
+  connectionString: process.env.MONGODB_URI,
+});
+
+const workflow = createWorkflow(deps, {
+  persistence: store, // Automatic state persistence
 });
 
 const result = await workflow(async (step) => {
@@ -446,20 +459,20 @@ const result = ok(5).map(n => n * 2).mapErr(e => e.toUpperCase());
 import { ok, err, map, mapError } from 'awaitly';
 const result = mapError(map(ok(5), n => n * 2), e => e.toUpperCase());
 
-// Or use pipe pattern
-import { pipe } from 'awaitly';
+// Or use pipe pattern with R namespace
+import { pipe, R } from 'awaitly/functional';
 const result = pipe(
   ok(5),
-  r => map(r, n => n * 2),
-  r => mapError(r, e => e.toUpperCase())
+  R.map(n => n * 2),
+  R.mapError(e => e.toUpperCase())
 );
 ```
 
 <Aside type="note">
-awaitly uses standalone functions instead of methods, which works better with tree-shaking and functional composition.
+awaitly uses standalone functions instead of methods, which works better with tree-shaking and functional composition. See [Functional Utilities](/guides/functional-utilities/) for pipe-based composition patterns.
 </Aside>
 
 ## Next Steps
 
-- [Learn about Workflows →](../concepts/workflows/)
-- [See the full API Reference →](../reference/api/)
+- [Learn about Workflows →](/concepts/workflows/)
+- [See the full API Reference →](/reference/api/)

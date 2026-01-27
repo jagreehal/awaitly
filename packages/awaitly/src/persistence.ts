@@ -275,17 +275,21 @@ export interface MemoryCacheOptions {
  */
 export function createMemoryCache(options: MemoryCacheOptions = {}): StepCache {
   const { maxSize, ttl } = options;
-  const cache = new Map<string, { result: Result<unknown, unknown, unknown>; timestamp: number }>();
+  const cache = new Map<string, {
+    result: Result<unknown, unknown, unknown>;
+    timestamp: number;
+    entryTtl?: number;
+  }>();
 
-  const isExpired = (timestamp: number): boolean => {
-    if (!ttl) return false;
-    return Date.now() - timestamp > ttl;
+  const isExpired = (entry: { timestamp: number; entryTtl?: number }): boolean => {
+    const effectiveTtl = entry.entryTtl ?? ttl;
+    if (!effectiveTtl) return false;
+    return Date.now() - entry.timestamp > effectiveTtl;
   };
 
   const evictExpired = (): void => {
-    if (!ttl) return;
     for (const [key, entry] of cache) {
-      if (isExpired(entry.timestamp)) {
+      if (isExpired(entry)) {
         cache.delete(key);
       }
     }
@@ -315,24 +319,24 @@ export function createMemoryCache(options: MemoryCacheOptions = {}): StepCache {
       evictExpired();
       const entry = cache.get(key);
       if (!entry) return undefined;
-      if (isExpired(entry.timestamp)) {
+      if (isExpired(entry)) {
         cache.delete(key);
         return undefined;
       }
       return entry.result;
     },
 
-    set(key: string, result: Result<unknown, unknown, unknown>): void {
+    set(key: string, result: Result<unknown, unknown, unknown>, options?: { ttl?: number }): void {
       evictExpired();
       evictOldest();
-      cache.set(key, { result, timestamp: Date.now() });
+      cache.set(key, { result, timestamp: Date.now(), entryTtl: options?.ttl });
     },
 
     has(key: string): boolean {
       evictExpired();
       const entry = cache.get(key);
       if (!entry) return false;
-      if (isExpired(entry.timestamp)) {
+      if (isExpired(entry)) {
         cache.delete(key);
         return false;
       }

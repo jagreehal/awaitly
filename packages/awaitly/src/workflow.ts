@@ -56,6 +56,8 @@ import {
   type BackpressureController,
 } from "./streaming/backpressure";
 
+import { parse as parseDuration, toMillis, type Duration as DurationType } from "./duration";
+
 // Re-export types and constants that workflow users commonly need
 export { UNEXPECTED_ERROR } from "./core";
 export type {
@@ -112,7 +114,7 @@ export type { StreamStore } from "./streaming/types";
  */
 export interface StepCache {
   get(key: string): Result<unknown, unknown, unknown> | undefined;
-  set(key: string, result: Result<unknown, unknown, unknown>): void;
+  set(key: string, result: Result<unknown, unknown, unknown>, options?: { ttl?: number }): void;
   has(key: string): boolean;
   delete(key: string): boolean;
   clear(): void;
@@ -1339,7 +1341,7 @@ export function createWorkflow<
     }
 
     // Helper to parse step options
-    const parseStepOptions = (opts?: StepOptions | string): { name?: string; key?: string } => {
+    const parseStepOptions = (opts?: StepOptions | string): { name?: string; key?: string; ttl?: number } => {
       if (typeof opts === "string") return { name: opts };
       return opts ?? {};
     };
@@ -1431,7 +1433,7 @@ export function createWorkflow<
           | AsyncResult<StepT, StepE, StepC>,
         stepOptions?: StepOptions | string
       ): Promise<StepT> => {
-        const { name, key } = parseStepOptions(stepOptions);
+        const { name, key, ttl } = parseStepOptions(stepOptions);
 
         // Check for cancellation before starting step
         // Use lastStepKey (last completed step) for reporting, not the step about to run
@@ -1486,7 +1488,7 @@ export function createWorkflow<
             // Update lastStepKey on successful completion (for cancellation reporting)
             lastStepKey = key;
             if (cache) {
-              cache.set(key, ok(value));
+              cache.set(key, ok(value), ttl ? { ttl } : undefined);
             }
             // Call onAfterStep hook for checkpointing (even without cache)
             await callOnAfterStepHook(key, ok(value));
@@ -1503,7 +1505,7 @@ export function createWorkflow<
                 : exit.meta.thrown;
             const errorResult = encodeCachedError(exit.error, exit.meta, originalCause);
             if (cache) {
-              cache.set(key, errorResult);
+              cache.set(key, errorResult, ttl ? { ttl } : undefined);
             }
             // Call onAfterStep hook for checkpointing (even on error, even without cache)
             await callOnAfterStepHook(key, errorResult);
@@ -1516,10 +1518,10 @@ export function createWorkflow<
       cachedStepFn.try = async <StepT, Err extends E>(
         operation: () => StepT | Promise<StepT>,
         opts:
-          | { error: Err; name?: string; key?: string }
-          | { onError: (cause: unknown) => Err; name?: string; key?: string }
+          | { error: Err; name?: string; key?: string; ttl?: number }
+          | { onError: (cause: unknown) => Err; name?: string; key?: string; ttl?: number }
       ): Promise<StepT> => {
-        const { name, key } = opts;
+        const { name, key, ttl } = opts;
 
         // Only use cache if key is provided and cache exists
         if (key && cache && cache.has(key)) {
@@ -1559,7 +1561,7 @@ export function createWorkflow<
           // Cache successful result if key provided
           if (key) {
             if (cache) {
-              cache.set(key, ok(value));
+              cache.set(key, ok(value), ttl ? { ttl } : undefined);
             }
             // Call onAfterStep hook for checkpointing (even without cache)
             await callOnAfterStepHook(key, ok(value));
@@ -1576,7 +1578,7 @@ export function createWorkflow<
                 : exit.meta.thrown;
             const errorResult = encodeCachedError(exit.error, exit.meta, originalCause);
             if (cache) {
-              cache.set(key, errorResult);
+              cache.set(key, errorResult, ttl ? { ttl } : undefined);
             }
             // Call onAfterStep hook for checkpointing (even on error, even without cache)
             await callOnAfterStepHook(key, errorResult);
@@ -1589,10 +1591,10 @@ export function createWorkflow<
       cachedStepFn.fromResult = async <StepT, ResultE, Err extends E>(
         operation: () => Result<StepT, ResultE, unknown> | AsyncResult<StepT, ResultE, unknown>,
         opts:
-          | { error: Err; name?: string; key?: string }
-          | { onError: (resultError: ResultE) => Err; name?: string; key?: string }
+          | { error: Err; name?: string; key?: string; ttl?: number }
+          | { onError: (resultError: ResultE) => Err; name?: string; key?: string; ttl?: number }
       ): Promise<StepT> => {
-        const { name, key } = opts;
+        const { name, key, ttl } = opts;
 
         // Only use cache if key is provided and cache exists
         if (key && cache && cache.has(key)) {
@@ -1631,7 +1633,7 @@ export function createWorkflow<
           // Cache successful result if key provided
           if (key) {
             if (cache) {
-              cache.set(key, ok(value));
+              cache.set(key, ok(value), ttl ? { ttl } : undefined);
             }
             // Call onAfterStep hook for checkpointing (even without cache)
             await callOnAfterStepHook(key, ok(value));
@@ -1647,7 +1649,7 @@ export function createWorkflow<
                 : exit.meta.thrown;
             const errorResult = encodeCachedError(exit.error, exit.meta, originalCause);
             if (cache) {
-              cache.set(key, errorResult);
+              cache.set(key, errorResult, ttl ? { ttl } : undefined);
             }
             // Call onAfterStep hook for checkpointing (even on error, even without cache)
             await callOnAfterStepHook(key, errorResult);
@@ -1668,7 +1670,7 @@ export function createWorkflow<
       // Wrap step.retry - use cachedStepFn to ensure caching/resume works with keyed steps
       cachedStepFn.retry = <StepT, StepE extends E, StepC = unknown>(
         operation: () => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>,
-        options: RetryOptions & { name?: string; key?: string; timeout?: TimeoutOptions }
+        options: RetryOptions & { name?: string; key?: string; timeout?: TimeoutOptions; ttl?: number }
       ): Promise<StepT> => {
         // Delegate to cachedStepFn with retry options merged into StepOptions
         // This ensures the cache layer is consulted for keyed steps
@@ -1685,6 +1687,7 @@ export function createWorkflow<
             onRetry: options.onRetry,
           },
           timeout: options.timeout,
+          ttl: options.ttl,
         });
       };
 
@@ -1693,7 +1696,7 @@ export function createWorkflow<
         operation:
           | (() => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>)
           | ((signal: AbortSignal) => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>),
-        options: TimeoutOptions & { name?: string; key?: string }
+        options: TimeoutOptions & { name?: string; key?: string; ttl?: number }
       ): Promise<StepT> => {
         // Delegate to cachedStepFn with timeout options
         // This ensures the cache layer is consulted for keyed steps
@@ -1703,6 +1706,62 @@ export function createWorkflow<
             name: options.name,
             key: options.key,
             timeout: options,
+            ttl: options.ttl,
+          }
+        );
+      };
+
+      // Wrap step.sleep - implement caching directly to ensure cache layer is consulted
+      cachedStepFn.sleep = (
+        duration: string | DurationType,
+        options?: { name?: string; key?: string; ttl?: number; description?: string }
+      ): Promise<void> => {
+        // Parse duration
+        const d = typeof duration === "string" ? parseDuration(duration) : duration;
+        if (!d) {
+          throw new Error(`step.sleep: invalid duration '${duration}'`);
+        }
+        const ms = toMillis(d);
+
+        // Generate step name
+        const stepName =
+          options?.name ?? `sleep ${typeof duration === "string" ? duration : `${ms}ms`}`;
+
+        // Delegate to cachedStepFn (not realStep) to ensure caching works
+        return cachedStepFn(
+          async (): AsyncResult<void, never> => {
+            // Check if already aborted
+            if (workflowSignal?.aborted) {
+              const e = new Error("Sleep aborted");
+              e.name = "AbortError";
+              throw e;
+            }
+
+            return new Promise<Result<void, never>>((resolve, reject) => {
+              const state = {
+                timeoutId: undefined as ReturnType<typeof setTimeout> | undefined,
+              };
+
+              const onAbort = () => {
+                if (state.timeoutId) clearTimeout(state.timeoutId);
+                const e = new Error("Sleep aborted");
+                e.name = "AbortError";
+                reject(e);
+              };
+
+              workflowSignal?.addEventListener("abort", onAbort, { once: true });
+
+              state.timeoutId = setTimeout(() => {
+                workflowSignal?.removeEventListener("abort", onAbort);
+                resolve(ok(undefined));
+              }, ms);
+            });
+          },
+          {
+            name: stepName,
+            key: options?.key,
+            ttl: options?.ttl,
+            description: options?.description,
           }
         );
       };

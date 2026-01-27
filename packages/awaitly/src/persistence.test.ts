@@ -312,6 +312,104 @@ describe("Persistence", () => {
       vi.useRealTimers();
     });
 
+    it("should support per-entry TTL that overrides global TTL", () => {
+      vi.useFakeTimers();
+
+      const cache = createMemoryCache({ ttl: 1000 });
+
+      // Set entry with custom TTL (500ms, shorter than global 1000ms)
+      cache.set("short", ok("short-value"), { ttl: 500 });
+      // Set entry using global TTL
+      cache.set("normal", ok("normal-value"));
+
+      expect(cache.has("short")).toBe(true);
+      expect(cache.has("normal")).toBe(true);
+
+      // After 600ms, short should be expired, normal should still exist
+      vi.advanceTimersByTime(600);
+      expect(cache.has("short")).toBe(false);
+      expect(cache.has("normal")).toBe(true);
+
+      // After another 500ms (total 1100ms), normal should also be expired
+      vi.advanceTimersByTime(500);
+      expect(cache.has("normal")).toBe(false);
+
+      vi.useRealTimers();
+    });
+
+    it("should handle per-entry TTL without global TTL", () => {
+      vi.useFakeTimers();
+
+      // No global TTL
+      const cache = createMemoryCache();
+
+      // Set entry with custom TTL
+      cache.set("with-ttl", ok("value1"), { ttl: 500 });
+      // Set entry without TTL (should never expire)
+      cache.set("no-ttl", ok("value2"));
+
+      expect(cache.has("with-ttl")).toBe(true);
+      expect(cache.has("no-ttl")).toBe(true);
+
+      // After 600ms, entry with TTL should be expired
+      vi.advanceTimersByTime(600);
+      expect(cache.has("with-ttl")).toBe(false);
+      expect(cache.has("no-ttl")).toBe(true);
+
+      // Entry without TTL should persist indefinitely
+      vi.advanceTimersByTime(100000);
+      expect(cache.has("no-ttl")).toBe(true);
+
+      vi.useRealTimers();
+    });
+
+    it("should use global TTL when per-entry TTL is undefined", () => {
+      vi.useFakeTimers();
+
+      const cache = createMemoryCache({ ttl: 1000 });
+
+      // Set entry with explicit undefined TTL (should use global)
+      cache.set("key1", ok("value1"), { ttl: undefined });
+      cache.set("key2", ok("value2"), {});
+      cache.set("key3", ok("value3"));
+
+      expect(cache.has("key1")).toBe(true);
+      expect(cache.has("key2")).toBe(true);
+      expect(cache.has("key3")).toBe(true);
+
+      // All should expire at global TTL
+      vi.advanceTimersByTime(1100);
+      expect(cache.has("key1")).toBe(false);
+      expect(cache.has("key2")).toBe(false);
+      expect(cache.has("key3")).toBe(false);
+
+      vi.useRealTimers();
+    });
+
+    it("should support per-entry TTL longer than global TTL", () => {
+      vi.useFakeTimers();
+
+      const cache = createMemoryCache({ ttl: 500 });
+
+      // Set entry with longer TTL than global
+      cache.set("long", ok("long-value"), { ttl: 2000 });
+      cache.set("normal", ok("normal-value"));
+
+      expect(cache.has("long")).toBe(true);
+      expect(cache.has("normal")).toBe(true);
+
+      // After 600ms, normal should be expired, long should still exist
+      vi.advanceTimersByTime(600);
+      expect(cache.has("long")).toBe(true);
+      expect(cache.has("normal")).toBe(false);
+
+      // After another 1500ms (total 2100ms), long should also be expired
+      vi.advanceTimersByTime(1500);
+      expect(cache.has("long")).toBe(false);
+
+      vi.useRealTimers();
+    });
+
     it("should support maxSize with LRU eviction", () => {
       vi.useFakeTimers();
 
