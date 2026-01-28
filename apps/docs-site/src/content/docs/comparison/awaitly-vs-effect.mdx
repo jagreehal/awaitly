@@ -488,6 +488,255 @@ const program = Effect.gen(function* () {
   </TabItem>
 </Tabs>
 
+## Combining Results
+
+Both libraries provide ways to combine multiple Results/Effects.
+
+### All (Fail-Fast)
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, err, all, allAsync } from 'awaitly';
+
+// Sync results
+const results = [ok(1), ok(2), ok(3)];
+const combined = all(results);
+/*
+Output:
+{ ok: true, value: [1, 2, 3] }
+*/
+
+// Async results
+const asyncResults = await allAsync([
+  fetchUser('1'),
+  fetchUser('2'),
+  fetchUser('3'),
+]);
+/*
+Output:
+{ ok: true, value: [user1, user2, user3] }
+or
+{ ok: false, error: 'NOT_FOUND' } // first error
+*/
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { Effect } from 'effect';
+
+// Effect.all combines multiple effects
+const program = Effect.all([
+  fetchUser('1'),
+  fetchUser('2'),
+  fetchUser('3'),
+]);
+
+// Run with unbounded concurrency
+const result = await Effect.runPromise(
+  program.pipe(Effect.withConcurrency('unbounded'))
+);
+```
+  </TabItem>
+</Tabs>
+
+### AllSettled (Collect All Errors)
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, err, allSettled, allSettledAsync } from 'awaitly';
+
+const results = [ok(1), err('A'), ok(3), err('B')];
+const settled = allSettled(results);
+/*
+Output:
+{
+  ok: false,
+  error: ['A', 'B'],
+  successes: [1, 3],
+  failures: ['A', 'B']
+}
+*/
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { Effect } from 'effect';
+
+// Use Effect.allSettled or partition
+const program = Effect.forEach(
+  [fetchUser('1'), fetchUser('2')],
+  (effect) => Effect.either(effect)
+);
+
+// Returns array of Either<E, A>
+```
+  </TabItem>
+</Tabs>
+
+## Resource Management
+
+Effect has a sophisticated resource management system with `Scope` and `Resource`. awaitly uses standard JavaScript patterns.
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+
+// awaitly uses standard try/finally patterns
+const workflow = createWorkflow({ openConnection, query });
+
+const result = await workflow(async (step) => {
+  const conn = await step(openConnection());
+  try {
+    const data = await step(query(conn, 'SELECT * FROM users'));
+    return data;
+  } finally {
+    await conn.close(); // Standard cleanup
+  }
+});
+
+// Or use the using keyword (TC39 Explicit Resource Management)
+const result = await workflow(async (step) => {
+  using conn = await step(openConnection());
+  const data = await step(query(conn, 'SELECT * FROM users'));
+  return data;
+}); // conn.close() called automatically
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { Effect, Scope } from 'effect';
+
+// Effect has built-in resource management
+const program = Effect.scoped(
+  Effect.gen(function* () {
+    const conn = yield* openConnection;
+    const data = yield* query(conn, 'SELECT * FROM users');
+    return data;
+  }) // conn automatically closed when scope exits
+);
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="note">
+Effect's `Scope` system provides automatic cleanup and composition of resources. awaitly relies on JavaScript's native patterns (`try/finally`, `using` statement) which are simpler but less composable.
+</Aside>
+
+## Streaming
+
+Both libraries support streaming data processing.
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { streamAsync, collectAsync } from 'awaitly/streaming';
+
+// Process items as a stream with error handling
+const stream = streamAsync(fetchPaginatedUsers(), {
+  transform: (user) => enrichUser(user),
+  onError: (e) => console.error('Stream error:', e),
+});
+
+// Collect results
+const result = await collectAsync(stream);
+/*
+Output:
+{ ok: true, value: [enrichedUser1, enrichedUser2, ...] }
+*/
+
+// Or process one at a time
+for await (const item of stream) {
+  if (!item.ok) {
+    console.error(item.error);
+    continue;
+  }
+  await processUser(item.value);
+}
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { Stream, Effect } from 'effect';
+
+// Effect has a full Stream module
+const stream = Stream.fromIterable(fetchPaginatedUsers()).pipe(
+  Stream.mapEffect((user) => enrichUser(user)),
+  Stream.catchAll((e) => {
+    console.error('Stream error:', e);
+    return Stream.empty;
+  })
+);
+
+// Run the stream
+const result = await Effect.runPromise(
+  Stream.runCollect(stream)
+);
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="tip">
+Effect's Stream is more powerful (backpressure, chunking, advanced combinators). awaitly's streaming is simpler and wraps async iterables with Result types. Choose based on your complexity needs.
+</Aside>
+
+## Functional Utilities
+
+Both libraries provide functional composition utilities.
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { pipe, flow, R } from 'awaitly/functional';
+
+// pipe: Apply functions left-to-right to a value
+const result = pipe(
+  ok(5),
+  R.map(n => n * 2),
+  R.andThen(n => n > 5 ? ok(n) : err('TOO_SMALL')),
+  R.mapError(e => ({ code: e }))
+);
+
+// flow: Create a new function from composed functions
+const processNumber = flow(
+  R.map((n: number) => n * 2),
+  R.andThen(n => n > 5 ? ok(n) : err('TOO_SMALL')),
+  R.mapError(e => ({ code: e }))
+);
+
+const result = processNumber(ok(5));
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { pipe, flow, Effect } from 'effect';
+
+// pipe: Apply functions left-to-right to a value
+const result = pipe(
+  Effect.succeed(5),
+  Effect.map(n => n * 2),
+  Effect.flatMap(n => n > 5 ? Effect.succeed(n) : Effect.fail('TOO_SMALL')),
+  Effect.mapError(e => ({ code: e }))
+);
+
+// flow: Create a new function from composed functions
+const processNumber = flow(
+  Effect.map((n: number) => n * 2),
+  Effect.flatMap(n => n > 5 ? Effect.succeed(n) : Effect.fail('TOO_SMALL')),
+  Effect.mapError(e => ({ code: e }))
+);
+
+const result = processNumber(Effect.succeed(5));
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="note">
+Both libraries use similar `pipe` and `flow` patterns. Effect's functional utilities are more extensive (includes `identity`, `constVoid`, `absurd`, etc.). awaitly's are focused on Result manipulation.
+</Aside>
+
 ## When to Choose Each
 
 ### Choose awaitly when:

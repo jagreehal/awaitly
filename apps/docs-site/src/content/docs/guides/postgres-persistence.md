@@ -229,4 +229,4 @@ WHERE indexrelname = 'idx_awaitly_workflow_state_expires_at';
 
 ## Next
 
-[Learn about MongoDB persistence →](./mongo-persistence)
+[Learn about MongoDB persistence →](./mongo-persistence/)

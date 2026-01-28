@@ -1,0 +1,647 @@
+---
+title: Drizzle Integration
+description: Turn Drizzle ORM database errors into typed Results for exhaustive error handling
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
+
+Turn Drizzle ORM database errors into typed Results for exhaustive error handling.
+
+## Why Combine Them?
+
+- **Exhaustive error handling** — Handle `NOT_FOUND`, `UNIQUE_VIOLATION`, etc. explicitly
+- **No more try/catch spaghetti** — Database operations compose cleanly in workflows
+- **Type-safe from schema to handler** — Drizzle's type inference pairs perfectly with awaitly's Result types
+
+## Quick Start
+
+```typescript
+import { eq } from 'drizzle-orm';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+import { db } from './db';
+import { users } from './schema';
+
+type DbError =
+  | { type: 'NOT_FOUND' }
+  | { type: 'UNIQUE_VIOLATION'; field: string }
+  | { type: 'DB_ERROR'; message: string };
+
+const findUser = async (id: string): AsyncResult<typeof users.$inferSelect, DbError> => {
+  try {
+    const user = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    if (user.length === 0) return err({ type: 'NOT_FOUND' });
+    return ok(user[0]);
+  } catch (e) {
+    return err({ type: 'DB_ERROR', message: String(e) });
+  }
+};
+
+// Use in a workflow
+const workflow = createWorkflow({ findUser });
+
+const result = await workflow(async (step, deps) => {
+  const user = await step(() => deps.findUser('user-123'));
+  return user;
+});
+```
+
+## Patterns
+
+### Pattern 1: Wrapping Common Drizzle Operations
+
+Create a generic wrapper for Drizzle operations:
+
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+import { db } from './db';
+
+// Common database error types
+type DbError =
+  | { type: 'NOT_FOUND'; entity?: string }
+  | { type: 'UNIQUE_VIOLATION'; field: string }
+  | { type: 'FOREIGN_KEY_VIOLATION'; field: string }
+  | { type: 'DB_ERROR'; code?: string; message: string };
+
+// Generic wrapper
+const drizzleToResult = async <T>(
+  operation: () => Promise<T>,
+  entity?: string
+): AsyncResult<T, DbError> => {
+  try {
+    return ok(await operation());
+  } catch (e: unknown) {
+    // Handle PostgreSQL errors (via pg or postgres.js)
+    if (isPostgresError(e)) {
+      switch (e.code) {
+        case '23505': // unique_violation
+          return err({
+            type: 'UNIQUE_VIOLATION',
+            field: extractConstraintField(e) ?? 'unknown',
+          });
+        case '23503': // foreign_key_violation
+          return err({
+            type: 'FOREIGN_KEY_VIOLATION',
+            field: extractConstraintField(e) ?? 'unknown',
+          });
+        default:
+          return err({ type: 'DB_ERROR', code: e.code, message: e.message });
+      }
+    }
+
+    // Handle SQLite errors (via better-sqlite3 or libsql)
+    if (isSqliteError(e)) {
+      if (e.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        return err({ type: 'UNIQUE_VIOLATION', field: 'unknown' });
+      }
+      if (e.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+        return err({ type: 'FOREIGN_KEY_VIOLATION', field: 'unknown' });
+      }
+      return err({ type: 'DB_ERROR', code: e.code, message: e.message });
+    }
+
+    return err({ type: 'DB_ERROR', message: String(e) });
+  }
+};
+
+// Helper type guards
+const isPostgresError = (e: unknown): e is { code: string; message: string; constraint?: string } =>
+  typeof e === 'object' && e !== null && 'code' in e && typeof (e as any).code === 'string';
+
+const isSqliteError = (e: unknown): e is { code: string; message: string } =>
+  typeof e === 'object' && e !== null && 'code' in e && String((e as any).code).startsWith('SQLITE');
+
+const extractConstraintField = (e: { constraint?: string }): string | undefined =>
+  e.constraint?.split('_').slice(1, -1).join('_'); // e.g., "users_email_key" -> "email"
+```
+
+### Pattern 2: Typed Repository Functions
+
+Create repository functions with explicit error types:
+
+```typescript
+import { eq } from 'drizzle-orm';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { db } from './db';
+import { users, type User, type NewUser } from './schema';
+
+type UserNotFoundError = { type: 'USER_NOT_FOUND'; id: string };
+type EmailTakenError = { type: 'EMAIL_TAKEN'; email: string };
+type DbError = { type: 'DB_ERROR'; message: string };
+
+const userRepository = {
+  findById: async (id: string): AsyncResult<User, UserNotFoundError | DbError> => {
+    try {
+      const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+      if (result.length === 0) return err({ type: 'USER_NOT_FOUND', id });
+      return ok(result[0]);
+    } catch (e) {
+      return err({ type: 'DB_ERROR', message: String(e) });
+    }
+  },
+
+  findByEmail: async (email: string): AsyncResult<User | undefined, DbError> => {
+    try {
+      const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+      return ok(result[0]);
+    } catch (e) {
+      return err({ type: 'DB_ERROR', message: String(e) });
+    }
+  },
+
+  create: async (data: NewUser): AsyncResult<User, EmailTakenError | DbError> => {
+    try {
+      const result = await db.insert(users).values(data).returning();
+      return ok(result[0]);
+    } catch (e) {
+      if (isUniqueViolation(e, 'email')) {
+        return err({ type: 'EMAIL_TAKEN', email: data.email });
+      }
+      return err({ type: 'DB_ERROR', message: String(e) });
+    }
+  },
+
+  update: async (id: string, data: Partial<NewUser>): AsyncResult<User, UserNotFoundError | DbError> => {
+    try {
+      const result = await db.update(users).set(data).where(eq(users.id, id)).returning();
+      if (result.length === 0) return err({ type: 'USER_NOT_FOUND', id });
+      return ok(result[0]);
+    } catch (e) {
+      return err({ type: 'DB_ERROR', message: String(e) });
+    }
+  },
+
+  delete: async (id: string): AsyncResult<void, UserNotFoundError | DbError> => {
+    try {
+      const result = await db.delete(users).where(eq(users.id, id)).returning({ id: users.id });
+      if (result.length === 0) return err({ type: 'USER_NOT_FOUND', id });
+      return ok(undefined);
+    } catch (e) {
+      return err({ type: 'DB_ERROR', message: String(e) });
+    }
+  },
+};
+
+// Helper
+const isUniqueViolation = (e: unknown, field: string): boolean => {
+  if (isPostgresError(e) && e.code === '23505') {
+    return e.constraint?.includes(field) ?? false;
+  }
+  return false;
+};
+```
+
+### Pattern 3: In Workflows with Validation
+
+Combine Drizzle with Zod validation:
+
+```typescript
+import { z } from 'zod';
+import { createWorkflow } from 'awaitly/workflow';
+import { ok, err } from 'awaitly';
+import { userRepository } from './user-repository';
+
+const CreateUserSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(2).max(100),
+  role: z.enum(['user', 'admin']).default('user'),
+});
+
+const deps = {
+  validateInput: (raw: unknown) => {
+    const parsed = CreateUserSchema.safeParse(raw);
+    return Promise.resolve(
+      parsed.success
+        ? ok(parsed.data)
+        : err({ type: 'VALIDATION' as const, issues: parsed.error.issues })
+    );
+  },
+  createUser: userRepository.create,
+};
+
+const createUserWorkflow = createWorkflow(deps);
+
+const createUser = async (rawInput: unknown) => {
+  return createUserWorkflow(async (step, d) => {
+    const input = await step(() => d.validateInput(rawInput));
+    const user = await step(() => d.createUser(input));
+    return user;
+  });
+};
+
+// Error type is automatically inferred:
+// ValidationError | EmailTakenError | DbError | UnexpectedError
+```
+
+### Pattern 4: Transactions
+
+Wrap Drizzle transactions with Result types:
+
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+import { db } from './db';
+import { users, accounts, transactions } from './schema';
+
+type TransferError =
+  | { type: 'INSUFFICIENT_FUNDS' }
+  | { type: 'ACCOUNT_NOT_FOUND'; accountId: string }
+  | { type: 'DB_ERROR'; message: string };
+
+const transferFunds = async (
+  fromAccountId: string,
+  toAccountId: string,
+  amount: number
+): AsyncResult<{ transactionId: string }, TransferError> => {
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Get source account
+      const [fromAccount] = await tx
+        .select()
+        .from(accounts)
+        .where(eq(accounts.id, fromAccountId))
+        .for('update'); // Lock row
+
+      if (!fromAccount) {
+        throw { type: 'ACCOUNT_NOT_FOUND', accountId: fromAccountId };
+      }
+
+      if (fromAccount.balance < amount) {
+        throw { type: 'INSUFFICIENT_FUNDS' };
+      }
+
+      // Get destination account
+      const [toAccount] = await tx
+        .select()
+        .from(accounts)
+        .where(eq(accounts.id, toAccountId))
+        .for('update');
+
+      if (!toAccount) {
+        throw { type: 'ACCOUNT_NOT_FOUND', accountId: toAccountId };
+      }
+
+      // Perform transfer
+      await tx
+        .update(accounts)
+        .set({ balance: fromAccount.balance - amount })
+        .where(eq(accounts.id, fromAccountId));
+
+      await tx
+        .update(accounts)
+        .set({ balance: toAccount.balance + amount })
+        .where(eq(accounts.id, toAccountId));
+
+      // Record transaction
+      const [txRecord] = await tx
+        .insert(transactions)
+        .values({
+          fromAccountId,
+          toAccountId,
+          amount,
+          createdAt: new Date(),
+        })
+        .returning();
+
+      return { transactionId: txRecord.id };
+    });
+
+    return ok(result);
+  } catch (e) {
+    // Handle known business errors
+    if (typeof e === 'object' && e !== null && 'type' in e) {
+      return err(e as TransferError);
+    }
+    return err({ type: 'DB_ERROR', message: String(e) });
+  }
+};
+```
+
+### Pattern 5: With Drizzle Relations
+
+Handle relational queries with proper error typing:
+
+```typescript
+import { eq } from 'drizzle-orm';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { db } from './db';
+import { users, posts, comments } from './schema';
+
+type UserWithPosts = typeof users.$inferSelect & {
+  posts: (typeof posts.$inferSelect)[];
+};
+
+type FetchError =
+  | { type: 'USER_NOT_FOUND'; id: string }
+  | { type: 'DB_ERROR'; message: string };
+
+const getUserWithPosts = async (userId: string): AsyncResult<UserWithPosts, FetchError> => {
+  try {
+    // Using Drizzle's relational queries
+    const result = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+      with: {
+        posts: {
+          orderBy: (posts, { desc }) => [desc(posts.createdAt)],
+          limit: 10,
+        },
+      },
+    });
+
+    if (!result) {
+      return err({ type: 'USER_NOT_FOUND', id: userId });
+    }
+
+    return ok(result);
+  } catch (e) {
+    return err({ type: 'DB_ERROR', message: String(e) });
+  }
+};
+
+// Or using joins
+const getUserWithPostCount = async (userId: string): AsyncResult<
+  { user: typeof users.$inferSelect; postCount: number },
+  FetchError
+> => {
+  try {
+    const result = await db
+      .select({
+        user: users,
+        postCount: sql<number>`count(${posts.id})::int`,
+      })
+      .from(users)
+      .leftJoin(posts, eq(posts.authorId, users.id))
+      .where(eq(users.id, userId))
+      .groupBy(users.id)
+      .limit(1);
+
+    if (result.length === 0) {
+      return err({ type: 'USER_NOT_FOUND', id: userId });
+    }
+
+    return ok(result[0]);
+  } catch (e) {
+    return err({ type: 'DB_ERROR', message: String(e) });
+  }
+};
+```
+
+## Complete Example: User Signup
+
+Complete workflow combining Zod validation, email checking, and user creation:
+
+```typescript
+import { z } from 'zod';
+import { eq } from 'drizzle-orm';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+import { db } from './db';
+import { users } from './schema';
+
+// Schema
+const SignUpSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+  name: z.string().min(2).max(100),
+});
+
+// Error types
+type ValidationError = { type: 'VALIDATION'; issues: z.ZodIssue[] };
+type EmailTakenError = { type: 'EMAIL_TAKEN'; email: string };
+type DbError = { type: 'DB_ERROR'; message: string };
+
+// Dependencies
+const deps = {
+  validateInput: (raw: unknown) => {
+    const parsed = SignUpSchema.safeParse(raw);
+    return Promise.resolve(
+      parsed.success
+        ? ok(parsed.data)
+        : err({ type: 'VALIDATION' as const, issues: parsed.error.issues })
+    );
+  },
+
+  checkEmailExists: async (email: string): AsyncResult<boolean, DbError> => {
+    try {
+      const result = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.email, email))
+        .limit(1);
+      return ok(result.length > 0);
+    } catch (e) {
+      return err({ type: 'DB_ERROR', message: String(e) });
+    }
+  },
+
+  hashPassword: async (password: string): AsyncResult<string, never> => {
+    // In real code, use bcrypt or argon2
+    return ok(`hashed_${password}`);
+  },
+
+  createUser: async (data: {
+    email: string;
+    passwordHash: string;
+    name: string;
+  }): AsyncResult<{ id: string; email: string; name: string }, DbError> => {
+    try {
+      const result = await db
+        .insert(users)
+        .values(data)
+        .returning({ id: users.id, email: users.email, name: users.name });
+      return ok(result[0]);
+    } catch (e) {
+      return err({ type: 'DB_ERROR', message: String(e) });
+    }
+  },
+};
+
+// Workflow
+const signUpWorkflow = createWorkflow(deps);
+
+const signUp = async (rawInput: unknown) => {
+  return signUpWorkflow(async (step, d) => {
+    // Step 1: Validate input
+    const input = await step(() => d.validateInput(rawInput));
+
+    // Step 2: Check if email is taken
+    const emailExists = await step(() => d.checkEmailExists(input.email));
+    if (emailExists) {
+      return await step(err({ type: 'EMAIL_TAKEN' as const, email: input.email }));
+    }
+
+    // Step 3: Hash password
+    const passwordHash = await step(() => d.hashPassword(input.password));
+
+    // Step 4: Create user
+    const user = await step(() =>
+      d.createUser({
+        email: input.email,
+        passwordHash,
+        name: input.name,
+      })
+    );
+
+    return user;
+  });
+};
+
+// API handler
+export const POST = async (request: Request) => {
+  const result = await signUp(await request.json());
+
+  if (!result.ok) {
+    switch (result.error.type) {
+      case 'VALIDATION':
+        return Response.json(
+          { error: 'Validation failed', issues: result.error.issues },
+          { status: 400 }
+        );
+      case 'EMAIL_TAKEN':
+        return Response.json(
+          { error: 'Email already registered' },
+          { status: 409 }
+        );
+      case 'DB_ERROR':
+        console.error('Database error:', result.error.message);
+        return Response.json(
+          { error: 'Server error' },
+          { status: 500 }
+        );
+    }
+  }
+
+  return Response.json(result.value, { status: 201 });
+};
+```
+
+## Common Utilities
+
+Copy this utility file to your project:
+
+```typescript
+// src/lib/drizzle-result.ts
+import { ok, err, type AsyncResult } from 'awaitly';
+
+export type DbError =
+  | { type: 'NOT_FOUND'; entity?: string }
+  | { type: 'UNIQUE_VIOLATION'; field: string }
+  | { type: 'FOREIGN_KEY_VIOLATION'; field: string }
+  | { type: 'DB_ERROR'; code?: string; message: string };
+
+/**
+ * Wrap a Drizzle operation and convert errors to typed Results
+ */
+export const drizzleToResult = async <T>(
+  operation: () => Promise<T>,
+  entity?: string
+): AsyncResult<T, DbError> => {
+  try {
+    return ok(await operation());
+  } catch (e) {
+    return err(mapDrizzleError(e, entity));
+  }
+};
+
+/**
+ * Map database errors to typed DbError
+ */
+export const mapDrizzleError = (e: unknown, entity?: string): DbError => {
+  // PostgreSQL errors
+  if (isPostgresError(e)) {
+    switch (e.code) {
+      case '23505': // unique_violation
+        return {
+          type: 'UNIQUE_VIOLATION',
+          field: extractField(e.constraint) ?? 'unknown',
+        };
+      case '23503': // foreign_key_violation
+        return {
+          type: 'FOREIGN_KEY_VIOLATION',
+          field: extractField(e.constraint) ?? 'unknown',
+        };
+      case '23502': // not_null_violation
+        return { type: 'DB_ERROR', code: e.code, message: e.message };
+      default:
+        return { type: 'DB_ERROR', code: e.code, message: e.message };
+    }
+  }
+
+  // SQLite errors
+  if (isSqliteError(e)) {
+    if (e.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return { type: 'UNIQUE_VIOLATION', field: 'unknown' };
+    }
+    if (e.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+      return { type: 'FOREIGN_KEY_VIOLATION', field: 'unknown' };
+    }
+    return { type: 'DB_ERROR', code: e.code, message: e.message };
+  }
+
+  // MySQL errors
+  if (isMysqlError(e)) {
+    if (e.code === 'ER_DUP_ENTRY') {
+      return { type: 'UNIQUE_VIOLATION', field: 'unknown' };
+    }
+    if (e.code === 'ER_NO_REFERENCED_ROW_2') {
+      return { type: 'FOREIGN_KEY_VIOLATION', field: 'unknown' };
+    }
+    return { type: 'DB_ERROR', code: e.code, message: e.message };
+  }
+
+  return { type: 'DB_ERROR', message: String(e) };
+};
+
+// Type guards
+const isPostgresError = (e: unknown): e is { code: string; message: string; constraint?: string } =>
+  typeof e === 'object' && e !== null && 'code' in e && 'severity' in e;
+
+const isSqliteError = (e: unknown): e is { code: string; message: string } =>
+  typeof e === 'object' && e !== null && 'code' in e && String((e as any).code).startsWith('SQLITE');
+
+const isMysqlError = (e: unknown): e is { code: string; message: string } =>
+  typeof e === 'object' && e !== null && 'code' in e && String((e as any).code).startsWith('ER_');
+
+const extractField = (constraint?: string): string | undefined =>
+  constraint?.split('_').slice(1, -1).join('_');
+
+/**
+ * Wrap a query that returns an array, returning NOT_FOUND if empty
+ */
+export const findOneOrNotFound = async <T>(
+  operation: () => Promise<T[]>,
+  entity: string
+): AsyncResult<T, { type: 'NOT_FOUND'; entity: string }> => {
+  const result = await operation();
+  return result.length > 0
+    ? ok(result[0])
+    : err({ type: 'NOT_FOUND', entity });
+};
+```
+
+## Drizzle vs Prisma
+
+| Feature | Drizzle | Prisma |
+|---------|---------|--------|
+| Error type | Raw DB errors (pg, mysql, sqlite) | `PrismaClientKnownRequestError` with codes |
+| Type inference | `$inferSelect` / `$inferInsert` | Generated types |
+| Transactions | `db.transaction(async (tx) => ...)` | `prisma.$transaction(...)` |
+| Relations | `db.query.table.findFirst({ with: {...} })` | Include in query |
+| Unique error code | PostgreSQL: `23505`, SQLite: `SQLITE_CONSTRAINT_UNIQUE` | `P2002` |
+| Not found | Manual check (empty array) | `P2025` with `findUniqueOrThrow` |
+
+## Tips
+
+<Aside type="tip" title="Best practices">
+1. **Use `.returning()`** — Get the created/updated record back in a single query
+2. **Check array length** — Drizzle returns empty arrays for no results, not null
+3. **Use `for('update')`** — Lock rows in transactions to prevent race conditions
+4. **Handle DB-specific errors** — PostgreSQL, MySQL, and SQLite have different error codes
+5. **Use relational queries** — `db.query.table.findFirst({ with: {...} })` for cleaner joins
+</Aside>
+
+## Next Steps
+
+- [Prisma Integration](/guides/prisma/) for comparison
+- [Zod Integration](/guides/zod/) for input validation
+- [Workflows](/concepts/workflows/) for composing database operations

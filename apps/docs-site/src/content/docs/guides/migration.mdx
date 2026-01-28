@@ -273,6 +273,394 @@ const combined = await allAsync([
 | Error inference | Manual | Automatic in workflows |
 | Step control | - | Retries, timeouts, caching |
 
+## From Effect
+
+Effect is a powerful functional programming library. If you want to gradually adopt awaitly alongside Effect, or migrate simpler parts of your codebase, this section shows you how.
+
+### Why consider awaitly?
+
+Effect excels when you need:
+- Structured concurrency with fibers
+- Layer-based dependency injection at scale
+- Full ecosystem (Schema, Stream, etc.)
+
+awaitly is simpler when:
+- Your team finds generator syntax (`Effect.gen`) unfamiliar
+- You don't need Effect's full ecosystem
+- You want familiar `async/await` syntax with Result types
+- You need built-in workflows without complex abstractions
+
+### Basic conversions
+
+<Tabs>
+  <TabItem label="Effect">
+```typescript
+import { Effect, Context, Layer } from 'effect';
+
+// Service definition with Layer DI
+class UserService extends Context.Tag('UserService')<
+  UserService,
+  { getUser: (id: string) => Effect.Effect<User, 'NOT_FOUND'> }
+>() {}
+
+const program = Effect.gen(function* () {
+  const service = yield* UserService;
+  const user = yield* service.getUser('1');
+  return user;
+});
+
+const result = await Effect.runPromise(
+  program.pipe(Effect.provide(UserServiceLive))
+);
+```
+  </TabItem>
+  <TabItem label="awaitly">
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+
+// Simple function with Result type
+const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
+  const user = await db.findUser(id);
+  return user ? ok(user) : err('NOT_FOUND');
+};
+
+// Workflow with dependency injection
+const workflow = createWorkflow({ getUser });
+
+const result = await workflow(async (step, deps) => {
+  const user = await step(() => deps.getUser('1'));
+  return user;
+});
+```
+  </TabItem>
+</Tabs>
+
+### API mapping
+
+| Effect | awaitly | Notes |
+|--------|---------|-------|
+| `Effect.succeed(x)` | `ok(x)` | Simpler |
+| `Effect.fail(e)` | `err(e)` | Simpler |
+| `Effect.gen(function* () { ... })` | `run(async (step) => { ... })` | Familiar async/await |
+| `yield* someEffect` | `await step(fn)` | Unwrap in workflow |
+| `Effect.tryPromise({ try, catch })` | `step.try(() => ..., { onError })` | Similar |
+| `Effect.all([...])` | `step.parallel({ ... })` or `allAsync([...])` | Similar |
+| `Schedule.exponential()` | `step.retry({ backoff: 'exponential' })` | Built-in options |
+| `Effect.timeout(duration)` | `step.try(..., { timeout: '5s' })` | String durations |
+| `Layer.provide()` | Pass deps to workflow | Direct injection |
+
+### Interop utilities
+
+Use these helpers to bridge Effect and awaitly code during gradual migration:
+
+```typescript
+// src/lib/effect-interop.ts
+import { Effect, Exit, Cause, Option } from 'effect';
+import { ok, err, type Result, type AsyncResult } from 'awaitly';
+
+/**
+ * Convert an Effect to an awaitly AsyncResult
+ */
+export const fromEffect = async <A, E>(
+  effect: Effect.Effect<A, E>
+): AsyncResult<A, E> => {
+  const exit = await Effect.runPromiseExit(effect);
+
+  if (Exit.isSuccess(exit)) {
+    return ok(exit.value);
+  }
+
+  // Extract the failure from the Cause
+  const failureOption = Cause.failureOption(exit.cause);
+  if (Option.isSome(failureOption)) {
+    return err(failureOption.value);
+  }
+
+  // Handle defects (unexpected errors) - rethrow as these are bugs
+  throw new Error('Effect failed with defect: ' + Cause.pretty(exit.cause));
+};
+
+/**
+ * Convert an awaitly AsyncResult to an Effect
+ */
+export const toEffect = <A, E>(
+  asyncResult: AsyncResult<A, E>
+): Effect.Effect<A, E> =>
+  Effect.tryPromise({
+    try: async () => {
+      const result = await asyncResult;
+      if (!result.ok) {
+        throw result.error;
+      }
+      return result.value;
+    },
+    catch: (e) => e as E,
+  });
+
+/**
+ * Wrap an Effect-returning function for use in awaitly workflows
+ */
+export const wrapEffect = <Args extends unknown[], A, E>(
+  fn: (...args: Args) => Effect.Effect<A, E>
+) => async (...args: Args): AsyncResult<A, E> => {
+  return fromEffect(fn(...args));
+};
+
+/**
+ * Wrap an awaitly function for use in Effect programs
+ */
+export const wrapAwaitly = <Args extends unknown[], A, E>(
+  fn: (...args: Args) => AsyncResult<A, E>
+) => (...args: Args): Effect.Effect<A, E> => {
+  return toEffect(fn(...args));
+};
+```
+
+### Using interop in workflows
+
+```typescript
+import { fromEffect, wrapEffect } from '@/lib/effect-interop';
+import { legacyEffectService } from '@/legacy/services';
+import { createWorkflow } from 'awaitly/workflow';
+
+// Option 1: Inline conversion
+const result = await workflow(async (step) => {
+  const user = await step(fromEffect(legacyEffectService.getUser('1')));
+  return user;
+});
+
+// Option 2: Pre-wrap Effect functions
+const getUser = wrapEffect(legacyEffectService.getUser);
+const getPosts = wrapEffect(legacyEffectService.getPosts);
+
+const workflow = createWorkflow({ getUser, getPosts });
+
+const result = await workflow(async (step, deps) => {
+  const user = await step(() => deps.getUser('1'));
+  const posts = await step(() => deps.getPosts(user.id));
+  return { user, posts };
+});
+```
+
+### Gradual migration strategy
+
+**Phase 1: Parallel adoption**
+
+Keep Effect in existing code, use awaitly for new features:
+
+```typescript
+// Existing: Keep Effect code as-is
+// src/services/legacy-payment.ts
+export const processPayment = (input: PaymentInput) =>
+  Effect.gen(function* () {
+    // ... existing Effect code
+  });
+
+// New: Use awaitly for new features
+// src/features/checkout/workflow.ts
+import { wrapEffect } from '@/lib/effect-interop';
+import { processPayment } from '@/services/legacy-payment';
+
+const checkoutWorkflow = createWorkflow({
+  validateCart,
+  processPayment: wrapEffect(processPayment), // Bridge to Effect
+  sendConfirmation,
+});
+```
+
+**Phase 2: Module-by-module migration**
+
+When refactoring a module, convert the entire module:
+
+```typescript
+// Before: Effect with Layers
+export class UserService extends Context.Tag('UserService')<
+  UserService,
+  {
+    getUser: (id: string) => Effect.Effect<User, 'NOT_FOUND'>;
+    updateUser: (id: string, data: Partial<User>) => Effect.Effect<User, 'NOT_FOUND' | 'UPDATE_ERROR'>;
+  }
+>() {}
+
+// After: awaitly with simple functions
+export const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
+  const user = await db.findUser(id);
+  return user ? ok(user) : err('NOT_FOUND');
+};
+
+export const updateUser = async (
+  id: string,
+  data: Partial<User>
+): AsyncResult<User, 'NOT_FOUND' | 'UPDATE_ERROR'> => {
+  const user = await db.findUser(id);
+  if (!user) return err('NOT_FOUND');
+
+  try {
+    const updated = await db.updateUser(id, data);
+    return ok(updated);
+  } catch {
+    return err('UPDATE_ERROR');
+  }
+};
+```
+
+### When to keep Effect
+
+Don't migrate everything. Keep Effect when:
+
+- **Using fibers** for structured concurrency
+- **Heavy use of Layers** for complex dependency graphs
+- **Using Effect ecosystem** (Schema, Stream, Platform)
+- **Team is fluent in Effect** patterns
+- **Code is stable** and working well
+
+### Complete migration example
+
+<Tabs>
+  <TabItem label="Before (Effect)">
+```typescript
+import { Effect, Context, Layer, Schedule, Duration } from 'effect';
+
+class DbService extends Context.Tag('DbService')<DbService, Db>() {}
+class ProviderService extends Context.Tag('ProviderService')<ProviderService, Provider>() {}
+
+const createPayment = (raw: unknown, actorEmail: string) =>
+  Effect.gen(function* () {
+    const db = yield* DbService;
+    const provider = yield* ProviderService;
+
+    const input = yield* Effect.try({
+      try: () => CreatePaymentSchema.parse(raw),
+      catch: () => new ValidationError('Invalid input'),
+    });
+
+    const existing = yield* Effect.promise(() => db.findPaymentByKey(input.idemKey));
+    if (existing) {
+      return { paymentId: existing.id };
+    }
+
+    const locked = yield* Effect.promise(() => db.acquireLock(input.idemKey));
+    if (!locked) {
+      return yield* Effect.fail(new IdempotencyConflict('Concurrent request'));
+    }
+
+    const response = yield* Effect.tryPromise({
+      try: () => provider.createPayment({
+        amountMinor: input.amountMinor,
+        currency: input.currency,
+        reference: input.reference,
+      }),
+      catch: (e) => mapProviderError(e),
+    }).pipe(
+      Effect.timeout(Duration.millis(2000)),
+      Effect.retry(
+        Schedule.exponential(Duration.millis(200)).pipe(
+          Schedule.jittered,
+          Schedule.intersect(Schedule.recurs(2))
+        )
+      )
+    );
+
+    yield* Effect.tryPromise({
+      try: () => db.transaction(async (tx) => {
+        await tx.insertPayment({ ...input, providerPaymentId: response.id, status: response.status });
+        await tx.insertAudit({ actor: actorEmail, action: 'PAYMENT_CREATED', metadata: { providerId: response.id } });
+      }),
+      catch: () => new PersistError('Failed to save'),
+    });
+
+    return { paymentId: response.id };
+  });
+
+// Usage
+const result = await Effect.runPromise(
+  createPayment(rawInput, 'user@example.com').pipe(
+    Effect.provide(Layer.merge(makeDbLayer(db), makeProviderLayer(provider)))
+  )
+);
+```
+  </TabItem>
+  <TabItem label="After (awaitly)">
+```typescript
+import { ok, err, createWorkflow, type AsyncResult } from 'awaitly';
+
+const deps = {
+  validateInput: (raw: unknown): AsyncResult<CreatePayment, 'VALIDATION_ERROR'> =>
+    Promise.resolve(
+      CreatePaymentSchema.safeParse(raw).success
+        ? ok(CreatePaymentSchema.parse(raw))
+        : err('VALIDATION_ERROR')
+    ),
+
+  findExisting: (db: Db, idemKey: string): AsyncResult<{ id: string } | undefined, never> =>
+    Promise.resolve(db.findPaymentByKey(idemKey)).then(ok),
+
+  acquireLock: (db: Db, idemKey: string): AsyncResult<void, 'IDEMPOTENCY_CONFLICT'> =>
+    Promise.resolve(db.acquireLock(idemKey))
+      .then(locked => locked ? ok(undefined) : err('IDEMPOTENCY_CONFLICT')),
+
+  callProvider: async (provider: Provider, input: CreatePayment): AsyncResult<ProviderResponse, 'PROVIDER_ERROR'> => {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const response = await provider.createPayment({
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          reference: input.reference,
+        });
+        return ok(response);
+      } catch {
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, 200 * 2 ** attempt));
+        }
+      }
+    }
+    return err('PROVIDER_ERROR');
+  },
+
+  persistSuccess: async (db: Db, input: CreatePayment, response: ProviderResponse, actorEmail: string): AsyncResult<{ paymentId: string }, 'PERSIST_ERROR'> => {
+    try {
+      await db.transaction(async (tx) => {
+        await tx.insertPayment({ ...input, providerPaymentId: response.id, status: response.status });
+        await tx.insertAudit({ actor: actorEmail, action: 'PAYMENT_CREATED', metadata: { providerId: response.id } });
+      });
+      return ok({ paymentId: response.id });
+    } catch {
+      return err('PERSIST_ERROR');
+    }
+  },
+};
+
+const createPaymentWorkflow = (db: Db, provider: Provider, raw: unknown, actorEmail: string) => {
+  const workflow = createWorkflow(deps);
+
+  return workflow(async (step, d) => {
+    const input = await step(() => d.validateInput(raw), { key: 'validate' });
+
+    const existing = await step(() => d.findExisting(db, input.idemKey), { key: 'existing' });
+    if (existing) {
+      return { paymentId: existing.id };
+    }
+
+    await step(() => d.acquireLock(db, input.idemKey), { key: 'lock' });
+    const response = await step(() => d.callProvider(provider, input), { key: 'provider' });
+    return await step(() => d.persistSuccess(db, input, response, actorEmail), { key: 'persist' });
+  });
+};
+
+// Usage - no Layer setup needed
+const result = await createPaymentWorkflow(db, provider, rawInput, 'user@example.com');
+
+if (result.ok) {
+  console.log('Payment created:', result.value.paymentId);
+} else {
+  // TypeScript knows: result.error is 'VALIDATION_ERROR' | 'IDEMPOTENCY_CONFLICT' | 'PROVIDER_ERROR' | 'PERSIST_ERROR' | UnexpectedError
+  console.error('Failed:', result.error);
+}
+```
+  </TabItem>
+</Tabs>
+
 ## From custom Result types
 
 ### Standard shape

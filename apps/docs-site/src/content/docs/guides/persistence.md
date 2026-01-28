@@ -159,230 +159,10 @@ interface KeyValueStore {
 }
 ```
 
-### Example: PostgreSQL Adapter
+For implementation examples, see the source code of the official adapters:
 
-Here's how `awaitly-postgres` implements the interface (simplified):
-
-```typescript
-import type { Pool } from 'pg';
-import { Pool as PgPool } from 'pg';
-import type { KeyValueStore } from 'awaitly/persistence';
-
-export class PostgresKeyValueStore implements KeyValueStore {
-  private pool: Pool;
-  private tableName: string;
-
-  constructor(options: { connectionString: string; tableName?: string }) {
-    this.pool = new PgPool({ connectionString: options.connectionString });
-    this.tableName = options.tableName ?? 'awaitly_workflow_state';
-  }
-
-  async get(key: string): Promise<string | null> {
-    // Ensure table exists
-    await this.ensureInitialized();
-
-    const result = await this.pool.query(
-      `SELECT value FROM ${this.tableName} 
-       WHERE key = $1 AND (expires_at IS NULL OR expires_at > NOW())`,
-      [key]
-    );
-
-    return result.rows[0]?.value ?? null;
-  }
-
-  async set(key: string, value: string, options?: { ttl?: number }): Promise<void> {
-    await this.ensureInitialized();
-
-    const expiresAt = options?.ttl
-      ? new Date(Date.now() + options.ttl * 1000)
-      : null;
-
-    await this.pool.query(
-      `INSERT INTO ${this.tableName} (key, value, expires_at)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at`,
-      [key, value, expiresAt]
-    );
-  }
-
-  async delete(key: string): Promise<boolean> {
-    const result = await this.pool.query(
-      `DELETE FROM ${this.tableName} WHERE key = $1`,
-      [key]
-    );
-    return (result.rowCount ?? 0) > 0;
-  }
-
-  async exists(key: string): Promise<boolean> {
-    const result = await this.pool.query(
-      `SELECT 1 FROM ${this.tableName} 
-       WHERE key = $1 AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1`,
-      [key]
-    );
-    return result.rows.length > 0;
-  }
-
-  async keys(pattern: string): Promise<string[]> {
-    // Convert glob pattern (*) to SQL LIKE (%)
-    const likePattern = pattern.replace(/\*/g, '%');
-    const result = await this.pool.query(
-      `SELECT key FROM ${this.tableName} 
-       WHERE key LIKE $1 AND (expires_at IS NULL OR expires_at > NOW())`,
-      [likePattern]
-    );
-    return result.rows.map(row => row.key);
-  }
-
-  private async ensureInitialized(): Promise<void> {
-    // Create table if it doesn't exist
-    await this.pool.query(`
-      CREATE TABLE IF NOT EXISTS ${this.tableName} (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        expires_at TIMESTAMP
-      );
-      CREATE INDEX IF NOT EXISTS idx_${this.tableName}_expires_at 
-      ON ${this.tableName}(expires_at) WHERE expires_at IS NOT NULL;
-    `);
-  }
-}
-```
-
-Then create a factory function that uses `createStatePersistence`:
-
-```typescript
-import { createStatePersistence } from 'awaitly/persistence';
-import { PostgresKeyValueStore } from './postgres-store';
-
-export async function createPostgresPersistence(options: {
-  connectionString: string;
-  prefix?: string;
-}) {
-  const store = new PostgresKeyValueStore(options);
-  return createStatePersistence(store, options.prefix);
-}
-```
-
-### Example: MongoDB Adapter
-
-Here's how `awaitly-mongo` implements it (simplified):
-
-```typescript
-import { MongoClient } from 'mongodb';
-import type { KeyValueStore } from 'awaitly/persistence';
-
-export class MongoKeyValueStore implements KeyValueStore {
-  private collection: Collection<{ _id: string; value: string; expiresAt?: Date }>;
-
-  constructor(options: { connectionString: string; collection?: string }) {
-    const client = new MongoClient(options.connectionString);
-    const db = client.db();
-    this.collection = db.collection(options.collection ?? 'workflow_state');
-  }
-
-  async get(key: string): Promise<string | null> {
-    await this.ensureInitialized();
-
-    const doc = await this.collection.findOne({
-      _id: key,
-      $or: [
-        { expiresAt: { $exists: false } },
-        { expiresAt: null },
-        { expiresAt: { $gt: new Date() } }
-      ],
-    });
-
-    return doc?.value ?? null;
-  }
-
-  async set(key: string, value: string, options?: { ttl?: number }): Promise<void> {
-    await this.ensureInitialized();
-
-    const expiresAt = options?.ttl
-      ? new Date(Date.now() + options.ttl * 1000)
-      : undefined;
-
-    await this.collection.updateOne(
-      { _id: key },
-      {
-        $set: {
-          value,
-          ...(expiresAt ? { expiresAt } : { $unset: { expiresAt: '' } }),
-        },
-      },
-      { upsert: true }
-    );
-  }
-
-  async delete(key: string): Promise<boolean> {
-    const result = await this.collection.deleteOne({ _id: key });
-    return result.deletedCount > 0;
-  }
-
-  async exists(key: string): Promise<boolean> {
-    const count = await this.collection.countDocuments({
-      _id: key,
-      $or: [
-        { expiresAt: { $exists: false } },
-        { expiresAt: null },
-        { expiresAt: { $gt: new Date() } }
-      ],
-    });
-    return count > 0;
-  }
-
-  async keys(pattern: string): Promise<string[]> {
-    // Convert glob pattern to MongoDB regex
-    const regex = new RegExp(`^${pattern.replace(/\*/g, '.*')}$`);
-    const docs = await this.collection
-      .find({ _id: regex })
-      .project({ _id: 1 })
-      .toArray();
-    return docs.map(doc => doc._id);
-  }
-
-  private async ensureInitialized(): Promise<void> {
-    // Create TTL index if it doesn't exist
-    const indexes = await this.collection.indexes();
-    const hasTtlIndex = indexes.some(
-      idx => idx.key?.expiresAt && idx.expireAfterSeconds !== undefined
-    );
-
-    if (!hasTtlIndex) {
-      await this.collection.createIndex(
-        { expiresAt: 1 },
-        { expireAfterSeconds: 0, name: 'expiresAt_ttl' }
-      );
-    }
-  }
-}
-```
-
-### Key Implementation Patterns
-
-1. **Lazy Initialization**: Create tables/collections on first use
-2. **TTL Support**: Handle expiration for automatic cleanup
-3. **Pattern Matching**: Convert glob patterns (`*`) to database-specific queries
-4. **Connection Management**: Support connection pooling and reuse
-5. **Error Handling**: Return `null` for missing keys, handle connection errors gracefully
-
-### Using Your Custom Adapter
-
-Once you've implemented `KeyValueStore`, use it with `createStatePersistence`:
-
-```typescript
-import { createStatePersistence } from 'awaitly/persistence';
-import { MyCustomKeyValueStore } from './my-store';
-
-const store = new MyCustomKeyValueStore({ /* options */ });
-const persistence = createStatePersistence(store, 'workflow:state:');
-
-// Use with durable.run()
-const result = await durable.run(deps, workflowFn, {
-  id: 'workflow-123',
-  store: persistence,
-});
-```
+- [awaitly-postgres](https://github.com/jagreehal/awaitly/tree/main/packages/awaitly-postgres)
+- [awaitly-mongo](https://github.com/jagreehal/awaitly/tree/main/packages/awaitly-mongo)
 
 ## Official Persistence Adapters
 
@@ -400,7 +180,7 @@ const store = await createPostgresPersistence({
 });
 ```
 
-[Learn more about PostgreSQL persistence →](./postgres-persistence)
+[Learn more about PostgreSQL persistence →](./postgres-persistence/)
 
 ### MongoDB
 
@@ -414,7 +194,7 @@ const store = await createMongoPersistence({
 });
 ```
 
-[Learn more about MongoDB persistence →](./mongo-persistence)
+[Learn more about MongoDB persistence →](./mongo-persistence/)
 
 ## Check if step is complete
 

@@ -26,6 +26,15 @@
       "import": "./dist/core.js",
       "require": "./dist/core.cjs"
     },
+    "./run": {
+      "browser": {
+        "types": "./dist/run.d.ts",
+        "import": "./dist/run.js"
+      },
+      "types": "./dist/run.d.ts",
+      "import": "./dist/run.js",
+      "require": "./dist/run.cjs"
+    },
     "./workflow": {
       "browser": {
         "types": "./dist/workflow.d.ts",
@@ -340,7 +349,7 @@
   "devDependencies": {
     "@total-typescript/ts-reset": "^0.6.1",
     "@total-typescript/tsconfig": "^1.0.4",
-    "@types/node": "^25.0.10",
+    "@types/node": "^25.1.0",
     "@types/picomatch": "^4.0.2",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.0.18",

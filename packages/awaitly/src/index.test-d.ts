@@ -9,7 +9,6 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 import { expectType } from "tsd";
 import {
-  run,
   ok,
   err,
   Ok,
@@ -19,9 +18,6 @@ import {
   UnexpectedError,
   Errors,
   ErrorOf,
-  createWorkflow,
-  ErrorsOfDeps,
-  type WorkflowEvent,
   TaggedError,
   type TagOf,
   type ErrorByTag,
@@ -29,11 +25,12 @@ import {
   isErr,
   recover,
   recoverAsync,
-  pendingApproval,
-  Duration,
-  type DurationType,
   UNEXPECTED_ERROR,
 } from "./index";
+import { run, type WorkflowEvent } from "./run-entry";
+import { createWorkflow, ErrorsOfDeps } from "./workflow-entry";
+import { pendingApproval } from "./hitl-entry";
+import { Duration, type DurationType } from "./duration";
 // These are exported via awaitly/match and awaitly/retry entry points.
 // We import from source here because tsd can't resolve self-referencing package imports.
 // The public exports are validated by the build process (tsup generates .d.ts from these sources).

@@ -218,7 +218,8 @@ await step.sleep("2s", {
   name: "Polling delay",      // For visualization/logging
   key: "poll-delay",          // For caching/deduplication
   ttl: 5000,                  // Cache TTL in milliseconds
-  description: "Wait before next poll attempt"
+  description: "Wait before next poll attempt",
+  signal: controller.signal   // Optional AbortSignal for cancellation
 });
 ```
 
@@ -254,7 +255,9 @@ const result = await workflow(async (step) => {
 
 ### Cancellation
 
-`step.sleep` respects workflow cancellation. If the workflow is cancelled during sleep, it throws an `AbortError`:
+`step.sleep` supports two cancellation mechanisms:
+
+**Workflow cancellation** - Cancel the entire workflow:
 
 ```typescript
 const controller = new AbortController();
@@ -270,6 +273,28 @@ setTimeout(() => controller.abort(), 1000);
 
 const result = await resultPromise;
 // result.ok is false, error is WorkflowCancelledError
+```
+
+**User-provided signal** - Cancel a specific sleep without affecting the workflow:
+
+```typescript
+const result = await run(async (step) => {
+  const sleepController = new AbortController();
+
+  // Cancel this specific sleep after 1 second
+  setTimeout(() => sleepController.abort(), 1000);
+
+  try {
+    await step.sleep("10s", {
+      name: "Long sleep",
+      signal: sleepController.signal
+    });
+    return "completed normally";
+  } catch {
+    // Sleep was cancelled by user signal
+    return "sleep cancelled, continuing workflow";
+  }
+});
 ```
 
 <Aside type="tip" title="Duration formats">

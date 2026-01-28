@@ -64,22 +64,9 @@ Want compiler-verified error handling (Result types)?
         │
    No ──▶ try/catch
         │
-   Yes  │
+   Yes
+        │
         ▼
-Need full ecosystem (DI, layers, tracing)?
-        │
-   Yes ──▶ Effect
-        │
-   No  ──▶ awaitly
-        │
-   No   (prefer chaining)
-        ▼
-Need full ecosystem (DI, layers, tracing)?
-        │
-   Yes ──▶ Effect
-        │
-   No  ──▶ neverthrow
-=======
    Want async/await syntax? ──No──▶ neverthrow
         │
        Yes
@@ -90,7 +77,6 @@ Need full ecosystem (DI, layers, tracing)?
        Yes ──▶ Effect
         │
        No ──▶ awaitly
->>>>>>> origin/main
 ```
 
 ## When to Use What
@@ -119,6 +105,11 @@ Need full ecosystem (DI, layers, tracing)?
 ## Detailed Comparisons
 
 <CardGrid>
+  <Card title="vs Promises" icon="document">
+    Compare Promise + try/catch with AsyncResult. See why typed errors catch bugs at compile time.
+
+    [Read comparison →](/comparison/awaitly-vs-promise/)
+  </Card>
   <Card title="vs try/catch" icon="warning">
     Compare traditional exception handling with Result types. See why explicit errors catch bugs at compile time.
 

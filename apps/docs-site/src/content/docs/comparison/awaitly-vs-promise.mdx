@@ -1,0 +1,402 @@
+---
+title: awaitly vs Promises
+description: Comparing awaitly AsyncResult with native Promises and try/catch
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
+
+Promises are JavaScript's native way to handle async operations. awaitly's `AsyncResult` builds on Promises to add typed error handling. This guide compares both approaches.
+
+## Philosophy Comparison
+
+```text
+Promise + try/catch               AsyncResult
+┌─────────────────────────┐      ┌──────────────────────────┐
+│  Exceptions are hidden  │      │  Errors are visible      │
+│  ─────────────────────  │      │  ──────────────────────  │
+│  • Happy path focus     │      │  • Errors in return type │
+│  • Catch blocks handle  │      │  • TypeScript tracks     │
+│  • Runtime discovery    │      │  • Compile-time safety   │
+│  • Implicit failure     │      │  • Explicit failure      │
+└─────────────────────────┘      └──────────────────────────┘
+```
+
+## Quick Comparison
+
+| Feature | Promise + try/catch | awaitly AsyncResult |
+|---------|---------------------|---------------------|
+| Error visibility | Hidden in runtime | In return type |
+| Type safety | `Promise<T>` | `AsyncResult<T, E>` |
+| Error type | `unknown` in catch | Typed `E` |
+| Composition | try/catch nesting | `all`, `andThen`, `pipe` |
+| Learning curve | Familiar | Low (uses async/await) |
+
+## Basic Usage
+
+### Returning Errors
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+
+const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND' | 'DB_ERROR'> => {
+  try {
+    const user = await db.find(id);
+    return user ? ok(user) : err('NOT_FOUND');
+  } catch {
+    return err('DB_ERROR');
+  }
+};
+
+// Caller sees all possible errors in the type
+const result = await fetchUser('123');
+//    ^? AsyncResult<User, 'NOT_FOUND' | 'DB_ERROR'>
+
+if (result.ok) {
+  console.log(result.value.name);
+} else {
+  // TypeScript knows: result.error is 'NOT_FOUND' | 'DB_ERROR'
+  console.log(result.error);
+}
+```
+  </TabItem>
+  <TabItem label="Promise">
+```typescript
+const fetchUser = async (id: string): Promise<User> => {
+  const user = await db.find(id);
+  if (!user) {
+    throw new Error('NOT_FOUND');
+  }
+  return user;
+};
+
+// Caller has no idea this can fail
+const user = await fetchUser('123');
+//    ^? Promise<User> -- errors are invisible!
+
+// Must remember to wrap in try/catch
+try {
+  const user = await fetchUser('123');
+  console.log(user.name);
+} catch (e) {
+  // e is 'unknown' - no type safety
+  console.log(e);
+}
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="caution" title="The Problem with Promises">
+With Promises, nothing in the function signature tells you it can fail. You have to read the implementation or documentation to know what might go wrong.
+</Aside>
+
+### Error Type Safety
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+const result = await fetchUser('123');
+
+if (!result.ok) {
+  switch (result.error) {
+    case 'NOT_FOUND':
+      return { status: 404, message: 'User not found' };
+    case 'DB_ERROR':
+      return { status: 500, message: 'Database error' };
+    // TypeScript error if you miss a case!
+  }
+}
+```
+  </TabItem>
+  <TabItem label="Promise">
+```typescript
+try {
+  const user = await fetchUser('123');
+} catch (e) {
+  // e is 'unknown' - you're guessing
+  if (e instanceof Error) {
+    if (e.message === 'NOT_FOUND') {
+      return { status: 404, message: 'User not found' };
+    }
+    // Did we handle all cases? Who knows!
+  }
+}
+```
+  </TabItem>
+</Tabs>
+
+## Composing Operations
+
+### Sequential Operations
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+
+const workflow = createWorkflow({ fetchUser, validateOrder, chargeCard });
+
+const result = await workflow(async (step) => {
+  const user = await step(fetchUser('123'));
+  const order = await step(validateOrder(orderData));
+  const receipt = await step(chargeCard(user.id, order.total));
+  return { user, order, receipt };
+});
+
+// Error type is automatically:
+// 'NOT_FOUND' | 'INVALID_ORDER' | 'PAYMENT_FAILED' | UnexpectedError
+if (!result.ok) {
+  // Handle specific error
+}
+```
+  </TabItem>
+  <TabItem label="Promise">
+```typescript
+const processOrder = async () => {
+  try {
+    const user = await fetchUser('123');
+    const order = await validateOrder(orderData);
+    const receipt = await chargeCard(user.id, order.total);
+    return { user, order, receipt };
+  } catch (e) {
+    // Which function threw? What kind of error?
+    // You have to manually track this
+    if (e instanceof NotFoundError) { /* ... */ }
+    if (e instanceof ValidationError) { /* ... */ }
+    if (e instanceof PaymentError) { /* ... */ }
+    throw e; // Re-throw unknown errors
+  }
+};
+```
+  </TabItem>
+</Tabs>
+
+### Parallel Operations
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { allAsync, allSettledAsync } from 'awaitly';
+
+// Fail-fast: stops on first error
+const result = await allAsync([
+  fetchUser('1'),
+  fetchUser('2'),
+  fetchUser('3'),
+]);
+
+if (result.ok) {
+  const [user1, user2, user3] = result.value;
+}
+
+// Collect all results (including errors)
+const settled = await allSettledAsync([
+  fetchUser('1'),
+  fetchUser('2'),
+  fetchUser('3'),
+]);
+// settled.successes = [user1, user3]
+// settled.failures = ['NOT_FOUND']
+```
+  </TabItem>
+  <TabItem label="Promise">
+```typescript
+// Promise.all: fails on first error
+try {
+  const [user1, user2, user3] = await Promise.all([
+    fetchUser('1'),
+    fetchUser('2'),
+    fetchUser('3'),
+  ]);
+} catch (e) {
+  // One failed, but which one?
+}
+
+// Promise.allSettled: collects all
+const results = await Promise.allSettled([
+  fetchUser('1'),
+  fetchUser('2'),
+  fetchUser('3'),
+]);
+
+// Must manually filter and type-check
+const successes = results
+  .filter((r): r is PromiseFulfilledResult<User> => r.status === 'fulfilled')
+  .map(r => r.value);
+```
+  </TabItem>
+</Tabs>
+
+## Error Transformation
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { mapError } from 'awaitly';
+
+const result = await fetchUser('123');
+
+// Transform error to API response format
+const apiResult = mapError(result, (e) => ({
+  code: e,
+  message: e === 'NOT_FOUND' ? 'User not found' : 'Database error',
+  timestamp: Date.now(),
+}));
+```
+  </TabItem>
+  <TabItem label="Promise">
+```typescript
+const fetchUserForApi = async (id: string) => {
+  try {
+    return await fetchUser(id);
+  } catch (e) {
+    // Transform and re-throw
+    throw {
+      code: e instanceof Error ? e.message : 'UNKNOWN',
+      message: 'Something went wrong',
+      timestamp: Date.now(),
+    };
+  }
+};
+```
+  </TabItem>
+</Tabs>
+
+## Retries and Resilience
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+
+const workflow = createWorkflow({ fetchData });
+
+const result = await workflow(async (step) => {
+  // Built-in retry with exponential backoff
+  const data = await step.retry(
+    () => fetchData(),
+    {
+      attempts: 3,
+      backoff: 'exponential',
+      delayMs: 100,
+    }
+  );
+
+  // Built-in timeout
+  const slow = await step.withTimeout(
+    () => slowOperation(),
+    { ms: 5000 }
+  );
+
+  return { data, slow };
+});
+```
+  </TabItem>
+  <TabItem label="Promise">
+```typescript
+// Must implement retry logic yourself
+const withRetry = async <T>(
+  fn: () => Promise<T>,
+  attempts: number,
+  delay: number
+): Promise<T> => {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i === attempts - 1) throw e;
+      await new Promise(r => setTimeout(r, delay * Math.pow(2, i)));
+    }
+  }
+  throw new Error('Unreachable');
+};
+
+// Must implement timeout yourself
+const withTimeout = <T>(
+  fn: () => Promise<T>,
+  ms: number
+): Promise<T> => {
+  return Promise.race([
+    fn(),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Timeout')), ms)
+    ),
+  ]);
+};
+
+const result = await withRetry(() => withTimeout(fetchData, 5000), 3, 100);
+```
+  </TabItem>
+</Tabs>
+
+## Migration Path
+
+You can adopt awaitly incrementally. Here's how to wrap existing Promise-based code:
+
+```typescript
+import { ok, err, tryCatch, type AsyncResult } from 'awaitly';
+
+// Wrap an existing async function
+const safeFetchUser = async (id: string): AsyncResult<User, 'FETCH_ERROR'> => {
+  try {
+    const user = await legacyFetchUser(id); // existing Promise function
+    return ok(user);
+  } catch {
+    return err('FETCH_ERROR');
+  }
+};
+
+// Or use tryCatch for sync throwing functions
+const safeJsonParse = (s: string) =>
+  tryCatch(
+    () => JSON.parse(s),
+    () => 'PARSE_ERROR' as const
+  );
+```
+
+## When to Use Each
+
+### Use Promises when:
+
+- Building simple scripts or prototypes
+- Working at system boundaries (HTTP handlers catch all errors)
+- Your team prefers exceptions
+- Integrating with libraries that use exceptions
+
+### Use awaitly when:
+
+- You want compile-time error visibility
+- Building reliable multi-step workflows
+- You need automatic error type inference
+- You want built-in retry/timeout/caching
+- TypeScript type safety is important to your team
+
+## Summary
+
+```text
+┌────────────────────────────────────────────────────────────────┐
+│                    Error Visibility Spectrum                    │
+├────────────────────────────────────────────────────────────────┤
+│                                                                │
+│  Promise + try/catch              awaitly AsyncResult          │
+│  ─────────────────────           ────────────────────          │
+│  Errors hidden                   Errors in types               │
+│  Runtime discovery               Compile-time safety           │
+│  unknown in catch                Typed E                       │
+│                                                                │
+│  "I hope I caught everything"    "TypeScript tells me"         │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+<Aside type="tip" title="Best of Both Worlds">
+awaitly uses standard async/await syntax, so you get Promise ergonomics with Result type safety. No new syntax to learn!
+</Aside>
+
+## Next Steps
+
+- [Getting Started →](/getting-started/installation/)
+- [Result Types →](/concepts/result-types/)
+- [Workflows →](/concepts/workflows/)

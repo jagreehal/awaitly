@@ -5350,6 +5350,172 @@ describe("step.sleep() method", () => {
     }
   });
 
+  it("respects user-provided signal cancellation", async () => {
+    const controller = new AbortController();
+
+    const resultPromise = run(async (step) => {
+      await step.sleep("5s", { name: "long-sleep", signal: controller.signal });
+      return "completed";
+    });
+
+    // Cancel after 50ms
+    setTimeout(() => controller.abort(), 50);
+
+    const result = await resultPromise;
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // User signal abort throws AbortError which becomes an unexpected error
+      expect(isUnexpectedError(result.error)).toBe(true);
+      if (isUnexpectedError(result.error)) {
+        // cause is UNCAUGHT_EXCEPTION with 'thrown' property
+        const cause = result.error.cause as { type: string; thrown: Error };
+        expect(cause.type).toBe("UNCAUGHT_EXCEPTION");
+        expect(cause.thrown.name).toBe("AbortError");
+      }
+    }
+  });
+
+  it("rejects immediately when signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort(); // Abort before sleep starts
+
+    const startTime = Date.now();
+    const result = await run(async (step) => {
+      await step.sleep("5s", { name: "long-sleep", signal: controller.signal });
+      return "completed";
+    });
+    const elapsed = Date.now() - startTime;
+
+    // Should fail immediately, not wait 5 seconds
+    expect(elapsed).toBeLessThan(100);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(isUnexpectedError(result.error)).toBe(true);
+      if (isUnexpectedError(result.error)) {
+        const cause = result.error.cause as { type: string; thrown: Error };
+        expect(cause.thrown.name).toBe("AbortError");
+      }
+    }
+  });
+
+  it("signal cancellation works with createWorkflow (cached version)", async () => {
+    const controller = new AbortController();
+    const workflow = createWorkflow({});
+
+    const resultPromise = workflow.run(async (step) => {
+      await step.sleep("5s", { name: "long-sleep", signal: controller.signal });
+      return "completed";
+    });
+
+    // Cancel after 50ms
+    setTimeout(() => controller.abort(), 50);
+
+    const result = await resultPromise;
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(isUnexpectedError(result.error)).toBe(true);
+      if (isUnexpectedError(result.error)) {
+        const cause = result.error.cause as { type: string; thrown: Error };
+        expect(cause.thrown.name).toBe("AbortError");
+      }
+    }
+  });
+
+  it("signal only affects sleep that uses it", async () => {
+    const controller = new AbortController();
+    const sleepOrder: string[] = [];
+
+    const resultPromise = run(async (step) => {
+      // First sleep has signal, second does not
+      const sleep1 = step.sleep("100ms", { name: "sleep-with-signal", signal: controller.signal })
+        .then(() => sleepOrder.push("sleep1-done"))
+        .catch(() => sleepOrder.push("sleep1-aborted"));
+
+      const sleep2 = step.sleep("50ms", { name: "sleep-without-signal" })
+        .then(() => sleepOrder.push("sleep2-done"));
+
+      // Cancel signal after 25ms (before either completes)
+      setTimeout(() => controller.abort(), 25);
+
+      await Promise.allSettled([sleep1, sleep2]);
+      return sleepOrder;
+    });
+
+    const result = await resultPromise;
+    // The workflow may fail due to the AbortError, but we can check the order
+    // sleep2 should complete (no signal), sleep1 should be aborted
+    expect(sleepOrder).toContain("sleep1-aborted");
+    expect(sleepOrder).toContain("sleep2-done");
+  });
+
+  it("workflow signal takes precedence over user signal for cancellation type", async () => {
+    const workflowController = new AbortController();
+    const userController = new AbortController();
+
+    const workflow = createWorkflow({}, { signal: workflowController.signal });
+
+    const resultPromise = workflow.run(async (step) => {
+      await step.sleep("5s", { name: "long-sleep", signal: userController.signal });
+      return "completed";
+    });
+
+    // Cancel workflow signal (not user signal)
+    setTimeout(() => workflowController.abort(), 50);
+
+    const result = await resultPromise;
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // Workflow signal produces WORKFLOW_CANCELLED, not UNEXPECTED_ERROR
+      expect(isWorkflowCancelled(result.error)).toBe(true);
+    }
+  });
+
+  it("user signal cancellation emits step error event", async () => {
+    const controller = new AbortController();
+    const events: WorkflowEvent<unknown>[] = [];
+
+    const resultPromise = run(
+      async (step) => {
+        await step.sleep("5s", { name: "signaled-sleep", signal: controller.signal });
+        return "completed";
+      },
+      { onEvent: (e) => events.push(e) }
+    );
+
+    setTimeout(() => controller.abort(), 50);
+    await resultPromise;
+
+    const stepStart = events.find(
+      (e) => e.type === "step_start" && e.name === "signaled-sleep"
+    );
+    const stepError = events.find(
+      (e) => e.type === "step_error" && e.name === "signaled-sleep"
+    );
+
+    expect(stepStart).toBeDefined();
+    expect(stepError).toBeDefined();
+  });
+
+  it("sleep completes normally when signal is provided but never aborted", async () => {
+    const controller = new AbortController();
+    const startTime = Date.now();
+
+    const result = await run(async (step) => {
+      await step.sleep("50ms", { name: "normal-sleep", signal: controller.signal });
+      return "completed";
+    });
+
+    const elapsed = Date.now() - startTime;
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toBe("completed");
+    }
+    // Should have waited approximately 50ms
+    expect(elapsed).toBeGreaterThanOrEqual(45);
+    expect(elapsed).toBeLessThan(150);
+  });
+
   it("handles invalid duration string as unexpected error", async () => {
     const result = await run(async (step) => {
       await step.sleep("invalid", { name: "bad-sleep" });

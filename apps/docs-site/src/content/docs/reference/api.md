@@ -42,7 +42,7 @@ step.try(fn, { error, name, key })  // With tracing options
 ```typescript
 step.sleep(duration, options?)       // Pause execution for duration
 // duration: string ("5s", "100ms") | Duration object
-// options: { name?, key?, ttl?, description? }
+// options: { name?, key?, ttl?, description?, signal? }
 ```
 
 ### Low-level run

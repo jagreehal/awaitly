@@ -194,6 +194,7 @@ const regex = new RegExp(`^${pattern.replace(/\*/g, '.*')}$`);
 ### Connection Management
 
 Supports three connection modes:
+
 1. **New client**: Creates and manages its own `MongoClient`
 2. **Existing client**: Reuses a provided `MongoClient`
 3. **Existing database**: Uses a provided `Db` instance
@@ -257,4 +258,4 @@ sh.shardCollection('myapp.workflow_state', { _id: 'hashed' });
 
 ## Next
 
-[Learn about PostgreSQL persistence →](./postgres-persistence)
+[Learn about PostgreSQL persistence →](./postgres-persistence/)

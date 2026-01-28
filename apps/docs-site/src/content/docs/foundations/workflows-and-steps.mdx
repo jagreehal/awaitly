@@ -12,7 +12,7 @@ Workflows compose multiple Result-returning operations. The `step()` function un
 `step()` is the core of workflow composition. It unwraps a Result, returning the value on success or exiting the workflow on error:
 
 ```typescript
-import { run } from 'awaitly';
+import { run } from 'awaitly/run';
 
 const result = await run(async (step) => {
   // If fetchUser returns err('NOT_FOUND'), workflow exits here
@@ -55,7 +55,8 @@ Unlike try/catch where you need explicit return statements, `step()` automatical
 Use `run()` for simple, one-off workflows:
 
 ```typescript
-import { ok, err, run, type AsyncResult } from 'awaitly';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { run } from 'awaitly/run';
 
 const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
   const user = await db.find(id);
