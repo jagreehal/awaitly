@@ -1,6 +1,6 @@
-# awaitly-mongo
+# browser-test
 
-## 2.0.0
+## 0.1.0
 
 ### Minor Changes
 
@@ -34,10 +34,3 @@
 
 - Updated dependencies [5f2ff00]
   - awaitly@1.12.0
-
-## 1.0.0
-
-### Patch Changes
-
-- Updated dependencies [e9396f1]
-  - awaitly@1.11.0
