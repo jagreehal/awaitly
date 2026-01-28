@@ -1,5 +1,35 @@
 # awaitly
 
+## 1.12.0
+
+### Minor Changes
+
+- 5f2ff00: Split `run()` function into separate entry point (`awaitly/run`) for better tree-shaking and bundle size optimization. The main `awaitly` package now exports only Result types and utilities, while `run()` and its related types (`RunStep`, `RunOptions`, `StepTimeoutError`, etc.) are available via `awaitly/run`. This allows users who only need Result types to import a smaller bundle without the step orchestration overhead.
+
+  **What changed:**
+
+  - `run()` is now available from `awaitly/run` entry point
+  - Main `awaitly` entry point no longer exports `run()` (only Result types)
+  - Related types (`RunStep`, `RunOptions`, `StepTimeoutError`, etc.) moved to `awaitly/run`
+  - Documentation updated to reflect new import paths
+
+  **Migration:**
+
+  ```typescript
+  // Before
+  import { run } from "awaitly";
+
+  // After (recommended)
+  import { run } from "awaitly/run";
+  import { ok, err, type AsyncResult } from "awaitly";
+
+  // Or import both from their respective entry points
+  import { run, type RunStep } from "awaitly/run";
+  import { ok, err } from "awaitly";
+  ```
+
+  This change improves bundle size for users who only need Result types, while keeping `run()` easily accessible for those who need step-based composition.
+
 ## 1.11.0
 
 ### Minor Changes
