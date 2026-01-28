@@ -17,7 +17,6 @@ Both awaitly and [neverthrow](https://github.com/supermacro/neverthrow) provide 
 | Method style | Functions | Methods |
 | Workflow orchestration | Built-in | Not included |
 | Automatic error inference | Yes | No |
-| Bundle size | ~3KB | ~2KB |
 
 ## Creating Results
 
@@ -352,6 +351,314 @@ const value2 = result.unwrapOr(0); // 42
   </TabItem>
 </Tabs>
 
+## Async Chaining
+
+### asyncAndThen
+
+Chain a sync Result into an async operation.
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, andThen, type AsyncResult } from 'awaitly';
+
+const parseId = (s: string) => {
+  const n = parseInt(s, 10);
+  return isNaN(n) ? err('PARSE_ERROR') : ok(n);
+};
+
+const fetchUser = async (id: number): AsyncResult<User, 'NOT_FOUND'> => {
+  const user = await db.find(id);
+  return user ? ok(user) : err('NOT_FOUND');
+};
+
+// Just use async function - awaitly handles sync→async naturally
+const result = await andThen(parseId('42'), fetchUser);
+/*
+Output:
+{ ok: true, value: { id: 42, name: 'Alice' } }
+*/
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+import { ok, err } from 'neverthrow';
+
+const parseId = (s: string) => {
+  const n = parseInt(s, 10);
+  return isNaN(n) ? err('PARSE_ERROR' as const) : ok(n);
+};
+
+const fetchUser = (id: number) =>
+  ResultAsync.fromPromise(db.find(id), () => 'NOT_FOUND' as const);
+
+// Use asyncAndThen to chain sync Result → ResultAsync
+const result = await parseId('42').asyncAndThen(fetchUser);
+/*
+Output:
+Result { _value: { id: 42, name: 'Alice' } }
+*/
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="note">
+In awaitly, `andThen` works with both sync and async functions. neverthrow has separate `andThen` (sync) and `asyncAndThen` (async) methods.
+</Aside>
+
+### asyncMap
+
+Transform the success value with an async function.
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, map } from 'awaitly';
+
+const result = ok(42);
+
+// map works with async functions
+const enriched = await map(result, async (n) => {
+  const data = await fetchMetadata(n);
+  return { value: n, metadata: data };
+});
+/*
+Output:
+{ ok: true, value: { value: 42, metadata: {...} } }
+*/
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+import { ok } from 'neverthrow';
+
+const result = ok(42);
+
+// Use asyncMap for async transformations
+const enriched = await result.asyncMap(async (n) => {
+  const data = await fetchMetadata(n);
+  return { value: n, metadata: data };
+});
+/*
+Output:
+Result { _value: { value: 42, metadata: {...} } }
+*/
+```
+  </TabItem>
+</Tabs>
+
+## Error Recovery
+
+### orElse
+
+Provide a fallback Result on failure.
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { err, ok, orElse } from 'awaitly';
+
+const result = err('NOT_FOUND');
+const recovered = orElse(result, (e) => ok({ fallback: true, reason: e }));
+/*
+Output:
+{ ok: true, value: { fallback: true, reason: 'NOT_FOUND' } }
+*/
+
+// Can also return a different error
+const retyped = orElse(result, () => err('FALLBACK_FAILED'));
+/*
+Output:
+{ ok: false, error: 'FALLBACK_FAILED' }
+*/
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+import { err, ok } from 'neverthrow';
+
+const result = err('NOT_FOUND');
+const recovered = result.orElse((e) => ok({ fallback: true, reason: e }));
+/*
+Output:
+Result { _value: { fallback: true, reason: 'NOT_FOUND' } }
+*/
+
+// Can also return a different error
+const retyped = result.orElse(() => err('FALLBACK_FAILED'));
+/*
+Output:
+Result { _error: 'FALLBACK_FAILED' }
+*/
+```
+  </TabItem>
+</Tabs>
+
+## Collecting All Errors
+
+### combineWithAllErrors
+
+Collect ALL errors instead of failing on the first one.
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, err, allSettled } from 'awaitly';
+
+const results = [ok(1), err('ERROR_A'), ok(3), err('ERROR_B')];
+const settled = allSettled(results);
+/*
+Output:
+{
+  ok: false,
+  error: ['ERROR_A', 'ERROR_B'],
+  successes: [1, 3],
+  failures: ['ERROR_A', 'ERROR_B']
+}
+*/
+
+// For fail-fast behavior, use all() instead
+const failFast = all(results);
+/*
+Output:
+{ ok: false, error: 'ERROR_A' }
+*/
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+import { ok, err, Result } from 'neverthrow';
+
+const results = [ok(1), err('ERROR_A'), ok(3), err('ERROR_B')];
+const combined = Result.combineWithAllErrors(results);
+/*
+Output:
+Result { _error: ['ERROR_A', 'ERROR_B'] }
+*/
+
+// For fail-fast behavior, use combine() instead
+const failFast = Result.combine(results);
+/*
+Output:
+Result { _error: 'ERROR_A' }
+*/
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="note">
+awaitly's `allSettled` provides both errors and successes in the result, giving you more information to work with.
+</Aside>
+
+## Wrapping Throwing Functions
+
+### fromThrowable / tryCatch
+
+Safely wrap functions that might throw exceptions.
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { tryCatch } from 'awaitly';
+
+// Wrap a throwing function
+const parseJson = (s: string) =>
+  tryCatch(
+    () => JSON.parse(s),
+    (e) => ({ type: 'PARSE_ERROR' as const, message: String(e) })
+  );
+
+const valid = parseJson('{"name": "Alice"}');
+/*
+Output:
+{ ok: true, value: { name: 'Alice' } }
+*/
+
+const invalid = parseJson('not json');
+/*
+Output:
+{ ok: false, error: { type: 'PARSE_ERROR', message: '...' } }
+*/
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+import { Result } from 'neverthrow';
+
+// Create a safe version of a throwing function
+const safeJsonParse = Result.fromThrowable(
+  JSON.parse,
+  (e) => ({ type: 'PARSE_ERROR' as const, message: String(e) })
+);
+
+const valid = safeJsonParse('{"name": "Alice"}');
+/*
+Output:
+Result { _value: { name: 'Alice' } }
+*/
+
+const invalid = safeJsonParse('not json');
+/*
+Output:
+Result { _error: { type: 'PARSE_ERROR', message: '...' } }
+*/
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="note">
+`tryCatch` executes immediately and returns a Result. neverthrow's `fromThrowable` returns a new function that you then call.
+</Aside>
+
+## Generator-Based Composition
+
+### safeTry / Generators
+
+neverthrow provides `safeTry` for generator-based composition. awaitly uses standard async/await instead.
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+
+// awaitly uses familiar async/await - no generators needed
+const workflow = createWorkflow({ parseId, fetchUser, sendEmail });
+
+const result = await workflow(async (step) => {
+  const id = await step(parseId('42'));
+  const user = await step(fetchUser(id));
+  await step(sendEmail(user.email));
+  return user;
+});
+
+// Errors short-circuit automatically, no special syntax required
+```
+  </TabItem>
+  <TabItem label="neverthrow">
+```typescript
+import { safeTry, ok, err } from 'neverthrow';
+
+// neverthrow uses generators for imperative-style composition
+const result = safeTry(function* () {
+  const id = yield* parseId('42').safeUnwrap();
+  const user = yield* fetchUser(id).safeUnwrap();
+  yield* sendEmail(user.email).safeUnwrap();
+  return ok(user);
+});
+
+// Errors short-circuit via generator yield
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="tip" title="Why async/await?">
+awaitly chose async/await over generators because:
+- Most TypeScript developers already know async/await
+- Better IDE support and debugging experience
+- No special `.safeUnwrap()` method needed
+- Works naturally with existing async code
+</Aside>
+
 ## What awaitly Adds: Workflow Orchestration
 
 <Aside type="tip" title="awaitly's Key Advantage">
@@ -446,16 +753,14 @@ const result = await workflow(async (step) => {
 - You want the smallest possible bundle size
 - Your project already uses neverthrow
 
-
-=======
-### Choose awaitly when:
+## Method Chaining vs Functions
 
 ```typescript
-// neverthrow
+// neverthrow: method chaining
 import { ok, err } from 'neverthrow';
 const result = ok(5).map(n => n * 2).mapErr(e => e.toUpperCase());
 
-// awaitly
+// awaitly: standalone functions
 import { ok, err, map, mapError } from 'awaitly';
 const result = mapError(map(ok(5), n => n * 2), e => e.toUpperCase());
 

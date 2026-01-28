@@ -12,10 +12,10 @@ import {
   fromNullable, from, fromPromise,
   isOk, isErr,
   tap, tapError,
-  run,
   UNEXPECTED_ERROR,
   type UnexpectedError,
 } from "./index";
+import { run } from "./run-entry";
 import { createWorkflow } from "./workflow-entry";
 import { unwrapOk, unwrapErr } from "./testing";
 

@@ -81,7 +81,7 @@ const store = await createPostgresPersistence({
 });
 ```
 
-[Learn more about PostgreSQL persistence →](./postgres-persistence)
+[Learn more about PostgreSQL persistence →](./postgres-persistence/)
 
 ### MongoDB Store (Production)
 
@@ -93,7 +93,7 @@ const store = await createMongoPersistence({
 });
 ```
 
-[Learn more about MongoDB persistence →](./mongo-persistence)
+[Learn more about MongoDB persistence →](./mongo-persistence/)
 
 ### Custom Store (Advanced)
 

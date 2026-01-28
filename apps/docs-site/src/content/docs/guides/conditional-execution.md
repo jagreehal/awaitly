@@ -169,7 +169,7 @@ const result = await workflow(async (step, deps, args, ctx) => {
 When using `run()`, pass context manually:
 
 ```typescript
-import { run } from 'awaitly';
+import { run } from 'awaitly/run';
 import { createConditionalHelpers } from 'awaitly/workflow';
 
 const result = await run(async (step) => {

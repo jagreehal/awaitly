@@ -35,7 +35,8 @@ This gives you:
 `run()` is the simplest way to compose multiple Result-returning operations:
 
 ```typescript
-import { ok, err, run, type AsyncResult } from 'awaitly';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { run } from 'awaitly/run';
 
 // Define operations that return Results
 const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
@@ -98,7 +99,8 @@ if (result.ok) {
 ## Complete example
 
 ```typescript
-import { ok, err, run, type AsyncResult } from 'awaitly';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { run } from 'awaitly/run';
 
 type User = { id: string; name: string };
 type Order = { id: number; total: number };

@@ -105,7 +105,7 @@ async function processOrder(orderId: string) {
 `run()` gives you a `step()` function that unwraps Results automatically:
 
 ```typescript
-import { run } from "awaitly";
+import { run } from "awaitly/run";
 
 const result = await run(async (step) => {
   const order = await step(() => getOrder(orderId)); // unwraps ok, exits on err
@@ -693,7 +693,7 @@ Use it only when:
 - you're building abstractions on top of awaitly
 
 ```typescript
-import { run } from "awaitly";
+import { run } from "awaitly/run";
 
 const result = await run<Output, "NOT_FOUND" | "FETCH_ERROR">(
   async (step) => {

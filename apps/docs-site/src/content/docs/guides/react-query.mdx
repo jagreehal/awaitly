@@ -1,0 +1,495 @@
+---
+title: React Query Integration
+description: Combine TanStack Query's server state management with awaitly's typed Results
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
+
+Combine TanStack Query's server state management with awaitly's typed Results for exhaustive error handling in your React components.
+
+## Why Combine Them?
+
+- **Type-safe errors in components** — Handle `NOT_FOUND`, `UNAUTHORIZED`, etc. explicitly
+- **Server returns Result, client handles** — Clean separation of concerns
+- **Works with React Server Components** — Same patterns work with RSC and server actions
+
+## Quick Start
+
+```typescript
+// Server: Return AsyncResult from API
+import { ok, err, type AsyncResult } from 'awaitly';
+
+type ApiError =
+  | { type: 'NOT_FOUND' }
+  | { type: 'UNAUTHORIZED' };
+
+export const getUser = async (id: string): AsyncResult<User, ApiError> => {
+  const user = await db.user.findUnique({ where: { id } });
+  if (!user) return err({ type: 'NOT_FOUND' });
+  return ok(user);
+};
+
+// Client: Handle Result in useQuery
+import { useQuery } from '@tanstack/react-query';
+
+class ResultError<E> extends Error {
+  constructor(public readonly error: E) {
+    super(JSON.stringify(error));
+    this.name = 'ResultError';
+  }
+}
+
+function UserProfile({ userId }: { userId: string }) {
+  const { data, error, isLoading } = useQuery({
+    queryKey: ['user', userId],
+    queryFn: async () => {
+      const result = await getUser(userId);
+      if (!result.ok) throw new ResultError(result.error);
+      return result.value;
+    },
+  });
+
+  if (isLoading) return <Spinner />;
+  if (error) return <ErrorDisplay error={error} />;
+  return <div>{data.name}</div>;
+}
+```
+
+## Patterns
+
+### Pattern 1: Server Returns Result, Client Unwraps
+
+The foundational pattern—your server functions return `AsyncResult`, and the client unwraps them:
+
+<Tabs>
+  <TabItem label="Server">
+```typescript
+// src/api/users.ts
+import { ok, err, type AsyncResult } from 'awaitly';
+
+type UserError =
+  | { type: 'NOT_FOUND'; id: string }
+  | { type: 'UNAUTHORIZED' }
+  | { type: 'SERVER_ERROR'; message: string };
+
+export const getUser = async (id: string): AsyncResult<User, UserError> => {
+  // Auth check
+  const session = await getSession();
+  if (!session) return err({ type: 'UNAUTHORIZED' });
+
+  // Database query
+  const user = await db.user.findUnique({ where: { id } });
+  if (!user) return err({ type: 'NOT_FOUND', id });
+
+  return ok(user);
+};
+```
+  </TabItem>
+  <TabItem label="Client">
+```typescript
+// src/hooks/useUser.ts
+import { useQuery } from '@tanstack/react-query';
+import { getUser, type UserError } from '@/api/users';
+
+class ResultError<E> extends Error {
+  constructor(public readonly error: E) {
+    super(JSON.stringify(error));
+    this.name = 'ResultError';
+  }
+}
+
+export const useUser = (id: string) => {
+  return useQuery({
+    queryKey: ['user', id],
+    queryFn: async () => {
+      const result = await getUser(id);
+      if (!result.ok) throw new ResultError(result.error);
+      return result.value;
+    },
+    retry: (failureCount, error) => {
+      // Don't retry on NOT_FOUND or UNAUTHORIZED
+      if (error instanceof ResultError) {
+        const e = error.error as UserError;
+        if (e.type === 'NOT_FOUND' || e.type === 'UNAUTHORIZED') {
+          return false;
+        }
+      }
+      return failureCount < 3;
+    },
+  });
+};
+```
+  </TabItem>
+</Tabs>
+
+### Pattern 2: Type-Safe Error Handling in Components
+
+Handle specific error types in your UI:
+
+```typescript
+import { useUser } from '@/hooks/useUser';
+
+function UserProfile({ userId }: { userId: string }) {
+  const { data: user, error, isLoading, isError, refetch } = useUser(userId);
+
+  if (isLoading) {
+    return <Skeleton />;
+  }
+
+  if (isError && error instanceof ResultError) {
+    const apiError = error.error as UserError;
+
+    switch (apiError.type) {
+      case 'NOT_FOUND':
+        return (
+          <EmptyState
+            title="User not found"
+            description={`No user exists with ID ${apiError.id}`}
+          />
+        );
+
+      case 'UNAUTHORIZED':
+        return <LoginPrompt message="Please sign in to view this profile" />;
+
+      case 'SERVER_ERROR':
+        return (
+          <ErrorState
+            title="Something went wrong"
+            description={apiError.message}
+            retry={() => refetch()}
+          />
+        );
+    }
+  }
+
+  // TypeScript knows user is defined here
+  return (
+    <div>
+      <h1>{user.name}</h1>
+      <p>{user.email}</p>
+    </div>
+  );
+}
+```
+
+### Pattern 3: useMutation with Result-Returning Actions
+
+Handle form submissions with typed errors:
+
+<Tabs>
+  <TabItem label="Server">
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+
+type CreateUserError =
+  | { type: 'VALIDATION'; issues: { field: string; message: string }[] }
+  | { type: 'EMAIL_TAKEN'; email: string }
+  | { type: 'SERVER_ERROR' };
+
+export const createUser = async (
+  data: CreateUserInput
+): AsyncResult<User, CreateUserError> => {
+  // Validation
+  const validation = CreateUserSchema.safeParse(data);
+  if (!validation.success) {
+    return err({
+      type: 'VALIDATION',
+      issues: validation.error.issues.map(i => ({
+        field: i.path.join('.'),
+        message: i.message,
+      })),
+    });
+  }
+
+  // Create user
+  try {
+    const user = await db.user.create({ data: validation.data });
+    return ok(user);
+  } catch (e) {
+    if (isPrismaUniqueConstraintError(e)) {
+      return err({ type: 'EMAIL_TAKEN', email: data.email });
+    }
+    return err({ type: 'SERVER_ERROR' });
+  }
+};
+```
+  </TabItem>
+  <TabItem label="Client">
+```typescript
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+
+export const useCreateUser = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: CreateUserInput) => {
+      const result = await createUser(data);
+      if (!result.ok) throw new ResultError(result.error);
+      return result.value;
+    },
+    onSuccess: (user) => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.setQueryData(['user', user.id], user);
+    },
+  });
+};
+```
+  </TabItem>
+</Tabs>
+
+**Using in a component:**
+
+```typescript
+function CreateUserForm() {
+  const mutation = useCreateUser();
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setFieldErrors({});
+
+    try {
+      await mutation.mutateAsync(formData);
+      toast.success('User created!');
+    } catch (error) {
+      if (error instanceof ResultError) {
+        const apiError = error.error as CreateUserError;
+
+        switch (apiError.type) {
+          case 'VALIDATION':
+            setFieldErrors(
+              Object.fromEntries(apiError.issues.map(i => [i.field, i.message]))
+            );
+            break;
+          case 'EMAIL_TAKEN':
+            setFieldErrors({ email: 'This email is already registered' });
+            break;
+          case 'SERVER_ERROR':
+            toast.error('Something went wrong. Please try again.');
+            break;
+        }
+      }
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <Input name="email" error={fieldErrors.email} disabled={mutation.isPending} />
+      <Input name="name" error={fieldErrors.name} disabled={mutation.isPending} />
+      <Button type="submit" loading={mutation.isPending}>Create User</Button>
+    </form>
+  );
+}
+```
+
+### Pattern 4: With React Server Components
+
+Use Results in Server Components and Server Actions:
+
+<Tabs>
+  <TabItem label="Server Component">
+```typescript
+// app/users/[id]/page.tsx
+import { getUser } from '@/api/users';
+
+export default async function UserPage({ params }: { params: { id: string } }) {
+  const result = await getUser(params.id);
+
+  if (!result.ok) {
+    switch (result.error.type) {
+      case 'NOT_FOUND':
+        return notFound();
+      case 'UNAUTHORIZED':
+        return redirect('/login');
+      case 'SERVER_ERROR':
+        throw new Error(result.error.message); // Triggers error.tsx
+    }
+  }
+
+  return <UserProfile user={result.value} />;
+}
+```
+  </TabItem>
+  <TabItem label="Server Action">
+```typescript
+// app/users/actions.ts
+'use server';
+
+import { ok, err, type AsyncResult } from 'awaitly';
+
+type UpdateUserError =
+  | { type: 'NOT_FOUND' }
+  | { type: 'VALIDATION'; message: string };
+
+export const updateUser = async (
+  id: string,
+  data: UpdateUserInput
+): AsyncResult<User, UpdateUserError> => {
+  const validation = UpdateUserSchema.safeParse(data);
+  if (!validation.success) {
+    return err({ type: 'VALIDATION', message: validation.error.issues[0].message });
+  }
+
+  const user = await db.user.update({
+    where: { id },
+    data: validation.data,
+  }).catch(() => null);
+
+  if (!user) return err({ type: 'NOT_FOUND' });
+  return ok(user);
+};
+```
+  </TabItem>
+  <TabItem label="Client Component">
+```typescript
+'use client';
+
+import { updateUser } from './actions';
+import { useTransition, useState } from 'react';
+
+function EditUserForm({ user }: { user: User }) {
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = (formData: FormData) => {
+    startTransition(async () => {
+      const result = await updateUser(user.id, Object.fromEntries(formData));
+
+      if (!result.ok) {
+        switch (result.error.type) {
+          case 'NOT_FOUND':
+            setError('User no longer exists');
+            break;
+          case 'VALIDATION':
+            setError(result.error.message);
+            break;
+        }
+        return;
+      }
+
+      setError(null);
+      toast.success('Updated!');
+    });
+  };
+
+  return (
+    <form action={handleSubmit}>
+      {error && <Alert variant="error">{error}</Alert>}
+      <Input name="name" defaultValue={user.name} disabled={isPending} />
+      <Button type="submit" loading={isPending}>Save</Button>
+    </form>
+  );
+}
+```
+  </TabItem>
+</Tabs>
+
+### Pattern 5: Optimistic Updates with Rollback
+
+```typescript
+export const useCreateUser = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: CreateUserInput) => {
+      const result = await createUser(input);
+      if (!result.ok) throw new ResultError(result.error);
+      return result.value;
+    },
+    // Optimistic update
+    onMutate: async (newUser) => {
+      await queryClient.cancelQueries({ queryKey: ['users'] });
+      const previousUsers = queryClient.getQueryData<User[]>(['users']);
+
+      queryClient.setQueryData<User[]>(['users'], (old = []) => [
+        ...old,
+        { ...newUser, id: 'temp-' + Date.now() },
+      ]);
+
+      return { previousUsers };
+    },
+    onError: (err, newUser, context) => {
+      // Rollback on error
+      queryClient.setQueryData(['users'], context?.previousUsers);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+  });
+};
+```
+
+## Common Utilities
+
+Copy these utilities to your project:
+
+```typescript
+// src/lib/result-error.ts
+import type { Result } from 'awaitly';
+
+/**
+ * Error class that preserves typed error information from Results
+ */
+export class ResultError<E> extends Error {
+  constructor(public readonly error: E) {
+    super(typeof error === 'object' ? JSON.stringify(error) : String(error));
+    this.name = 'ResultError';
+  }
+
+  /**
+   * Type guard to check if an error is a ResultError
+   */
+  static is<E>(error: unknown): error is ResultError<E> {
+    return error instanceof ResultError;
+  }
+
+  /**
+   * Extract the typed error from a caught exception
+   */
+  static extract<E>(error: unknown): E | null {
+    return ResultError.is<E>(error) ? error.error : null;
+  }
+}
+
+/**
+ * Unwrap a Result, throwing ResultError on failure
+ * Useful in React Query queryFn
+ */
+export const unwrapOrThrow = <T, E>(result: Result<T, E>): T => {
+  if (!result.ok) throw new ResultError(result.error);
+  return result.value;
+};
+
+/**
+ * Create a queryFn that unwraps Results
+ */
+export const resultQueryFn = <T, E>(
+  fn: () => Promise<Result<T, E>>
+) => async (): Promise<T> => {
+  const result = await fn();
+  return unwrapOrThrow(result);
+};
+
+// Usage:
+const { data } = useQuery({
+  queryKey: ['user', id],
+  queryFn: resultQueryFn(() => getUser(id)),
+});
+```
+
+## Tips
+
+<Aside type="tip" title="Best practices">
+1. **Use `ResultError` class** — Preserves typed errors through React Query's error handling
+2. **Conditional retry** — Don't retry on business errors like `NOT_FOUND` or `UNAUTHORIZED`
+3. **Error boundaries** — Let `SERVER_ERROR` types bubble up to error boundaries
+4. **Optimistic updates** — Rollback optimistic updates when Result is an error
+5. **Server Components** — Use Results directly in RSC, no need for `useQuery`
+</Aside>
+
+## Next Steps
+
+- [Zod Integration](/guides/zod/) for input validation
+- [Prisma Integration](/guides/prisma/) for database operations
+- [Workflows](/concepts/workflows/) for composing server-side operations

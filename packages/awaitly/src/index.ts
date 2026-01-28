@@ -7,7 +7,8 @@
  * ## Quick Start
  *
  * ```typescript
- * import { ok, err, run, type AsyncResult } from 'awaitly';
+ * import { ok, err, type AsyncResult } from 'awaitly';
+ * import { run } from 'awaitly/run';
  *
  * // Define Result-returning functions
  * async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
@@ -26,7 +27,8 @@
  * ## Entry Points
  *
  * **Core (this package):**
- * - `awaitly` - Result types, run(), transformers, tagged errors
+ * - `awaitly` - Result types, transformers, tagged errors (minimal ~2KB)
+ * - `awaitly/run` - run() function with step orchestration
  *
  * **Workflow Engine:**
  * - `awaitly/workflow` - createWorkflow, Duration, state management
@@ -46,7 +48,7 @@
  */
 
 // =============================================================================
-// Core - Result primitives
+// Core - Result primitives (from result.ts for minimal bundle size)
 // =============================================================================
 
 export {
@@ -71,38 +73,19 @@ export {
   type ExtractCause,
   type CauseOf,
 
-  // Step types (for run())
-  type RunStep,
-  type StepOptions,
-  type WorkflowEvent,
-  type ScopeType,
-  type RunOptions,
-  type RunOptionsWithCatch,
-  type RunOptionsWithoutCatch,
-
-  // Retry and timeout types
-  type BackoffStrategy,
-  type RetryOptions,
-  type TimeoutOptions,
-  type StepTimeoutError,
-  type StepTimeoutMarkerMeta,
-  STEP_TIMEOUT_MARKER,
+  // Error discriminants
+  UNEXPECTED_ERROR,
   PROMISE_REJECTED,
 
   // Constructors
   ok,
   err,
 
-  // Error discriminants
-  UNEXPECTED_ERROR,
-
   // Type guards
   isOk,
   isErr,
   isUnexpectedError,
   isPromiseRejectedError,
-  isStepTimeoutError,
-  getStepTimeoutMeta,
 
   // Error matching
   type MatchErrorHandlers,
@@ -147,13 +130,10 @@ export {
   zip,
   zipAsync,
 
-  // Run (do-notation for composing Results)
-  run,
-
   // Hydration / Serialization
   hydrate,
   isSerializedResult,
-} from "./core";
+} from "./result";
 
 // =============================================================================
 // Tagged Errors
@@ -175,54 +155,4 @@ export {
   type PropsOf,
 } from "./tagged-error";
 
-// =============================================================================
-// Workflow Engine (re-exported for convenience)
-// =============================================================================
-
-export {
-  // Types
-  type AnyResultFn,
-  type ErrorsOfDeps,
-  type CausesOfDeps,
-  type WorkflowOptions,
-  type WorkflowOptionsStrict,
-  type ExecutionOptions,
-  type ExecutionOptionsStrict,
-  type Workflow,
-  type WorkflowStrict,
-  type WorkflowFn,
-  type WorkflowFnWithArgs,
-  type WorkflowContext,
-  type StepCache,
-  type ResumeState,
-  type ResumeStateEntry,
-  type WorkflowCancelledError,
-
-  // Functions
-  createWorkflow,
-  isStepComplete,
-  createResumeStateCollector,
-  isWorkflowCancelled,
-  pendingApproval,
-} from "./workflow";
-
-// =============================================================================
-// Duration (re-exported for convenience)
-// =============================================================================
-
-export {
-  type Duration as DurationType,
-  Duration,
-  millis,
-  seconds,
-  minutes,
-  hours,
-  days,
-  toMillis,
-  toSeconds,
-  toMinutes,
-  toHours,
-  toDays,
-  isDuration,
-} from "./duration";
 

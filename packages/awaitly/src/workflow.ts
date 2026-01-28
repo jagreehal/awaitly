@@ -1714,7 +1714,7 @@ export function createWorkflow<
       // Wrap step.sleep - implement caching directly to ensure cache layer is consulted
       cachedStepFn.sleep = (
         duration: string | DurationType,
-        options?: { name?: string; key?: string; ttl?: number; description?: string }
+        options?: { name?: string; key?: string; ttl?: number; description?: string; signal?: AbortSignal }
       ): Promise<void> => {
         // Parse duration
         const d = typeof duration === "string" ? parseDuration(duration) : duration;
@@ -1726,12 +1726,13 @@ export function createWorkflow<
         // Generate step name
         const stepName =
           options?.name ?? `sleep ${typeof duration === "string" ? duration : `${ms}ms`}`;
+        const userSignal = options?.signal;
 
         // Delegate to cachedStepFn (not realStep) to ensure caching works
         return cachedStepFn(
           async (): AsyncResult<void, never> => {
-            // Check if already aborted
-            if (workflowSignal?.aborted) {
+            // Check if already aborted (workflow or user signal)
+            if (workflowSignal?.aborted || userSignal?.aborted) {
               const e = new Error("Sleep aborted");
               e.name = "AbortError";
               throw e;
@@ -1750,9 +1751,11 @@ export function createWorkflow<
               };
 
               workflowSignal?.addEventListener("abort", onAbort, { once: true });
+              userSignal?.addEventListener("abort", onAbort, { once: true });
 
               state.timeoutId = setTimeout(() => {
                 workflowSignal?.removeEventListener("abort", onAbort);
+                userSignal?.removeEventListener("abort", onAbort);
                 resolve(ok(undefined));
               }, ms);
             });

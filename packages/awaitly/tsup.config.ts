@@ -9,6 +9,8 @@ export default defineConfig({
     // Core entry points
     // =========================================================================
     core: 'src/core-entry.ts',
+    run: 'src/run-entry.ts',
+    result: 'src/result.ts',
     workflow: 'src/workflow-entry.ts',
 
     // =========================================================================

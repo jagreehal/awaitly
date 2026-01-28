@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, useCallback } from 'preact/hooks';
 import type { FunctionalComponent } from 'preact';
 
 // Default example workflow code
-const DEFAULT_CODE = `import { run } from 'awaitly';
+const DEFAULT_CODE = `import { run } from 'awaitly/run';
 
 await run(async (step) => {
   // Fetch user data

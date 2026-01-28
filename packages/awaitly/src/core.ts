@@ -11,8 +11,24 @@
  * 3. Utilities for transforming and combining Results
  */
 
-import { parse as parseDuration, toMillis } from "./duration";
-import type { Duration as DurationType } from "./duration";
+// Inline duration type and parser to avoid importing the full duration module
+// This keeps the core bundle minimal (~1KB saved)
+
+/** Duration object with tagged type for type safety */
+type DurationObject = { readonly _tag: "Duration"; readonly millis: number };
+
+/** Duration input: either a string ("5s", "100ms") or a Duration object */
+type DurationInput = string | DurationObject;
+
+/** Parse a duration string like "100ms", "5s", "2m", "1h", "1d" */
+function parseDurationString(input: string): DurationObject | undefined {
+  const match = input.trim().match(/^(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)$/i);
+  if (!match) return undefined;
+  const value = parseFloat(match[1]);
+  const unit = match[2].toLowerCase();
+  const multipliers: Record<string, number> = { ms: 1, s: 1000, m: 60000, h: 3600000, d: 86400000 };
+  return { _tag: "Duration", millis: value * (multipliers[unit] ?? 1) };
+}
 
 // =============================================================================
 // Core Result Types
@@ -909,7 +925,7 @@ export interface RunStep<E = unknown> {
    * ```
    */
   sleep(
-    duration: string | DurationType,
+    duration: DurationInput,
     options?: { name?: string; key?: string; ttl?: number; description?: string }
   ): Promise<void>;
 
@@ -2611,24 +2627,25 @@ export async function run<T, E, C = void>(
 
     // step.sleep: Pause execution for a specified duration
     stepFn.sleep = (
-      duration: string | DurationType,
-      options?: { name?: string; key?: string; ttl?: number; description?: string }
+      duration: DurationInput,
+      options?: { name?: string; key?: string; ttl?: number; description?: string; signal?: AbortSignal }
     ): Promise<void> => {
-      // Parse duration
-      const d = typeof duration === "string" ? parseDuration(duration) : duration;
+      // Parse duration - inline to avoid importing duration module
+      const d = typeof duration === "string" ? parseDurationString(duration) : duration;
       if (!d) {
         throw new Error(`step.sleep: invalid duration '${duration}'`);
       }
-      const ms = toMillis(d);
+      const ms = d.millis;
 
       // Generate step name
       const stepName = options?.name ?? `sleep ${typeof duration === "string" ? duration : `${ms}ms`}`;
+      const userSignal = options?.signal;
 
       // Delegate to stepFn with a cancellation-aware sleep operation
       return stepFn(
         async (): AsyncResult<void, never> => {
-          // Check if already aborted
-          if (_workflowSignal?.aborted) {
+          // Check if already aborted (workflow or user signal)
+          if (_workflowSignal?.aborted || userSignal?.aborted) {
             const e = new Error("Sleep aborted");
             e.name = "AbortError";
             throw e;
@@ -2647,9 +2664,11 @@ export async function run<T, E, C = void>(
             };
 
             _workflowSignal?.addEventListener("abort", onAbort, { once: true });
+            userSignal?.addEventListener("abort", onAbort, { once: true });
 
             state.timeoutId = setTimeout(() => {
               _workflowSignal?.removeEventListener("abort", onAbort);
+              userSignal?.removeEventListener("abort", onAbort);
               resolve(ok(undefined));
             }, ms);
           });

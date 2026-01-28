@@ -171,7 +171,7 @@ For single-use workflows where deps are available via closures.
 
 **With typed errors** (use `catchUnexpected`):
 ```typescript
-import { run } from 'awaitly';
+import { run } from 'awaitly/run';
 
 type MyErrors = 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED';
 
@@ -390,7 +390,8 @@ Start with strings. Migrate to objects when you need context.
 `run()` without options wraps ALL errors as `UnexpectedError`. To get typed errors, use `catchUnexpected`:
 
 ```typescript
-import { run, ok, err, type AsyncResult, UNEXPECTED_ERROR } from 'awaitly';
+import { ok, err, type AsyncResult, UNEXPECTED_ERROR } from 'awaitly';
+import { run } from 'awaitly/run';
 
 // deps return Results, never throw
 async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
@@ -593,7 +594,7 @@ it('retries on failure', async () => {
 import { ok, err, type AsyncResult } from 'awaitly';
 
 // Simple workflow (closures, no DI)
-import { run } from 'awaitly';
+import { run } from 'awaitly/run';
 
 // Utilities (use outside workflows)
 import {

@@ -128,7 +128,7 @@ async function getOrder(id: string) {
 
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
-import { run } from 'awaitly';
+import { run } from 'awaitly/run';
 
 // 1. Convert deps to return Results
 async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {

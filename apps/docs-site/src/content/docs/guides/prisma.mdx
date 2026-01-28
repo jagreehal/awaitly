@@ -1,0 +1,498 @@
+---
+title: Prisma Integration
+description: Turn Prisma database errors into typed Results for exhaustive error handling
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
+
+Turn Prisma database errors into typed Results for exhaustive error handling.
+
+## Why Combine Them?
+
+- **Exhaustive error handling** — Handle `NOT_FOUND`, `UNIQUE_VIOLATION`, etc. explicitly
+- **No more try/catch spaghetti** — Database operations compose cleanly in workflows
+- **Type-safe error codes** — Prisma's error codes become typed union members
+
+## Quick Start
+
+```typescript
+import { Prisma } from '@prisma/client';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+
+type DbError =
+  | { type: 'NOT_FOUND' }
+  | { type: 'UNIQUE_VIOLATION'; field: string }
+  | { type: 'DB_ERROR'; message: string };
+
+const findUser = async (id: string): AsyncResult<User, DbError> => {
+  try {
+    const user = await prisma.user.findUniqueOrThrow({ where: { id } });
+    return ok(user);
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
+      if (e.code === 'P2025') return err({ type: 'NOT_FOUND' });
+    }
+    return err({ type: 'DB_ERROR', message: String(e) });
+  }
+};
+
+// Use in a workflow
+const workflow = createWorkflow({ findUser });
+
+const result = await workflow(async (step, deps) => {
+  const user = await step(() => deps.findUser('user-123'));
+  return user;
+});
+```
+
+## Patterns
+
+### Pattern 1: Wrapping Common Prisma Operations
+
+Create a generic wrapper for Prisma operations:
+
+```typescript
+import { Prisma, PrismaClient } from '@prisma/client';
+import { ok, err, type AsyncResult } from 'awaitly';
+
+const prisma = new PrismaClient();
+
+// Common database error types
+type DbError =
+  | { type: 'NOT_FOUND'; entity?: string }
+  | { type: 'UNIQUE_VIOLATION'; field: string }
+  | { type: 'FOREIGN_KEY_VIOLATION'; field: string }
+  | { type: 'DB_ERROR'; code?: string; message: string };
+
+// Generic wrapper
+const prismaToResult = async <T>(
+  operation: () => Promise<T>,
+  entity?: string
+): AsyncResult<T, DbError> => {
+  try {
+    return ok(await operation());
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
+      switch (e.code) {
+        case 'P2025': // Record not found
+          return err({ type: 'NOT_FOUND', entity });
+        case 'P2002': // Unique constraint violation
+          return err({
+            type: 'UNIQUE_VIOLATION',
+            field: (e.meta?.target as string[])?.join(', ') ?? 'unknown'
+          });
+        case 'P2003': // Foreign key constraint violation
+          return err({
+            type: 'FOREIGN_KEY_VIOLATION',
+            field: (e.meta?.field_name as string) ?? 'unknown'
+          });
+        default:
+          return err({ type: 'DB_ERROR', code: e.code, message: e.message });
+      }
+    }
+    return err({ type: 'DB_ERROR', message: String(e) });
+  }
+};
+
+// Usage
+const user = await prismaToResult(
+  () => prisma.user.findUniqueOrThrow({ where: { id } }),
+  'User'
+);
+```
+
+### Pattern 2: Typed Repository Functions
+
+Create repository functions with explicit error types:
+
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+
+type UserNotFoundError = { type: 'USER_NOT_FOUND'; id: string };
+type EmailTakenError = { type: 'EMAIL_TAKEN'; email: string };
+type DbError = { type: 'DB_ERROR'; message: string };
+
+// Repository with typed errors
+const userRepository = {
+  findById: async (id: string): AsyncResult<User, UserNotFoundError | DbError> => {
+    try {
+      const user = await prisma.user.findUnique({ where: { id } });
+      if (!user) return err({ type: 'USER_NOT_FOUND', id });
+      return ok(user);
+    } catch (e) {
+      return err({ type: 'DB_ERROR', message: String(e) });
+    }
+  },
+
+  create: async (data: { email: string; name: string }): AsyncResult<User, EmailTakenError | DbError> => {
+    try {
+      const user = await prisma.user.create({ data });
+      return ok(user);
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        return err({ type: 'EMAIL_TAKEN', email: data.email });
+      }
+      return err({ type: 'DB_ERROR', message: String(e) });
+    }
+  },
+
+  update: async (id: string, data: Partial<User>): AsyncResult<User, UserNotFoundError | DbError> => {
+    try {
+      const user = await prisma.user.update({ where: { id }, data });
+      return ok(user);
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        return err({ type: 'USER_NOT_FOUND', id });
+      }
+      return err({ type: 'DB_ERROR', message: String(e) });
+    }
+  },
+
+  delete: async (id: string): AsyncResult<void, UserNotFoundError | DbError> => {
+    try {
+      await prisma.user.delete({ where: { id } });
+      return ok(undefined);
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        return err({ type: 'USER_NOT_FOUND', id });
+      }
+      return err({ type: 'DB_ERROR', message: String(e) });
+    }
+  },
+};
+```
+
+### Pattern 3: In Workflows with Validation
+
+Combine Prisma with Zod validation:
+
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+import { z } from 'zod';
+
+const CreateUserSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(2).max(100),
+  role: z.enum(['user', 'admin']).default('user'),
+});
+
+const zodToResult = <T>(schema: z.ZodSchema<T>, data: unknown) => {
+  const parsed = schema.safeParse(data);
+  return parsed.success
+    ? ok(parsed.data)
+    : err({ type: 'VALIDATION' as const, issues: parsed.error.issues });
+};
+
+const workflow = createWorkflow({
+  validateInput: (raw: unknown) => zodToResult(CreateUserSchema, raw),
+  createUser: userRepository.create,
+});
+
+const createUser = async (rawInput: unknown) => {
+  return workflow(async (step, deps) => {
+    const input = await step(() => deps.validateInput(rawInput));
+    const user = await step(() => deps.createUser(input));
+    return user;
+  });
+};
+
+// Error type is automatically inferred:
+// ValidationError | EmailTakenError | DbError | UnexpectedError
+```
+
+### Pattern 4: Transactions with Saga Pattern
+
+Use awaitly's saga pattern for transactions that need compensation:
+
+```typescript
+import { createSagaWorkflow } from 'awaitly/saga';
+
+const transferFunds = createSagaWorkflow({
+  debitAccount: async (accountId: string, amount: number) => {
+    return prismaToResult(() =>
+      prisma.account.update({
+        where: { id: accountId },
+        data: { balance: { decrement: amount } },
+      })
+    );
+  },
+  creditAccount: async (accountId: string, amount: number) => {
+    return prismaToResult(() =>
+      prisma.account.update({
+        where: { id: accountId },
+        data: { balance: { increment: amount } },
+      })
+    );
+  },
+  createTransaction: async (data: TransactionData) => {
+    return prismaToResult(() => prisma.transaction.create({ data }));
+  },
+});
+
+const result = await transferFunds(async (ctx, deps) => {
+  // Debit source account
+  await ctx.step(
+    () => deps.debitAccount(sourceId, amount),
+    { compensate: () => deps.creditAccount(sourceId, amount) } // Rollback on failure
+  );
+
+  // Credit destination account
+  await ctx.step(
+    () => deps.creditAccount(destId, amount),
+    { compensate: () => deps.debitAccount(destId, amount) }
+  );
+
+  // Record transaction
+  await ctx.step(() => deps.createTransaction({
+    sourceId,
+    destId,
+    amount,
+    timestamp: new Date(),
+  }));
+
+  return { success: true };
+});
+```
+
+### Pattern 5: Handling Specific Error Codes
+
+Map Prisma error codes to business errors:
+
+```typescript
+import { Prisma } from '@prisma/client';
+import { err, type AsyncResult } from 'awaitly';
+
+// Prisma error codes reference:
+// P2000 - Value too long
+// P2002 - Unique constraint violation
+// P2003 - Foreign key constraint violation
+// P2025 - Record not found
+// See: https://www.prisma.io/docs/reference/api-reference/error-reference
+
+type OrderError =
+  | { type: 'ORDER_NOT_FOUND'; orderId: string }
+  | { type: 'PRODUCT_NOT_FOUND'; productId: string }
+  | { type: 'DUPLICATE_ORDER'; orderNumber: string }
+  | { type: 'DB_ERROR'; message: string };
+
+const mapPrismaError = (
+  e: unknown,
+  context: { orderId?: string; productId?: string; orderNumber?: string }
+): OrderError => {
+  if (e instanceof Prisma.PrismaClientKnownRequestError) {
+    switch (e.code) {
+      case 'P2025':
+        if (context.orderId) return { type: 'ORDER_NOT_FOUND', orderId: context.orderId };
+        if (context.productId) return { type: 'PRODUCT_NOT_FOUND', productId: context.productId };
+        return { type: 'DB_ERROR', message: 'Record not found' };
+
+      case 'P2002':
+        if (context.orderNumber) return { type: 'DUPLICATE_ORDER', orderNumber: context.orderNumber };
+        return { type: 'DB_ERROR', message: 'Duplicate record' };
+
+      default:
+        return { type: 'DB_ERROR', message: e.message };
+    }
+  }
+  return { type: 'DB_ERROR', message: String(e) };
+};
+```
+
+## Complete Example: User Signup
+
+Complete workflow combining Zod validation, email checking, and user creation:
+
+```typescript
+import { z } from 'zod';
+import { Prisma, PrismaClient } from '@prisma/client';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+
+const prisma = new PrismaClient();
+
+// Schemas
+const SignUpSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+  name: z.string().min(2).max(100),
+});
+
+// Error types
+type ValidationError = { type: 'VALIDATION'; issues: z.ZodIssue[] };
+type EmailTakenError = { type: 'EMAIL_TAKEN'; email: string };
+type DbError = { type: 'DB_ERROR'; message: string };
+
+type SignUpError = ValidationError | EmailTakenError | DbError;
+
+// Dependencies
+const deps = {
+  validateInput: (raw: unknown) => {
+    const parsed = SignUpSchema.safeParse(raw);
+    return Promise.resolve(
+      parsed.success
+        ? ok(parsed.data)
+        : err({ type: 'VALIDATION' as const, issues: parsed.error.issues })
+    );
+  },
+
+  hashPassword: async (password: string) => {
+    // In real code, use bcrypt or argon2
+    return ok(`hashed_${password}`);
+  },
+
+  createUser: async (data: { email: string; passwordHash: string; name: string }): AsyncResult<
+    { id: string; email: string; name: string },
+    EmailTakenError | DbError
+  > => {
+    try {
+      const user = await prisma.user.create({
+        data,
+        select: { id: true, email: true, name: true },
+      });
+      return ok(user);
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        return err({ type: 'EMAIL_TAKEN', email: data.email });
+      }
+      return err({ type: 'DB_ERROR', message: String(e) });
+    }
+  },
+};
+
+// Sign up workflow
+const signUpWorkflow = createWorkflow(deps);
+
+const signUp = async (rawInput: unknown) => {
+  return signUpWorkflow(async (step, d) => {
+    const input = await step(() => d.validateInput(rawInput));
+    const passwordHash = await step(() => d.hashPassword(input.password));
+    const user = await step(() => d.createUser({
+      email: input.email,
+      passwordHash,
+      name: input.name,
+    }));
+    return user;
+  });
+};
+
+// API handler
+export const POST = async (request: Request) => {
+  const result = await signUp(await request.json());
+
+  if (!result.ok) {
+    switch (result.error.type) {
+      case 'VALIDATION':
+        return Response.json(
+          { error: 'Validation failed', issues: result.error.issues },
+          { status: 400 }
+        );
+      case 'EMAIL_TAKEN':
+        return Response.json(
+          { error: 'Email already registered' },
+          { status: 409 }
+        );
+      case 'DB_ERROR':
+        console.error('Database error:', result.error.message);
+        return Response.json(
+          { error: 'Server error' },
+          { status: 500 }
+        );
+    }
+  }
+
+  return Response.json(result.value, { status: 201 });
+};
+```
+
+## Common Utilities
+
+Copy this utility file to your project:
+
+```typescript
+// src/lib/prisma-result.ts
+import { Prisma } from '@prisma/client';
+import { ok, err, type AsyncResult } from 'awaitly';
+
+export type DbError =
+  | { type: 'NOT_FOUND'; entity?: string }
+  | { type: 'UNIQUE_VIOLATION'; field: string }
+  | { type: 'FOREIGN_KEY_VIOLATION'; field: string }
+  | { type: 'DB_ERROR'; code?: string; message: string };
+
+/**
+ * Wrap a Prisma operation and convert errors to typed Results
+ */
+export const prismaToResult = async <T>(
+  operation: () => Promise<T>,
+  entity?: string
+): AsyncResult<T, DbError> => {
+  try {
+    return ok(await operation());
+  } catch (e) {
+    return err(mapPrismaError(e, entity));
+  }
+};
+
+/**
+ * Map Prisma errors to typed DbError
+ */
+export const mapPrismaError = (e: unknown, entity?: string): DbError => {
+  if (e instanceof Prisma.PrismaClientKnownRequestError) {
+    switch (e.code) {
+      case 'P2025':
+        return { type: 'NOT_FOUND', entity };
+      case 'P2002':
+        return {
+          type: 'UNIQUE_VIOLATION',
+          field: (e.meta?.target as string[])?.join(', ') ?? 'unknown'
+        };
+      case 'P2003':
+        return {
+          type: 'FOREIGN_KEY_VIOLATION',
+          field: (e.meta?.field_name as string) ?? 'unknown'
+        };
+      default:
+        return { type: 'DB_ERROR', code: e.code, message: e.message };
+    }
+  }
+  return { type: 'DB_ERROR', message: String(e) };
+};
+
+/**
+ * Check if an error is a specific Prisma error code
+ */
+export const isPrismaError = (e: unknown, code: string): boolean => {
+  return e instanceof Prisma.PrismaClientKnownRequestError && e.code === code;
+};
+
+/**
+ * Wrap findUnique to return Result with NOT_FOUND error
+ */
+export const findOrNotFound = async <T>(
+  operation: () => Promise<T | null>,
+  entity: string
+): AsyncResult<T, { type: 'NOT_FOUND'; entity: string }> => {
+  const result = await operation();
+  return result !== null
+    ? ok(result)
+    : err({ type: 'NOT_FOUND', entity });
+};
+```
+
+## Tips
+
+<Aside type="tip" title="Best practices">
+1. **Use `findUniqueOrThrow`** — It throws P2025, which you can map to `NOT_FOUND`
+2. **Check `e.meta`** — Prisma includes useful metadata like the violated field
+3. **Create entity-specific errors** — `USER_NOT_FOUND` is clearer than `NOT_FOUND`
+4. **Log original errors** — Keep the raw Prisma error for debugging while returning typed errors
+5. **Consider transactions** — Use `prisma.$transaction` inside the wrapper for atomic operations
+</Aside>
+
+## Next Steps
+
+- [Drizzle Integration](/guides/drizzle/) for an alternative ORM
+- [Zod Integration](/guides/zod/) for input validation
+- [Workflows](/concepts/workflows/) for composing database operations
