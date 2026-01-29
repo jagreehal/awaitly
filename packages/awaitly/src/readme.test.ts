@@ -7,7 +7,6 @@ import { describe, it, expect, vi } from "vitest";
 import { ok, err, type AsyncResult } from "./index";
 import { createWorkflow, UNEXPECTED_ERROR, createResumeStateCollector } from "./workflow-entry";
 import { createApprovalStep, isPendingApproval } from "./hitl-entry";
-import { createVisualizer } from "./visualize/index";
 import { stringifyState, parseState, createStatePersistence } from "./persistence-entry";
 import { run } from "./workflow-entry";
 
@@ -523,34 +522,6 @@ describe("README Examples", () => {
       });
 
       expect(result2.ok).toBe(true);
-    });
-  });
-
-  describe("Visualize What Happened", () => {
-    it("should work with createVisualizer as shown in README", async () => {
-      const fetchOrder = async (id: string): AsyncResult<{ id: string; total: number }, never> => {
-        return ok({ id, total: 100 });
-      };
-
-      const chargeCard = async (amount: number): AsyncResult<{ id: string }, never> => {
-        return ok({ id: "charge-123" });
-      };
-
-      const viz = createVisualizer({ workflowName: "checkout" });
-      const workflow = createWorkflow({ fetchOrder, chargeCard }, {
-        onEvent: viz.handleEvent,
-      });
-
-      await workflow(async (step, deps) => {
-        const order = await step(() => deps.fetchOrder("order_456"), { name: "Fetch order" });
-        const payment = await step(() => deps.chargeCard(order.total), { name: "Charge card" });
-        return { order, payment };
-      });
-
-      const mermaidOutput = viz.renderAs("mermaid");
-      expect(mermaidOutput).toBeDefined();
-      expect(typeof mermaidOutput).toBe("string");
-      expect(mermaidOutput).toContain("flowchart");
     });
   });
 

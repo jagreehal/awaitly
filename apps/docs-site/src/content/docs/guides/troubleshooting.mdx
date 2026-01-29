@@ -248,15 +248,15 @@ const workflow = createWorkflow(deps, {
 ### Use visualization
 
 ```typescript
-import { createTracer, renderMermaid } from 'awaitly/visualize';
+import { createVisualizer } from 'awaitly-visualizer';
 
-const tracer = createTracer();
-const workflow = createWorkflow(deps, { onEvent: tracer.handleEvent });
+const viz = createVisualizer();
+const workflow = createWorkflow(deps, { onEvent: viz.handleEvent });
 
 const result = await workflow(async (step) => { ... });
 
 // See what happened
-console.log(renderMermaid(tracer.getTrace()));
+console.log(viz.renderAs('mermaid'));
 ```
 
 ### Inspect step results

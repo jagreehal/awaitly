@@ -16,8 +16,6 @@ export default defineConfig({
     // =========================================================================
     // Feature entry points
     // =========================================================================
-    visualize: 'src/visualize/index.ts',
-    'visualize.browser': 'src/visualize/index.browser.ts',
     batch: 'src/batch.ts',
     resource: 'src/resource.ts',
     retry: 'src/retry-entry.ts',
@@ -46,7 +44,6 @@ export default defineConfig({
     // =========================================================================
     // Tools
     // =========================================================================
-    devtools: 'src/devtools-entry.ts',
     testing: 'src/testing-entry.ts',
 
     // =========================================================================

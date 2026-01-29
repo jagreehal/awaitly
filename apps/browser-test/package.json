@@ -9,7 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "awaitly": "workspace:^"
+    "awaitly": "workspace:^",
+    "awaitly-visualizer": "workspace:^"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

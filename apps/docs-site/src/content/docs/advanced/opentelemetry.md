@@ -160,7 +160,7 @@ const inventoryWorkflow = createWorkflow(inventoryDeps, {
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 import { createAutotelAdapter } from 'awaitly/otel';
-import { createVisualizer } from 'awaitly/visualize';
+import { createVisualizer } from 'awaitly-visualizer';
 
 const autotel = createAutotelAdapter({ serviceName: 'checkout' });
 const viz = createVisualizer({ workflowName: 'checkout' });

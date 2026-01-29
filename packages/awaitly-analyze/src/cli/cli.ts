@@ -84,7 +84,7 @@ export async function cli(args: string[]): Promise<void> {
       console.error("  5. Dynamic patterns that can't be statically analyzed");
       console.error("");
       console.error("For saga workflows, consider using runtime visualization instead:");
-      console.error("  import { createVisualizer } from 'awaitly/visualize';");
+      console.error("  import { createVisualizer } from 'awaitly-visualizer';");
       process.exit(0);
     }
 

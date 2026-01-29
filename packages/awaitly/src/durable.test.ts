@@ -59,6 +59,63 @@ describe("Durable Execution", () => {
       expect(hasState).toBe(false);
     });
 
+    it("succeeds without passing store (uses default in-memory store)", async () => {
+      const result = await durable.run(
+        { fetchUser, createOrder, sendEmail },
+        async (step, { fetchUser, createOrder, sendEmail }) => {
+          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          const order = await step(() => createOrder(user.id), { key: "create-order" });
+          await step(() => sendEmail(order.orderId), { key: "send-email" });
+          return order;
+        },
+        { id: "no-store-test" }
+      );
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.orderId).toBe("order-123");
+      }
+    });
+
+    it("default store: second run with same id reuses cached step (side effect runs once)", async () => {
+      let keyedStepCalls = 0;
+      async function stepWithSideEffect(): AsyncResult<string, never> {
+        keyedStepCalls++;
+        return ok("cached");
+      }
+      async function failingStep(): AsyncResult<never, "FAIL"> {
+        return err("FAIL");
+      }
+
+      const id = "default-store-resume-test";
+
+      const result1 = await durable.run(
+        { stepWithSideEffect, failingStep },
+        async (step, { stepWithSideEffect, failingStep }) => {
+          const value = await step(() => stepWithSideEffect(), { key: "side-effect-step" });
+          await step(() => failingStep(), { key: "fail-step" });
+          return value;
+        },
+        { id }
+      );
+
+      expect(result1.ok).toBe(false);
+      expect(keyedStepCalls).toBe(1);
+
+      const result2 = await durable.run(
+        { stepWithSideEffect, failingStep },
+        async (step, { stepWithSideEffect, failingStep }) => {
+          const value = await step(() => stepWithSideEffect(), { key: "side-effect-step" });
+          await step(() => failingStep(), { key: "fail-step" });
+          return value;
+        },
+        { id }
+      );
+
+      expect(result2.ok).toBe(false);
+      expect(keyedStepCalls).toBe(1);
+    });
+
     it("should persist state after each keyed step", async () => {
       const store = createMemoryStatePersistence();
       const events: DurableWorkflowEvent<unknown>[] = [];
@@ -182,6 +239,51 @@ describe("Durable Execution", () => {
         expect(result2.value.r2).toBe("step2-result");
       }
     });
+
+    it("full crash/restart/resume: fail after step 1, listPending, run by id, step 1 not re-run", async () => {
+      const store = createMemoryStatePersistence();
+      const id = "crash-restart-demo";
+      let counter = 0;
+
+      async function firstStep(): AsyncResult<string, never> {
+        counter++;
+        return ok("first");
+      }
+      async function secondStep(): AsyncResult<never, "STEP2_FAIL"> {
+        return err("STEP2_FAIL");
+      }
+
+      // Run 1: fails at step 2; step 1 ran once, state left in store
+      const run1 = await durable.run(
+        { firstStep, secondStep },
+        async (step, { firstStep, secondStep }) => {
+          await step(() => firstStep(), { key: "step-1" });
+          await step(() => secondStep(), { key: "step-2" });
+          return "done";
+        },
+        { id, store }
+      );
+      expect(run1.ok).toBe(false);
+      expect(counter).toBe(1);
+      expect(await durable.hasState(store, id)).toBe(true);
+
+      // Simulate restart: no in-process state; discover pending from store
+      const pendingIds = await durable.listPending(store);
+      expect(pendingIds).toContain(id);
+
+      // Run 2 (resume): same id and store; step 1 must not run again
+      const run2 = await durable.run(
+        { firstStep, secondStep },
+        async (step, { firstStep, secondStep }) => {
+          await step(() => firstStep(), { key: "step-1" });
+          await step(() => secondStep(), { key: "step-2" });
+          return "done";
+        },
+        { id, store }
+      );
+      expect(counter).toBe(1);
+      expect(run2.ok).toBe(false);
+    });
   });
 
   describe("Version Checking", () => {
@@ -240,7 +342,9 @@ describe("Durable Execution", () => {
       expect(result.ok).toBe(false);
       if (!result.ok && isVersionMismatch(result.error)) {
         expect(result.error.storedVersion).toBe(1);
-        expect(result.error.currentVersion).toBe(2);
+        expect(result.error.requestedVersion).toBe(2);
+        expect(result.error.workflowId).toBeDefined();
+        expect(String(result.error.message)).toContain("durable.deleteState");
       } else {
         throw new Error("Expected VersionMismatchError");
       }
@@ -281,7 +385,9 @@ describe("Durable Execution", () => {
       expect(result.ok).toBe(false);
       if (!result.ok && isVersionMismatch(result.error)) {
         expect(result.error.storedVersion).toBe(1);
-        expect(result.error.currentVersion).toBe(2);
+        expect(result.error.requestedVersion).toBe(2);
+        expect(result.error.workflowId).toBeDefined();
+        expect(String(result.error.message)).toContain("durable.deleteState");
       } else {
         throw new Error("Expected VersionMismatchError");
       }
@@ -316,10 +422,82 @@ describe("Durable Execution", () => {
       expect(result.ok).toBe(false);
       if (!result.ok && isVersionMismatch(result.error)) {
         expect(result.error.storedVersion).toBe(1);
-        expect(result.error.currentVersion).toBe(2);
+        expect(result.error.requestedVersion).toBe(2);
+        expect(result.error.workflowId).toBeDefined();
+        expect(String(result.error.message)).toContain("durable.deleteState");
       } else {
         throw new Error("Expected VersionMismatchError");
       }
+    });
+
+    it("onVersionMismatch 'clear' deletes state and runs from scratch", async () => {
+      const store = createMemoryStatePersistence();
+      const partialState = {
+        steps: new Map([
+          ["fetch-user", { result: ok({ id: "123", name: "User 123" }) }]
+        ])
+      };
+      await store.save("test-clear", partialState, { version: 1 });
+
+      const result = await durable.run(
+        { fetchUser },
+        async (step, { fetchUser }) => {
+          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          return user;
+        },
+        {
+          id: "test-clear",
+          store,
+          version: 2,
+          onVersionMismatch: () => "clear",
+        }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(await durable.hasState(store, "test-clear")).toBe(false);
+    });
+
+    it("onVersionMismatch 'throw' returns VersionMismatchError", async () => {
+      const store = createMemoryStatePersistence();
+      await store.save("test-throw", { steps: new Map([["a", { result: ok(1) }]]) }, { version: 1 });
+
+      const result = await durable.run(
+        { fetchUser },
+        async (step) => step(() => fetchUser("1"), { key: "u" }),
+        { id: "test-throw", store, version: 2, onVersionMismatch: () => "throw" }
+      );
+
+      expect(result.ok).toBe(false);
+      if (!result.ok && isVersionMismatch(result.error)) {
+        expect(result.error.requestedVersion).toBe(2);
+      } else {
+        throw new Error("Expected VersionMismatchError");
+      }
+    });
+
+    it("onVersionMismatch { migratedState } resumes with supplied state", async () => {
+      const store = createMemoryStatePersistence();
+      await store.save("test-migrate", { steps: new Map([["old-key", { result: ok("old") }]]) }, { version: 1 });
+
+      const result = await durable.run(
+        { fetchUser },
+        async (step, { fetchUser }) => {
+          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          return user;
+        },
+        {
+          id: "test-migrate",
+          store,
+          version: 2,
+          onVersionMismatch: () => ({
+            migratedState: {
+              steps: new Map([["fetch-user", { result: ok({ id: "123", name: "User 123" }) }]]),
+            },
+          }),
+        }
+      );
+
+      expect(result.ok).toBe(true);
     });
 
     it("should accept matching metadata version from createStatePersistence", async () => {
@@ -401,10 +579,11 @@ describe("Durable Execution", () => {
         }
       );
 
-      // Second should be rejected
+      // Second should be rejected (in-process: activeWorkflows)
       expect(second.ok).toBe(false);
       if (!second.ok && isConcurrentExecution(second.error)) {
         expect(second.error.workflowId).toBe("test-concurrent");
+        expect(second.error.reason).toBe("in-process");
       } else {
         throw new Error("Expected ConcurrentExecutionError");
       }
@@ -456,6 +635,34 @@ describe("Durable Execution", () => {
       expect(result2.ok).toBe(true);
       expect(call1Started).toBe(true);
       expect(call2Started).toBe(true);
+    });
+
+    it("should not throw if cross-process lock release fails", async () => {
+      const store = {
+        load: vi.fn(async () => undefined),
+        save: vi.fn(async () => undefined),
+        delete: vi.fn(async () => true),
+        list: vi.fn(async () => []),
+        tryAcquire: vi.fn(async () => ({ ownerToken: "token-1" })),
+        release: vi.fn(async () => {
+          throw new Error("Release failed");
+        }),
+      };
+
+      await expect(
+        durable.run(
+          { fetchUser },
+          async (step, { fetchUser }) => {
+            const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+            return user;
+          },
+          {
+            id: "test-lock-release-error",
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            store: store as any,
+          }
+        )
+      ).resolves.toMatchObject({ ok: true });
     });
   });
 
@@ -712,6 +919,106 @@ describe("Durable Execution", () => {
       await expect(durable.deleteState(store, "test-delete-error")).resolves.toBe(false);
     });
 
+    it("durable.deleteStates returns { deleted: 0 } for empty ids", async () => {
+      const store = createMemoryStatePersistence();
+      const result = await durable.deleteStates(store, []);
+      expect(result).toEqual({ deleted: 0 });
+    });
+
+    it("durable.deleteStates loops store.delete when store has no deleteMany", async () => {
+      const store = createMemoryStatePersistence();
+      await store.save("d1", { steps: new Map() });
+      await store.save("d2", { steps: new Map() });
+
+      const result = await durable.deleteStates(store, ["d1", "d2"]);
+      expect(result.deleted).toBe(2);
+      expect(await store.load("d1")).toBeUndefined();
+      expect(await store.load("d2")).toBeUndefined();
+    });
+
+    it("durable.deleteStates uses store.deleteMany when present", async () => {
+      const store = createMemoryStatePersistence();
+      await store.save("m1", { steps: new Map() });
+      await store.save("m2", { steps: new Map() });
+      const deleteMany = vi.fn().mockResolvedValue(2);
+      const storeWithMany = Object.assign(store, { deleteMany });
+
+      const result = await durable.deleteStates(storeWithMany, ["m1", "m2"]);
+      expect(result.deleted).toBe(2);
+      expect(deleteMany).toHaveBeenCalledWith(["m1", "m2"]);
+    });
+
+    it("durable.clearState uses store.clear when present", async () => {
+      const store = createMemoryStatePersistence();
+      await store.save("c1", { steps: new Map() });
+      const clearFn = vi.fn().mockResolvedValue(undefined);
+      const storeWithClear = Object.assign(store, { clear: clearFn });
+
+      await durable.clearState(storeWithClear);
+      expect(clearFn).toHaveBeenCalledOnce();
+    });
+
+    it("durable.clearState paginated when store has no clear", async () => {
+      const store = createMemoryStatePersistence();
+      await store.save("c1", { steps: new Map() });
+      await store.save("c2", { steps: new Map() });
+
+      await durable.clearState(store);
+      const pending = await store.list();
+      expect(pending).toHaveLength(0);
+    });
+
+    it("durable.clearState should delete all ids when listPage pagination is used", async () => {
+      const ids = ["a", "b", "c", "d"];
+      const store = {
+        async list(): Promise<string[]> {
+          return [...ids];
+        },
+        async listPage(options: { limit?: number; offset?: number }): Promise<{ ids: string[]; nextOffset?: number }> {
+          const limit = options.limit ?? 100;
+          const offset = options.offset ?? 0;
+          const page = ids.slice(offset, offset + limit);
+          const nextOffset = page.length === limit ? offset + page.length : undefined;
+          return { ids: page, nextOffset };
+        },
+        async deleteMany(deleteIds: string[]): Promise<number> {
+          let deleted = 0;
+          for (const id of deleteIds) {
+            const idx = ids.indexOf(id);
+            if (idx >= 0) {
+              ids.splice(idx, 1);
+              deleted++;
+            }
+          }
+          return deleted;
+        },
+      };
+
+      await durable.clearState(store as unknown as Parameters<typeof durable.clearState>[0]);
+
+      expect(ids.length).toBe(0);
+    });
+
+    it("durable.deleteStates with continueOnError collects errors when looping", async () => {
+      const store = createMemoryStatePersistence();
+      await store.save("e1", { steps: new Map() });
+      const failingStore = {
+        ...store,
+        delete: vi.fn().mockImplementation(async (id: string) => {
+          if (id === "e1") throw new Error("db error");
+          return true;
+        }),
+      };
+
+      const result = await durable.deleteStates(failingStore, ["e1", "e2"], {
+        continueOnError: true,
+      });
+      expect(result.deleted).toBe(1);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors?.[0].id).toBe("e1");
+      expect((result.errors?.[0].error as Error).message).toBe("db error");
+    });
+
     it("durable.listPending should list all workflow IDs with state", async () => {
       const store = createMemoryStatePersistence();
 
@@ -734,6 +1041,32 @@ describe("Durable Execution", () => {
       expect(pending).toContain("workflow-1");
       expect(pending).toContain("workflow-2");
       expect(pending).toContain("workflow-3");
+    });
+
+    it("durable.listPending(store, options) returns ListPageResult when store has no listPage (fallback)", async () => {
+      const store = createMemoryStatePersistence();
+      await store.save("id-1", { steps: new Map() });
+      await store.save("id-2", { steps: new Map() });
+
+      const result = await durable.listPending(store, { limit: 10 });
+      expect(result).toHaveProperty("ids");
+      expect((result as { ids: string[] }).ids).toEqual(expect.arrayContaining(["id-1", "id-2"]));
+      expect(result).toHaveProperty("nextOffset", undefined);
+    });
+
+    it("durable.listPending(store, options) uses store.listPage when present", async () => {
+      const store = createMemoryStatePersistence();
+      await store.save("a", { steps: new Map() });
+      const storeWithListPage = Object.assign(store, {
+        listPage: async (opts: { limit?: number }) => ({
+          ids: ["custom-1", "custom-2"],
+          total: 2,
+          nextOffset: opts.limit === 2 ? 2 : undefined,
+        }),
+      });
+
+      const result = await durable.listPending(storeWithListPage, { limit: 2 });
+      expect(result).toEqual({ ids: ["custom-1", "custom-2"], total: 2, nextOffset: 2 });
     });
   });
 
@@ -833,16 +1166,82 @@ describe("Durable Execution", () => {
 
   describe("Type Guards", () => {
     it("isVersionMismatch should correctly identify version errors", () => {
-      expect(isVersionMismatch({ type: "VERSION_MISMATCH", storedVersion: 1, currentVersion: 2, message: "" })).toBe(true);
+      expect(
+        isVersionMismatch({
+          type: "VERSION_MISMATCH",
+          workflowId: "test",
+          storedVersion: 1,
+          requestedVersion: 2,
+          message: "",
+        })
+      ).toBe(true);
       expect(isVersionMismatch({ type: "OTHER_ERROR" })).toBe(false);
       expect(isVersionMismatch(null)).toBe(false);
       expect(isVersionMismatch("string")).toBe(false);
     });
 
     it("isConcurrentExecution should correctly identify concurrent errors", () => {
-      expect(isConcurrentExecution({ type: "CONCURRENT_EXECUTION", workflowId: "test", message: "" })).toBe(true);
+      expect(
+        isConcurrentExecution({
+          type: "CONCURRENT_EXECUTION",
+          workflowId: "test",
+          message: "",
+          reason: "in-process",
+        })
+      ).toBe(true);
       expect(isConcurrentExecution({ type: "OTHER_ERROR" })).toBe(false);
       expect(isConcurrentExecution(null)).toBe(false);
+    });
+
+    it("ConcurrentExecutionError has reason in-process when activeWorkflows blocks", async () => {
+      const store = createMemoryStatePersistence();
+      const id = "reason-in-process";
+      const first = durable.run(
+        { fetchUser },
+        async (step, { fetchUser }) => {
+          await delay(50);
+          return step(() => fetchUser("1"), { key: "u" });
+        },
+        { id, store }
+      );
+      const second = durable.run(
+        { fetchUser },
+        async (step) => step(() => fetchUser("2"), { key: "u2" }),
+        { id, store }
+      );
+      const secondResult = await second;
+      expect(secondResult.ok).toBe(false);
+      if (!secondResult.ok && isConcurrentExecution(secondResult.error)) {
+        expect(secondResult.error.reason).toBe("in-process");
+      }
+      await first;
+    });
+
+    it("ConcurrentExecutionError has reason cross-process when tryAcquire returns null", async () => {
+      const store = {
+        load: vi.fn(async () => undefined),
+        save: vi.fn(async () => undefined),
+        delete: vi.fn(async () => true),
+        list: vi.fn(async () => []),
+        tryAcquire: vi.fn(async () => null),
+        release: vi.fn(async () => undefined),
+      };
+      const result = await durable.run(
+        { fetchUser },
+        async (step, { fetchUser }) => {
+          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          return user;
+        },
+        {
+          id: "reason-cross-process",
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          store: store as any,
+        }
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok && isConcurrentExecution(result.error)) {
+        expect(result.error.reason).toBe("cross-process");
+      }
     });
   });
 });

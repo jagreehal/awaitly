@@ -5,8 +5,9 @@
   "private": true,
   "description": "Documentation for awaitly",
   "scripts": {
-    "dev": "pnpm copy-wasm && BASE=/ astro dev",
-    "start": "pnpm copy-wasm && BASE=/ astro dev",
+    "dev": "pnpm copy-wasm && astro dev",
+    "start": "pnpm copy-wasm && astro dev",
+    "dev:root": "pnpm copy-wasm && BASE=/ astro dev",
     "build": "pnpm copy-wasm && astro build",
     "preview": "astro preview",
     "astro": "astro",

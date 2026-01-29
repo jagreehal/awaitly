@@ -6,7 +6,7 @@
 
 import type { Pool, PoolConfig, QueryResult } from "pg";
 import { Pool as PgPool } from "pg";
-import type { KeyValueStore } from "awaitly/persistence";
+import type { KeyValueStore, ListPageOptions } from "awaitly/persistence";
 
 /**
  * Options for PostgreSQL KeyValueStore.
@@ -131,21 +131,35 @@ export class PostgresKeyValueStore implements KeyValueStore {
 
   /**
    * Create the table if it doesn't exist.
+   * Adds updated_at column to existing tables for listKeys ordering.
    */
   private async createTable(): Promise<void> {
-    const query = `
+    await this.pool.query(`
       CREATE TABLE IF NOT EXISTS ${this.tableName} (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
-        expires_at TIMESTAMP
-      );
+        expires_at TIMESTAMP,
+        updated_at TIMESTAMPTZ
+      )
+    `);
 
+    // Add updated_at to existing tables that don't have it (before creating index)
+    await this.pool.query(`
+      ALTER TABLE ${this.tableName} 
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ
+    `);
+
+    await this.pool.query(`
       CREATE INDEX IF NOT EXISTS idx_${this.tableName}_expires_at 
       ON ${this.tableName}(expires_at) 
-      WHERE expires_at IS NOT NULL;
-    `;
+      WHERE expires_at IS NOT NULL
+    `);
 
-    await this.pool.query(query);
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_${this.tableName}_updated_at 
+      ON ${this.tableName}(updated_at) 
+      WHERE updated_at IS NOT NULL
+    `);
   }
 
   /**
@@ -184,12 +198,13 @@ export class PostgresKeyValueStore implements KeyValueStore {
       : null;
 
     const query = `
-      INSERT INTO ${this.tableName} (key, value, expires_at)
-      VALUES ($1, $2, $3)
+      INSERT INTO ${this.tableName} (key, value, expires_at, updated_at)
+      VALUES ($1, $2, $3, NOW())
       ON CONFLICT (key) 
       DO UPDATE SET 
         value = EXCLUDED.value,
-        expires_at = EXCLUDED.expires_at
+        expires_at = EXCLUDED.expires_at,
+        updated_at = NOW()
     `;
 
     await this.pool.query(query, [key, value, expiresAt]);
@@ -235,6 +250,87 @@ export class PostgresKeyValueStore implements KeyValueStore {
     const result: QueryResult<{ key: string }> = await this.pool.query(query, [likePattern]);
 
     return result.rows.map((row) => row.key);
+  }
+
+  /**
+   * List keys with pagination, filtering, and ordering.
+   */
+  async listKeys(
+    pattern: string,
+    options: ListPageOptions = {}
+  ): Promise<{ keys: string[]; total?: number }> {
+    await this.ensureInitialized();
+
+    const limit = Math.min(Math.max(0, options.limit ?? 100), 10_000);
+    const offset = Math.max(0, options.offset ?? 0);
+    const orderBy = options.orderBy === "key" ? "key" : "updated_at";
+    const orderDir = options.orderDir === "asc" ? "ASC" : "DESC";
+    const likePattern = this.patternToLike(pattern);
+
+    const conditions: string[] = [
+      "key LIKE $1",
+      "(expires_at IS NULL OR expires_at > NOW())",
+    ];
+    const args: unknown[] = [likePattern];
+    let paramIndex = 2;
+
+    if (options.updatedBefore != null) {
+      conditions.push(`updated_at < $${paramIndex}`);
+      args.push(options.updatedBefore);
+      paramIndex++;
+    }
+    if (options.updatedAfter != null) {
+      conditions.push(`updated_at > $${paramIndex}`);
+      args.push(options.updatedAfter);
+      paramIndex++;
+    }
+
+    const whereClause = conditions.join(" AND ");
+    const orderNulls = orderBy === "updated_at" ? " NULLS LAST" : "";
+
+    const listQuery = `
+      SELECT key 
+      FROM ${this.tableName} 
+      WHERE ${whereClause}
+      ORDER BY ${orderBy} ${orderDir}${orderNulls}
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    const listArgs = [...args, limit, offset];
+
+    const result: QueryResult<{ key: string }> = await this.pool.query(listQuery, listArgs);
+    const keys = result.rows.map((row) => row.key);
+
+    let total: number | undefined;
+    if (options.includeTotal === true || offset > 0) {
+      const countResult: QueryResult<{ count: string }> = await this.pool.query(
+        `SELECT COUNT(*) AS count FROM ${this.tableName} WHERE ${whereClause}`,
+        args
+      );
+      total = parseInt(countResult.rows[0]?.count ?? "0", 10);
+    }
+
+    return { keys, total };
+  }
+
+  /**
+   * Delete multiple keys in one round-trip.
+   */
+  async deleteMany(keys: string[]): Promise<number> {
+    if (keys.length === 0) return 0;
+    await this.ensureInitialized();
+    const result = await this.pool.query(
+      `DELETE FROM ${this.tableName} WHERE key = ANY($1::text[])`,
+      [keys]
+    );
+    return result.rowCount ?? 0;
+  }
+
+  /**
+   * Remove all entries from the table (clear all workflow state).
+   */
+  async clear(): Promise<void> {
+    await this.ensureInitialized();
+    await this.pool.query(`TRUNCATE TABLE ${this.tableName}`);
   }
 
   /**

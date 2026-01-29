@@ -287,7 +287,7 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 | Rate limiting | `awaitly/ratelimit` |
 | Singleflight (`singleflight`, `createSingleflightGroup`) | `awaitly/singleflight` |
 | Testing utilities | `awaitly/testing` |
-| Visualization | `awaitly/visualize` |
+| Visualization | `awaitly-visualizer` (separate package) |
 | Duration helpers | `awaitly/workflow` |
 | Tagged errors | `awaitly` |
 | Pattern matching | `awaitly` |
@@ -418,7 +418,7 @@ if (isAwaitlyError(error)) {
 
 | Topic | Guide |
 |-------|-------|
-| Common issues | [Troubleshooting](../../guides/troubleshooting/) |
-| Framework setup | [Framework Integrations](../../guides/framework-integrations/) |
-| Production best practices | [Production Deployment](../../advanced/production-deployment/) |
-| Complete API | [API Reference](../api/) |
+| Common issues | [Troubleshooting/../guides/troubleshooting/) |
+| Framework setup | [Framework Integrations/../guides/framework-integrations/) |
+| Production best practices | [Production Deployment/../advanced/production-deployment/) |
+| Complete API | [API Reference/api/) |

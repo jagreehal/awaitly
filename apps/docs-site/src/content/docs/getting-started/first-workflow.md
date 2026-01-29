@@ -4,7 +4,7 @@ description: Build a simple workflow with typed errors in 5 minutes
 ---
 
 :::note
-New to awaitly? Start with [The Basics](../basics/) to learn `run()` and Result types first.
+New to awaitly? Start with [The Basics/basics/) to learn `run()` and Result types first.
 :::
 
 This guide walks through building a workflow that fetches a user and their posts, with typed error handling.
@@ -145,4 +145,4 @@ The workflow exits at the first error. No need for try/catch or manual error che
 
 ## Next
 
-[Learn about error handling →](../error-handling/)
+[Learn about error handling →/error-handling/)

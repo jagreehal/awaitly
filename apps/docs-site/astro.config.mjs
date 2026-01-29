@@ -10,8 +10,8 @@ import preact from '@astrojs/preact';
 // https://astro.build/config
 export default defineConfig({
   site: 'https://jagreehal.github.io',
-  // Use base path for GitHub Pages deployment
-  // For local development, you can override with: BASE=/ pnpm dev
+  // Use base path for GitHub Pages deployment (https://jagreehal.github.io/awaitly/).
+  // Local dev uses /awaitly by default so you can catch production issues; use pnpm dev:root or BASE=/ pnpm dev to run from /.
   base: process.env.BASE || '/awaitly',
   integrations: [
     preact(),
@@ -20,6 +20,15 @@ export default defineConfig({
     starlight({
       title: 'awaitly',
       description: 'Typed async workflows with Result types and automatic error inference',
+      // Ensure relative links resolve under base path (dev and production).
+      head: [
+        {
+          tag: 'base',
+          attrs: {
+            href: (process.env.BASE || '/awaitly').replace(/\/?$/, '/'),
+          },
+        },
+      ],
       favicon: '/favicon.svg',
       logo: {
         src: './public/logo-animated.svg',

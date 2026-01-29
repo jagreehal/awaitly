@@ -3,8 +3,44 @@ title: Persistence
 description: Save and resume workflows across restarts
 ---
 
+## Where options go (creation vs per-run)
+
+There are **three** places you might try to pass “options”. Only two are real.
+
+- **Creation-time (sticky)**: `createWorkflow(deps, options)`
+- **Per-run (one invocation)**: `workflow.run(fn, exec)` (or `workflow.run(args, fn, exec)`)
+- **Never**: `workflow(fn, exec)` or `workflow(args, fn, exec)` (those extra objects are ignored; Awaitly will warn)
+
+See also: [Concepts at a glance](/foundations/#concepts-at-a-glance) (workflow vs run vs durable, where options live). For the full restart story (crash recovery, list pending, resume by id), see [Crash recovery and queue worker pattern](./durable-execution#crash-recovery-and-queue-worker-pattern) in the durable execution guide.
+
+## Mental model (manual persistence)
+
+```mermaid
+flowchart TD
+  createWorkflow[createWorkflow(deps, { onEvent, resumeState })]
+  workflowRun[workflow(fn)]
+  stepEvents[WorkflowEvents]
+  collector[createResumeStateCollector]
+  resumeState[ResumeState_Map]
+  stringify[stringifyState]
+  db[(DB)]
+  parse[parseState]
+  resume[createWorkflow(deps, { resumeState })]
+  cached[Keyed_steps_return_cached_results]
+
+  createWorkflow --> workflowRun
+  workflowRun --> stepEvents
+  stepEvents --> collector
+  collector --> resumeState
+  resumeState --> stringify
+  stringify --> db
+  db --> parse
+  parse --> resume
+  resume --> cached
+```
+
 :::caution[Options go to createWorkflow]
-Options like `resumeState` must be passed to `createWorkflow(deps, { resumeState })`, not when calling the workflow. Options passed to the executor are silently ignored.
+Options like `resumeState` must be passed to `createWorkflow(deps, { resumeState })`, not when calling the workflow. Options passed to the executor are ignored (Awaitly will warn and point you to `workflow.run(...)` or `createWorkflow(deps, options)`).
 :::
 
 Save workflow state to a database and resume later. Completed steps return their cached results without re-executing.
@@ -279,4 +315,4 @@ const workflow = createWorkflow(deps, { cache });
 
 ## Next
 
-[Learn about Human-in-the-Loop →](../human-in-loop/)
+[Learn about Human-in-the-Loop →/human-in-loop/)

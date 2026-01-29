@@ -3019,7 +3019,7 @@ export async function run<T, E, C = void>(
             `Return raw values, not ok() or err().\n\n` +
             `  Incorrect: return ok({ data });\n` +
             `  Correct:   return { data };\n\n` +
-            `See: https://awaitly.dev/guides/troubleshooting/#returning-ok-from-workflow-executor-double-wrapping`
+            `See: https://jagreehal.github.io/awaitly/guides/troubleshooting/#returning-ok-from-workflow-executor-double-wrapping`
         );
       }
     }

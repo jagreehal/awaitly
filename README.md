@@ -596,7 +596,7 @@ if (!result.ok && isPendingApproval(result.error)) {
 Hook into the event stream to generate diagrams for logs, PRs, or dashboards.
 
 ```typescript
-import { createVisualizer } from 'awaitly/visualize';
+import { createVisualizer } from 'awaitly-visualizer';
 
 const viz = createVisualizer({ workflowName: 'checkout' });
 const workflow = createWorkflow({ fetchOrder, chargeCard }, {

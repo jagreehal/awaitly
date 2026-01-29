@@ -634,6 +634,6 @@ TypeScript infers error unions automatically across compositions.
 
 ## Related
 
-- [Result Types](../../foundations/result-types/) - Understanding Result types
-- [Workflows and Steps](../../foundations/workflows-and-steps/) - Using Results in workflows
-- [API Reference](../../reference/api/) - Complete functional utilities API
+- [Result Types/../foundations/result-types/) - Understanding Result types
+- [Workflows and Steps/../foundations/workflows-and-steps/) - Using Results in workflows
+- [API Reference/../reference/api/) - Complete functional utilities API

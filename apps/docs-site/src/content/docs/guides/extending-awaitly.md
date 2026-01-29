@@ -300,7 +300,7 @@ describe('fetchJson', () => {
 });
 ```
 
-For more testing patterns, see the [Testing guide](../testing/).
+For more testing patterns, see the [Testing guide/testing/).
 
 ---
 
@@ -321,6 +321,6 @@ When building a custom utility:
 
 ## Next Steps
 
-- [Result Types](../foundations/result-types/) - Deep dive into `Ok`, `Err`, and type narrowing
-- [Testing](../guides/testing/) - Comprehensive testing patterns for workflows
-- [Retries & Timeouts](../guides/retries-timeouts/) - Add resilience to your utilities
+- [Result Types/foundations/result-types/) - Deep dive into `Ok`, `Err`, and type narrowing
+- [Testing/guides/testing/) - Comprehensive testing patterns for workflows
+- [Retries & Timeouts/guides/retries-timeouts/) - Add resilience to your utilities

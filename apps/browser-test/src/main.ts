@@ -3,21 +3,19 @@
  *
  * This tests that:
  * 1. Browser-safe modules import correctly
- * 2. createVisualizer works in browser
- * 3. createDevServer throws helpful error
- * 4. createLiveVisualizer throws helpful error
- * 5. No node: imports are pulled in
+ * 2. createVisualizer works in browser (from awaitly-visualizer)
+ * 3. createLiveVisualizer throws helpful error
+ * 4. No node: imports are pulled in
  */
 
 import {
   createVisualizer,
-  createDevServer,
   createLiveVisualizer,
   asciiRenderer,
   mermaidRenderer,
   createIRBuilder,
   trackIf,
-} from 'awaitly/visualize';
+} from 'awaitly-visualizer';
 
 import { ok, err, isOk } from 'awaitly/core';
 
@@ -101,19 +99,7 @@ async function runTests() {
     log(`✗ createVisualizer failed: ${e}`, true);
   }
 
-  // Test 3: createDevServer throws helpful error
-  try {
-    createDevServer();
-    log('✗ createDevServer should have thrown', true);
-  } catch (e) {
-    if (e instanceof Error && e.message.includes('not available in browser')) {
-      log('✓ createDevServer throws helpful browser error');
-    } else {
-      log(`✗ createDevServer threw wrong error: ${e}`, true);
-    }
-  }
-
-  // Test 4: createLiveVisualizer throws helpful error
+  // Test 3: createLiveVisualizer throws helpful error
   try {
     createLiveVisualizer();
     log('✗ createLiveVisualizer should have thrown', true);
@@ -125,7 +111,7 @@ async function runTests() {
     }
   }
 
-  // Test 5: Other browser-safe exports work
+  // Test 4: Other browser-safe exports work
   try {
     const ascii = asciiRenderer();
     const mermaid = mermaidRenderer();
@@ -135,7 +121,7 @@ async function runTests() {
     log(`✗ Renderers failed: ${e}`, true);
   }
 
-  // Test 6: Decision tracking works
+  // Test 5: Decision tracking works
   try {
     const decision = trackIf('role-check', true, {
       condition: 'user.role === "admin"',

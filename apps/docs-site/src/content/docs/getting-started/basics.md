@@ -137,4 +137,4 @@ For most cases, start with `run()`. You can always migrate later.
 
 ## Next
 
-[Build your first workflow →](../first-workflow/)
+[Build your first workflow →/first-workflow/)

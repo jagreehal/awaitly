@@ -131,12 +131,12 @@ const workflow = createWorkflow(
 |----------|---------------|
 | Simple distinct states | String literals: `'NOT_FOUND' \| 'UNAUTHORIZED'` |
 | Errors with context | Objects: `{ type: 'NOT_FOUND', id: string }` |
-| API responses | [Tagged Errors](../../concepts/tagged-errors/) for structured data |
+| API responses | [Tagged Errors/../concepts/tagged-errors/) for structured data |
 
 ## Need help?
 
-Having issues with TypeScript narrowing or error handling? See [Troubleshooting](../../guides/troubleshooting/).
+Having issues with TypeScript narrowing or error handling? See [Troubleshooting/../guides/troubleshooting/).
 
 ## Next
 
-[Learn about Results in depth →](../../concepts/results/)
+[Learn about Results in depth →/../concepts/results/)

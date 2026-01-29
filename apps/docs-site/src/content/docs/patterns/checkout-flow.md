@@ -136,7 +136,7 @@ switch (result.error) {
 ## With retries and visualization
 
 ```typescript
-import { createVisualizer } from 'awaitly/visualize';
+import { createVisualizer } from 'awaitly-visualizer';
 
 const viz = createVisualizer({ workflowName: 'checkout' });
 
