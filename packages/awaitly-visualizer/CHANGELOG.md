@@ -1,4 +1,4 @@
-# awaitly-libsql
+# awaitly-visualizer
 
 ## 2.0.0
 
@@ -10,10 +10,3 @@
 
 - Updated dependencies [6114dd9]
   - awaitly@1.13.0
-
-## 1.0.0
-
-### Patch Changes
-
-- Updated dependencies [5f2ff00]
-  - awaitly@1.12.0
