@@ -5,7 +5,60 @@ description: Automatic state persistence with crash recovery
 
 Durable execution wraps workflows with automatic checkpointing. State is persisted after each keyed step, enabling crash recovery and resume from any point.
 
+## Mental model (durable)
+
+```mermaid
+flowchart TD
+  durableRun[durable.run(deps, fn, { id, store, version })]
+  load[store.load(id)]
+  versionCheck[version_check]
+  build[createWorkflow(deps, { resumeState })]
+  run[workflow.run(fn)]
+  persist[persist_after_each_keyed_step]
+  success[on_success_delete_state]
+  failure[on_error_or_cancel_keep_state]
+
+  durableRun --> load
+  load --> versionCheck
+  versionCheck --> build
+  build --> run
+  run --> persist
+  persist --> run
+  run --> success
+  run --> failure
+```
+
+## When to use durable vs manual persistence
+
+- **Use durable** when you want **automatic checkpointing after every keyed step** (crash recovery with minimal wiring).
+- **Use manual persistence** when you want **custom checkpoint timing** (save only at specific milestones, partial checkpoints, custom schemas).
+
+See also: [Where options go/persistence/#where-options-go-creation-vs-per-run) (creation vs per-run).
+
 ## Quick Start
+
+If you omit `store`, Awaitly uses an in-memory store (per process). This supports resume/retry within the same Node process, but state is lost on restart.
+
+```typescript
+import { durable } from 'awaitly/durable';
+
+const result = await durable.run(
+  { fetchUser, createOrder, sendEmail },
+  async (step, { fetchUser, createOrder, sendEmail }) => {
+    const user = await step(() => fetchUser('123'), { key: 'fetch-user' });
+    const order = await step(() => createOrder(user), { key: 'create-order' });
+    await step(() => sendEmail(order), { key: 'send-email' });
+    return order;
+  },
+  { id: 'checkout-123' }
+);
+```
+
+:::caution[Default store: unique IDs]
+When using the default in-memory store, workflow IDs must be unique within the process.
+:::
+
+To persist across restarts or share state across processes, pass a store (file/Postgres/Mongo…):
 
 ```typescript
 import { durable, createMemoryStatePersistence } from 'awaitly/durable';
@@ -15,18 +68,16 @@ const store = createMemoryStatePersistence();
 const result = await durable.run(
   { fetchUser, createOrder, sendEmail },
   async (step, { fetchUser, createOrder, sendEmail }) => {
-    // Each keyed step is automatically checkpointed
     const user = await step(() => fetchUser('123'), { key: 'fetch-user' });
     const order = await step(() => createOrder(user), { key: 'create-order' });
     await step(() => sendEmail(order), { key: 'send-email' });
     return order;
   },
-  {
-    id: 'checkout-123',
-    store,
-  }
+  { id: 'checkout-123', store }
 );
 ```
+
+IDs should be unique per workflow instance; don't run the same id concurrently unless you have a store/locking strategy that supports it.
 
 ## How It Works
 
@@ -117,28 +168,59 @@ const redisStore = createStatePersistence(
 
 ## Version Management
 
-Increment the version when making breaking changes to workflow logic:
+Awaitly **fails fast on version mismatch**: if stored state was written by a different workflow version, resume is rejected with `VersionMismatchError`. The error includes `workflowId`, `storedVersion`, `requestedVersion`, and an actionable message.
+
+### When to bump version
+
+Bump the `version` option when you make breaking changes that old checkpoints cannot satisfy:
+
+- **Step names/keys** – You renamed or changed a step’s `key` (e.g. `'fetch-user'` → `'load-user'`). Old state has cached results under the old key.
+- **Step order** – You added, removed, or reordered keyed steps. Resuming from old state would skip or replay the wrong steps.
+- **Step outputs** – You changed what a step returns in a way that later steps or the workflow logic no longer accept (e.g. type or shape change). Old cached results would be invalid.
+
+If you only change non-durable logic (e.g. logging, non-keyed steps, or code after the last keyed step), you usually do **not** need to bump.
+
+### Handling version mismatch
+
+Two safe next actions:
+
+1. **Clear state and re-run** – Delete stored state for this id and run again from scratch: `durable.deleteState(store, result.error.workflowId)` then call `durable.run(...)` again.
+2. **Migrate** – Transform stored state to the new version (e.g. load, transform step keys or results, save with new version) or run the old version to completion first.
+
+The error message suggests these options and includes the workflow id for use with `durable.deleteState(store, id)`.
 
 ```typescript
-const result = await durable.run(
-  deps,
-  workflowFn,
-  {
-    id: 'order-123',
-    store,
-    version: 2, // Increment when adding/removing/reordering steps
-  }
-);
+const result = await durable.run(deps, workflowFn, { id: 'order-123', store, version: 2 });
 
 if (!result.ok && isVersionMismatch(result.error)) {
-  console.log(
-    `Cannot resume: stored v${result.error.storedVersion}, ` +
-    `current v${result.error.currentVersion}`
-  );
-  // Option 1: Delete old state and restart
-  await durable.deleteState(store, 'order-123');
-  // Option 2: Run old version to completion first
+  const { workflowId, storedVersion, requestedVersion, message } = result.error;
+  console.error(message);
+  // Option 1: Clear state and re-run
+  await durable.deleteState(store, workflowId);
+  // then durable.run(...) again
+  // Option 2: Migrate stored state to new version, or run old version to completion
 }
+```
+
+### Optional: onVersionMismatch hook
+
+Without wrapping `durable.run` in your own logic, you can handle version mismatch inline:
+
+- **`'throw'`** (default) – Return the `VersionMismatchError`.
+- **`'clear'`** – Delete state for this id and run from scratch in the same call.
+- **`{ migratedState }`** – Supply a `ResumeState` to use as the resume state (e.g. after migrating step keys or results).
+
+```typescript
+const result = await durable.run(deps, workflowFn, {
+  id: 'order-123',
+  store,
+  version: 2,
+  onVersionMismatch: ({ id, storedVersion, requestedVersion }) => {
+    // Clear and run from scratch
+    return 'clear';
+    // Or: return 'throw'; or return { migratedState: yourMigratedResumeState };
+  },
+});
 ```
 
 ## Cancellation and Resume
@@ -240,15 +322,62 @@ const result = await durable.run(
 ## Helper Methods
 
 ```typescript
+// Get state by id (truth lives on the store)
+const state = await store.load('order-123');
+
 // Check if workflow has persisted state
 const canResume = await durable.hasState(store, 'order-123');
 
 // Delete persisted state (cancel resume capability)
 const deleted = await durable.deleteState(store, 'order-123');
 
-// List all pending workflows
+// List pending workflows (use options for pagination — don't load the world)
 const pending = await durable.listPending(store);
+const page = await durable.listPending(store, { limit: 50, offset: 0, orderBy: 'updatedAt', orderDir: 'desc' });
+
+// Bulk delete (best-effort; uses store.deleteMany when present)
+const { deleted: n } = await durable.deleteStates(store, ids, { concurrency: 10, continueOnError: true });
+
+// Clear all workflow state (uses store.clear() when present, else paginated delete)
+await durable.clearState(store);
 ```
+
+## Crash recovery and queue worker pattern
+
+A workflow instance has an `id` and persists progress (keyed steps / resume state) in the store. If the process crashes or you deploy a new version, in-process state is gone—but the store still has unfinished instances. On restart, query the store for unfinished instances (e.g. `durable.listPending(store)` or your own DB query), then for each id call `durable.run(..., { id, store })`. Awaitly loads state by id and continues from the next keyed step; completed steps are skipped using cached results.
+
+**Key enabling pieces:**
+
+- **Persistent store** (Postgres, Mongo, file, or KV) keyed by workflow id.
+- **A pending list**: `durable.listPending(store)` or a DB query on your state table (e.g. `status != complete`).
+- **Resume**: `durable.run` loads state by id and uses cached keyed steps to skip completed work.
+
+**Queue worker shape:** on startup, get pending ids (e.g. `listPending(store)`), then for each id run `durable.run(..., { id, store })`. Continuously, poll or subscribe for new ids and run `durable.run(..., { id, store })` (optionally with a claim step in your own DB).
+
+```typescript
+// On startup (or on a schedule): discover and run pending workflows
+const pendingIds = await durable.listPending(store);
+for (const id of pendingIds) {
+  const result = await durable.run(deps, workflowFn, { id, store });
+  if (!result.ok) {
+    console.error(`Workflow ${id} failed:`, result.error);
+  }
+}
+```
+
+**What you add (optional):**
+
+- **Discover**: list non-complete ids via `durable.listPending(store)` or a custom query with metadata (e.g. status, updatedAt).
+- **Claim/lock**: so multiple workers don’t run the same id (e.g. Postgres `SELECT ... FOR UPDATE SKIP LOCKED`, or a Mongo/Redis claim pattern)—this is adapter/application logic, not in core Awaitly.
+- **Trigger**: pull (sweep pending) vs push (enqueue id, then worker runs). `durable.run` is the execution primitive either way.
+
+**Pagination and ordering:** Do not load the world into memory. For large deployments, use `durable.listPending(store, options)` with `limit` and `offset` (or `nextOffset` from the previous page). Postgres, Mongo, and LibSQL adapters implement `listPage(options)` and return `ListPageResult` with `ids`, optional `total`, and `nextOffset`. Example: `const page = await durable.listPending(store, { limit: 50, offset: 0, orderBy: 'updatedAt', orderDir: 'desc' });` then iterate `page.ids` and use `page.nextOffset` for the next page.
+
+**Bulk delete:** Use `durable.deleteStates(store, ids, { concurrency?, continueOnError? })` for admin/cleanup. It loops over `store.delete(id)` with optional bounded concurrency; when the store implements `deleteMany(ids)` (Postgres, Mongo, LibSQL), that is used for efficiency. Returns `{ deleted, errors? }` when `continueOnError` is true.
+
+**Delete semantics (ack/reset):** Deleting state is effectively an ack or reset—the workflow can no longer resume from that state. If you delete while a workflow is running, the in-flight run continues; when it finishes it may try to delete again (no-op) or save (recreating state). For multi-worker safety, prefer deleting only when the workflow is not running, or when you hold the lock (e.g. after a successful run or after claiming the id). Core does not require the lock for delete; adapters that support locking do not enforce “delete only with lock”—so document and enforce in your worker logic if needed.
+
+See also: [Persistence](./persistence) and the store adapters above (Postgres, Mongo).
 
 ## Idempotency Requirements
 
@@ -343,4 +472,4 @@ async function processCheckout(orderId: string, userId: string, items: Item[]) {
 
 ## Next
 
-[Learn about Human-in-the-Loop →](../human-in-loop/)
+[Learn about Human-in-the-Loop →/human-in-loop/)

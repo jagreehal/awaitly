@@ -5,7 +5,7 @@
  */
 
 import { createClient, type Client } from "@libsql/client";
-import type { KeyValueStore } from "awaitly/persistence";
+import type { KeyValueStore, ListPageOptions } from "awaitly/persistence";
 
 /**
  * Options for libSQL / SQLite KeyValueStore.
@@ -110,7 +110,8 @@ export class LibSqlKeyValueStore implements KeyValueStore {
         CREATE TABLE IF NOT EXISTS ${this.tableName} (
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL,
-          expires_at TEXT
+          expires_at TEXT,
+          updated_at TEXT
         );
       `,
       args: [],
@@ -123,6 +124,24 @@ export class LibSqlKeyValueStore implements KeyValueStore {
       `,
       args: [],
     });
+
+    await this.client.execute({
+      sql: `
+        CREATE INDEX IF NOT EXISTS idx_${this.tableName}_updated_at
+        ON ${this.tableName}(updated_at);
+      `,
+      args: [],
+    });
+
+    // Add updated_at to existing tables (ignore if column already exists)
+    try {
+      await this.client.execute({
+        sql: `ALTER TABLE ${this.tableName} ADD COLUMN updated_at TEXT`,
+        args: [],
+      });
+    } catch {
+      // Column may already exist
+    }
   }
 
   /**
@@ -169,16 +188,18 @@ export class LibSqlKeyValueStore implements KeyValueStore {
       options?.ttl && options.ttl > 0
         ? new Date(Date.now() + options.ttl * 1000).toISOString()
         : null;
+    const updatedAt = new Date().toISOString();
 
     await this.client.execute({
       sql: `
-        INSERT INTO ${this.tableName} (key, value, expires_at)
-        VALUES (?, ?, ?)
+        INSERT INTO ${this.tableName} (key, value, expires_at, updated_at)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(key) DO UPDATE SET
           value = excluded.value,
-          expires_at = excluded.expires_at
+          expires_at = excluded.expires_at,
+          updated_at = excluded.updated_at
       `,
-      args: [key, value, expiresAt],
+      args: [key, value, expiresAt, updatedAt],
     });
   }
 
@@ -236,6 +257,96 @@ export class LibSqlKeyValueStore implements KeyValueStore {
     });
 
     return result.rows.map((row) => (row as Record<string, unknown>)["key"] as string);
+  }
+
+  /**
+   * List keys with pagination, filtering, and ordering.
+   */
+  async listKeys(
+    pattern: string,
+    options: ListPageOptions = {}
+  ): Promise<{ keys: string[]; total?: number }> {
+    await this.ensureInitialized();
+
+    const limit = Math.min(Math.max(0, options.limit ?? 100), 10_000);
+    const offset = Math.max(0, options.offset ?? 0);
+    const orderBy = options.orderBy === "key" ? "key" : "updated_at";
+    const orderDir = options.orderDir === "asc" ? "ASC" : "DESC";
+    const likePattern = this.patternToLike(pattern);
+    const nowIso = new Date().toISOString();
+
+    const conditions: string[] = [
+      "key LIKE ? ESCAPE '\\'",
+      "(expires_at IS NULL OR expires_at > ?)",
+    ];
+    const args: (string | number)[] = [likePattern, nowIso];
+    let paramIndex = 3;
+
+    if (options.updatedBefore != null) {
+      conditions.push(`updated_at < ?`);
+      args.push(options.updatedBefore.toISOString());
+      paramIndex++;
+    }
+    if (options.updatedAfter != null) {
+      conditions.push(`updated_at > ?`);
+      args.push(options.updatedAfter.toISOString());
+      paramIndex++;
+    }
+
+    const whereClause = conditions.join(" AND ");
+    const orderNulls = orderBy === "updated_at" ? " NULLS LAST" : "";
+
+    const listArgs = [...args, limit, offset];
+    const listQuery = `
+      SELECT key
+      FROM ${this.tableName}
+      WHERE ${whereClause}
+      ORDER BY ${orderBy} ${orderDir}${orderNulls}
+      LIMIT ? OFFSET ?
+    `;
+
+    const result = await this.client.execute({
+      sql: listQuery,
+      args: listArgs,
+    });
+    const keys = result.rows.map((row) => (row as Record<string, unknown>)["key"] as string);
+
+    let total: number | undefined;
+    if (options.includeTotal === true || offset > 0) {
+      const countResult = await this.client.execute({
+        sql: `SELECT COUNT(*) AS count FROM ${this.tableName} WHERE ${whereClause}`,
+        args,
+      });
+      const countRow = countResult.rows[0] as Record<string, unknown>;
+      total = typeof countRow?.count === "number" ? countRow.count : parseInt(String(countRow?.count ?? "0"), 10);
+    }
+
+    return { keys, total };
+  }
+
+  /**
+   * Delete multiple keys in one round-trip.
+   */
+  async deleteMany(keys: string[]): Promise<number> {
+    if (keys.length === 0) return 0;
+    await this.ensureInitialized();
+    const placeholders = keys.map(() => "?").join(", ");
+    const result = await this.client.execute({
+      sql: `DELETE FROM ${this.tableName} WHERE key IN (${placeholders})`,
+      args: keys,
+    });
+    return result.rowsAffected ?? 0;
+  }
+
+  /**
+   * Remove all entries from the table (clear all workflow state).
+   */
+  async clear(): Promise<void> {
+    await this.ensureInitialized();
+    await this.client.execute({
+      sql: `DELETE FROM ${this.tableName}`,
+      args: [],
+    });
   }
 
   /**

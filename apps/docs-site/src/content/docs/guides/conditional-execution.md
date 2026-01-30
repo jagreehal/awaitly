@@ -216,7 +216,7 @@ All conditional helpers accept an optional `ConditionalOptions` object:
 Skipped steps appear in workflow visualizations:
 
 ```typescript
-import { createVisualizer } from 'awaitly/visualize';
+import { createVisualizer } from 'awaitly-visualizer';
 
 const viz = createVisualizer();
 const workflow = createWorkflow(deps, { onEvent: viz.handleEvent });
@@ -269,4 +269,4 @@ const result = await processOrder(async (step) => {
 
 ## Next
 
-[Learn about Testing →](../testing/)
+[Learn about Testing →/testing/)

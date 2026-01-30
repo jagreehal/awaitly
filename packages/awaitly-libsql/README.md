@@ -52,6 +52,19 @@ const store = await createLibSqlPersistence({
 });
 ```
 
+## Cross-Process Locking
+
+To ensure only one process runs a given workflow ID at a time (when `durable.run` is used without `allowConcurrent: true`), pass the `lock` option. The store will implement `WorkflowLock` (lease + owner token):
+
+```ts
+const store = await createLibSqlPersistence({
+  url: "file:./awaitly.db",
+  lock: { lockTableName: "awaitly_workflow_lock" },  // optional; default table name
+});
+
+// durable.run(..., { id, store }) will tryAcquire before running and release in finally
+```
+
 ## Tenant-Aware Keying (Recommended)
 
 To make it easier to avoid cross-tenant leaks in multi-tenant setups, use a

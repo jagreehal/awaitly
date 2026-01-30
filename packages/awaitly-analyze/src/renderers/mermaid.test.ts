@@ -24,7 +24,7 @@ describe("renderPathsMermaid", () => {
 
     const stepNodeLines = mermaid
       .split("\n")
-      .filter((line) => line.includes("[Fetch]"));
+      .filter((line) => line.includes('["Fetch"]'));
 
     expect(stepNodeLines.length).toBe(2);
   });

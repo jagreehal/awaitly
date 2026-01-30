@@ -2531,8 +2531,66 @@ export function createWorkflow<
   // Implementation
   function workflowExecutor<T, Args = undefined>(
     fnOrArgs: WorkflowFn<T, E, Deps, C> | Args,
-    maybeFn?: WorkflowFnWithArgs<T, Args, E, Deps, C>
+    maybeFn?: WorkflowFnWithArgs<T, Args, E, Deps, C>,
+    ...rest: unknown[]
   ): Promise<Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>> {
+    // DX guard: users sometimes try `workflow(fn, { onEvent, resumeState, ... })`
+    // but exec options are only supported via `workflow.run(fn, exec)` (or creation-time `createWorkflow(deps, options)`).
+    // Since JS allows extra args, detect and warn when an object that looks like options is passed.
+    const argCount = 2 + rest.length;
+    const a2 = maybeFn;
+    const a3 = rest[0];
+
+    const KNOWN_EXEC_OPTION_KEYS = new Set([
+      "cache",
+      "onEvent",
+      "resumeState",
+      "onError",
+      "onBeforeStart",
+      "onAfterStep",
+      "shouldRun",
+      "createContext",
+      "signal",
+      "description",
+      "markdown",
+      "streamStore",
+    ]);
+
+    const looksLikeWorkflowOptions = (value: unknown): value is Record<string, unknown> => {
+      if (value == null || typeof value !== "object") return false;
+      const keys = Object.keys(value);
+      if (keys.length === 0) return false;
+      // Warn only if every key is a known option key (conservative; avoids false positives).
+      return keys.every((k) => KNOWN_EXEC_OPTION_KEYS.has(k));
+    };
+
+    const emitOptionMisuseWarning = (msg: string) => {
+      if (typeof process !== "undefined" && process.env?.NODE_ENV === "development") {
+        throw new Error(msg);
+      }
+      console.warn(msg);
+    };
+
+    // Misuse A: workflow(fn, optionsObject) -> second arg is an object, not a function
+    if (argCount >= 2 && typeof fnOrArgs === "function" && typeof a2 !== "function" && looksLikeWorkflowOptions(a2)) {
+      emitOptionMisuseWarning(
+        `awaitly: Detected workflow options (${Object.keys(a2).join(", ")}) passed to the workflow executor.\n` +
+          `This call signature ignores options. Use one of:\n` +
+          `  - Per-run:   await workflow.run(fn, { ${Object.keys(a2).join(", ")} })\n` +
+          `  - Creation:  const workflow = createWorkflow(deps, { ${Object.keys(a2).join(", ")} })`
+      );
+    }
+
+    // Misuse B: workflow(args, fn, optionsObject) -> third arg is an options-looking object
+    if (argCount >= 3 && typeof a2 === "function" && looksLikeWorkflowOptions(a3)) {
+      emitOptionMisuseWarning(
+        `awaitly: Detected workflow options (${Object.keys(a3).join(", ")}) passed to the workflow executor.\n` +
+          `This call signature ignores options. Use:\n` +
+          `  - Per-run:   await workflow.run(args, fn, { ${Object.keys(a3).join(", ")} })\n` +
+          `  - Creation:  const workflow = createWorkflow(deps, { ${Object.keys(a3).join(", ")} })`
+      );
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const normalized = normalizeCall(fnOrArgs as any, maybeFn as any);
     // Cast is safe because T flows through internalExecute

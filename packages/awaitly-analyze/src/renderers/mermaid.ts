@@ -349,7 +349,7 @@ function renderStepNode(
     }
   }
 
-  lines.push(`  ${nodeId}[${escapeLabel(label)}]`);
+  lines.push(`  ${nodeId}["${escapeLabel(label)}"]`);
   context.styleClasses.set(nodeId, "stepStyle");
 
   return {
@@ -461,7 +461,7 @@ function renderConditionalNode(
 
   // Decision diamond
   const conditionLabel = truncate(node.condition, 30);
-  lines.push(`  ${decisionId}{${escapeLabel(conditionLabel)}}`);
+  lines.push(`  ${decisionId}{"${escapeLabel(conditionLabel)}"}`);
   context.styleClasses.set(decisionId, "conditionalStyle");
 
   const lastNodeIds: string[] = [];
@@ -514,7 +514,7 @@ function renderSwitchNode(
 
   // Diamond shape for switch expression
   const expressionLabel = truncate(node.expression, 30);
-  lines.push(`  ${decisionId}{${escapeLabel(expressionLabel)}}`);
+  lines.push(`  ${decisionId}{"${escapeLabel(expressionLabel)}"}`);
   context.styleClasses.set(decisionId, "conditionalStyle");
 
   const lastNodeIds: string[] = [];
@@ -561,7 +561,7 @@ function renderLoopNode(
   const loopLabel = node.iterSource
     ? `${node.loopType}: ${truncate(node.iterSource, 20)}`
     : node.loopType;
-  lines.push(`  ${loopStartId}([${escapeLabel(loopLabel)}])`);
+  lines.push(`  ${loopStartId}("[${escapeLabel(loopLabel)}]")`);
   context.styleClasses.set(loopStartId, "loopStyle");
 
   // Loop body
@@ -577,7 +577,7 @@ function renderLoopNode(
   }
 
   // Loop end check
-  lines.push(`  ${loopEndId}([Continue?])`);
+  lines.push(`  ${loopEndId}("[Continue?]")`);
   context.styleClasses.set(loopEndId, "loopStyle");
 
   // Connect body end to loop check
@@ -660,7 +660,7 @@ function renderSagaStepNode(
     }
   }
 
-  lines.push(`  ${nodeId}[${escapeLabel(label)}]`);
+  lines.push(`  ${nodeId}["${escapeLabel(label)}"]`);
 
   // Use compensation style if step has compensation, otherwise saga step style
   const styleClass = node.hasCompensation ? "sagaCompensationStyle" : "sagaStepStyle";
@@ -692,12 +692,9 @@ function renderUnknownNode(
 // =============================================================================
 
 function escapeLabel(label: string): string {
+  // Only escape characters that break quoted strings in Mermaid
   return label
-    .replace(/"/g, "'")
-    .replace(/\[/g, "(")
-    .replace(/\]/g, ")")
-    .replace(/\{/g, "(")
-    .replace(/\}/g, ")")
+    .replace(/"/g, "#quot;")  // Escape double quotes for Mermaid
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
@@ -752,7 +749,7 @@ export function renderPathsMermaid(
 
   // Add all step nodes
   for (const [, { id, label }] of stepNodes) {
-    lines.push(`  ${id}[${escapeLabel(label)}]`);
+    lines.push(`  ${id}["${escapeLabel(label)}"]`);
   }
   lines.push("");
 

@@ -587,6 +587,13 @@ WorkflowEvent<E, C>                 // Union of all event types
 WorkflowCancelledError              // { type: 'WORKFLOW_CANCELLED', reason?, lastStepKey? }
 ```
 
+### Durable types
+
+```typescript
+VersionMismatchError                // { type: 'VERSION_MISMATCH', workflowId, storedVersion, requestedVersion, message }
+ConcurrentExecutionError            // { type: 'CONCURRENT_EXECUTION', workflowId, message, reason?: 'in-process' | 'cross-process' }
+```
+
 ### Type extraction utilities
 
 ```typescript
@@ -960,18 +967,6 @@ It exists to ensure the reference stays exhaustive even as the API grows.
 - unwrap
 - unwrapOr
 - unwrapOrElse
-
-[awaitly/devtools] (10)
-- createConsoleLogger
-- createDevtools
-- quickVisualize
-- renderDiff
-- type Devtools
-- type DevtoolsOptions
-- type RunDiff
-- type StepDiff
-- type TimelineEntry
-- type WorkflowRun
 
 [awaitly/durable] (17)
 - createFileStatePersistence
@@ -1457,7 +1452,8 @@ It exists to ensure the reference stays exhaustive even as the API grows.
 - unwrapOk
 - unwrapOkAsync
 
-[awaitly/visualize] (94)
+[awaitly-visualizer] (94) - MOVED TO SEPARATE PACKAGE
+Note: Install with `npm install awaitly-visualizer`
 - ActiveStepSnapshot
 - BaseNode
 - CollectableEvent
@@ -1503,7 +1499,6 @@ It exists to ensure the reference stays exhaustive even as the API grows.
 - StreamNode
 - TimeTravelState
 - VisualizerOptions
-- VisualizingWorkflowOptions
 - WebVisualizerMessage
 - WorkflowHooks
 - WorkflowIR
@@ -1512,7 +1507,6 @@ It exists to ensure the reference stays exhaustive even as the API grows.
 - WorkflowVisualizer
 - asciiRenderer
 - combineEventHandlers
-- createDevServer
 - createEventCollector
 - createIRBuilder
 - createLiveVisualizer
@@ -1520,7 +1514,6 @@ It exists to ensure the reference stays exhaustive even as the API grows.
 - createPerformanceAnalyzer
 - createTimeTravelController
 - createVisualizer
-- createVisualizingWorkflow
 - defaultColorScheme
 - detectParallelGroups
 - flowchartRenderer
@@ -1540,8 +1533,6 @@ It exists to ensure the reference stays exhaustive even as the API grows.
 - trackIf
 - trackSwitch
 - type DecisionTracker
-- type DevServer
-- type DevServerOptions
 - type IRBuilderOptions
 - type IfTracker
 - type LiveVisualizer

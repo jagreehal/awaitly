@@ -255,6 +255,6 @@ expect(bound({})).toBe(1001);
 
 ## Related
 
-- [Framework Integration](../framework-integration/) - Integration patterns for React, Next.js, Express
-- [Testing Guide](../testing/) - Testing workflows and functions
-- [API Reference](../../reference/api/) - Complete `bindDeps` API documentation
+- [Framework Integration/framework-integration/) - Integration patterns for React, Next.js, Express
+- [Testing Guide/testing/) - Testing workflows and functions
+- [API Reference/../reference/api/) - Complete `bindDeps` API documentation

@@ -1,0 +1,105 @@
+{
+  "name": "awaitly-visualizer",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Visualization and rendering for awaitly workflows - Mermaid diagrams, ASCII art, HTML, and more",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "browser": {
+        "types": "./dist/index.browser.d.ts",
+        "import": "./dist/index.browser.js"
+      },
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./kroki-fetch": {
+      "types": "./dist/kroki/fetch.d.ts",
+      "import": "./dist/kroki/fetch.js",
+      "require": "./dist/kroki/fetch.cjs"
+    },
+    "./notifiers/slack": {
+      "types": "./dist/notifiers/slack.d.ts",
+      "import": "./dist/notifiers/slack.js",
+      "require": "./dist/notifiers/slack.cjs"
+    },
+    "./notifiers/discord": {
+      "types": "./dist/notifiers/discord.d.ts",
+      "import": "./dist/notifiers/discord.js",
+      "require": "./dist/notifiers/discord.cjs"
+    },
+    "./notifiers/webhook": {
+      "types": "./dist/notifiers/webhook.d.ts",
+      "import": "./dist/notifiers/webhook.js",
+      "require": "./dist/notifiers/webhook.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "lint": "eslint .",
+    "clean": "rm -rf dist",
+    "quality": "pnpm type-check && pnpm test && pnpm lint"
+  },
+  "keywords": [
+    "awaitly",
+    "workflow",
+    "visualization",
+    "mermaid",
+    "ascii",
+    "diagram",
+    "kroki",
+    "slack",
+    "discord",
+    "webhook",
+    "notifier"
+  ],
+  "author": "Jag Reehal <jag@jagreehal.com>",
+  "homepage": "https://github.com/jagreehal/awaitly#readme",
+  "bugs": {
+    "url": "https://github.com/jagreehal/awaitly/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jagreehal/awaitly.git"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "awaitly": "workspace:^"
+  },
+  "dependencies": {
+    "pako": "^2.1.0"
+  },
+  "optionalDependencies": {
+    "@slack/web-api": "^7.0.0"
+  },
+  "devDependencies": {
+    "@total-typescript/ts-reset": "^0.6.1",
+    "@total-typescript/tsconfig": "^1.0.4",
+    "@types/node": "^25.1.0",
+    "@types/pako": "^2.0.3",
+    "awaitly": "workspace:^",
+    "jsdom": "^27.4.0",
+    "mermaid": "^11.12.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

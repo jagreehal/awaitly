@@ -50,8 +50,9 @@ import { run } from 'awaitly/run';
 // Workflow orchestration
 import { createWorkflow } from 'awaitly/workflow';
 
-// Visualization (~5KB)
-import { createVisualizer } from 'awaitly/visualize';
+// Visualization (separate package)
+// npm install awaitly-visualizer
+import { createVisualizer } from 'awaitly-visualizer';
 
 // Batch processing (~2KB)
 import { processInBatches } from 'awaitly/batch';
@@ -62,23 +63,20 @@ import { withScope, createResource } from 'awaitly/resource';
 
 ## Browser support
 
-awaitly works in both Node.js and browser environments. Bundlers (Vite, webpack, esbuild, Rollup) automatically resolve browser-safe code via conditional exports.
+awaitly is fully platform-agnostic and works identically in Node.js and browser environments. No special configuration is needed - the same code runs everywhere.
 
 ```typescript
-// Works in browser - bundlers resolve the browser entry
-import { createVisualizer } from 'awaitly/visualize';
-
-const viz = createVisualizer({ workflowName: 'checkout' });
+// Works in both Node.js and browser
+import { ok, err, createWorkflow } from 'awaitly';
 ```
 
-**Node.js-only features** throw helpful errors in browser:
-
-- `createDevServer` - requires `node:http`, `node:child_process`
-- `createLiveVisualizer` - requires `process.stdout`
+For visualization in browsers, use the separate `awaitly-visualizer` package which has browser-specific builds that exclude Node-only features like terminal output:
 
 ```typescript
-// In browser, this throws: "createDevServer is not available in browser..."
-import { createDevServer } from 'awaitly/visualize';
+// awaitly-visualizer has browser-specific exports
+import { createVisualizer } from 'awaitly-visualizer';
+
+const viz = createVisualizer({ workflowName: 'checkout' });
 ```
 
 ## Verify installation
@@ -107,4 +105,4 @@ npx tsx test.ts
 
 ## Next
 
-[Learn the basics →](../basics/)
+[Learn the basics →/basics/)

@@ -660,6 +660,43 @@ export function createKVCache(options: KVCacheOptions): StepCache & {
 }
 
 // =============================================================================
+// List page types (pagination, filtering, ordering)
+// =============================================================================
+
+/**
+ * Options for paginated list of workflow IDs.
+ * Used by adapters that support listPage (Postgres, Mongo, LibSQL).
+ */
+export interface ListPageOptions {
+  /** Max number of IDs to return. @default 100 */
+  limit?: number;
+  /** Number of IDs to skip. @default 0 */
+  offset?: number;
+  /** Sort by key or updatedAt. @default 'updatedAt' */
+  orderBy?: "key" | "updatedAt";
+  /** Sort direction. @default 'desc' */
+  orderDir?: "asc" | "desc";
+  /** Only include IDs updated before this time. */
+  updatedBefore?: Date;
+  /** Only include IDs updated after this time. */
+  updatedAfter?: Date;
+  /** Include total count (extra query when true or when offset > 0). */
+  includeTotal?: boolean;
+}
+
+/**
+ * Result of a paginated list of workflow IDs.
+ */
+export interface ListPageResult {
+  /** Workflow IDs in the requested order. */
+  ids: string[];
+  /** Total count (only set when includeTotal or offset > 0 and store supports it). */
+  total?: number;
+  /** Next offset if there are more results (offset + ids.length when ids.length === limit). */
+  nextOffset?: number;
+}
+
+// =============================================================================
 // State Persistence
 // =============================================================================
 

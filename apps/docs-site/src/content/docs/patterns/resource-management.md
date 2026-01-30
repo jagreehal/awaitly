@@ -646,4 +646,4 @@ const result = await withScope(async (scope) => {
 
 ## Next
 
-[See Patterns: Error Recovery →](../error-recovery/)
+[See Patterns: Error Recovery →/error-recovery/)

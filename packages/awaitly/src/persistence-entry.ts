@@ -34,6 +34,8 @@ export {
   type KeyValueStore,
   type KVCacheOptions,
   createKVCache,
+  type ListPageOptions,
+  type ListPageResult,
   type StatePersistence,
   createStatePersistence,
   createHydratingCache,

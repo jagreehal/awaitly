@@ -188,6 +188,23 @@ describe.skipIf(shouldSkip)("MongoKeyValueStore", () => {
       // Should still exist (new TTL)
       expect(await store.get("key1")).toBe("value1");
     }, 10000);
+
+    it("should clear TTL when updating key without ttl", async () => {
+      // Set with short TTL
+      await store.set("key1", "value1", { ttl: 1 });
+
+      // Wait a bit but not enough to expire
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Update without TTL (should remove expiresAt)
+      await store.set("key1", "value1");
+
+      // Wait for original TTL to pass
+      await new Promise((resolve) => setTimeout(resolve, 700));
+
+      // Should still exist because TTL was cleared
+      expect(await store.get("key1")).toBe("value1");
+    }, 10000);
   });
 
   describe("Pattern matching", () => {

@@ -13,7 +13,7 @@ import type {
   Document,
 } from "mongodb";
 import { MongoClient as MongoClientImpl } from "mongodb";
-import type { KeyValueStore } from "awaitly/persistence";
+import type { KeyValueStore, ListPageOptions } from "awaitly/persistence";
 
 /**
  * Options for MongoDB KeyValueStore.
@@ -64,6 +64,7 @@ interface KeyValueDocument extends Document {
   _id: string;
   value: string;
   expiresAt?: Date | null;
+  updatedAt?: Date | null;
 }
 
 /**
@@ -222,16 +223,18 @@ export class MongoKeyValueStore implements KeyValueStore {
 
     const expiresAt = options?.ttl ? new Date(Date.now() + options.ttl * 1000) : undefined;
 
-    await this.collection.updateOne(
-      { _id: key },
-      {
-        $set: {
-          value,
-          ...(expiresAt !== undefined ? { expiresAt } : { $unset: { expiresAt: "" } }),
-        },
+    const update: Record<string, unknown> = {
+      $set: {
+        value,
+        updatedAt: new Date(),
+        ...(expiresAt !== undefined ? { expiresAt } : {}),
       },
-      { upsert: true }
-    );
+    };
+    if (expiresAt === undefined) {
+      update.$unset = { expiresAt: "" };
+    }
+
+    await this.collection.updateOne({ _id: key }, update, { upsert: true });
   }
 
   async delete(key: string): Promise<boolean> {
@@ -266,6 +269,72 @@ export class MongoKeyValueStore implements KeyValueStore {
       .toArray();
 
     return docs.map((doc) => doc._id);
+  }
+
+  /**
+   * List keys with pagination, filtering, and ordering.
+   */
+  async listKeys(
+    pattern: string,
+    options: ListPageOptions = {}
+  ): Promise<{ keys: string[]; total?: number }> {
+    await this.ensureInitialized();
+
+    const limit = Math.min(Math.max(0, options.limit ?? 100), 10_000);
+    const offset = Math.max(0, options.offset ?? 0);
+    const orderDir = options.orderDir === "asc" ? 1 : -1;
+    const regex = this.patternToRegex(pattern);
+
+    const baseFilter: Record<string, unknown> = {
+      _id: regex,
+      $or: [{ expiresAt: { $exists: false } }, { expiresAt: null }, { expiresAt: { $gt: new Date() } }],
+    };
+    if (options.updatedBefore != null && options.updatedAfter != null) {
+      (baseFilter as Record<string, unknown>).updatedAt = {
+        $lt: options.updatedBefore,
+        $gt: options.updatedAfter,
+      };
+    } else if (options.updatedBefore != null) {
+      (baseFilter as Record<string, unknown>).updatedAt = { $lt: options.updatedBefore };
+    } else if (options.updatedAfter != null) {
+      (baseFilter as Record<string, unknown>).updatedAt = { $gt: options.updatedAfter };
+    }
+
+    const sortKey = options.orderBy === "key" ? "_id" : "updatedAt";
+    const cursor = this.collection
+      .find(baseFilter)
+      .project({ _id: 1 })
+      .sort({ [sortKey]: orderDir })
+      .skip(offset)
+      .limit(limit);
+
+    const docs = await cursor.toArray();
+    const keys = docs.map((doc) => doc._id);
+
+    let total: number | undefined;
+    if (options.includeTotal === true || offset > 0) {
+      total = await this.collection.countDocuments(baseFilter);
+    }
+
+    return { keys, total };
+  }
+
+  /**
+   * Delete multiple keys in one round-trip.
+   */
+  async deleteMany(keys: string[]): Promise<number> {
+    if (keys.length === 0) return 0;
+    await this.ensureInitialized();
+    const result = await this.collection.deleteMany({ _id: { $in: keys } });
+    return result.deletedCount ?? 0;
+  }
+
+  /**
+   * Remove all entries from the collection (clear all workflow state).
+   */
+  async clear(): Promise<void> {
+    await this.ensureInitialized();
+    await this.collection.deleteMany({});
   }
 
   /**

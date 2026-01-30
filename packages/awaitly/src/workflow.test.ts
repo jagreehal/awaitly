@@ -4974,6 +4974,68 @@ describe("createWorkflow with execution-time options", () => {
   const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> =>
     id !== "0" ? ok({ id, name: `User ${id}` }) : err("NOT_FOUND");
 
+  it("warns when exec options are passed to workflow executor (workflow(fn, { onEvent }))", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const workflow = createWorkflow({ fetchUser });
+
+    // Misuse: second arg is treated as ignored, but should warn.
+    await workflow(
+      async (step) => {
+        const user = await step(() => fetchUser("1"));
+        return user;
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { onEvent: () => {} } as any
+    );
+
+    expect(warnSpy).toHaveBeenCalled();
+    expect(String(warnSpy.mock.calls[0]?.[0] ?? "")).toContain("Detected workflow options");
+    expect(String(warnSpy.mock.calls[0]?.[0] ?? "")).toContain("workflow.run");
+    warnSpy.mockRestore();
+  });
+
+  it("warns when exec options are passed to workflow executor (workflow(args, fn, { onEvent }))", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const workflow = createWorkflow({ fetchUser });
+
+    // Misuse: 3-arg form is ignored by the callable executor; it should still warn.
+    // Intentionally call workflow with 3 args (options as 3rd) to trigger the warning.
+    type CallableWithThree = (
+      args: { userId: string },
+      fn: (step: RunStep<unknown>, deps: { fetchUser: (id: string) => AsyncResult<{ id: string; name: string }, "NOT_FOUND"> }, args: { userId: string }) => Promise<{ id: string; name: string }>,
+      opts: { onEvent: () => void }
+    ) => Promise<Result<{ id: string; name: string }, unknown, unknown>>;
+    await (workflow as CallableWithThree)(
+      { userId: "1" },
+      async (step, deps, args) => {
+        const user = await step(() => deps.fetchUser(args.userId));
+        return user;
+      },
+      { onEvent: () => {} }
+    );
+
+    expect(warnSpy).toHaveBeenCalled();
+    expect(String(warnSpy.mock.calls[0]?.[0] ?? "")).toContain("Detected workflow options");
+    expect(String(warnSpy.mock.calls[0]?.[0] ?? "")).toContain("workflow.run");
+    warnSpy.mockRestore();
+  });
+
+  it("does not warn for legitimate args object that is not pure options", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const workflow = createWorkflow({ fetchUser });
+
+    await workflow(
+      { userId: "1", cache: true }, // includes non-option key -> should not match the warning heuristic
+      async (step, deps, args) => {
+        const user = await step(() => deps.fetchUser(args.userId));
+        return user;
+      }
+    );
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
   it("exec overrides creation: creation onEvent = A, exec onEvent = B → only B called", async () => {
     const eventsA: WorkflowEvent<unknown>[] = [];
     const eventsB: WorkflowEvent<unknown>[] = [];

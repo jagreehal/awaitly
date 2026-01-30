@@ -40,16 +40,16 @@ Choose awaitly when you want typed error handling, platform flexibility, and exp
 | Retry Logic | `RetryableError` class | Retry options in step config |
 | Saga Pattern | Manual try/catch rollback | `createSagaWorkflow` with auto-compensation |
 | Static Analysis | Limited | `awaitly-analyze` with Mermaid diagrams |
-| ESLint Plugin | None | `eslint-plugin-awaitly` with 7 rules + autofixes |
-| Runtime Visualization | Limited | `awaitly/visualize` with multiple formats |
+| ESLint Plugin | None | `eslint-plugin-awaitly` with autofixes |
+| Runtime Visualization | Limited | `awaitly-visualizer` with multiple formats |
 | Platform Lock-in | Vercel only | Any Node.js environment |
 | Durability | Built-in (Vercel platform) | Configurable (PostgreSQL, Redis, etc.) |
 | Compiler Required | Yes (custom compiler) | No (standard TypeScript) |
 | Workflow Metadata | `getWorkflowMetadata()` | `WorkflowContext` (3rd callback arg) |
 | Step Metadata | `getStepMetadata()` with `attempt` | `onEvent` callback with retry events |
 | Hooks/Webhooks | `createHook()` with suspension | Custom implementation via `onEvent` |
-| AI Agents | `DurableAgent` class | Any AI SDK (manual tool calling) |
-| Sleep | `sleep("5s")` built-in | Manual implementation |
+| AI Agents | `DurableAgent` class | Any AI library e.g. AI SDK, Tanstack AI, Langchain etc  |
+| Sleep | `sleep("5s")` built-in | step.sleep("5s") |
 
 ## Core Patterns
 
@@ -505,7 +505,7 @@ Generates Mermaid diagrams showing:
 ### Runtime Visualization
 
 ```typescript
-import { createVisualizer } from "awaitly/visualize";
+import { createVisualizer } from "awaitly-visualizer";
 
 const viz = createVisualizer({ workflowName: "my-workflow" });
 

@@ -8,7 +8,7 @@ import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
 Welcome to the Foundations section. This structured learning path takes you from Result types to production-ready workflows.
 
 <Aside type="tip" title="Prerequisites">
-Make sure you've completed [Installation](/getting-started/installation/) before diving in.
+Make sure you've completed [Installation](getting-started/installation/) before diving in.
 </Aside>
 
 ## Learning Path
@@ -19,32 +19,32 @@ Work through these topics in order. Each builds on concepts from the previous on
   <Card title="Result Types" icon="seti:typescript">
     The foundation of typed error handling. Learn `ok()`, `err()`, and transformers.
 
-    [Start here →](/foundations/result-types/)
+    [Start here →](foundations/result-types/)
   </Card>
   <Card title="Workflows and Steps" icon="rocket">
     Compose operations with `run()` and `createWorkflow()`. Master the `step()` function.
 
-    [Learn workflows →](/foundations/workflows-and-steps/)
+    [Learn workflows →](foundations/workflows-and-steps/)
   </Card>
   <Card title="Control Flow" icon="random">
     Sequential, parallel, and race patterns. Run operations concurrently.
 
-    [Control flow →](/foundations/control-flow/)
+    [Control flow →](foundations/control-flow/)
   </Card>
   <Card title="Errors and Retries" icon="warning">
     Error inference, TaggedError, and resilience with retries and timeouts.
 
-    [Handle errors →](/foundations/error-handling/)
+    [Handle errors →](foundations/error-handling/)
   </Card>
   <Card title="State and Resumption" icon="document">
     Persist workflow state. Resume after crashes. Enable caching.
 
-    [Manage state →](/foundations/state-and-resumption/)
+    [Manage state →](foundations/state-and-resumption/)
   </Card>
   <Card title="Streaming" icon="forward-slash">
     Real-time data streaming. AI token streaming. Transform streams.
 
-    [Stream data →](/foundations/streaming/)
+    [Stream data →](foundations/streaming/)
   </Card>
 </CardGrid>
 
@@ -58,6 +58,43 @@ By the end of this section, you'll understand:
 - **Resilience patterns** - Retries, timeouts, and backoff strategies
 - **State persistence** - Save and resume workflows across restarts
 - **Real-time streaming** - Stream tokens, progress, and live updates
+
+## Concepts at a glance
+
+Where workflows, runs, and options live:
+
+```mermaid
+flowchart LR
+  subgraph creation [Creation-time options]
+    createWorkflow["createWorkflow(deps, options)"]
+    options[resumeState, onEvent, cache, ...]
+    createWorkflow --> options
+  end
+
+  subgraph run [Per-run options]
+    workflowRun["workflow.run(fn, exec)"]
+    exec[onEvent, signal, resumeState, ...]
+    workflowRun --> exec
+  end
+
+  subgraph never [Never here]
+    bad["workflow(fn, opts)"]
+    bad --> ignored[ignored, Awaitly warns]
+  end
+
+  subgraph durable [Durable]
+    durableRun["durable.run(deps, fn, { id, store })"]
+    durableRun --> auto[auto checkpoint per step]
+  end
+
+  creation --> run
+  run --> durable
+```
+
+- **Creation-time**: Pass options to `createWorkflow(deps, options)`. They apply to every run.
+- **Per-run**: Pass options to `workflow.run(fn, exec)` (or `workflow.run(args, fn, exec)`). They apply only to that invocation.
+- **Never**: `workflow(fn, opts)` ignores the extra object; Awaitly warns and points you to `.run(...)` or `createWorkflow`.
+- **Durable**: `durable.run(...)` wraps a workflow with a store and checkpoints after each keyed step.
 
 ## Quick Reference
 
@@ -73,4 +110,4 @@ By the end of this section, you'll understand:
 
 ## Next Steps
 
-Start with [Result Types](/foundations/result-types/) to learn the core building block of awaitly.
+Start with [Result Types](foundations/result-types/) to learn the core building block of awaitly.

@@ -9,7 +9,7 @@ Visualize workflow execution as ASCII diagrams or Mermaid charts for debugging, 
 
 ```typescript
 import { createWorkflow, ok, err, type Result } from 'awaitly';
-import { createVisualizer } from 'awaitly/visualize';
+import { createVisualizer } from 'awaitly-visualizer';
 
 // Define your dependencies with Result-returning functions
 const deps = {
@@ -69,7 +69,7 @@ const workflow = createWorkflow(deps, {
 ### After: Using createVisualizer
 
 ```typescript
-import { createVisualizer } from 'awaitly/visualize';
+import { createVisualizer } from 'awaitly-visualizer';
 
 const viz = createVisualizer({ workflowName: 'checkout' });
 const workflow = createWorkflow(deps, {
@@ -170,7 +170,7 @@ Track conditional logic (if/switch) to visualize branching in your workflows:
 ### Basic decision tracking
 
 ```typescript
-import { trackDecision } from 'awaitly/visualize';
+import { trackDecision } from 'awaitly-visualizer';
 
 const viz = createVisualizer();
 const workflow = createWorkflow(deps, {
@@ -202,7 +202,7 @@ await workflow(async (step) => {
 ### trackIf - Simple if/else
 
 ```typescript
-import { trackIf } from 'awaitly/visualize';
+import { trackIf } from 'awaitly-visualizer';
 
 const decision = trackIf('check-premium', user.isPremium, {
   condition: 'user.isPremium',
@@ -223,7 +223,7 @@ decision.end();
 ### trackSwitch - Switch statements
 
 ```typescript
-import { trackSwitch } from 'awaitly/visualize';
+import { trackSwitch } from 'awaitly-visualizer';
 
 const decision = trackSwitch('process-by-role', user.role, {
   condition: 'switch(user.role)',
@@ -250,7 +250,7 @@ decision.end();
 ### With event collector
 
 ```typescript
-import { createEventCollector, trackIf } from 'awaitly/visualize';
+import { createEventCollector, trackIf } from 'awaitly-visualizer';
 
 const collector = createEventCollector({ workflowName: 'Role Check' });
 const workflow = createWorkflow(deps, {
@@ -287,7 +287,7 @@ console.log(collector.visualize());
 Collect events and visualize later:
 
 ```typescript
-import { createEventCollector } from 'awaitly/visualize';
+import { createEventCollector } from 'awaitly-visualizer';
 
 const collector = createEventCollector({ workflowName: 'my-workflow' });
 
@@ -315,41 +315,12 @@ const viz = createVisualizer({
 
 ## Convenience APIs
 
-### createVisualizingWorkflow
-
-Create a workflow with built-in visualization in one step:
-
-```typescript
-import { createVisualizingWorkflow } from 'awaitly/visualize';
-
-const { workflow, visualizer } = createVisualizingWorkflow(deps, {
-  workflowName: 'checkout',
-});
-
-await workflow(async (step, deps) => {
-  const order = await step(() => deps.fetchOrder('123'), { name: 'Fetch order' });
-  const payment = await step(() => deps.chargeCard(order.total), { name: 'Charge card' });
-  return { order, payment };
-});
-
-console.log(visualizer.render());
-```
-
-Forward events to additional handlers:
-
-```typescript
-const { workflow, visualizer } = createVisualizingWorkflow(deps, {
-  workflowName: 'checkout',
-  forwardTo: (event) => metrics.track(event.type, event),
-});
-```
-
 ### combineEventHandlers
 
 Combine multiple event handlers for visualization + logging + metrics:
 
 ```typescript
-import { createVisualizer, combineEventHandlers } from 'awaitly/visualize';
+import { createVisualizer, combineEventHandlers } from 'awaitly-visualizer';
 
 const viz = createVisualizer({ workflowName: 'checkout' });
 
@@ -402,7 +373,7 @@ const mermaid = viz.renderAs('mermaid');
 Best for production logging with structured output:
 
 ```typescript
-import { loggerRenderer } from 'awaitly/visualize';
+import { loggerRenderer } from 'awaitly-visualizer';
 
 const renderer = loggerRenderer();
 const output = renderer.render(viz.getIR(), {
@@ -435,7 +406,7 @@ const flowchart = viz.renderAs('flowchart');
 Log and visualize workflows in HTTP handlers:
 
 ```typescript
-import { createEventCollector } from 'awaitly/visualize';
+import { createEventCollector } from 'awaitly-visualizer';
 
 app.post('/checkout', async (req, res) => {
   const collector = createEventCollector({ workflowName: 'checkout' });
@@ -468,7 +439,7 @@ app.post('/checkout', async (req, res) => {
 Collect events across multiple workflow runs for aggregated analysis:
 
 ```typescript
-import { createEventCollector, visualizeEvents } from 'awaitly/visualize';
+import { createEventCollector, visualizeEvents } from 'awaitly-visualizer';
 
 const allEvents: CollectableEvent[] = [];
 
@@ -490,10 +461,13 @@ Generate Mermaid diagrams as build artifacts:
 
 ```typescript
 import fs from 'fs';
-import { createVisualizingWorkflow } from 'awaitly/visualize';
+import { createVisualizer } from 'awaitly-visualizer';
+import { createWorkflow } from 'awaitly';
 
-const { workflow, visualizer } = createVisualizingWorkflow(deps, {
-  workflowName: 'deployment',
+const viz = createVisualizer({ workflowName: 'deployment' });
+
+const workflow = createWorkflow(deps, {
+  onEvent: viz.handleEvent,
 });
 
 await workflow(async (step, deps) => {
@@ -503,11 +477,11 @@ await workflow(async (step, deps) => {
 });
 
 // Write Mermaid diagram to artifacts
-const mermaid = visualizer.renderAs('mermaid');
+const mermaid = viz.renderAs('mermaid');
 fs.writeFileSync('artifacts/workflow-diagram.md', `\`\`\`mermaid\n${mermaid}\n\`\`\``);
 
 // Write JSON for further processing
-const ir = visualizer.getIR();
+const ir = viz.getIR();
 fs.writeFileSync('artifacts/workflow-data.json', JSON.stringify(ir, null, 2));
 ```
 
@@ -542,30 +516,30 @@ console.log(viz.render());
 JSON output for structured logging and metrics:
 
 ```typescript
-import { createEventCollector } from 'awaitly/visualize';
+import { createVisualizer } from 'awaitly-visualizer';
 
-const collector = createEventCollector({ workflowName: 'api-request' });
+const viz = createVisualizer({ workflowName: 'api-request' });
 
 const workflow = createWorkflow(deps, {
-  onEvent: collector.handleEvent,
+  onEvent: viz.handleEvent,
 });
 
 const result = await workflow(async (step, deps) => { ... });
 
 // Structured logging for production
-const ir = collector.getIR();
+const ir = viz.getIR();
 logger.info('Workflow completed', {
-  workflowName: ir.workflowName,
-  status: ir.status,
-  durationMs: ir.steps.reduce((sum, s) => sum + (s.durationMs || 0), 0),
-  stepCount: ir.steps.length,
-  steps: ir.steps.map(s => ({ name: s.name, status: s.status, durationMs: s.durationMs })),
+  workflowName: ir.root.name,
+  status: ir.root.state,
+  durationMs: ir.root.children.reduce((sum, s) => sum + (s.durationMs || 0), 0),
+  stepCount: ir.root.children.length,
+  steps: ir.root.children.map(s => ({ name: s.name, status: s.state, durationMs: s.durationMs })),
 });
 
 // Send to metrics
-metrics.histogram('workflow.duration', ir.steps.reduce((sum, s) => sum + (s.durationMs || 0), 0), {
-  workflow: ir.workflowName,
-  status: ir.status,
+metrics.histogram('workflow.duration', ir.root.children.reduce((sum, s) => sum + (s.durationMs || 0), 0), {
+  workflow: ir.root.name,
+  status: ir.root.state,
 });
 ```
 
@@ -575,7 +549,8 @@ Mermaid output for workflow documentation:
 
 ```typescript
 import fs from 'fs';
-import { createVisualizingWorkflow } from 'awaitly/visualize';
+import { createVisualizer } from 'awaitly-visualizer';
+import { createWorkflow } from 'awaitly';
 
 // Document all your workflows
 const workflows = [
@@ -587,15 +562,16 @@ const workflows = [
 const docs: string[] = ['# Workflow Documentation\n'];
 
 for (const { name, deps, fn } of workflows) {
-  const { workflow, visualizer } = createVisualizingWorkflow(deps, {
-    workflowName: name,
+  const viz = createVisualizer({ workflowName: name });
+  const workflow = createWorkflow(deps, {
+    onEvent: viz.handleEvent,
   });
 
   await workflow(fn);
 
   docs.push(`## ${name}\n`);
   docs.push('```mermaid');
-  docs.push(visualizer.renderAs('mermaid'));
+  docs.push(viz.renderAs('mermaid'));
   docs.push('```\n');
 }
 
@@ -608,12 +584,12 @@ Build artifacts with stats and warnings:
 
 ```typescript
 import fs from 'fs';
-import { createEventCollector } from 'awaitly/visualize';
+import { createVisualizer } from 'awaitly-visualizer';
 
-const collector = createEventCollector({ workflowName: 'ci-pipeline' });
+const viz = createVisualizer({ workflowName: 'ci-pipeline' });
 
 const workflow = createWorkflow(deps, {
-  onEvent: collector.handleEvent,
+  onEvent: viz.handleEvent,
 });
 
 await workflow(async (step, deps) => {
@@ -622,28 +598,28 @@ await workflow(async (step, deps) => {
   await step(() => deps.build(), { name: 'Build' });
 });
 
-const ir = collector.getIR();
+const ir = viz.getIR();
 
 // Generate CI report
 const report = {
-  workflow: ir.workflowName,
-  status: ir.status,
+  workflow: ir.root.name,
+  status: ir.root.state,
   timestamp: new Date().toISOString(),
-  steps: ir.steps.map(s => ({
+  steps: ir.root.children.map(s => ({
     name: s.name,
-    status: s.status,
+    status: s.state,
     durationMs: s.durationMs,
   })),
-  totalDurationMs: ir.steps.reduce((sum, s) => sum + (s.durationMs || 0), 0),
-  warnings: ir.steps.filter(s => s.status === 'error').map(s => s.name),
+  totalDurationMs: ir.root.children.reduce((sum, s) => sum + (s.durationMs || 0), 0),
+  warnings: ir.root.children.filter(s => s.state === 'error').map(s => s.name),
 };
 
 // Write artifacts
 fs.writeFileSync('artifacts/ci-report.json', JSON.stringify(report, null, 2));
-fs.writeFileSync('artifacts/workflow-diagram.md', `\`\`\`mermaid\n${collector.visualizeAs('mermaid')}\n\`\`\``);
+fs.writeFileSync('artifacts/workflow-diagram.md', `\`\`\`mermaid\n${viz.renderAs('mermaid')}\n\`\`\``);
 
 // Exit with appropriate code
-process.exit(ir.status === 'completed' ? 0 : 1);
+process.exit(ir.root.state === 'success' ? 0 : 1);
 ```
 
 ## Integration with logging
@@ -665,117 +641,6 @@ const workflow = createWorkflow(deps, {
 });
 ```
 
-## Devtools
-
-For interactive debugging, run comparison, and timeline analysis:
-
-```typescript
-import { createDevtools, quickVisualize, createConsoleLogger } from 'awaitly/devtools';
-
-const devtools = createDevtools({ workflowName: 'checkout' });
-
-const workflow = createWorkflow(deps, {
-  onEvent: devtools.handleEvent,
-});
-
-await workflow(async (step) => { ... });
-
-// Get current run
-const currentRun = devtools.getCurrentRun();
-
-// Get execution history
-const history = devtools.getHistory();
-
-// Compare runs
-const diff = devtools.diff(run1.id, run2.id);
-console.log(renderDiff(diff));
-
-// Compare with previous run
-const diffWithPrev = devtools.diffWithPrevious();
-
-// Render timeline
-console.log(devtools.renderTimeline());
-
-// Export/import runs
-const json = devtools.exportRun();
-const imported = devtools.importRun(json);
-```
-
-### Console logging
-
-Use `createConsoleLogger` for pretty console output:
-
-```typescript
-import { createConsoleLogger } from 'awaitly/devtools';
-
-const logger = createConsoleLogger({ prefix: '[workflow]', colors: true });
-
-const workflow = createWorkflow(deps, {
-  onEvent: logger,
-});
-
-await workflow(async (step) => { ... });
-// Output:
-// [workflow] ⏵ Workflow started
-// [workflow] → fetch-user
-// [workflow] ✓ fetch-user (12ms)
-// [workflow] ✓ Workflow completed (45ms)
-```
-
-### Quick visualization
-
-Visualize a workflow run without setting up a visualizer:
-
-```typescript
-import { quickVisualize } from 'awaitly/devtools';
-
-const result = await quickVisualize(
-  async (handleEvent) => {
-    const workflow = createWorkflow(deps, { onEvent: handleEvent });
-    return await workflow(async (step) => { ... });
-  },
-  { workflowName: 'my-workflow' }
-);
-
-console.log(result); // ASCII diagram
-```
-
-### Run comparison
-
-Compare two workflow runs to see what changed:
-
-```typescript
-const diff = devtools.diff(run1.id, run2.id);
-
-if (diff.statusChange) {
-  console.log(`Status: ${diff.statusChange.from} → ${diff.statusChange.to}`);
-}
-
-if (diff.durationChange) {
-  console.log(`Duration: ${diff.durationChange > 0 ? '+' : ''}${diff.durationChange}ms`);
-}
-
-// See what steps were added/removed/changed
-console.log('Added:', diff.added);
-console.log('Removed:', diff.removed);
-console.log('Changed:', diff.changed);
-```
-
-### Timeline analysis
-
-Get detailed timeline data:
-
-```typescript
-const timeline = devtools.getTimeline();
-
-for (const entry of timeline) {
-  console.log(`${entry.name}: ${entry.status} (${entry.durationMs}ms)`);
-  if (entry.error) {
-    console.error(`  Error: ${entry.error}`);
-  }
-}
-```
-
 ## Advanced features
 
 ### Time-travel debugging
@@ -783,7 +648,7 @@ for (const entry of timeline) {
 Step through workflow execution history:
 
 ```typescript
-import { createTimeTravelController } from 'awaitly/visualize';
+import { createTimeTravelController } from 'awaitly-visualizer';
 
 const controller = createTimeTravelController({ maxSnapshots: 1000 });
 
@@ -811,21 +676,40 @@ const state = controller.getState();
 Identify slow steps with heatmap visualization:
 
 ```typescript
-import { createPerformanceAnalyzer, getHeatLevel } from 'awaitly/visualize';
+import { createPerformanceAnalyzer, createEventCollector, createVisualizer, getHeatLevel } from 'awaitly-visualizer';
 
 const analyzer = createPerformanceAnalyzer();
 
-const workflow = createWorkflow(deps, {
-  onEvent: analyzer.handleEvent,
-});
+// Collect events from multiple runs for analysis
+for (let i = 0; i < 5; i++) {
+  const collector = createEventCollector();
+  const workflow = createWorkflow(deps, {
+    onEvent: collector.handleEvent,
+  });
 
-await workflow(async (step) => { ... });
+  const startTime = Date.now();
+  await workflow(async (step) => { ... });
 
-// Get performance data
-const data = analyzer.getData();
-const heatLevel = getHeatLevel(stepDuration, data);
+  // Add completed run to analyzer
+  analyzer.addRun({
+    id: `run-${i}`,
+    startTime,
+    events: collector.getEvents(),
+  });
+}
 
-// Export for visualization
+// Get slowest steps
+const slowest = analyzer.getSlowestNodes(5);
+
+// Get error-prone steps
+const errorProne = analyzer.getErrorProneNodes(5);
+
+// Get heatmap data for visualization
+const viz = createVisualizer({ workflowName: 'analysis' });
+// ... run a workflow with viz.handleEvent
+const heatmap = analyzer.getHeatmap(viz.getIR(), 'duration');
+
+// Export for persistence
 const json = analyzer.exportData();
 ```
 
@@ -834,7 +718,7 @@ const json = analyzer.exportData();
 Real-time visualization as workflow executes:
 
 ```typescript
-import { createLiveVisualizer } from 'awaitly/visualize';
+import { createLiveVisualizer } from 'awaitly-visualizer';
 
 const visualizer = createLiveVisualizer({ workflowName: 'checkout' });
 
@@ -851,40 +735,66 @@ const workflow = createWorkflow(deps, {
 await workflow(async (step) => { ... });
 ```
 
-### Dev server
+### Notifiers (Slack, Discord, Webhook)
 
-Interactive web-based visualization with time-travel and performance analysis:
+Push workflow visualizations to external services:
 
 ```typescript
-import { createDevServer } from 'awaitly/visualize';
+// Slack notifier (requires @slack/web-api)
+import { createSlackNotifier } from 'awaitly-visualizer/notifiers/slack';
 
-const server = await createDevServer({
-  port: 3377,
-  workflowName: 'checkout',
-  timeTravel: true,
-  heatmap: true,
+const slack = createSlackNotifier({
+  token: process.env.SLACK_TOKEN!,
+  channel: '#workflows',
 });
 
-await server.start();
-// Opens browser at http://localhost:3377
-
+// Live updates (posts once, then updates same message - no spam)
+const live = slack.createLive({ title: 'Order #123' });
 const workflow = createWorkflow(deps, {
-  onEvent: server.handleEvent,
+  onEvent: live.update,
 });
 
 await workflow(async (step) => { ... });
-
-server.complete();
-// Later, when done
-await server.stop();
+await live.finalize();
 ```
 
-The dev server provides:
-- Interactive HTML visualization
-- Time-travel debugging controls
-- Performance heatmap
-- Real-time updates via WebSocket
-- Export/import workflow runs
+```typescript
+// Discord notifier (plain HTTP, no SDK needed)
+import { createDiscordNotifier } from 'awaitly-visualizer/notifiers/discord';
+
+const discord = createDiscordNotifier({
+  webhookUrl: process.env.DISCORD_WEBHOOK!,
+});
+```
+
+```typescript
+// Generic webhook for custom dashboards
+import { createWebhookNotifier } from 'awaitly-visualizer/notifiers/webhook';
+
+const webhook = createWebhookNotifier({
+  url: 'https://my-dashboard.com/workflow-events',
+  headers: { 'X-API-Key': '...' },
+});
+```
+
+### Kroki URL generation
+
+Generate shareable image URLs without rendering dependencies:
+
+```typescript
+import { toKrokiSvgUrl, toKrokiPngUrl } from 'awaitly-visualizer';
+
+const viz = createVisualizer({ workflowName: 'checkout' });
+// ... run workflow
+
+const ir = viz.getIR();
+const svgUrl = toKrokiSvgUrl(ir);
+// Share this URL - image renders when viewed
+
+// Optional: download the actual bytes (Node-only)
+import { fetchKrokiPng } from 'awaitly-visualizer/kroki-fetch';
+const buffer = await fetchKrokiPng(ir);
+```
 
 ## Browser support
 
@@ -897,7 +807,6 @@ All visualization features work in browser:
 ```typescript
 import {
   createVisualizer,
-  createVisualizingWorkflow,
   createEventCollector,
   combineEventHandlers,
   visualizeEvents,
@@ -909,7 +818,7 @@ import {
   htmlRenderer,
   createTimeTravelController,
   createPerformanceAnalyzer,
-} from 'awaitly/visualize';
+} from 'awaitly-visualizer';
 ```
 
 ### Node.js-only features
@@ -918,33 +827,17 @@ These features require Node.js and throw helpful errors in browser:
 
 | Feature | Reason | Browser Error |
 |---------|--------|---------------|
-| `createDevServer` | Uses `node:http`, `node:child_process` | "createDevServer is not available in browser..." |
 | `createLiveVisualizer` | Uses `process.stdout` | "createLiveVisualizer is not available in browser..." |
-
-```typescript
-// In browser, this throws a helpful error
-import { createDevServer } from 'awaitly/visualize';
-
-try {
-  createDevServer({ port: 3377 }); // Throws in browser
-} catch (e) {
-  console.log(e.message);
-  // "createDevServer is not available in browser. It requires Node.js (node:http, node:child_process)."
-}
-```
+| `fetchKrokiSvg/Png` | Uses Node.js Buffer | Import from `awaitly-visualizer/kroki-fetch` |
 
 ### Type-only imports
 
 You can still import types for Node-only features in browser code:
 
 ```typescript
-import type { DevServer, DevServerOptions } from 'awaitly/visualize';
-import type { LiveVisualizer } from 'awaitly/visualize';
+import type { LiveVisualizer } from 'awaitly-visualizer';
 
 // Types work fine - only runtime calls throw
-function configureServer(options: DevServerOptions) {
-  // This type is available in browser
-}
 ```
 
 ### React/Vue/Svelte usage
@@ -954,7 +847,7 @@ Use visualization in frontend frameworks:
 ```typescript
 // React example
 import { useState, useEffect } from 'react';
-import { createVisualizer } from 'awaitly/visualize';
+import { createVisualizer } from 'awaitly-visualizer';
 import { createWorkflow } from 'awaitly/workflow';
 
 function WorkflowDashboard() {
@@ -979,4 +872,4 @@ function WorkflowDashboard() {
 
 ## Next
 
-[Learn about Testing →](../testing/)
+[Learn about Testing →/testing/)
