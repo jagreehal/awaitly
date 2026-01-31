@@ -514,13 +514,23 @@ createValueTransformMigration(transforms)  // Migration helper
 composeMigrations(migrations)              // Combine migrations
 ```
 
-## Devtools
+## Visualization (awaitly-visualizer)
 
 ```typescript
-createDevtools(options)             // Create devtools instance
+// Main exports: import from 'awaitly-visualizer'
 createVisualizer(options)           // Create visualizer
-renderDiff(diff)                    // Render run diff
-quickVisualize(events)              // Quick visualization
+createEventCollector(options)       // Collect events for later visualization
+combineEventHandlers(...handlers)   // Combine multiple event handlers
+visualizeEvents(events, options)    // Visualize collected events
+
+// Devtools (timeline, diff, console): import from 'awaitly-visualizer/devtools'
+createDevtools(options?)            // Timeline + event capture
+quickVisualize(events, options)     // One-off visualization from events
+createConsoleLogger(options)        // Console event logger
+renderDiff(baselineRun, currentRun) // Diff two workflow runs
+// Types: WorkflowRun, RunDiff, StepDiff, TimelineEntry, DevtoolsOptions, Devtools
+
+// Console logging only: import from 'awaitly-visualizer/console-logger'
 createConsoleLogger(options)        // Console event logger
 ```
 
@@ -1543,6 +1553,18 @@ Note: Install with `npm install awaitly-visualizer`
 - type TimeTravelOptions
 - type WorkflowRun
 - visualizeEvents
+
+[awaitly-visualizer/devtools]
+- createDevtools
+- createConsoleLogger
+- quickVisualize
+- renderDiff
+- type Devtools
+- type DevtoolsOptions
+- type RunDiff
+- type StepDiff
+- type TimelineEntry
+- type WorkflowRun
 
 [awaitly/webhook] (28)
 - composeValidators

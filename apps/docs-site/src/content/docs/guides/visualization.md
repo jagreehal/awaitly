@@ -622,22 +622,106 @@ fs.writeFileSync('artifacts/workflow-diagram.md', `\`\`\`mermaid\n${viz.renderAs
 process.exit(ir.root.state === 'success' ? 0 : 1);
 ```
 
-## Integration with logging
+## Devtools (awaitly-visualizer/devtools)
+
+For debugging and development, use the combined devtools entry. It provides timeline visualization, run comparison, and the console logger in one import:
 
 ```typescript
-const workflow = createWorkflow(deps, {
-  onEvent: (event) => {
-    // Feed to visualizer
-    viz.handleEvent(event);
+import { createWorkflow } from 'awaitly';
+import { createDevtools, quickVisualize, createConsoleLogger } from 'awaitly-visualizer/devtools';
 
-    // Also log
-    if (event.type === 'step_complete') {
-      logger.info(`Step ${event.name} completed in ${event.durationMs}ms`);
-    }
-    if (event.type === 'step_error') {
-      logger.error(`Step ${event.name} failed:`, event.error);
-    }
-  },
+const devtools = createDevtools();
+const workflow = createWorkflow(deps, {
+  onEvent: devtools.handleEvent,
+});
+
+await workflow(async (step) => {
+  await step(() => deps.fetchOrder('123'), { name: 'Fetch order' });
+  await step(() => deps.chargeCard(99.99), { name: 'Charge card' });
+});
+
+// Timeline (ordered steps with timing)
+console.log(devtools.getTimeline());
+
+// Quick visualization from raw events
+quickVisualize(devtools.getEvents(), { workflowName: 'checkout' });
+```
+
+You can use `createConsoleLogger` from the same entry, or combine devtools with other handlers via `combineEventHandlers` from the main package. For run diffing, use `renderDiff(baselineRun, currentRun)`.
+
+## Console logging
+
+For simple console output during development, use `createConsoleLogger`:
+
+```typescript
+import { createConsoleLogger } from 'awaitly-visualizer/console-logger';
+
+const logger = createConsoleLogger();
+
+const workflow = createWorkflow(deps, {
+  onEvent: logger,
+});
+
+await workflow(async (step, deps) => {
+  await step(() => deps.fetchOrder('123'), { name: 'Fetch order' });
+  await step(() => deps.chargeCard(99.99), { name: 'Charge card' });
+});
+
+// Output:
+// 12:34:56.789 [workflow] ⏵ Workflow started
+// 12:34:56.801 [workflow] → Fetch order
+// 12:34:56.812 [workflow] ✓ Fetch order (11ms)
+// 12:34:56.813 [workflow] → Charge card
+// 12:34:56.858 [workflow] ✓ Charge card (45ms)
+// 12:34:56.859 [workflow] ✓ Workflow completed (70ms)
+```
+
+### Options
+
+```typescript
+const logger = createConsoleLogger({
+  prefix: '[checkout]',  // Custom prefix (default: '[workflow]')
+  colors: false,         // Disable ANSI colors (default: true)
+});
+```
+
+### Migration from awaitly/devtools
+
+If you were using the old import path from the core package:
+
+```typescript
+// Before (v1.x)
+import { createConsoleLogger } from 'awaitly/devtools';
+
+// After (v2.x) – same single-import experience
+import { createDevtools, createConsoleLogger } from 'awaitly-visualizer/devtools';
+
+// Or use the dedicated console-logger entry
+import { createConsoleLogger } from 'awaitly-visualizer/console-logger';
+```
+
+## Integration with logging
+
+Combine console logging with visualization or custom logging:
+
+```typescript
+import { createConsoleLogger } from 'awaitly-visualizer/console-logger';
+import { combineEventHandlers, createVisualizer } from 'awaitly-visualizer';
+
+const viz = createVisualizer({ workflowName: 'checkout' });
+const consoleLog = createConsoleLogger();
+
+const workflow = createWorkflow(deps, {
+  onEvent: combineEventHandlers(
+    viz.handleEvent,
+    consoleLog,
+    (event) => {
+      // Custom logging
+      if (event.type === 'step_error') {
+        logger.error(`Step ${event.name} failed:`, event.error);
+      }
+    },
+  ),
 });
 ```
 

@@ -36,6 +36,15 @@
       "types": "./dist/notifiers/webhook.d.ts",
       "import": "./dist/notifiers/webhook.js",
       "require": "./dist/notifiers/webhook.cjs"
+    },
+    "./devtools": {
+      "browser": {
+        "types": "./dist/devtools.d.ts",
+        "import": "./dist/devtools.js"
+      },
+      "types": "./dist/devtools.d.ts",
+      "import": "./dist/devtools.js",
+      "require": "./dist/devtools.cjs"
     }
   },
   "files": [
@@ -81,13 +90,13 @@
     "pako": "^2.1.0"
   },
   "optionalDependencies": {
-    "@slack/web-api": "^7.0.0"
+    "@slack/web-api": "^7.13.0"
   },
   "devDependencies": {
     "@total-typescript/ts-reset": "^0.6.1",
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/node": "^25.1.0",
-    "@types/pako": "^2.0.3",
+    "@types/pako": "^2.0.4",
     "awaitly": "workspace:^",
     "jsdom": "^27.4.0",
     "mermaid": "^11.12.2",

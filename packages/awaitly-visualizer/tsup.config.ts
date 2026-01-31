@@ -5,6 +5,7 @@ export default defineConfig({
     // Main entry points (browser/node split)
     index: "src/index.ts",
     "index.browser": "src/index.browser.ts",
+    devtools: 'src/devtools-entry.ts',
     // Kroki fetch (Node-only)
     "kroki/fetch": "src/kroki/fetch.ts",
     // Notifiers (separate subpaths to avoid bundling optional deps)
