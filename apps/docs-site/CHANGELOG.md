@@ -1,5 +1,13 @@
 # awaitly-docs
 
+## 1.8.1
+
+### Patch Changes
+
+- c9924c7: - **awaitly-visualizer**: Add `./devtools` export with `createDevtools`, `quickVisualize`, `createConsoleLogger`, and `renderDiff` for timeline visualization, run comparison, and console logging from a single entry point.
+  - **awaitly-docs**: Document `awaitly-visualizer/devtools` in the visualization guide and API reference; add devtools usage examples and migration note from `awaitly/devtools`.
+  - **awaitly-postgres**: (version bump only; no code changes in this changeset)
+
 ## 1.8.0
 
 ### Minor Changes
