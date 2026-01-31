@@ -1,0 +1,70 @@
+{
+  "name": "awaitly-analyze-ts-morph",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Static workflow analysis for awaitly using ts-morph. Analyze workflow source code to extract structure, types, and generate visualizations.",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "lint": "eslint .",
+    "clean": "rm -rf dist",
+    "quality": "pnpm type-check && pnpm test && pnpm lint"
+  },
+  "keywords": [
+    "awaitly",
+    "workflow",
+    "static-analysis",
+    "ts-morph",
+    "typescript",
+    "visualization",
+    "mermaid"
+  ],
+  "author": "Jag Reehal <jag@jagreehal.com>",
+  "homepage": "https://github.com/jagreehal/awaitly#readme",
+  "bugs": {
+    "url": "https://github.com/jagreehal/awaitly/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jagreehal/awaitly.git"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "ts-morph": ">=27.0.2"
+  },
+  "peerDependenciesMeta": {
+    "ts-morph": {
+      "optional": false
+    }
+  },
+  "devDependencies": {
+    "@total-typescript/ts-reset": "^0.6.1",
+    "@total-typescript/tsconfig": "^1.0.4",
+    "@types/node": "^25.1.0",
+    "ts-morph": "^25.0.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
