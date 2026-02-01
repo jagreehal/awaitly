@@ -17,7 +17,9 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish",
-    "quality": "turbo run build && turbo run lint && turbo run type-check && turbo run test"
+    "quality": "turbo run build && turbo run lint && turbo run type-check && turbo run test",
+    "generate-api-typedoc": "typedoc --options typedoc.json",
+    "generate-api": "pnpm run generate-api-typedoc && node apps/docs-site/scripts/generate-api-from-typedoc.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.8",
@@ -28,6 +30,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-unicorn": "^62.0.0",
     "turbo": "^2.8.1",
+    "typedoc": "^0.28.16",
     "typescript-eslint": "^8.54.0"
   },
   "engines": {

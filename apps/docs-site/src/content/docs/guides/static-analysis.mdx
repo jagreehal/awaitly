@@ -5,6 +5,8 @@ description: Analyze workflow structure without execution
 
 Analyze workflow source code to extract structure, dependencies, and generate visualization data without executing the workflow.
 
+**Documentation fields:** `description` and `markdown` on workflows and steps are the canonical way to feed static analysis and doc generation. See [Documenting workflows](/docs/guides/documenting-workflows/) for how to set them. JSDoc above workflow and step declarations is also extracted and available as `jsdocDescription` on the root and step nodes.
+
 ## CLI Tool
 
 The `awaitly-analyze` CLI analyzes TypeScript workflow files and outputs Mermaid diagrams or JSON:
@@ -195,6 +197,22 @@ type StaticFlowNode =
   | StaticUnknownNode;    // Unanalyzable code
 ```
 
+## API types reference
+
+Main static-analysis node types and when fields are populated:
+
+- **StaticWorkflowNode** (root): `workflowName`, `source`, `dependencies`, `children`, `description`, `markdown`, `jsdocDescription?`, `errorTypes`.
+  `description` and `markdown` are set only for `createWorkflow` / `createSagaWorkflow` (from options or deps). They are undefined for `run()` / `runSaga()`. `jsdocDescription` is extracted from JSDoc above the workflow variable when present.
+
+- **StaticStepNode**: `callee`, `name`, `key`, `description`, `markdown`, `jsdocDescription?`, `retry`, `timeout`.
+  `description` and `markdown` come from step options. `jsdocDescription` is extracted from JSDoc above the step statement.
+
+- **StaticSagaStepNode**: `callee`, `name`, `description`, `markdown`, `jsdocDescription?`, `hasCompensation`, `compensationCallee`, `isTryStep`.
+  `description` and `markdown` come from saga step options.
+
+- **DependencyInfo**: `name`, `typeSignature?`, `errorTypes`.
+  `typeSignature` is the TypeScript type when the type checker is available. `errorTypes` is not yet inferred from types.
+
 ## Walking the tree
 
 Use the built-in helpers to traverse nodes:
@@ -261,18 +279,40 @@ const wfB = analyze.source(source).named('workflowB');
 
 ## Use cases
 
-### Generate documentation
+### Generating documentation
+
+Use `description` and `markdown` on workflows and steps (see [Documenting workflows](/docs/guides/documenting-workflows/)) so the analyzer can extract them. Then:
+
+1. Call `analyze(filePath).all()` to get all workflows in a file.
+2. For each IR: use `root.workflowName`, `root.description`, `root.markdown` for the workflow title and body.
+3. Walk `root.children` (and nested sequences) to list steps; use each step’s `name`, `key`, `description`, `markdown` for step tables or lists.
+4. Optionally use `generatePaths(ir)` and `renderStaticMermaid(ir)` for path coverage and diagrams.
+
+Minimal recipe:
 
 ```typescript
-import { analyze } from 'awaitly-analyze';
+import { analyze, getStaticChildren, isStaticStepNode } from 'awaitly-analyze';
 
-const ir = analyze('./checkout.ts').single();
+const workflows = analyze('./src/workflows/checkout.ts').all();
 
-console.log(`# ${ir.root.workflowName}\n`);
-console.log(`- ${ir.metadata.stats.totalSteps} steps`);
-console.log(`- ${ir.metadata.stats.conditionalCount} decision points`);
-console.log(`- ${ir.metadata.stats.parallelCount} parallel operations`);
+for (const ir of workflows) {
+  const { root } = ir;
+  console.log(`# ${root.workflowName}\n`);
+  if (root.description) console.log(root.description + '\n');
+  if (root.markdown) console.log(root.markdown + '\n');
+  console.log(`- ${ir.metadata.stats.totalSteps} steps\n`);
+
+  function listSteps(node) {
+    if (isStaticStepNode(node)) {
+      console.log(`- **${node.name || node.key || 'step'}**${node.description ? ` — ${node.description}` : ''}`);
+    }
+    for (const child of getStaticChildren(node)) listSteps(child);
+  }
+  for (const child of root.children) listSteps(child);
+}
 ```
+
+An optional script that does this is provided in the repo: run `node packages/awaitly-analyze/scripts/generate-workflow-docs.mjs <path-to-workflow.ts>` from the repo root (after building awaitly-analyze) to output one markdown section per workflow.
 
 ### Build test coverage matrix
 
@@ -347,6 +387,16 @@ const multiJson = renderMultipleStaticJSON(workflows, './checkout.ts', {
   pretty: true,
 });
 ```
+
+### JSON output shape
+
+The output of `renderStaticJSON(ir)` has this structure:
+
+- **Top level**: `{ root, metadata?, references? }`
+- **StaticWorkflowNode**: `type: "workflow"`, `id`, `workflowName`, `source?`, `dependencies[]`, `errorTypes[]`, `children[]`, `description?`, `markdown?`, `jsdocDescription?`
+- **Flow nodes** (discriminated by `type`): `"step"`, `"saga-step"`, `"sequence"`, `"parallel"`, `"race"`, `"conditional"`, `"switch"`, `"loop"`, `"stream"`, `"workflow-ref"`, `"unknown"`
+
+A JSON Schema for validation is available at `schema/static-workflow-ir.schema.json` in the awaitly-analyze package.
 
 ### Custom names
 

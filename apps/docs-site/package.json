@@ -8,7 +8,8 @@
     "dev": "astro dev",
     "start": "astro dev",
     "dev:root": "BASE=/ astro dev",
-    "build": "astro build",
+    "build": "pnpm run generate-api && astro build",
+    "generate-api": "pnpm run -C ../.. generate-api",
     "preview": "astro preview",
     "astro": "astro"
   },

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["packages/awaitly/src/index.ts"],
+  "tsconfig": "packages/awaitly/tsconfig.json",
+  "exclude": ["**/*.test.ts", "**/*.test-d.ts", "**/*.spec.ts"],
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "excludeProtected": true,
+  "json": "apps/docs-site/.typedoc-out/api.json",
+  "readme": "packages/awaitly/README.md",
+  "name": "awaitly API"
+}

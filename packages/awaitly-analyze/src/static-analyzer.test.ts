@@ -23,9 +23,31 @@ import type {
   StaticStepNode,
   StaticParallelNode,
 } from "./types";
+import { getStaticChildren } from "./types";
 
 // Test fixtures directory
 const FIXTURES_DIR = join(__dirname, "__fixtures__");
+const JSDOC_FIXTURES_DIR = join(FIXTURES_DIR, "jsdoc");
+
+function collectStepNodes(root: { children: StaticFlowNode[] }): StaticStepNode[] {
+  const steps: StaticStepNode[] = [];
+  function walk(n: StaticFlowNode) {
+    if (n.type === "step") steps.push(n as StaticStepNode);
+    for (const c of getStaticChildren(n)) walk(c);
+  }
+  for (const c of root.children) walk(c);
+  return steps;
+}
+
+function collectSagaStepNodes(root: { children: StaticFlowNode[] }): StaticFlowNode[] {
+  const sagaSteps: StaticFlowNode[] = [];
+  function walk(n: StaticFlowNode) {
+    if (n.type === "saga-step") sagaSteps.push(n);
+    for (const c of getStaticChildren(n)) walk(c);
+  }
+  for (const c of root.children) walk(c);
+  return sagaSteps;
+}
 
 describe("ts-morph Static Analyzer", () => {
   beforeEach(() => {
@@ -703,6 +725,42 @@ async function run() {
       if (sagaStep?.type === "saga-step") {
         expect(sagaStep.hasCompensation).toBe(true);
         expect(sagaStep.compensationCallee).toBe("deps.cancelOrder");
+      }
+    });
+
+    it("should extract description and markdown from saga.step options", () => {
+      const source = `
+        const orderSaga = createSagaWorkflow({});
+
+        async function run() {
+          return await orderSaga(async (saga, deps) => {
+            const order = await saga.step(() => deps.createOrder(), {
+              name: 'Create Order',
+              description: 'Creates the order record',
+              markdown: '## Create Order\\n\\nPersists order to the database.',
+              compensate: () => deps.cancelOrder(),
+            });
+            return order;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const root = results[0]?.root;
+      const children = root?.children || [];
+
+      let sagaStep = children.find((c) => c.type === "saga-step");
+      if (!sagaStep && children[0]?.type === "sequence") {
+        sagaStep = (children[0] as StaticSequenceNode).children.find(
+          (c: StaticFlowNode) => c.type === "saga-step"
+        );
+      }
+
+      expect(sagaStep).toBeDefined();
+      if (sagaStep?.type === "saga-step") {
+        expect(sagaStep.description).toBe("Creates the order record");
+        expect(sagaStep.markdown).toContain("Create Order");
+        expect(sagaStep.markdown).toContain("Persists order");
       }
     });
 
@@ -3171,6 +3229,74 @@ async function run() {
       expect(stepNode?.type).toBe("step");
       expect(stepNode?.description).toBe("Wait for processing");
     });
+
+    it("should extract markdown from step.sleep options", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function run() {
+          return await workflow(async (step, deps) => {
+            await step.sleep('5s', {
+              description: 'Wait for processing',
+              markdown: '## Wait step\\n\\nPauses workflow execution.'
+            });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const root = results[0]?.root;
+      const children = root?.children || [];
+
+      let stepNode: StaticStepNode | undefined;
+      if (children[0]?.type === "sequence") {
+        stepNode = (children[0] as StaticSequenceNode).children[0] as StaticStepNode;
+      } else if (children[0]?.type === "step") {
+        stepNode = children[0] as StaticStepNode;
+      }
+
+      expect(stepNode?.type).toBe("step");
+      expect(stepNode?.description).toBe("Wait for processing");
+      expect(stepNode?.markdown).toContain("Wait step");
+      expect(stepNode?.markdown).toContain("Pauses workflow");
+    });
+  });
+
+  describe("step description and markdown extraction", () => {
+    it("should extract description and markdown from step options", () => {
+      const source = `
+        const workflow = createWorkflow({
+          fetchUser: async (id: string) => ({ id, name: 'Alice' }),
+        });
+
+        async function run(id: string) {
+          return await workflow(async (step, deps) => {
+            const user = await step(() => deps.fetchUser(id), {
+              key: 'user',
+              description: 'Load user by ID',
+              markdown: '## Fetch User\\n\\nCalls deps.fetchUser with the given id.'
+            });
+            return user;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const root = results[0]?.root;
+      const children = root?.children || [];
+
+      let stepNode: StaticStepNode | undefined;
+      if (children[0]?.type === "sequence") {
+        stepNode = (children[0] as StaticSequenceNode).children[0] as StaticStepNode;
+      } else if (children[0]?.type === "step") {
+        stepNode = children[0] as StaticStepNode;
+      }
+
+      expect(stepNode?.type).toBe("step");
+      expect(stepNode?.description).toBe("Load user by ID");
+      expect(stepNode?.markdown).toContain("Fetch User");
+      expect(stepNode?.markdown).toContain("Calls deps.fetchUser");
+    });
   });
 
   describe("run() workflow documentation", () => {
@@ -3440,6 +3566,195 @@ async function run() {
 
       const stats = calculatePathStatistics(paths, { limitHit });
       expect(stats.pathLimitHit).toBe(false);
+    });
+  });
+
+  // ============================================================================
+  // JSDoc extraction
+  // ============================================================================
+
+  describe("JSDoc extraction", () => {
+    function loadJsdocFixture(name: string): string {
+      return readFileSync(join(JSDOC_FIXTURES_DIR, name), "utf-8");
+    }
+
+    it("workflow-jsdoc-only: root has jsdocDescription, no description", () => {
+      const source = loadJsdocFixture("workflow-jsdoc-only.ts");
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      expect(results[0].root.jsdocDescription).toContain("Checkout workflow");
+      expect(results[0].root.description).toBeUndefined();
+    });
+
+    it("workflow-options-and-jsdoc: root has both description and jsdocDescription", () => {
+      const source = loadJsdocFixture("workflow-options-and-jsdoc.ts");
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      expect(results[0].root.jsdocDescription).toContain("JSDoc description");
+      expect(results[0].root.description).toBe("Options description");
+    });
+
+    it("step-jsdoc-only: step node has jsdocDescription", () => {
+      const source = loadJsdocFixture("step-jsdoc-only.ts");
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      expect(steps.length).toBeGreaterThanOrEqual(1);
+      expect(steps[0].jsdocDescription).toContain("Load user by ID");
+    });
+
+    it("step-options-and-jsdoc: step has both description and jsdocDescription", () => {
+      const source = loadJsdocFixture("step-options-and-jsdoc.ts");
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      expect(steps[0].jsdocDescription).toContain("JSDoc above");
+      expect(steps[0].description).toBe("Options description");
+    });
+
+    it("step-sleep-jsdoc: sleep step has jsdocDescription", () => {
+      const source = loadJsdocFixture("step-sleep-jsdoc.ts");
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      expect(steps.length).toBe(1);
+      expect(steps[0].jsdocDescription).toContain("Wait for processing");
+    });
+
+    it("saga-step-jsdoc: saga step has jsdocDescription", () => {
+      const source = loadJsdocFixture("saga-step-jsdoc.ts");
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const sagaSteps = collectSagaStepNodes(results[0].root);
+      expect(sagaSteps.length).toBe(1);
+      expect((sagaSteps[0] as { jsdocDescription?: string }).jsdocDescription).toContain(
+        "Creates the order record"
+      );
+    });
+
+    it("multiline-jsdoc: workflow and step multiline JSDoc extracted", () => {
+      const source = loadJsdocFixture("multiline-jsdoc.ts");
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      expect(results[0].root.jsdocDescription).toContain("Line one");
+      expect(results[0].root.jsdocDescription).toContain("Line two");
+      const steps = collectStepNodes(results[0].root);
+      expect(steps[0].jsdocDescription).toContain("Step line one");
+      expect(steps[0].jsdocDescription).toContain("Step line two");
+    });
+
+    it("jsdoc-with-param: description before @param is in jsdocDescription", () => {
+      const source = loadJsdocFixture("jsdoc-with-param.ts");
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      expect(steps[0].jsdocDescription).toContain("Loads the user by ID");
+    });
+
+    it("no-jsdoc: jsdocDescription undefined everywhere", () => {
+      const source = loadJsdocFixture("no-jsdoc.ts");
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      expect(results[0].root.jsdocDescription).toBeUndefined();
+      const steps = collectStepNodes(results[0].root);
+      expect(steps[0].jsdocDescription).toBeUndefined();
+    });
+
+    it("run-no-workflow-jsdoc: run() root has no jsdocDescription from declaration", () => {
+      const source = loadJsdocFixture("run-no-workflow-jsdoc.ts");
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      expect(results[0].root.jsdocDescription).toBeUndefined();
+    });
+
+    it("multiple-steps-mixed-jsdoc: only steps with JSDoc have jsdocDescription", () => {
+      const source = loadJsdocFixture("multiple-steps-mixed-jsdoc.ts");
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      expect(steps.length).toBe(3);
+      expect(steps[0].jsdocDescription).toContain("first step");
+      expect(steps[1].jsdocDescription).toBeUndefined();
+      expect(steps[2].jsdocDescription).toContain("third step");
+    });
+
+    it("createSagaWorkflow-jsdoc: saga workflow root has jsdocDescription", () => {
+      const source = loadJsdocFixture("createSagaWorkflow-jsdoc.ts");
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      expect(results[0].root.jsdocDescription).toContain("Order saga");
+    });
+  });
+
+  // ============================================================================
+  // Dependency typeSignature extraction
+  // ============================================================================
+
+  describe("Dependency typeSignature extraction", () => {
+    it("should extract dependency names from createWorkflow", () => {
+      const source = `
+        const workflow = createWorkflow({
+          fetchUser: async (id: string) => ({ id, name: 'Alice' }),
+          sendEmail: async (to: string) => true,
+        });
+
+        async function run(id: string) {
+          return await workflow(async (step, deps) => {
+            const user = await step(() => deps.fetchUser(id));
+            await step(() => deps.sendEmail(user.name));
+            return user;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+
+      const deps = results[0].root.dependencies;
+      expect(deps).toHaveLength(2);
+      expect(deps.map((d) => d.name)).toContain("fetchUser");
+      expect(deps.map((d) => d.name)).toContain("sendEmail");
+    });
+
+    it("should extract dependency names from shorthand properties", () => {
+      const source = `
+        const fetchUser = async (id: string) => ({ id, name: 'Alice' });
+
+        const workflow = createWorkflow({
+          fetchUser,
+        });
+
+        async function run(id: string) {
+          return await workflow(async (step, deps) => {
+            return await step(() => deps.fetchUser(id));
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+
+      const deps = results[0].root.dependencies;
+      expect(deps).toHaveLength(1);
+      expect(deps[0].name).toBe("fetchUser");
+    });
+
+    it("should have errorTypes as empty array for dependencies", () => {
+      const source = `
+        const workflow = createWorkflow({
+          fetchUser: async (id: string) => ({ id }),
+        });
+
+        async function run(id: string) {
+          return await workflow(async (step, deps) => {
+            return await step(() => deps.fetchUser(id));
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const deps = results[0].root.dependencies;
+      expect(deps[0].errorTypes).toEqual([]);
     });
   });
 

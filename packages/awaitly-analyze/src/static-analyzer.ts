@@ -829,7 +829,7 @@ function analyzeWorkflowCall(
     }
   }
 
-  return {
+  const root: StaticWorkflowNode = {
     id: generateId(),
     type: "workflow",
     workflowName: name,
@@ -841,6 +841,24 @@ function analyzeWorkflowCall(
     markdown: workflowDocs.markdown,
     location: opts.includeLocations ? getLocation(callExpression) : undefined,
   };
+
+  if (workflowInfo.variableDeclaration) {
+    const decl = workflowInfo.variableDeclaration as { getVariableStatement?: () => Node };
+    const statement =
+      typeof decl.getVariableStatement === "function"
+        ? decl.getVariableStatement()
+        : (() => {
+            const { Node } = loadTsMorph();
+            const parent = workflowInfo.variableDeclaration.getParent();
+            return Node.isVariableStatement(parent) ? parent : workflowInfo.variableDeclaration;
+          })();
+    if (statement) {
+      const jsdoc = getJSDocDescriptionFromNode(statement);
+      if (jsdoc) root.jsdocDescription = jsdoc;
+    }
+  }
+
+  return root;
 }
 
 /**
@@ -1756,20 +1774,19 @@ function analyzeStepSleepCall(
     const options = extractStepOptions(args[1]);
     if (options.key) stepNode.key = options.key;
     if (options.name) stepNode.name = options.name;
-    // Extract description if present
-    for (const prop of args[1].getProperties()) {
-      if (Node.isPropertyAssignment(prop) && prop.getName() === "description") {
-        const init = prop.getInitializer();
-        if (init) {
-          stepNode.description = extractStringValue(init);
-        }
-      }
-    }
+    if (options.description) stepNode.description = options.description;
+    if (options.markdown) stepNode.markdown = options.markdown;
   }
 
   // Set default name if not provided
   if (!stepNode.name) {
     stepNode.name = durationText ? `sleep ${durationText}` : "sleep";
+  }
+
+  const statement = getContainingStatement(node);
+  if (statement) {
+    const jsdoc = getJSDocDescriptionFromNode(statement);
+    if (jsdoc) stepNode.jsdocDescription = jsdoc;
   }
 
   return stepNode;
@@ -1893,6 +1910,8 @@ function analyzeStepCall(
     const options = extractStepOptions(args[1]);
     if (options.key) stepNode.key = options.key;
     if (options.name) stepNode.name = options.name;
+    if (options.description) stepNode.description = options.description;
+    if (options.markdown) stepNode.markdown = options.markdown;
     if (options.retry) stepNode.retry = options.retry;
     if (options.timeout) stepNode.timeout = options.timeout;
   }
@@ -1900,6 +1919,12 @@ function analyzeStepCall(
   // Use callee as name if no name specified
   if (!stepNode.name && stepNode.callee) {
     stepNode.name = stepNode.callee;
+  }
+
+  const statement = getContainingStatement(node);
+  if (statement) {
+    const jsdoc = getJSDocDescriptionFromNode(statement);
+    if (jsdoc) stepNode.jsdocDescription = jsdoc;
   }
 
   return stepNode;
@@ -1932,6 +1957,12 @@ function analyzeStepRetryCall(
     stepNode.retry = extractRetryConfig(args[1]);
   }
 
+  const statement = getContainingStatement(node);
+  if (statement) {
+    const jsdoc = getJSDocDescriptionFromNode(statement);
+    if (jsdoc) stepNode.jsdocDescription = jsdoc;
+  }
+
   return stepNode;
 }
 
@@ -1960,6 +1991,12 @@ function analyzeStepTimeoutCall(
   // Extract timeout options
   if (args[1] && Node.isObjectLiteralExpression(args[1])) {
     stepNode.timeout = extractTimeoutConfig(args[1]);
+  }
+
+  const statement = getContainingStatement(node);
+  if (statement) {
+    const jsdoc = getJSDocDescriptionFromNode(statement);
+    if (jsdoc) stepNode.jsdocDescription = jsdoc;
   }
 
   return stepNode;
@@ -2360,11 +2397,23 @@ function analyzeSagaStepCall(
     if (sagaOptions.name) {
       sagaNode.name = sagaOptions.name;
     }
+    if (sagaOptions.description) {
+      sagaNode.description = sagaOptions.description;
+    }
+    if (sagaOptions.markdown) {
+      sagaNode.markdown = sagaOptions.markdown;
+    }
     if (sagaOptions.hasCompensation) {
       sagaNode.hasCompensation = true;
       sagaNode.compensationCallee = sagaOptions.compensationCallee;
       stats.compensatedStepCount = (stats.compensatedStepCount || 0) + 1;
     }
+  }
+
+  const statement = getContainingStatement(node);
+  if (statement) {
+    const jsdoc = getJSDocDescriptionFromNode(statement);
+    if (jsdoc) sagaNode.jsdocDescription = jsdoc;
   }
 
   return sagaNode;
@@ -2376,12 +2425,16 @@ function analyzeSagaStepCall(
  */
 function extractSagaStepOptions(optionsNode: Node): {
   name?: string;
+  description?: string;
+  markdown?: string;
   hasCompensation: boolean;
   compensationCallee?: string;
 } {
   const { Node } = loadTsMorph();
   const result = {
     name: undefined as string | undefined,
+    description: undefined as string | undefined,
+    markdown: undefined as string | undefined,
     hasCompensation: false,
     compensationCallee: undefined as string | undefined,
   };
@@ -2398,6 +2451,10 @@ function extractSagaStepOptions(optionsNode: Node): {
 
     if (propName === "name" && init) {
       result.name = extractStringValue(init);
+    } else if (propName === "description" && init) {
+      result.description = extractStringValue(init);
+    } else if (propName === "markdown" && init) {
+      result.markdown = extractStringValue(init);
     } else if (propName === "compensate" && init) {
       result.hasCompensation = true;
       if (Node.isArrowFunction(init) || Node.isFunctionExpression(init)) {
@@ -2812,20 +2869,40 @@ function extractDependencies(
   }
 
   for (const prop of depsNode.getProperties()) {
+    let name: string;
+    let typeSignature: string | undefined;
+
     if (Node.isPropertyAssignment(prop)) {
-      const name = prop.getName();
-      // TODO: Extract type signature and error types
-      dependencies.push({
-        name,
-        errorTypes: [],
-      });
+      name = prop.getName();
+      const init = prop.getInitializer();
+      if (init && typeof (init as { getType?: () => { getText: () => string } }).getType === "function") {
+        try {
+          const type = (init as { getType: () => { getText: () => string } }).getType();
+          typeSignature = type.getText();
+        } catch {
+          // Type checker may be unavailable (e.g. no tsconfig); leave typeSignature undefined
+        }
+      }
     } else if (Node.isShorthandPropertyAssignment(prop)) {
-      const name = prop.getName();
-      dependencies.push({
-        name,
-        errorTypes: [],
-      });
+      name = prop.getName();
+      const ident = prop.getNameNode();
+      if (ident && typeof (ident as { getType?: () => { getText: () => string } }).getType === "function") {
+        try {
+          const type = (ident as { getType: () => { getText: () => string } }).getType();
+          typeSignature = type.getText();
+        } catch {
+          // Type checker may be unavailable; leave typeSignature undefined
+        }
+      }
+    } else {
+      continue;
     }
+
+    dependencies.push({
+      name,
+      typeSignature,
+      errorTypes: [],
+    });
   }
 
   return dependencies;
@@ -2844,6 +2921,8 @@ function extractErrorTypes(dependencies: DependencyInfo[]): string[] {
 interface StepOptions {
   key?: string;
   name?: string;
+  description?: string;
+  markdown?: string;
   retry?: StaticRetryConfig;
   timeout?: StaticTimeoutConfig;
 }
@@ -2866,6 +2945,10 @@ function extractStepOptions(optionsNode: Node): StepOptions {
       options.key = extractStringValue(init);
     } else if (propName === "name" && init) {
       options.name = extractStringValue(init);
+    } else if (propName === "description" && init) {
+      options.description = extractStringValue(init);
+    } else if (propName === "markdown" && init) {
+      options.markdown = extractStringValue(init);
     } else if (propName === "retry" && init && Node.isObjectLiteralExpression(init)) {
       options.retry = extractRetryConfig(init);
     } else if (propName === "timeout" && init && Node.isObjectLiteralExpression(init)) {
@@ -2982,6 +3065,113 @@ function getLocation(node: Node): SourceLocation {
     endLine: endPos.line,
     endColumn: endPos.column - 1,
   };
+}
+
+/**
+ * Get the statement that contains the given node (e.g. ExpressionStatement for `await step(...)`).
+ */
+function getContainingStatement(node: Node): Node | undefined {
+  const { Node } = loadTsMorph();
+  let current: Node | undefined = node;
+  while (current) {
+    const parent = current.getParent();
+    if (!parent) return current;
+    if (Node.isExpressionStatement(parent) || Node.isVariableStatement(parent)) return parent;
+    if (Node.isBlock(parent)) return current;
+    current = parent;
+  }
+  return undefined;
+}
+
+/**
+ * Parse JSDoc comment text to extract description (text before first @tag).
+ */
+function parseJSDocCommentText(text: string): string | undefined {
+  const inner = text
+    .replace(/^\s*\/\*\*?\s*/, "")
+    .replace(/\s*\*\/\s*$/, "")
+    .replace(/^\s*\*\s?/gm, "\n")
+    .trim();
+  const beforeAt = inner.split(/\s*@/)[0].trim();
+  return beforeAt || undefined;
+}
+
+/**
+ * Extract JSDoc description from a node that may have getJsDocs() (e.g. VariableStatement)
+ * or from leading comment ranges (e.g. ExpressionStatement).
+ * Returns the main description text (text before first @tag).
+ */
+function getJSDocDescriptionFromNode(node: Node): string | undefined {
+
+  // Try getJsDocs() first (VariableStatement, FunctionDeclaration, etc.)
+  const n = node as { getJsDocs?: () => { getDescription: () => string; getInnerText?: () => string }[] };
+  if (typeof n.getJsDocs === "function") {
+    try {
+      const docs = n.getJsDocs();
+      if (docs && docs.length > 0) {
+        const first = docs[0];
+        const desc = first.getDescription?.();
+        if (desc && desc.trim()) return desc.trim();
+        const inner = first.getInnerText?.();
+        if (inner) {
+          const beforeAt = inner.split(/\s*@/)[0].trim();
+          if (beforeAt) return beforeAt;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Fallback: leading comment ranges (for ExpressionStatement, VariableStatement, etc.)
+  if (typeof node.getLeadingCommentRanges === "function") {
+    const ranges = node.getLeadingCommentRanges();
+    if (ranges && ranges.length > 0) {
+      for (let i = ranges.length - 1; i >= 0; i--) {
+        const range = ranges[i];
+        const text = range.getText();
+        if (text.startsWith("/**")) {
+          const parsed = parseJSDocCommentText(text);
+          if (parsed) return parsed;
+          break;
+        }
+      }
+    }
+  }
+
+  // Fallback: scan source text. Node may start with JSDoc (e.g. VariableStatement) or have JSDoc immediately before it.
+  const sourceFile = node.getSourceFile();
+  const fullText = sourceFile.getFullText();
+  const start = node.getStart();
+
+  // If node starts with /** then JSDoc is the first token (e.g. VariableStatement in TS AST)
+  if (fullText.slice(start, start + 3) === "/**") {
+    const afterStart = fullText.slice(start);
+    const endMatch = afterStart.match(/\*\/\s*/);
+    if (endMatch && endMatch.index != null) {
+      const commentText = afterStart.slice(0, endMatch.index + 2);
+      const parsed = parseJSDocCommentText(commentText);
+      if (parsed) return parsed;
+    }
+  }
+
+  // Otherwise look for /** ... */ that ends immediately before the node (only whitespace between)
+  const textBefore = fullText.slice(0, start);
+  const re = /\/\*\*([\s\S]*?)\*\//g;
+  let match: RegExpExecArray | null;
+  let lastMatch: RegExpExecArray | null = null;
+  while ((match = re.exec(textBefore)) !== null) {
+    lastMatch = match;
+  }
+  if (lastMatch) {
+    const afterComment = lastMatch.index + lastMatch[0].length;
+    const between = textBefore.slice(afterComment);
+    if (/^\s*$/.test(between)) {
+      const parsed = parseJSDocCommentText(lastMatch[0]);
+      if (parsed) return parsed;
+    }
+  }
+  return undefined;
 }
 
 function wrapInSequence(
