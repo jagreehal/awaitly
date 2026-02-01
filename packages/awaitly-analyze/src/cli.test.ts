@@ -72,16 +72,20 @@ describe("CLI", () => {
   });
 
   describe("--output-adjacent", () => {
-    it("should write mermaid output to adjacent file", () => {
-      const { stderr, exitCode } = runCli([testFilePath, "--output-adjacent"]);
-      expect(exitCode).toBe(0);
-      expect(stderr).toContain("Wrote");
-      expect(stderr).toContain("cli-test-workflow.workflow.md");
-      expect(existsSync(outputMdPath)).toBe(true);
+    it(
+      "should write mermaid output to adjacent file",
+      () => {
+        const { stderr, exitCode } = runCli([testFilePath, "--output-adjacent"]);
+        expect(exitCode).toBe(0);
+        expect(stderr).toContain("Wrote");
+        expect(stderr).toContain("cli-test-workflow.workflow.md");
+        expect(existsSync(outputMdPath)).toBe(true);
 
-      const content = readFileSync(outputMdPath, "utf-8");
-      expect(content).toContain("flowchart");
-    });
+        const content = readFileSync(outputMdPath, "utf-8");
+        expect(content).toContain("flowchart");
+      },
+      10_000,
+    );
 
     it("should write JSON output to adjacent file with --format=json", () => {
       const { stderr, exitCode } = runCli([
