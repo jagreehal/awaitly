@@ -5,8 +5,6 @@ import sitemap from '@astrojs/sitemap';
 import starlightThemeNext from 'starlight-theme-next';
 import tailwindcss from '@tailwindcss/vite';
 import astroMermaid from 'astro-mermaid';
-import preact from '@astrojs/preact';
-
 // https://astro.build/config
 export default defineConfig({
   site: 'https://jagreehal.github.io',
@@ -14,7 +12,6 @@ export default defineConfig({
   // Local dev uses /awaitly by default so you can catch production issues; use pnpm dev:root or BASE=/ pnpm dev to run from /.
   base: process.env.BASE || '/awaitly',
   integrations: [
-    preact(),
     sitemap(),
     astroMermaid(),
     starlight({
@@ -44,11 +41,6 @@ export default defineConfig({
         { icon: 'github', label: 'GitHub', href: 'https://github.com/jagreehal/awaitly' },
       ],
       sidebar: [
-        {
-          label: 'Playground',
-          slug: 'playground',
-          attrs: { class: 'sidebar-playground' },
-        },
         {
           label: 'Getting Started',
           items: [

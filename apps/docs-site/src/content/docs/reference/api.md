@@ -557,11 +557,17 @@ withAutotelTracing(trace, options)  // Wrap with tracing
 ## Static Analysis
 
 ```typescript
-analyzeWorkflow(filePath)           // Analyze workflow file
-analyzeWorkflowSource(source)       // Analyze source string
-loadTreeSitter()                    // Pre-load tree-sitter WASM
-clearTreeSitterCache()              // Clear WASM cache
-getWasmCachePath()                  // Get WASM cache location
+// Fluent API
+analyze(filePath)                   // Returns AnalyzeResult
+analyze.source(code)                // Analyze source string, returns AnalyzeResult
+
+// AnalyzeResult methods
+result.single()                     // Get single workflow (throws if 0 or >1)
+result.singleOrNull()               // Get single workflow or null
+result.all()                        // Get all workflows as array
+result.named(name)                  // Get workflow by name (throws if not found)
+result.first()                      // Get first workflow (throws if empty)
+result.firstOrNull()                // Get first workflow or null
 
 // Type guards
 isStaticStepNode(node)              // node is StaticStepNode
@@ -699,6 +705,7 @@ BackpressureController              // Backpressure control interface
 ### Static Analysis types
 
 ```typescript
+AnalyzeResult                       // Fluent result from analyze()
 StaticWorkflowIR                    // Analysis result
 StaticWorkflowNode                  // Workflow root node
 StaticFlowNode                      // Union of all node types
