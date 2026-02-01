@@ -31,7 +31,7 @@ const workflow = createWorkflow(deps, {
   onEvent: viz.handleEvent,
 });
 
-await workflow(async (step, deps) => {
+await workflow(async (step) => {
   const order = await step(() => deps.fetchOrder('123'), { name: 'Fetch order' });
   const payment = await step(() => deps.chargeCard(order.total), { name: 'Charge card' });
   return { order, payment };
@@ -415,7 +415,7 @@ app.post('/checkout', async (req, res) => {
     onEvent: collector.handleEvent,
   });
 
-  const result = await workflow(async (step, deps) => {
+  const result = await workflow(async (step) => {
     const order = await step(() => deps.fetchOrder(req.body.orderId), { name: 'Fetch order' });
     const payment = await step(() => deps.chargeCard(order.total), { name: 'Charge card' });
     return { order, payment };
@@ -470,7 +470,7 @@ const workflow = createWorkflow(deps, {
   onEvent: viz.handleEvent,
 });
 
-await workflow(async (step, deps) => {
+await workflow(async (step) => {
   await step(() => deps.runTests(), { name: 'Run tests' });
   await step(() => deps.buildApp(), { name: 'Build app' });
   await step(() => deps.deploy(), { name: 'Deploy' });
@@ -501,7 +501,7 @@ const workflow = createWorkflow(deps, {
   onEvent: viz.handleEvent,
 });
 
-await workflow(async (step, deps) => {
+await workflow(async (step) => {
   const user = await step(() => deps.fetchUser('1'), { name: 'Fetch user' });
   const posts = await step(() => deps.fetchPosts(user.id), { name: 'Fetch posts' });
   return { user, posts };
@@ -524,7 +524,7 @@ const workflow = createWorkflow(deps, {
   onEvent: viz.handleEvent,
 });
 
-const result = await workflow(async (step, deps) => { ... });
+const result = await workflow(async (step) => { ... });
 
 // Structured logging for production
 const ir = viz.getIR();
@@ -592,7 +592,7 @@ const workflow = createWorkflow(deps, {
   onEvent: viz.handleEvent,
 });
 
-await workflow(async (step, deps) => {
+await workflow(async (step) => {
   await step(() => deps.lint(), { name: 'Lint' });
   await step(() => deps.test(), { name: 'Test' });
   await step(() => deps.build(), { name: 'Build' });
@@ -662,7 +662,7 @@ const workflow = createWorkflow(deps, {
   onEvent: logger,
 });
 
-await workflow(async (step, deps) => {
+await workflow(async (step) => {
   await step(() => deps.fetchOrder('123'), { name: 'Fetch order' });
   await step(() => deps.chargeCard(99.99), { name: 'Charge card' });
 });
@@ -956,4 +956,4 @@ function WorkflowDashboard() {
 
 ## Next
 
-[Learn about Testing →/testing/)
+[Learn about Testing →](/guides/testing/)

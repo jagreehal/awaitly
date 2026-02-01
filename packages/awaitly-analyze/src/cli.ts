@@ -10,7 +10,8 @@
  *   npx awaitly-analyze ./src/workflows/checkout.ts --direction=LR
  */
 
-import { resolve } from "path";
+import { resolve, dirname, basename, extname, join } from "path";
+import { writeFileSync } from "fs";
 import { analyze } from "./analyze";
 import { renderStaticMermaid } from "./output/mermaid";
 import { renderMultipleStaticJSON } from "./output/json";
@@ -24,6 +25,9 @@ interface CliOptions {
   showKeys: boolean;
   direction: Direction;
   help: boolean;
+  outputAdjacent: boolean;
+  suffix: string;
+  noStdout: boolean;
 }
 
 function printHelp(): void {
@@ -40,12 +44,19 @@ Options:
   --format=<format>     Output format: mermaid (default) or json
   --keys                Show step cache keys in diagram
   --direction=<dir>     Diagram direction: TB (default), LR, BT, RL
+  --output-adjacent, -o Write output file next to source file
+  --suffix=<value>      Configurable suffix for output file (default: workflow)
+  --no-stdout           Suppress stdout when writing to file (requires -o)
   --help, -h            Show this help message
 
 Examples:
   awaitly-analyze ./src/workflows/checkout.ts
   awaitly-analyze ./src/workflows/checkout.ts --format=json
   awaitly-analyze ./src/workflows/checkout.ts --keys --direction=LR
+  awaitly-analyze ./src/workflows/checkout.ts --output-adjacent
+  awaitly-analyze ./src/workflows/checkout.ts -o --suffix=diagram
+  awaitly-analyze ./src/workflows/checkout.ts -o --suffix=analysis --format=json
+  awaitly-analyze ./src/workflows/checkout.ts -o --no-stdout
 `);
 }
 
@@ -56,6 +67,9 @@ function parseArgs(args: string[]): CliOptions {
     showKeys: false,
     direction: "TB",
     help: false,
+    outputAdjacent: false,
+    suffix: "workflow",
+    noStdout: false,
   };
 
   for (const arg of args) {
@@ -63,6 +77,10 @@ function parseArgs(args: string[]): CliOptions {
       options.help = true;
     } else if (arg === "--keys") {
       options.showKeys = true;
+    } else if (arg === "--output-adjacent" || arg === "-o") {
+      options.outputAdjacent = true;
+    } else if (arg === "--no-stdout") {
+      options.noStdout = true;
     } else if (arg.startsWith("--format=")) {
       const format = arg.slice("--format=".length).toLowerCase();
       if (format === "json" || format === "mermaid") {
@@ -79,6 +97,13 @@ function parseArgs(args: string[]): CliOptions {
         console.error(`Unknown direction: ${dir}. Use TB, LR, BT, or RL.`);
         process.exit(1);
       }
+    } else if (arg.startsWith("--suffix=")) {
+      const suffix = arg.slice("--suffix=".length);
+      if (suffix.includes("/") || suffix.includes("\\")) {
+        console.error("Error: suffix cannot contain path separators.");
+        process.exit(1);
+      }
+      options.suffix = suffix;
     } else if (!arg.startsWith("-")) {
       options.filePath = arg;
     } else {
@@ -88,6 +113,18 @@ function parseArgs(args: string[]): CliOptions {
   }
 
   return options;
+}
+
+function getOutputFilePath(
+  inputPath: string,
+  suffix: string,
+  format: Format
+): string {
+  const dir = dirname(inputPath);
+  const ext = extname(inputPath);
+  const base = basename(inputPath, ext);
+  const outputExt = format === "json" ? ".json" : ".md";
+  return join(dir, `${base}.${suffix}${outputExt}`);
 }
 
 function main(): void {
@@ -105,6 +142,12 @@ function main(): void {
     process.exit(1);
   }
 
+  // Validate: --no-stdout requires --output-adjacent
+  if (options.noStdout && !options.outputAdjacent) {
+    console.error("Error: --no-stdout requires --output-adjacent (-o).");
+    process.exit(1);
+  }
+
   const filePath = resolve(options.filePath);
 
   try {
@@ -115,33 +158,51 @@ function main(): void {
       process.exit(1);
     }
 
+    let output: string;
+
     if (options.format === "json") {
       // JSON output
-      const json = renderMultipleStaticJSON(workflows, filePath, {
+      output = renderMultipleStaticJSON(workflows, filePath, {
         pretty: true,
       });
-      console.log(json);
     } else {
       // Mermaid output
       if (workflows.length === 1) {
         // Single workflow - just output the diagram
-        const mermaid = renderStaticMermaid(workflows[0], {
+        output = renderStaticMermaid(workflows[0], {
           direction: options.direction,
           showKeys: options.showKeys,
         });
-        console.log(mermaid);
       } else {
         // Multiple workflows - output each with a header
+        const parts: string[] = [];
         for (const ir of workflows) {
-          console.log(`## Workflow: ${ir.root.workflowName}\n`);
+          parts.push(`## Workflow: ${ir.root.workflowName}\n`);
           const mermaid = renderStaticMermaid(ir, {
             direction: options.direction,
             showKeys: options.showKeys,
           });
-          console.log(mermaid);
-          console.log();
+          parts.push(mermaid);
+          parts.push("");
         }
+        output = parts.join("\n");
       }
+    }
+
+    // Write to adjacent file if requested
+    if (options.outputAdjacent) {
+      const outputPath = getOutputFilePath(
+        filePath,
+        options.suffix,
+        options.format
+      );
+      writeFileSync(outputPath, output, "utf-8");
+      console.error(`Wrote ${outputPath}`);
+    }
+
+    // Output to stdout unless suppressed
+    if (!options.noStdout) {
+      console.log(output);
     }
   } catch (error) {
     if (error instanceof Error) {

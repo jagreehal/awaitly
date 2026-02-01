@@ -187,7 +187,7 @@ export const parallelWorkflow = createWorkflow(
 );
 
 export async function runParallelWorkflow(id: string) {
-  return await parallelWorkflow(async (step, deps) => {
+  return await parallelWorkflow(async (step) => {
     // Named object form (recommended - better type inference)
     const { user, posts, comments } = await step.parallel({
       user: () => deps.fetchUser(id),
@@ -230,7 +230,7 @@ export const raceWorkflow = createWorkflow(
 );
 
 export async function runRaceWorkflow() {
-  return await raceWorkflow(async (step, deps) => {
+  return await raceWorkflow(async (step) => {
     const result = await step.race("Fastest API", () =>
       anyAsync([deps.fetchFromPrimary(), deps.fetchFromFallback()])
     );

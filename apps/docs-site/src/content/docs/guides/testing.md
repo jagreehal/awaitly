@@ -527,4 +527,4 @@ it('debugs failing workflow', async () => {
 
 ## Next
 
-[Learn about Batch Processing →/batch-processing/)
+[Learn about Batch Processing →](/guides/batch-processing/)

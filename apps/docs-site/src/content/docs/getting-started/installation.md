@@ -105,4 +105,4 @@ npx tsx test.ts
 
 ## Next
 
-[Learn the basics →/basics/)
+[Learn the basics →](/getting-started/basics/)

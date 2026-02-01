@@ -716,4 +716,4 @@ process.on('SIGINT', gracefulShutdown);
 
 ## Next
 
-[Learn about Circuit Breakers →/circuit-breaker/)
+[Learn about Circuit Breakers →](/advanced/circuit-breaker/)

@@ -104,7 +104,7 @@ const source = `
   const checkout = createWorkflow(deps);
 
   async function run() {
-    return await checkout(async (step, deps) => {
+    return await checkout(async (step) => {
       const cart = await step(() => deps.fetchCart(), { key: 'cart' });
       const total = await step(() => deps.calculateTotal(cart), { key: 'total' });
       return { cart, total };
@@ -137,19 +137,19 @@ The analyzer handles various callback patterns:
 
 ```typescript
 // Simple identifier
-workflow(async (step, deps) => { ... });
+workflow(async (step) => { ... });
 
 // Destructuring
-workflow(async ({ step }, deps) => { ... });
+workflow(async ({ step }) => { ... });
 
 // Destructuring with alias
-workflow(async ({ step: runStep }, deps) => { ... });
+workflow(async ({ step: runStep }) => { ... });
 
 // Destructuring with default
-workflow(async ({ step = defaultStep }, deps) => { ... });
+workflow(async ({ step = defaultStep }) => { ... });
 
 // Destructuring with alias and default
-workflow(async ({ step: runStep = fallback }, deps) => { ... });
+workflow(async ({ step: runStep = fallback }) => { ... });
 ```
 
 ## IR structure

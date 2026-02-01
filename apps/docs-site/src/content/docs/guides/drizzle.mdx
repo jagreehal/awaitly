@@ -41,7 +41,7 @@ const findUser = async (id: string): AsyncResult<typeof users.$inferSelect, DbEr
 // Use in a workflow
 const workflow = createWorkflow({ findUser });
 
-const result = await workflow(async (step, deps) => {
+const result = await workflow(async (step) => {
   const user = await step(() => deps.findUser('user-123'));
   return user;
 });
@@ -644,4 +644,4 @@ export const findOneOrNotFound = async <T>(
 
 - [Prisma Integration](/guides/prisma/) for comparison
 - [Zod Integration](/guides/zod/) for input validation
-- [Workflows](/concepts/workflows/) for composing database operations
+- [Workflows](/foundations/workflows/) for composing database operations

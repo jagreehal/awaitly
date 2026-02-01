@@ -17,16 +17,16 @@ See also: [Concepts at a glance](/foundations/#concepts-at-a-glance) (workflow v
 
 ```mermaid
 flowchart TD
-  createWorkflow[createWorkflow(deps, { onEvent, resumeState })]
-  workflowRun[workflow(fn)]
-  stepEvents[WorkflowEvents]
-  collector[createResumeStateCollector]
-  resumeState[ResumeState_Map]
-  stringify[stringifyState]
-  db[(DB)]
-  parse[parseState]
-  resume[createWorkflow(deps, { resumeState })]
-  cached[Keyed_steps_return_cached_results]
+  createWorkflow["createWorkflow(deps, { onEvent, resumeState })"]
+  workflowRun["workflow(fn)"]
+  stepEvents["WorkflowEvents"]
+  collector["createResumeStateCollector"]
+  resumeState["ResumeState_Map"]
+  stringify["stringifyState"]
+  db["(DB)"]
+  parse["parseState"]
+  resume["createWorkflow(deps, { resumeState })"]
+  cached["Keyed_steps_return_cached_results"]
 
   createWorkflow --> workflowRun
   workflowRun --> stepEvents
@@ -315,4 +315,4 @@ const workflow = createWorkflow(deps, { cache });
 
 ## Next
 
-[Learn about Human-in-the-Loop →/human-in-loop/)
+[Learn about Human-in-the-Loop →](/guides/human-in-loop/)

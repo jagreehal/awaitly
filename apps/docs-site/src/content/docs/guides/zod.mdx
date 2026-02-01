@@ -45,7 +45,7 @@ const workflow = createWorkflow({
   validate: (data: unknown) => Promise.resolve(zodToResult(UserSchema, data)),
 });
 
-const result = await workflow(async (step, deps) => {
+const result = await workflow(async (step) => {
   const user = await step(() => deps.validate({ email: 'test@example.com', age: 25 }));
   return user; // User type, not unknown
 });
@@ -416,4 +416,4 @@ export const getFirstError = (error: ValidationError): string => {
 
 - [Prisma Integration](/guides/prisma/) for database operations
 - [React Query Integration](/guides/react-query/) for client-side data fetching
-- [Workflows](/concepts/workflows/) for composing validated operations
+- [Workflows](/foundations/workflows/) for composing validated operations

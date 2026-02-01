@@ -41,7 +41,7 @@ const findUser = async (id: string): AsyncResult<User, DbError> => {
 // Use in a workflow
 const workflow = createWorkflow({ findUser });
 
-const result = await workflow(async (step, deps) => {
+const result = await workflow(async (step) => {
   const user = await step(() => deps.findUser('user-123'));
   return user;
 });
@@ -191,7 +191,7 @@ const workflow = createWorkflow({
 });
 
 const createUser = async (rawInput: unknown) => {
-  return workflow(async (step, deps) => {
+  return workflow(async (step) => {
     const input = await step(() => deps.validateInput(rawInput));
     const user = await step(() => deps.createUser(input));
     return user;
@@ -495,4 +495,4 @@ export const findOrNotFound = async <T>(
 
 - [Drizzle Integration](/guides/drizzle/) for an alternative ORM
 - [Zod Integration](/guides/zod/) for input validation
-- [Workflows](/concepts/workflows/) for composing database operations
+- [Workflows](/foundations/workflows/) for composing database operations
