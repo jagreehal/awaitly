@@ -3,15 +3,7 @@ title: Static Analysis
 description: Analyze workflow structure without execution
 ---
 
-import Playground from '../../../components/Playground.astro';
-
 Analyze workflow source code to extract structure, dependencies, and generate visualization data without executing the workflow.
-
-## Try it live
-
-Edit the code below to see real-time workflow analysis and diagram generation:
-
-<Playground height="450px" />
 
 ## CLI Tool
 
@@ -51,15 +43,51 @@ When a file contains multiple workflows, each gets its own section with a markdo
 ## Basic usage
 
 ```typescript
-import { analyzeWorkflow } from 'awaitly/analyze';
+import { analyze } from 'awaitly-analyze';
 
-// Analyze a file
-const results = await analyzeWorkflow('./src/workflows/checkout.ts');
+// Analyze a single-workflow file
+const ir = analyze('./src/workflows/checkout.ts').single();
+console.log(`Steps: ${ir.metadata.stats.totalSteps}`);
 
-for (const ir of results) {
-  console.log(`Workflow: ${ir.root.workflowName}`);
-  console.log(`Steps: ${ir.metadata.stats.totalSteps}`);
-  console.log(`Conditionals: ${ir.metadata.stats.conditionalCount}`);
+// Analyze a multi-workflow file
+const workflows = analyze('./src/workflows/all.ts').all();
+for (const ir of workflows) {
+  console.log(`${ir.root.workflowName}: ${ir.metadata.stats.totalSteps} steps`);
+}
+
+// Get a specific workflow by name
+const checkout = analyze('./src/workflows/all.ts').named('checkoutWorkflow');
+```
+
+### Fluent API methods
+
+| Method | Returns | Throws | Use when |
+|--------|---------|--------|----------|
+| `.single()` | Single IR | If 0 or >1 workflows | File has exactly one workflow |
+| `.singleOrNull()` | IR or null | Never | Checking if file has one workflow |
+| `.all()` | IR array | Never | Processing all workflows in file |
+| `.named(name)` | Single IR | If not found | Targeting specific workflow by name |
+| `.first()` | Single IR | If empty | Getting first workflow, don't care about count |
+| `.firstOrNull()` | IR or null | Never | Safely getting first workflow |
+
+**Choosing the right method:**
+
+```typescript
+// Most common: single workflow per file
+const ir = analyze('./checkout.ts').single();
+
+// Multi-workflow files: iterate all
+for (const ir of analyze('./workflows.ts').all()) {
+  console.log(ir.root.workflowName);
+}
+
+// Target by name when you know what you want
+const payment = analyze('./workflows.ts').named('paymentWorkflow');
+
+// Safe access when file might be empty
+const ir = analyze(filePath).firstOrNull();
+if (ir) {
+  // process workflow
 }
 ```
 
@@ -68,7 +96,7 @@ for (const ir of results) {
 Analyze workflow code directly without reading from a file:
 
 ```typescript
-import { analyzeWorkflowSource } from 'awaitly/analyze';
+import { analyze } from 'awaitly-analyze';
 
 const source = `
   const checkout = createWorkflow(deps);
@@ -82,8 +110,8 @@ const source = `
   }
 `;
 
-const results = await analyzeWorkflowSource(source);
-console.log(results[0].metadata.stats);
+const ir = analyze.source(source).single();
+console.log(ir.metadata.stats);
 // { totalSteps: 2, conditionalCount: 0, parallelCount: 0, ... }
 ```
 
@@ -173,10 +201,11 @@ Use the built-in helpers to traverse nodes:
 
 ```typescript
 import {
+  analyze,
   isStaticStepNode,
   isStaticConditionalNode,
   getStaticChildren
-} from 'awaitly/analyze';
+} from 'awaitly-analyze';
 
 function walkWorkflow(node: StaticFlowNode) {
   if (isStaticStepNode(node)) {
@@ -193,8 +222,8 @@ function walkWorkflow(node: StaticFlowNode) {
   }
 }
 
-const results = await analyzeWorkflow('./checkout.ts');
-for (const child of results[0].root.children) {
+const ir = analyze('./checkout.ts').single();
+for (const child of ir.root.children) {
   walkWorkflow(child);
 }
 ```
@@ -204,6 +233,8 @@ for (const child of results[0].root.children) {
 A single file can contain multiple workflows:
 
 ```typescript
+import { analyze } from 'awaitly-analyze';
+
 const source = `
   const workflowA = createWorkflow(depsA);
   const workflowB = createWorkflow(depsB);
@@ -217,25 +248,15 @@ const source = `
   }
 `;
 
-const results = await analyzeWorkflowSource(source);
-console.log(results.length); // 2
+const result = analyze.source(source);
 
-const wfA = results.find(r => r.root.workflowName === 'workflowA');
-const wfB = results.find(r => r.root.workflowName === 'workflowB');
-```
+// Get all workflows
+const workflows = result.all();
+console.log(workflows.length); // 2
 
-## WASM loading
-
-The analyzer uses tree-sitter compiled to WebAssembly. WASM files are bundled with the package and loaded automatically.
-
-```typescript
-import { loadTreeSitter, getWasmCachePath } from 'awaitly/analyze';
-
-// Pre-load tree-sitter (optional, for faster first analysis)
-await loadTreeSitter();
-
-// Check where WASM files are cached
-console.log(getWasmCachePath());
+// Get by name
+const wfA = analyze.source(source).named('workflowA');
+const wfB = analyze.source(source).named('workflowB');
 ```
 
 ## Use cases
@@ -243,8 +264,9 @@ console.log(getWasmCachePath());
 ### Generate documentation
 
 ```typescript
-const results = await analyzeWorkflow('./checkout.ts');
-const ir = results[0];
+import { analyze } from 'awaitly-analyze';
+
+const ir = analyze('./checkout.ts').single();
 
 console.log(`# ${ir.root.workflowName}\n`);
 console.log(`- ${ir.metadata.stats.totalSteps} steps`);
@@ -255,6 +277,8 @@ console.log(`- ${ir.metadata.stats.parallelCount} parallel operations`);
 ### Build test coverage matrix
 
 ```typescript
+import { analyze, isStaticConditionalNode } from 'awaitly-analyze';
+
 function countPaths(node: StaticFlowNode): number {
   if (isStaticConditionalNode(node)) {
     const thenPaths = node.consequent.reduce((n, c) => n * countPaths(c), 1);
@@ -265,15 +289,17 @@ function countPaths(node: StaticFlowNode): number {
   return 1;
 }
 
-const results = await analyzeWorkflow('./checkout.ts');
-console.log(`Execution paths: ${countPaths(results[0].root)}`);
+const ir = analyze('./checkout.ts').single();
+console.log(`Execution paths: ${countPaths(ir.root)}`);
 ```
 
 ### Validate workflow complexity
 
 ```typescript
-const results = await analyzeWorkflow('./checkout.ts');
-const stats = results[0].metadata.stats;
+import { analyze } from 'awaitly-analyze';
+
+const ir = analyze('./checkout.ts').single();
+const stats = ir.metadata.stats;
 
 if (stats.totalSteps > 20) {
   console.warn('Consider breaking this workflow into smaller pieces');
@@ -291,10 +317,10 @@ Generate output from the IR using built-in renderers:
 ### Mermaid renderer
 
 ```typescript
-import { analyzeWorkflow, renderStaticMermaid } from 'awaitly/analyze';
+import { analyze, renderStaticMermaid } from 'awaitly-analyze';
 
-const results = await analyzeWorkflow('./checkout.ts');
-const mermaid = renderStaticMermaid(results[0], {
+const ir = analyze('./checkout.ts').single();
+const mermaid = renderStaticMermaid(ir, {
   direction: 'TB',      // TB, LR, BT, RL
   showKeys: false,      // Show step cache keys
   showConditions: true, // Show condition text
@@ -310,14 +336,14 @@ console.log(mermaid);
 ### JSON renderer
 
 ```typescript
-import { analyzeWorkflow, renderStaticJSON } from 'awaitly/analyze';
+import { analyze, renderStaticJSON, renderMultipleStaticJSON } from 'awaitly-analyze';
 
-const results = await analyzeWorkflow('./checkout.ts');
-const json = renderStaticJSON(results[0], { pretty: true });
+const ir = analyze('./checkout.ts').single();
+const json = renderStaticJSON(ir, { pretty: true });
 
 // For multiple workflows
-const multiJson = renderMultipleStaticJSON(results, {
-  filePath: './checkout.ts',
+const workflows = analyze('./checkout.ts').all();
+const multiJson = renderMultipleStaticJSON(workflows, './checkout.ts', {
   pretty: true,
 });
 ```
@@ -344,10 +370,9 @@ Both forms render with the custom name in Mermaid diagrams instead of generic "P
 
 ## Limitations
 
-- **No type information**: Uses pattern matching, not TypeScript's type system
 - **Dynamic code**: Template literals in step keys show as `<dynamic>`
 - **External imports**: Referenced workflows must be in the same file to resolve
 
 ## Next
 
-[Learn about Visualization →/visualization/)
+[Learn about Visualization →](/visualization/)

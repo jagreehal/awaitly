@@ -1,24 +1,21 @@
 {
   "name": "awaitly-analyze",
-  "version": "8.0.0",
+  "version": "0.1.0",
+  "private": true,
   "type": "module",
-  "description": "Static workflow analysis for awaitly using tree-sitter. Analyze workflow source code to extract structure and generate visualizations.",
+  "description": "Static workflow analysis for awaitly. Analyze workflow source code to extract structure, types, and generate visualizations.",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "sideEffects": false,
   "bin": {
-    "awaitly-analyze": "./dist/cli/index.js"
+    "awaitly-analyze": "./dist/cli.js"
   },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
-    },
-    "./browser": {
-      "types": "./dist/browser.d.ts",
-      "import": "./dist/browser.js"
     }
   },
   "files": [
@@ -38,7 +35,7 @@
     "awaitly",
     "workflow",
     "static-analysis",
-    "tree-sitter",
+    "ts-morph",
     "typescript",
     "visualization",
     "mermaid"
@@ -54,22 +51,21 @@
   },
   "license": "MIT",
   "peerDependencies": {
-    "awaitly": "workspace:^"
+    "ts-morph": ">=27.0.2"
   },
-  "dependencies": {
-    "web-tree-sitter": "^0.26.3"
+  "peerDependenciesMeta": {
+    "ts-morph": {
+      "optional": false
+    }
   },
   "devDependencies": {
     "@total-typescript/ts-reset": "^0.6.1",
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/node": "^25.1.0",
+    "ts-morph": "^27.0.2",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
-  },
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
   },
   "engines": {
     "node": ">=22"

@@ -11,6 +11,11 @@ import {
   analyzeWorkflowSource,
   resetIdCounter,
 } from "./static-analyzer";
+import {
+  generatePathsWithMetadata,
+  calculatePathStatistics,
+} from "./path-generator";
+import { calculateComplexity } from "./complexity";
 import { renderStaticMermaid, renderPathsMermaid } from "./output/mermaid";
 import type {
   StaticFlowNode,
@@ -51,6 +56,104 @@ describe("ts-morph Static Analyzer", () => {
 
       expect(results).toHaveLength(1);
       expect(results[0].root.workflowName).toBe("myWorkflow");
+    });
+
+    it("should detect createWorkflow when imported via namespace", () => {
+      const source = `
+        import * as Awaitly from 'awaitly';
+
+        const myWorkflow = Awaitly.createWorkflow({
+          fetchUser: async () => ({ id: '1' }),
+        });
+
+        export async function run() {
+          return await myWorkflow(async (step, deps) => {
+            const user = await step(() => deps.fetchUser(), {
+              key: 'user',
+              name: 'Fetch User',
+            });
+            return user;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source, undefined, {
+        assumeImported: false,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("myWorkflow");
+    });
+
+    it("should detect createWorkflow when imported as default", () => {
+      const source = `
+        import Awaitly from 'awaitly';
+
+        const myWorkflow = Awaitly.createWorkflow({
+          fetchUser: async () => ({ id: '1' }),
+        });
+
+        export async function run() {
+          return await myWorkflow(async (step, deps) => {
+            const user = await step(() => deps.fetchUser(), {
+              key: 'user',
+              name: 'Fetch User',
+            });
+            return user;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source, undefined, {
+        assumeImported: false,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("myWorkflow");
+    });
+
+    it("should detect createWorkflow when imported with alias", () => {
+      const source = `
+        import { createWorkflow as cw } from 'awaitly';
+
+        const myWorkflow = cw({
+          fetchUser: async () => ({ id: '1' }),
+        });
+
+        export async function run() {
+          return await myWorkflow(async (step, deps) => {
+            const user = await step(() => deps.fetchUser(), {
+              key: 'user',
+              name: 'Fetch User',
+            });
+            return user;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source, undefined, {
+        assumeImported: false,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("myWorkflow");
+    });
+
+    it("should detect run() when imported with alias", () => {
+      const source = `
+        import { run as runWorkflow } from 'awaitly';
+
+        await runWorkflow(async (step) => {
+          await step(() => getUser(id));
+        });
+      `;
+
+      const results = analyzeWorkflowSource(source, undefined, {
+        assumeImported: false,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].root.source).toBe("run");
     });
 
     it("should extract step calls with key and name", () => {
@@ -293,7 +396,7 @@ async function run() {
 
         async function run() {
           return await workflow(async (step, deps) => {
-            // This loop has no step calls, so it shouldn't be counted
+            // This loop has no step calls, but is inside workflow callback so counted
             let sum = 0;
             for (let i = 0; i < 10; i++) {
               sum += i;
@@ -308,7 +411,8 @@ async function run() {
       const results = analyzeWorkflowSource(source);
       const stats = results[0]?.metadata?.stats;
 
-      expect(stats?.loopCount).toBe(0);
+      // Loop is counted because it's inside workflow callback (even without steps)
+      expect(stats?.loopCount).toBe(1);
       expect(stats?.totalSteps).toBe(1);
     });
   });
@@ -567,6 +671,41 @@ async function run() {
       expect(stats?.compensatedStepCount).toBe(2);
     });
 
+    it("should extract compensationCallee when compensate uses block body with return", () => {
+      const source = `
+        const orderSaga = createSagaWorkflow({});
+
+        async function run() {
+          return await orderSaga(async (saga, deps) => {
+            const order = await saga.step(() => deps.createOrder(), {
+              name: 'Create Order',
+              compensate: () => {
+                return deps.cancelOrder();
+              },
+            });
+            return order;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const root = results[0]?.root;
+      const children = root?.children || [];
+
+      let sagaStep = children.find((c) => c.type === "saga-step");
+      if (!sagaStep && children[0]?.type === "sequence") {
+        sagaStep = (children[0] as StaticSequenceNode).children.find(
+          (c: StaticFlowNode) => c.type === "saga-step"
+        );
+      }
+
+      expect(sagaStep).toBeDefined();
+      if (sagaStep?.type === "saga-step") {
+        expect(sagaStep.hasCompensation).toBe(true);
+        expect(sagaStep.compensationCallee).toBe("deps.cancelOrder");
+      }
+    });
+
     it("should detect saga.tryStep() calls", () => {
       const source = `
         const orderSaga = createSagaWorkflow({});
@@ -802,12 +941,13 @@ async function run() {
       expect(seq.children[1].type).toBe("switch");
     });
 
-    it("should not count switch without step calls", () => {
+    it("should count switch inside workflow callback even without step calls", () => {
       const source = `
         import { run } from "awaitly";
         run(async (step) => {
           const status = "active";
           let result;
+          // Switch is inside workflow callback, so it's counted
           switch (status) {
             case "active":
               result = 1;
@@ -822,7 +962,8 @@ async function run() {
       const results = analyzeWorkflowSource(source);
       const stats = results[0]?.metadata?.stats;
 
-      expect(stats?.conditionalCount).toBe(0);
+      // Switch is counted because it's inside workflow callback (even without steps)
+      expect(stats?.conditionalCount).toBe(1);
       expect(stats?.totalSteps).toBe(1);
     });
   });
@@ -843,6 +984,38 @@ async function run() {
       expect(results).toHaveLength(1);
       expect(results[0].root.source).toBe("run");
       expect(results[0].root.workflowName).toMatch(/^run@/);
+    });
+
+    it("should detect run() when imported via namespace", () => {
+      const source = `
+        import * as Awaitly from 'awaitly';
+
+        await Awaitly.run(async (step) => {
+          const user = await step(() => getUser(id));
+          return user;
+        });
+      `;
+
+      const results = analyzeWorkflowSource(source, undefined, {
+        assumeImported: false,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].root.source).toBe("run");
+    });
+
+    it("should not throw when run() is imported via named import", () => {
+      const source = `
+        import { run } from 'awaitly';
+
+        await run(async (step) => {
+          await step(() => getUser(id));
+        });
+      `;
+
+      expect(() => analyzeWorkflowSource(source)).not.toThrow();
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
     });
 
     it("should generate unique names for multiple run() calls", () => {
@@ -881,6 +1054,22 @@ async function run() {
 
       const results = analyzeWorkflowSource(source);
       expect(results).toHaveLength(0);
+    });
+
+    it("should detect run() when call is (run)(callback)", () => {
+      const source = `
+        import { run } from 'awaitly';
+
+        await (run)(async (step) => {
+          const user = await step(() => getUser(id));
+          return user;
+        });
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0].root.source).toBe("run");
+      expect(results[0].metadata.stats.totalSteps).toBe(1);
     });
   });
 
@@ -1070,6 +1259,22 @@ async function run() {
       expect(stats?.workflowRefCount).toBe(1);
     });
 
+    it("should detect workflow invocation when call is (await workflow)(callback)", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function run() {
+          return await (await workflow)(async (step, deps) => {
+            await step(() => deps.fetchData(), { key: 'data' });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0]?.metadata?.stats?.totalSteps).toBe(1);
+    });
+
     it("should not count self-references as workflow refs", () => {
       const source = `
         const workflow = createWorkflow({});
@@ -1085,6 +1290,251 @@ async function run() {
       const stats = results[0]?.metadata?.stats;
 
       expect(stats?.workflowRefCount).toBe(0);
+    });
+
+    it("should not attribute shadowed workflow invocations to outer workflow", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function runOuter() {
+          return await workflow(async (step) => {
+            await step(() => outerTask(), { key: 'outer' });
+          });
+        }
+
+        async function runInner() {
+          const workflow = createWorkflow({});
+          return await workflow(async (step) => {
+            await step(() => innerTask(), { key: 'inner' });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(2);
+
+      // The outer workflow should only include its own invocation.
+      expect(results[0]?.metadata?.stats?.totalSteps).toBe(1);
+      expect(results[1]?.metadata?.stats?.totalSteps).toBe(1);
+    });
+
+    it("should treat var-shadowed workflow as function-scoped", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function runOuter() {
+          if (true) {
+            var workflow = createWorkflow({});
+          }
+          return await workflow(async (step) => {
+            await step(() => innerTask(), { key: 'inner' });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(2);
+
+      // The outer workflow should not include the invocation inside the function
+      // because the var declaration hoists and shadows it.
+      const outer = results[0];
+      const inner = results[1];
+
+      expect(outer?.metadata?.stats?.totalSteps).toBe(0);
+      expect(inner?.metadata?.stats?.totalSteps).toBe(1);
+    });
+
+    it("should not treat workflow calls as invocations when shadowed by parameters", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function runShadowed(workflow) {
+          return await workflow(async (step) => {
+            await step(() => innerTask(), { key: 'inner' });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+
+      // The invocation uses the parameter, not the workflow definition.
+      expect(results[0]?.metadata?.stats?.totalSteps).toBe(0);
+    });
+
+    it("should not treat workflow calls as invocations when shadowed by destructured parameters", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function runShadowed({ workflow }) {
+          return await workflow(async (step) => {
+            await step(() => innerTask(), { key: 'inner' });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0]?.metadata?.stats?.totalSteps).toBe(0);
+    });
+
+    it("should not treat workflow calls as invocations when shadowed by array destructuring", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function runShadowed([workflow]) {
+          return await workflow(async (step) => {
+            await step(() => innerTask(), { key: 'inner' });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0]?.metadata?.stats?.totalSteps).toBe(0);
+    });
+
+    it("should not treat workflow calls as invocations when shadowed by method parameters", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        class Runner {
+          async run(workflow) {
+            return await workflow(async (step) => {
+              await step(() => innerTask(), { key: 'inner' });
+            });
+          }
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0]?.metadata?.stats?.totalSteps).toBe(0);
+    });
+
+    it("should not treat workflow calls as invocations when shadowed by destructured variables", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function runShadowed() {
+          const { workflow } = getWorkflows();
+          return await workflow(async (step) => {
+            await step(() => innerTask(), { key: 'inner' });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0]?.metadata?.stats?.totalSteps).toBe(0);
+    });
+
+    it("should not treat workflow calls as invocations when shadowed by catch bindings", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function runShadowed() {
+          try {
+            throw new Error("boom");
+          } catch (workflow) {
+            return await workflow(async (step) => {
+              await step(() => innerTask(), { key: 'inner' });
+            });
+          }
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0]?.metadata?.stats?.totalSteps).toBe(0);
+    });
+
+    it("should not treat workflow calls as invocations when shadowed by destructured catch bindings", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function runShadowed() {
+          try {
+            throw new Error("boom");
+          } catch ({ workflow }) {
+            return await workflow(async (step) => {
+              await step(() => innerTask(), { key: 'inner' });
+            });
+          }
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0]?.metadata?.stats?.totalSteps).toBe(0);
+    });
+
+    it("should count workflow invocations declared before workflow definition", () => {
+      const source = `
+        async function run() {
+          return await workflow(async (step) => {
+            await step(() => innerTask(), { key: 'inner' });
+          });
+        }
+
+        const workflow = createWorkflow({});
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0]?.metadata?.stats?.totalSteps).toBe(1);
+    });
+
+    it("should detect workflow calls when invoked via awaited reference", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function run() {
+          return await (await workflow)(async (step) => {
+            await step(() => innerTask(), { key: 'inner' });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0]?.metadata?.stats?.totalSteps).toBe(1);
+    });
+
+    it("should detect workflow calls when invoked with nested parentheses", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function run() {
+          return await ((workflow))(async (step) => {
+            await step(() => innerTask(), { key: 'inner' });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0]?.metadata?.stats?.totalSteps).toBe(1);
+    });
+
+    it("should not treat workflow calls as invocations when shadowed by function declarations", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function runShadowed() {
+          function workflow() {
+            return null;
+          }
+
+          return await workflow(async (step) => {
+            await step(() => innerTask(), { key: 'inner' });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0]?.metadata?.stats?.totalSteps).toBe(0);
     });
   });
 
@@ -1874,7 +2324,6 @@ async function run() {
   });
 
   describe("Array.map with steps", () => {
-    // TODO: Implement detection of steps in .map callbacks
     it("should detect steps inside .map arrow function", () => {
       const source = `
         const workflow = createWorkflow({});
@@ -1916,7 +2365,6 @@ async function run() {
   });
 
   describe("Nested function expressions", () => {
-    // TODO: Implement detection of steps in nested function expressions
     it("should detect steps in nested arrow functions", () => {
       const source = `
         const workflow = createWorkflow({});
@@ -1957,7 +2405,6 @@ async function run() {
   });
 
   describe("Complex real-world patterns", () => {
-    // TODO: Implement detection of steps in complex real-world patterns
     it("should detect steps in AI SDK tool execute patterns", () => {
       const source = `
         const workflow = createWorkflow({});
@@ -2001,7 +2448,6 @@ async function run() {
   });
 
   describe("run() Advanced Analysis", () => {
-    // TODO: Implement function expression callback support for run()
     it("should handle run() with function expression callback", () => {
       const source = `
         import { run } from 'awaitly';
@@ -2039,7 +2485,6 @@ async function run() {
   });
 
   describe("Workflow Documentation Extraction", () => {
-    // TODO: Implement extraction of description and markdown from createWorkflow options
     it("should extract description from createWorkflow options", () => {
       const source = `
         const workflow = createWorkflow({
@@ -2248,6 +2693,34 @@ async function run() {
               return deps.fetchUser(id);
             }, { key: 'user' });
             return user;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const root = results[0]?.root;
+      const children = root?.children || [];
+
+      let stepNode: StaticStepNode | undefined;
+      if (children[0]?.type === "sequence") {
+        stepNode = (children[0] as StaticSequenceNode).children[0] as StaticStepNode;
+      } else if (children[0]?.type === "step") {
+        stepNode = children[0] as StaticStepNode;
+      }
+
+      expect(stepNode?.type).toBe("step");
+      expect(stepNode?.callee).toBe("deps.fetchUser");
+    });
+
+    it("should extract callee when step callback has parenthesized expression body", () => {
+      // step(() => (deps.fetchUser())) - body is ParenthesizedExpression, not CallExpression
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function run() {
+          return await workflow(async (step, deps) => {
+            await step(() => (deps.fetchUser(id)), { key: 'user' });
+            return null;
           });
         }
       `;
@@ -2507,6 +2980,23 @@ async function run() {
         assumeImported: true,
       });
       // var hoisting should shadow the assumed import
+      expect(results).toHaveLength(0);
+    });
+
+    it("should not detect run() calls when shadowed by a parameter binding", () => {
+      const source = `
+        import { run } from 'awaitly';
+
+        async function execute({ run }) {
+          return await run(async (step, deps) => {
+            return await step(() => deps.fetch(), { key: 'data' });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source, undefined, {
+        assumeImported: false,
+      });
       expect(results).toHaveLength(0);
     });
   });
@@ -2770,6 +3260,190 @@ async function run() {
   });
 
   // ============================================================================
+  // Path Generation
+  // ============================================================================
+
+  describe("Mermaid label escaping", () => {
+    it("should escape newlines in step names so Mermaid diagram is valid", () => {
+      const ir = {
+        root: {
+          id: "w1",
+          type: "workflow" as const,
+          workflowName: "test",
+          source: "createWorkflow" as const,
+          dependencies: [],
+          errorTypes: [],
+          children: [
+            {
+              id: "step-1",
+              type: "step" as const,
+              name: "Step\nWithNewline",
+              callee: "deps.doWork",
+            },
+          ],
+        },
+        metadata: {
+          analyzedAt: Date.now(),
+          filePath: "<source>",
+          warnings: [],
+          stats: {
+            totalSteps: 1,
+            conditionalCount: 0,
+            parallelCount: 0,
+            raceCount: 0,
+            loopCount: 0,
+            workflowRefCount: 0,
+            unknownCount: 0,
+          },
+        },
+        references: new Map(),
+      };
+
+      const mermaid = renderStaticMermaid(ir as import("./types").StaticWorkflowIR);
+      expect(mermaid).not.toMatch(/\[[^\]]*$/m);
+    });
+
+    it("should escape # in step names so Mermaid diagram is valid", () => {
+      // In Mermaid, # in a node label can start a link; unescaped # breaks the diagram.
+      const ir = {
+        root: {
+          id: "w1",
+          type: "workflow" as const,
+          workflowName: "test",
+          source: "createWorkflow" as const,
+          dependencies: [],
+          errorTypes: [],
+          children: [
+            {
+              id: "step-1",
+              type: "step" as const,
+              name: "Step #1",
+              callee: "deps.doWork",
+            },
+          ],
+        },
+        metadata: {
+          analyzedAt: Date.now(),
+          filePath: "<source>",
+          warnings: [],
+          stats: {
+            totalSteps: 1,
+            conditionalCount: 0,
+            parallelCount: 0,
+            raceCount: 0,
+            loopCount: 0,
+            workflowRefCount: 0,
+            unknownCount: 0,
+          },
+        },
+        references: new Map(),
+      };
+
+      const mermaid = renderStaticMermaid(ir as import("./types").StaticWorkflowIR);
+      // Node label is rendered as nodeId[label]; unescaped # in label breaks Mermaid (link syntax).
+      expect(mermaid).not.toMatch(/\[[^\]]*#[^\]]*\]/);
+    });
+  });
+
+  describe("Complexity metrics", () => {
+    it("should report maxParallelBreadth 0 for empty parallel node", () => {
+      const ir = {
+        root: {
+          id: "w1",
+          type: "workflow" as const,
+          workflowName: "test",
+          source: "createWorkflow" as const,
+          dependencies: [],
+          errorTypes: [],
+          children: [
+            {
+              id: "parallel-1",
+              type: "parallel" as const,
+              mode: "all" as const,
+              children: [],
+            },
+          ],
+        },
+        metadata: {
+          analyzedAt: Date.now(),
+          filePath: "<source>",
+          warnings: [],
+          stats: {
+            totalSteps: 0,
+            conditionalCount: 0,
+            parallelCount: 1,
+            raceCount: 0,
+            loopCount: 0,
+            workflowRefCount: 0,
+            unknownCount: 0,
+          },
+        },
+        references: new Map(),
+      };
+
+      const metrics = calculateComplexity(ir as import("./types").StaticWorkflowIR);
+      expect(metrics.maxParallelBreadth).toBe(0);
+    });
+  });
+
+  describe("Path generation", () => {
+    it("should set pathLimitHit in statistics when maxPaths limit is hit", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function run() {
+          return await workflow(async (step, deps) => {
+            const user = await step(() => deps.fetchUser(), { key: 'user' });
+            if (user.isPremium) {
+              await step(() => deps.applyDiscount(), { key: 'discount' });
+            } else {
+              await step(() => deps.applyRegular(), { key: 'regular' });
+            }
+            return user;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const ir = results[0];
+      expect(ir).toBeDefined();
+
+      const { paths, limitHit } = generatePathsWithMetadata(ir!, {
+        maxPaths: 1,
+      });
+      expect(paths.length).toBe(1);
+
+      const stats = calculatePathStatistics(paths, { limitHit });
+      expect(stats.pathLimitHit).toBe(true);
+    });
+
+    it("should set pathLimitHit to false when workflow has exactly maxPaths paths (no truncation)", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function run() {
+          return await workflow(async (step, deps) => {
+            const user = await step(() => deps.fetchUser(), { key: 'user' });
+            return user;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const ir = results[0];
+      expect(ir).toBeDefined();
+
+      const { paths, limitHit } = generatePathsWithMetadata(ir!, {
+        maxPaths: 1,
+      });
+      expect(paths.length).toBe(1);
+
+      const stats = calculatePathStatistics(paths, { limitHit });
+      expect(stats.pathLimitHit).toBe(false);
+    });
+  });
+
+  // ============================================================================
   // Fixture-Based Comparison Tests
   // ============================================================================
 
@@ -3000,6 +3674,177 @@ async function run() {
       });
 
       expect(mermaid).toContain("Fastest source");
+    });
+  });
+});
+
+// =============================================================================
+// Fluent API Tests
+// =============================================================================
+
+import { analyze } from "./analyze";
+
+describe("analyze() fluent API", () => {
+  beforeEach(() => {
+    resetIdCounter();
+  });
+
+  const singleWorkflowCode = `
+    import { createWorkflow } from 'awaitly';
+
+    const testWorkflow = createWorkflow({});
+
+    async function run() {
+      return await testWorkflow(async (step, deps) => {
+        await step(() => deps.doSomething(), { key: 'step1' });
+      });
+    }
+  `;
+
+  const multiWorkflowCode = `
+    import { createWorkflow } from 'awaitly';
+
+    const workflowA = createWorkflow({});
+    const workflowB = createWorkflow({});
+
+    async function runA() {
+      return await workflowA(async (step, deps) => {
+        await step(() => deps.doA(), { key: 'a' });
+      });
+    }
+
+    async function runB() {
+      return await workflowB(async (step, deps) => {
+        await step(() => deps.doB(), { key: 'b' });
+      });
+    }
+  `;
+
+  const emptyCode = `
+    // No workflows here
+    const x = 1;
+  `;
+
+  describe("single()", () => {
+    it("returns single workflow when file has exactly one", () => {
+      const ir = analyze.source(singleWorkflowCode).single();
+      expect(ir.root.workflowName).toBe("testWorkflow");
+    });
+
+    it("throws for multiple workflows", () => {
+      expect(() => analyze.source(multiWorkflowCode).single()).toThrow(
+        "Expected exactly 1 workflow, found 2"
+      );
+    });
+
+    it("throws for no workflows", () => {
+      expect(() => analyze.source(emptyCode).single()).toThrow(
+        "Expected exactly 1 workflow, found 0"
+      );
+    });
+  });
+
+  describe("singleOrNull()", () => {
+    it("returns single workflow when file has exactly one", () => {
+      const ir = analyze.source(singleWorkflowCode).singleOrNull();
+      expect(ir?.root.workflowName).toBe("testWorkflow");
+    });
+
+    it("returns null for multiple workflows", () => {
+      const ir = analyze.source(multiWorkflowCode).singleOrNull();
+      expect(ir).toBeNull();
+    });
+
+    it("returns null for no workflows", () => {
+      const ir = analyze.source(emptyCode).singleOrNull();
+      expect(ir).toBeNull();
+    });
+  });
+
+  describe("all()", () => {
+    it("returns array with single workflow", () => {
+      const irs = analyze.source(singleWorkflowCode).all();
+      expect(irs).toHaveLength(1);
+      expect(irs[0].root.workflowName).toBe("testWorkflow");
+    });
+
+    it("returns array with multiple workflows", () => {
+      const irs = analyze.source(multiWorkflowCode).all();
+      expect(irs).toHaveLength(2);
+      expect(irs.map((ir) => ir.root.workflowName).sort()).toEqual([
+        "workflowA",
+        "workflowB",
+      ]);
+    });
+
+    it("returns empty array for no workflows", () => {
+      const irs = analyze.source(emptyCode).all();
+      expect(irs).toEqual([]);
+    });
+  });
+
+  describe("named()", () => {
+    it("finds workflow by name", () => {
+      const ir = analyze.source(multiWorkflowCode).named("workflowB");
+      expect(ir.root.workflowName).toBe("workflowB");
+    });
+
+    it("throws if workflow not found", () => {
+      expect(() => analyze.source(multiWorkflowCode).named("missing")).toThrow(
+        'Workflow "missing" not found. Available: workflowA, workflowB'
+      );
+    });
+
+    it("throws with helpful message when no workflows exist", () => {
+      expect(() => analyze.source(emptyCode).named("missing")).toThrow(
+        'Workflow "missing" not found. Available: (none)'
+      );
+    });
+  });
+
+  describe("first()", () => {
+    it("returns first workflow from single-workflow file", () => {
+      const ir = analyze.source(singleWorkflowCode).first();
+      expect(ir.root.workflowName).toBe("testWorkflow");
+    });
+
+    it("returns first workflow from multi-workflow file", () => {
+      const ir = analyze.source(multiWorkflowCode).first();
+      expect(["workflowA", "workflowB"]).toContain(ir.root.workflowName);
+    });
+
+    it("throws for empty file", () => {
+      expect(() => analyze.source(emptyCode).first()).toThrow(
+        "No workflows found"
+      );
+    });
+  });
+
+  describe("firstOrNull()", () => {
+    it("returns first workflow from single-workflow file", () => {
+      const ir = analyze.source(singleWorkflowCode).firstOrNull();
+      expect(ir?.root.workflowName).toBe("testWorkflow");
+    });
+
+    it("returns first workflow from multi-workflow file", () => {
+      const ir = analyze.source(multiWorkflowCode).firstOrNull();
+      expect(ir).not.toBeNull();
+      expect(["workflowA", "workflowB"]).toContain(ir!.root.workflowName);
+    });
+
+    it("returns null for empty file", () => {
+      const ir = analyze.source(emptyCode).firstOrNull();
+      expect(ir).toBeNull();
+    });
+  });
+
+  describe("analyze.source()", () => {
+    it("accepts options", () => {
+      const ir = analyze
+        .source(singleWorkflowCode, { includeLocations: false })
+        .single();
+      // Location should still be present (default behavior), but we can verify it works
+      expect(ir.root.workflowName).toBe("testWorkflow");
     });
   });
 });

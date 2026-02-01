@@ -1,18 +1,20 @@
 /**
- * Static Workflow Analyzer (Tree-sitter POC)
+ * Static Workflow Analyzer
  *
- * Uses tree-sitter to parse TypeScript AST and extract workflow structure.
- * This is a POC to evaluate tree-sitter as a replacement for ts-morph.
- *
- * Goals:
- * - Parse TypeScript files using WASM-based tree-sitter
- * - Find createWorkflow calls
- * - Extract step invocations from workflow callbacks
- * - Generate compatible StaticWorkflowIR output
+ * Uses ts-morph to walk the TypeScript AST and extract workflow structure
+ * without executing the code. This enables:
+ * - Understanding all possible execution paths
+ * - Generating test coverage matrices
+ * - Creating documentation
+ * - Calculating complexity metrics
+ * - Extracting type information (input types, result types, error types)
  */
 
-import { readFileSync } from "fs";
-import { loadTreeSitter, type SyntaxNode } from "./tree-sitter-loader";
+// Type-only imports - erased at compile time, no runtime dependency
+// These provide type checking without creating a runtime dependency on ts-morph
+import type { SourceFile, Project, Node } from "ts-morph";
+import { loadTsMorph } from "./ts-morph-loader";
+
 import type {
   StaticWorkflowIR,
   StaticWorkflowNode,
@@ -20,45 +22,38 @@ import type {
   StaticStepNode,
   StaticSequenceNode,
   StaticParallelNode,
-  StaticLoopNode,
+  StaticRaceNode,
   StaticConditionalNode,
+  StaticLoopNode,
+  StaticWorkflowRefNode,
+  StaticStreamNode,
+  StaticSagaStepNode,
   StaticSwitchNode,
   StaticSwitchCase,
-  StaticRaceNode,
-  StaticStreamNode,
-  StaticWorkflowRefNode,
-  StaticSagaStepNode,
-  StaticRetryConfig,
-  StaticTimeoutConfig,
-  StaticAnalysisMetadata,
   SourceLocation,
+  DependencyInfo,
   AnalysisWarning,
   AnalysisStats,
-  AnalyzerOptions,
+  StaticRetryConfig,
+  StaticTimeoutConfig,
 } from "./types";
 
-// =============================================================================
-// Types
-// =============================================================================
-
-interface AnalyzerContext {
-  sourceCode: string;
-  filePath: string;
-  opts: Required<AnalyzerOptions>;
-  warnings: AnalysisWarning[];
-  stats: AnalysisStats;
-  /** Set of workflow names defined in this file */
-  workflowNames: Set<string>;
-  /** The current workflow being analyzed (to detect self-references) */
-  currentWorkflow?: string;
-  /** The name of the step parameter in the current callback (e.g., "step") */
-  stepParameterName?: string;
-  /** Whether the saga context is destructured (e.g., `({ step })` instead of `saga`) */
-  isSagaDestructured?: boolean;
-  /** The alias for `step` when saga is destructured */
-  sagaStepAlias?: string;
-  /** The alias for `tryStep` when saga is destructured */
-  sagaTryStepAlias?: string;
+/**
+ * Options for the static analyzer.
+ */
+export interface AnalyzerOptions {
+  /** Path to tsconfig.json (optional, will use default if not provided) */
+  tsConfigPath?: string;
+  /** Whether to resolve and inline referenced workflows */
+  resolveReferences?: boolean;
+  /** Maximum depth for reference resolution (default: 5) */
+  maxReferenceDepth?: number;
+  /** Whether to include source locations in output */
+  includeLocations?: boolean;
+  /** Assume imports are present (for code snippets without imports) */
+  assumeImported?: boolean;
+  /** Filter which patterns to detect: 'run', 'createWorkflow', 'createSagaWorkflow', or 'all' */
+  detect?: "run" | "createWorkflow" | "createSagaWorkflow" | "all";
 }
 
 // =============================================================================
@@ -67,1513 +62,524 @@ interface AnalyzerContext {
 
 const DEFAULT_OPTIONS: Required<AnalyzerOptions> = {
   tsConfigPath: "./tsconfig.json",
-  resolveReferences: false, // Not implemented in tree-sitter POC
+  resolveReferences: true,
   maxReferenceDepth: 5,
   includeLocations: true,
+  assumeImported: false,
   detect: "all",
-  assumeImported: false, // Strict by default - requires explicit import
 };
 
 // =============================================================================
-// Public API
+// Main Analyzer
 // =============================================================================
 
 /**
- * Analyze a workflow file using tree-sitter.
+ * Analyze a workflow file and extract its static structure.
  *
- * @param filePath - Path to the TypeScript file
+ * @param filePath - Path to the TypeScript file containing the workflow
+ * @param workflowName - Optional name of specific workflow to analyze (if file has multiple)
  * @param options - Analysis options
- * @returns Array of workflow IR objects
+ * @returns Static workflow IR
  */
-export async function analyzeWorkflow(
+export function analyzeWorkflow(
+  filePath: string,
+  workflowName?: string,
+  options: AnalyzerOptions = {}
+): StaticWorkflowIR {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const { ts } = loadTsMorph();
+
+  // Create ts-morph project
+  const project = createProject(opts);
+  const sourceFile = project.addSourceFileAtPath(filePath);
+
+  // Find workflow calls
+  const workflows = findWorkflowCalls(sourceFile, opts);
+
+  if (workflows.length === 0) {
+    throw new Error(`No workflow calls found in ${filePath}`);
+  }
+
+  // Select the workflow to analyze
+  const targetWorkflow = workflowName
+    ? workflows.find((w) => w.name === workflowName)
+    : workflows[0];
+
+  if (!targetWorkflow) {
+    const available = workflows.map((w) => w.name).join(", ");
+    throw new Error(
+      `Workflow "${workflowName}" not found. Available workflows: ${available}`
+    );
+  }
+
+  const warnings: AnalysisWarning[] = [];
+  const stats = createEmptyStats();
+
+  // Analyze the workflow
+  const rootNode = analyzeWorkflowCall(
+    targetWorkflow,
+    sourceFile,
+    opts,
+    warnings,
+    stats
+  );
+
+  return {
+    root: rootNode,
+    metadata: {
+      analyzedAt: Date.now(),
+      filePath,
+      tsVersion: ts.version,
+      warnings,
+      stats,
+    },
+    references: new Map(),
+  };
+}
+
+/**
+ * Analyze all workflows in a file and return them as an array.
+ * This matches the old tree-sitter API signature.
+ *
+ * @param filePath - Path to the TypeScript file containing the workflow(s)
+ * @param options - Analysis options
+ * @returns Array of Static workflow IRs
+ */
+export function analyzeWorkflowFile(
   filePath: string,
   options: AnalyzerOptions = {}
-): Promise<StaticWorkflowIR[]> {
+): StaticWorkflowIR[] {
   const opts = { ...DEFAULT_OPTIONS, ...options };
+  const { ts } = loadTsMorph();
 
-  // Load tree-sitter (downloads WASM on first use)
-  const { parser } = await loadTreeSitter();
+  // Create ts-morph project
+  const project = createProject(opts);
+  const sourceFile = project.addSourceFileAtPath(filePath);
 
-  // Read and parse the source file
-  const sourceCode = readFileSync(filePath, "utf-8");
-  const tree = parser.parse(sourceCode);
+  // Find workflow calls
+  const workflows = findWorkflowCalls(sourceFile, opts);
 
-  // Create analysis context
-  const ctx: AnalyzerContext = {
-    sourceCode,
-    filePath,
-    opts,
-    warnings: [],
-    stats: createEmptyStats(),
-    workflowNames: new Set(),
-  };
-
-  // Find all workflow definitions first to track names
-  const definitions = findWorkflowDefinitions(tree.rootNode, ctx);
-  definitions.forEach((d) => ctx.workflowNames.add(d.name));
+  if (workflows.length === 0) {
+    return [];
+  }
 
   const results: StaticWorkflowIR[] = [];
 
-  // Find and analyze createWorkflow calls (unless filtered to run only)
-  if (opts.detect === "all" || opts.detect === "createWorkflow") {
-    const workflowCalls = findWorkflowCalls(tree.rootNode, ctx);
-    for (const call of workflowCalls) {
-      const ir = analyzeWorkflowCall(call, ctx);
-      if (ir) {
-        results.push(ir);
-      }
-    }
-  }
+  for (const workflow of workflows) {
+    const warnings: AnalysisWarning[] = [];
+    const stats = createEmptyStats();
 
-  // Find and analyze run() calls (unless filtered to createWorkflow only)
-  if (opts.detect === "all" || opts.detect === "run") {
-    const runCalls = findRunCalls(tree.rootNode, ctx);
-    for (const call of runCalls) {
-      const ir = analyzeRunCall(call, ctx);
-      if (ir) {
-        results.push(ir);
-      }
-    }
-  }
+    const rootNode = analyzeWorkflowCall(
+      workflow,
+      sourceFile,
+      opts,
+      warnings,
+      stats
+    );
 
-  // Find and analyze createSagaWorkflow calls (unless filtered)
-  if (opts.detect === "all" || opts.detect === "createSagaWorkflow") {
-    const sagaDefinitions = findSagaWorkflowDefinitions(tree.rootNode, ctx);
-    sagaDefinitions.forEach((d) => ctx.workflowNames.add(d.name));
-
-    const sagaCalls = findSagaWorkflowCalls(tree.rootNode, ctx);
-    for (const call of sagaCalls) {
-      const ir = analyzeSagaWorkflowCall(call, ctx);
-      if (ir) {
-        results.push(ir);
-      }
-    }
-  }
-
-  // Find and analyze runSaga() calls (unless filtered)
-  if (opts.detect === "all" || opts.detect === "runSaga") {
-    const runSagaCalls = findRunSagaCalls(tree.rootNode, ctx);
-    for (const call of runSagaCalls) {
-      const ir = analyzeRunSagaCall(call, ctx);
-      if (ir) {
-        results.push(ir);
-      }
-    }
+    results.push({
+      root: rootNode,
+      metadata: {
+        analyzedAt: Date.now(),
+        filePath,
+        tsVersion: ts.version,
+        warnings,
+        stats,
+      },
+      references: new Map(),
+    });
   }
 
   return results;
 }
 
 /**
- * Parse source code directly (for testing).
+ * Analyze workflow source code directly (for testing).
+ *
+ * @param sourceCode - TypeScript source code
+ * @param workflowName - Optional name of specific workflow to analyze
+ * @param options - Analysis options
+ * @returns Array of Static workflow IRs
  */
-export async function analyzeWorkflowSource(
+export function analyzeWorkflowSource(
   sourceCode: string,
+  workflowName?: string,
   options: AnalyzerOptions = {}
-): Promise<StaticWorkflowIR[]> {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
-  const { parser } = await loadTreeSitter();
-  const tree = parser.parse(sourceCode);
+): StaticWorkflowIR[] {
+  // Default to assumeImported: true for source analysis (testing scenarios)
+  const opts = { ...DEFAULT_OPTIONS, assumeImported: true, ...options };
+  const { ts, Project: TsMorphProject } = loadTsMorph();
 
-  const ctx: AnalyzerContext = {
-    sourceCode,
-    filePath: "<source>",
-    opts,
-    warnings: [],
-    stats: createEmptyStats(),
-    workflowNames: new Set(),
-  };
+  // Create ts-morph project with in-memory source
+  const project = new TsMorphProject({
+    useInMemoryFileSystem: true,
+    compilerOptions: {
+      target: ts.ScriptTarget.ESNext,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      esModuleInterop: true,
+    },
+  });
 
-  // Find all workflow definitions first to track names
-  const definitions = findWorkflowDefinitions(tree.rootNode, ctx);
-  definitions.forEach((d) => ctx.workflowNames.add(d.name));
+  const sourceFile = project.createSourceFile("workflow.ts", sourceCode);
+
+  // Find workflow calls
+  const workflows = findWorkflowCalls(sourceFile, opts);
+
+  if (workflows.length === 0) {
+    return [];
+  }
+
+  // Filter by name if specified
+  const targetWorkflows = workflowName
+    ? workflows.filter((w) => w.name === workflowName)
+    : workflows;
 
   const results: StaticWorkflowIR[] = [];
 
-  // Find and analyze createWorkflow calls (unless filtered to run only)
-  if (opts.detect === "all" || opts.detect === "createWorkflow") {
-    const workflowCalls = findWorkflowCalls(tree.rootNode, ctx);
-    for (const call of workflowCalls) {
-      const ir = analyzeWorkflowCall(call, ctx);
-      if (ir) {
-        results.push(ir);
-      }
-    }
-  }
+  for (const workflow of targetWorkflows) {
+    const warnings: AnalysisWarning[] = [];
+    const stats = createEmptyStats();
 
-  // Find and analyze run() calls (unless filtered to createWorkflow only)
-  if (opts.detect === "all" || opts.detect === "run") {
-    const runCalls = findRunCalls(tree.rootNode, ctx);
-    for (const call of runCalls) {
-      const ir = analyzeRunCall(call, ctx);
-      if (ir) {
-        results.push(ir);
-      }
-    }
-  }
+    const rootNode = analyzeWorkflowCall(
+      workflow,
+      sourceFile,
+      opts,
+      warnings,
+      stats
+    );
 
-  // Find and analyze createSagaWorkflow calls (unless filtered)
-  if (opts.detect === "all" || opts.detect === "createSagaWorkflow") {
-    const sagaDefinitions = findSagaWorkflowDefinitions(tree.rootNode, ctx);
-    sagaDefinitions.forEach((d) => ctx.workflowNames.add(d.name));
-
-    const sagaCalls = findSagaWorkflowCalls(tree.rootNode, ctx);
-    for (const call of sagaCalls) {
-      const ir = analyzeSagaWorkflowCall(call, ctx);
-      if (ir) {
-        results.push(ir);
-      }
-    }
-  }
-
-  // Find and analyze runSaga() calls (unless filtered)
-  if (opts.detect === "all" || opts.detect === "runSaga") {
-    const runSagaCalls = findRunSagaCalls(tree.rootNode, ctx);
-    for (const call of runSagaCalls) {
-      const ir = analyzeRunSagaCall(call, ctx);
-      if (ir) {
-        results.push(ir);
-      }
-    }
+    results.push({
+      root: rootNode,
+      metadata: {
+        analyzedAt: Date.now(),
+        filePath: "<source>",
+        tsVersion: ts.version,
+        warnings,
+        stats,
+      },
+      references: new Map(),
+    });
   }
 
   return results;
+}
+
+// =============================================================================
+// Project Setup
+// =============================================================================
+
+function createProject(opts: Required<AnalyzerOptions>): Project {
+  // Lazy-load ts-morph at runtime - shows helpful error if not installed
+  const { Project: TsMorphProject, ts } = loadTsMorph();
+
+  try {
+    return new TsMorphProject({
+      tsConfigFilePath: opts.tsConfigPath,
+      skipAddingFilesFromTsConfig: true,
+    });
+  } catch {
+    // Fallback if tsconfig not found
+    return new TsMorphProject({
+      compilerOptions: {
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        strict: true,
+        esModuleInterop: true,
+      },
+    });
+  }
 }
 
 // =============================================================================
 // Workflow Discovery
 // =============================================================================
 
-interface WorkflowDefinition {
+interface WorkflowCallInfo {
   name: string;
-  createWorkflowCall: SyntaxNode;
-  /** Short description for labels/tooltips */
-  description?: string;
-  /** Full markdown documentation */
-  markdown?: string;
+  callExpression: Node;
+  depsObject: Node | undefined;
+  optionsObject: Node | undefined;
+  callbackFunction: Node | undefined;
+  variableDeclaration: Node | undefined;
+  source: "createWorkflow" | "createSagaWorkflow" | "runSaga" | "run";
 }
 
 /**
- * Extracted workflow options from createWorkflow call.
- */
-interface WorkflowOptionsExtracted {
-  description?: string;
-  markdown?: string;
-}
-
-/**
- * Extract workflow options (description, markdown) from an options object literal.
- */
-function extractWorkflowOptions(
-  optionsNode: SyntaxNode,
-  ctx: AnalyzerContext
-): WorkflowOptionsExtracted {
-  const result: WorkflowOptionsExtracted = {};
-
-  if (optionsNode.type !== "object") {
-    return result;
-  }
-
-  for (const prop of optionsNode.namedChildren) {
-    if (prop.type === "pair") {
-      const keyNode = prop.childForFieldName("key");
-      const valueNode = prop.childForFieldName("value");
-
-      if (keyNode && valueNode) {
-        const key = getText(keyNode, ctx);
-        if (key === "description") {
-          const value = extractStringValue(valueNode, ctx);
-          if (value) result.description = value;
-        } else if (key === "markdown") {
-          const value = extractStringValue(valueNode, ctx);
-          if (value) result.markdown = value;
-        }
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
- * Find all createWorkflow calls and extract workflow names.
- */
-function findWorkflowDefinitions(
-  root: SyntaxNode,
-  ctx: AnalyzerContext
-): WorkflowDefinition[] {
-  const results: WorkflowDefinition[] = [];
-
-  traverseNode(root, (node) => {
-    if (node.type === "call_expression") {
-      const funcNode = node.childForFieldName("function");
-      if (funcNode) {
-        const funcText = getText(funcNode, ctx);
-        if (funcText === "createWorkflow") {
-          const workflowName = extractWorkflowName(node, ctx);
-          if (workflowName) {
-            // Extract documentation options from second argument
-            const args = node.childForFieldName("arguments");
-            const optionsNode = args?.namedChildren[1]; // Second arg is options
-            const options = optionsNode
-              ? extractWorkflowOptions(optionsNode, ctx)
-              : {};
-
-            results.push({
-              name: workflowName,
-              createWorkflowCall: node,
-              description: options.description,
-              markdown: options.markdown,
-            });
-          }
-        }
-      }
-    }
-  });
-
-  return results;
-}
-
-/**
- * Find all calls to a workflow (workflow invocations with callbacks).
- */
-function findWorkflowCalls(root: SyntaxNode, ctx: AnalyzerContext): SyntaxNode[] {
-  const definitions = findWorkflowDefinitions(root, ctx);
-  const workflowNames = new Set(definitions.map((d) => d.name));
-
-  const results: SyntaxNode[] = [];
-
-  traverseNode(root, (node) => {
-    if (node.type === "call_expression") {
-      const funcNode = node.childForFieldName("function");
-      if (funcNode) {
-        const funcText = getText(funcNode, ctx);
-        // Check if this is a call to a known workflow
-        if (workflowNames.has(funcText)) {
-          // Check if it has a callback argument
-          const args = node.childForFieldName("arguments");
-          if (args) {
-            const firstArg = args.namedChildren[0];
-            if (
-              firstArg?.type === "arrow_function" ||
-              firstArg?.type === "function_expression"
-            ) {
-              results.push(node);
-            }
-          }
-        }
-      }
-    }
-  });
-
-  return results;
-}
-
-/**
- * Find imported names for a given export from awaitly packages.
- * Handles: import { run } from 'awaitly'
- *          import { run as runWorkflow } from 'awaitly'
- *          import { run } from '@awaitly/core'
- *          import { createSagaWorkflow } from 'awaitly/saga'
- * Skips:   import type { run } from 'awaitly' (type-only imports)
- */
-function findAwaitlyImports(
-  root: SyntaxNode,
-  exportName: string,
-  ctx: AnalyzerContext
-): Set<string> {
-  const importedNames = new Set<string>();
-
-  traverseNode(root, (node) => {
-    if (node.type === "import_statement") {
-      // Skip type-only imports (import type { ... } from '...')
-      // These have a "type" keyword as a child
-      let isTypeOnly = false;
-      for (let i = 0; i < node.childCount; i++) {
-        const child = node.children[i];
-        if (child && child.type === "type") {
-          isTypeOnly = true;
-          break;
-        }
-      }
-      if (isTypeOnly) {
-        return;
-      }
-
-      // Check if importing from awaitly, awaitly/*, or @awaitly/*
-      const sourceNode = node.childForFieldName("source");
-      if (sourceNode) {
-        const sourceText = getText(sourceNode, ctx);
-        // Remove quotes and check if it's an awaitly package
-        const modulePath = sourceText.slice(1, -1);
-        if (modulePath === "awaitly" || modulePath.startsWith("awaitly/") || modulePath.startsWith("@awaitly/")) {
-          // Find the import clause
-          for (const child of node.namedChildren) {
-            if (child.type === "import_clause") {
-              // Look for named imports
-              for (const clauseChild of child.namedChildren) {
-                if (clauseChild.type === "named_imports") {
-                  for (const specifier of clauseChild.namedChildren) {
-                    if (specifier.type === "import_specifier") {
-                      // Skip type-only specifiers (import { type run } from '...')
-                      // These have a "type" keyword as a child of the specifier
-                      let isTypeOnlySpecifier = false;
-                      for (const specChild of specifier.children) {
-                        if (specChild.type === "type") {
-                          isTypeOnlySpecifier = true;
-                          break;
-                        }
-                      }
-                      if (isTypeOnlySpecifier) {
-                        continue;
-                      }
-
-                      const nameNode = specifier.childForFieldName("name");
-                      const aliasNode = specifier.childForFieldName("alias");
-
-                      if (nameNode) {
-                        const importedName = getText(nameNode, ctx);
-                        if (importedName === exportName) {
-                          // Use alias if present, otherwise use original name
-                          const localName = aliasNode
-                            ? getText(aliasNode, ctx)
-                            : importedName;
-                          importedNames.add(localName);
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  });
-
-  return importedNames;
-}
-
-/**
- * Recursively search for var declarations within a node.
- * Used to find function-scoped var declarations in nested blocks.
- */
-function hasVarDeclaration(
-  node: SyntaxNode,
-  identifierName: string,
-  ctx: AnalyzerContext
-): boolean {
-  // Check if this node is a var declaration
-  if (node.type === "variable_declaration") {
-    for (const declarator of node.namedChildren) {
-      if (declarator.type === "variable_declarator") {
-        const nameNode = declarator.childForFieldName("name");
-        if (nameNode && getText(nameNode, ctx) === identifierName) {
-          return true;
-        }
-      }
-    }
-  }
-
-  // Don't recurse into nested functions (they have their own scope)
-  if (
-    node.type === "arrow_function" ||
-    node.type === "function_expression" ||
-    node.type === "function_declaration"
-  ) {
-    return false;
-  }
-
-  // Recursively check children
-  for (const child of node.namedChildren) {
-    if (hasVarDeclaration(child, identifierName, ctx)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Check if an identifier at a given node is shadowed by a local declaration.
- * Walks up the AST looking for variable/function declarations or parameters
- * that would shadow the identifier before reaching module scope.
- */
-function isIdentifierShadowed(
-  node: SyntaxNode,
-  identifierName: string,
-  ctx: AnalyzerContext
-): boolean {
-  let current: SyntaxNode | null = node.parent;
-
-  while (current) {
-    // Check for variable declarations in statement blocks
-    if (
-      current.type === "statement_block" ||
-      current.type === "program"
-    ) {
-      // Check ALL declarations in the scope (not just before the call site)
-      // because const/let create TDZ and function declarations are hoisted
-      for (const child of current.namedChildren) {
-        // Check let/const (block-scoped) at this level only
-        if (child.type === "lexical_declaration") {
-          for (const declarator of child.namedChildren) {
-            if (declarator.type === "variable_declarator") {
-              const nameNode = declarator.childForFieldName("name");
-              if (nameNode && getText(nameNode, ctx) === identifierName) {
-                return true;
-              }
-            }
-          }
-        }
-        // Check var (function-scoped) at this level only - nested vars handled below
-        else if (child.type === "variable_declaration") {
-          for (const declarator of child.namedChildren) {
-            if (declarator.type === "variable_declarator") {
-              const nameNode = declarator.childForFieldName("name");
-              if (nameNode && getText(nameNode, ctx) === identifierName) {
-                return true;
-              }
-            }
-          }
-        } else if (child.type === "function_declaration") {
-          const nameNode = child.childForFieldName("name");
-          if (nameNode && getText(nameNode, ctx) === identifierName) {
-            return true;
-          }
-        }
-      }
-
-      // At program scope, search nested blocks for var declarations (they're program-scoped)
-      if (current.type === "program") {
-        if (hasVarDeclaration(current, identifierName, ctx)) {
-          return true;
-        }
-      }
-    }
-
-    // Check function parameters and search entire function body for var declarations
-    if (
-      current.type === "arrow_function" ||
-      current.type === "function_expression" ||
-      current.type === "function_declaration" ||
-      current.type === "method_definition"
-    ) {
-      const params = current.childForFieldName("parameters");
-      if (params) {
-        for (const param of params.namedChildren) {
-          // Handle simple identifier parameters
-          if (param.type === "identifier" && getText(param, ctx) === identifierName) {
-            return true;
-          }
-          // Handle destructuring patterns
-          if (param.type === "object_pattern" || param.type === "array_pattern") {
-            // For simplicity, check if the identifier appears anywhere in the pattern
-            let found = false;
-            traverseNode(param, (n) => {
-              if (n.type === "identifier" && getText(n, ctx) === identifierName) {
-                found = true;
-              }
-            });
-            if (found) return true;
-          }
-          // Handle assignment patterns (default values)
-          if (param.type === "assignment_pattern") {
-            const left = param.childForFieldName("left");
-            if (left?.type === "identifier" && getText(left, ctx) === identifierName) {
-              return true;
-            }
-          }
-        }
-      }
-
-      // Search entire function body for var declarations (they're function-scoped)
-      const body = current.childForFieldName("body");
-      if (body && hasVarDeclaration(body, identifierName, ctx)) {
-        return true;
-      }
-    }
-
-    // Stop at program level (module scope)
-    if (current.type === "program") break;
-
-    current = current.parent;
-  }
-
-  return false;
-}
-
-/**
- * Find all run() calls in the AST.
- * Only matches `run` when imported from 'awaitly' or '@awaitly/*'.
- * Does not match method calls like `obj.run()` or locally-defined `run` functions.
- */
-function findRunCalls(root: SyntaxNode, ctx: AnalyzerContext): SyntaxNode[] {
-  // First, find all imported names for 'run' from awaitly
-  const runImportNames = findAwaitlyImports(root, "run", ctx);
-
-  // If assumeImported is set, treat 'run' as valid even without import
-  // This is useful for docs, REPL, and test snippets
-  if (ctx.opts.assumeImported) {
-    runImportNames.add("run");
-  }
-
-  // If run is not imported from awaitly (and not assumed), return empty
-  if (runImportNames.size === 0) {
-    return [];
-  }
-
-  const results: SyntaxNode[] = [];
-
-  traverseNode(root, (node) => {
-    if (node.type === "call_expression") {
-      const funcNode = node.childForFieldName("function");
-      if (funcNode && funcNode.type === "identifier") {
-        const funcText = getText(funcNode, ctx);
-        // Only match if it's an imported run from awaitly
-        if (runImportNames.has(funcText)) {
-          // Check if the identifier is shadowed by a local declaration
-          if (isIdentifierShadowed(node, funcText, ctx)) {
-            return; // Skip - this is a shadowed local variable, not the import
-          }
-
-          // Verify first argument is a callback
-          const args = node.childForFieldName("arguments");
-          const firstArg = args?.namedChildren[0];
-          if (
-            firstArg?.type === "arrow_function" ||
-            firstArg?.type === "function_expression"
-          ) {
-            results.push(node);
-          }
-        }
-      }
-    }
-  });
-
-  return results;
-}
-
-// =============================================================================
-// Saga Workflow Discovery
-// =============================================================================
-
-interface SagaWorkflowDefinition {
-  name: string;
-  createSagaWorkflowCall: SyntaxNode;
-  description?: string;
-  markdown?: string;
-}
-
-/**
- * Find all createSagaWorkflow calls and extract saga workflow names.
- */
-function findSagaWorkflowDefinitions(
-  root: SyntaxNode,
-  ctx: AnalyzerContext
-): SagaWorkflowDefinition[] {
-  const results: SagaWorkflowDefinition[] = [];
-
-  traverseNode(root, (node) => {
-    if (node.type === "call_expression") {
-      const funcNode = node.childForFieldName("function");
-      if (funcNode) {
-        const funcText = getText(funcNode, ctx);
-        if (funcText === "createSagaWorkflow") {
-          const workflowName = extractWorkflowName(node, ctx);
-          if (workflowName) {
-            const args = node.childForFieldName("arguments");
-            const optionsNode = args?.namedChildren[1];
-            const options = optionsNode
-              ? extractWorkflowOptions(optionsNode, ctx)
-              : {};
-
-            results.push({
-              name: workflowName,
-              createSagaWorkflowCall: node,
-              description: options.description,
-              markdown: options.markdown,
-            });
-          }
-        }
-      }
-    }
-  });
-
-  return results;
-}
-
-/**
- * Find all calls to a saga workflow (saga invocations with callbacks).
- */
-function findSagaWorkflowCalls(root: SyntaxNode, ctx: AnalyzerContext): SyntaxNode[] {
-  const definitions = findSagaWorkflowDefinitions(root, ctx);
-  const sagaNames = new Set(definitions.map((d) => d.name));
-
-  const results: SyntaxNode[] = [];
-
-  traverseNode(root, (node) => {
-    if (node.type === "call_expression") {
-      const funcNode = node.childForFieldName("function");
-      if (funcNode) {
-        const funcText = getText(funcNode, ctx);
-        if (sagaNames.has(funcText)) {
-          const args = node.childForFieldName("arguments");
-          if (args) {
-            const firstArg = args.namedChildren[0];
-            if (
-              firstArg?.type === "arrow_function" ||
-              firstArg?.type === "function_expression"
-            ) {
-              results.push(node);
-            }
-          }
-        }
-      }
-    }
-  });
-
-  return results;
-}
-
-/**
- * Find all runSaga() calls in the AST.
- */
-function findRunSagaCalls(root: SyntaxNode, ctx: AnalyzerContext): SyntaxNode[] {
-  const runSagaImportNames = findAwaitlyImports(root, "runSaga", ctx);
-
-  if (ctx.opts.assumeImported) {
-    runSagaImportNames.add("runSaga");
-  }
-
-  if (runSagaImportNames.size === 0) {
-    return [];
-  }
-
-  const results: SyntaxNode[] = [];
-
-  traverseNode(root, (node) => {
-    if (node.type === "call_expression") {
-      const funcNode = node.childForFieldName("function");
-      if (funcNode && funcNode.type === "identifier") {
-        const funcText = getText(funcNode, ctx);
-        if (runSagaImportNames.has(funcText)) {
-          if (isIdentifierShadowed(node, funcText, ctx)) {
-            return;
-          }
-
-          const args = node.childForFieldName("arguments");
-          const firstArg = args?.namedChildren[0];
-          if (
-            firstArg?.type === "arrow_function" ||
-            firstArg?.type === "function_expression"
-          ) {
-            results.push(node);
-          }
-        }
-      }
-    }
-  });
-
-  return results;
-}
-
-/**
- * Analyze a saga workflow call and extract the workflow structure.
- */
-function analyzeSagaWorkflowCall(
-  callNode: SyntaxNode,
-  parentCtx: AnalyzerContext
-): StaticWorkflowIR | null {
-  const funcNode = callNode.childForFieldName("function");
-  const workflowName = funcNode ? getText(funcNode, parentCtx) : "<unknown>";
-
-  const args = callNode.childForFieldName("arguments");
-  const callbackNode = args?.namedChildren[0];
-
-  const workflowWarnings: AnalysisWarning[] = [];
-  const workflowStats = createEmptyStats();
-  workflowStats.sagaWorkflowCount = 1;
-
-  const ctx: AnalyzerContext = {
-    ...parentCtx,
-    warnings: workflowWarnings,
-    stats: workflowStats,
-  };
-
-  if (
-    !callbackNode ||
-    (callbackNode.type !== "arrow_function" &&
-      callbackNode.type !== "function_expression")
-  ) {
-    workflowWarnings.push({
-      code: "CALLBACK_NOT_FOUND",
-      message: `Could not find callback for saga workflow ${workflowName}`,
-      location: getLocation(callNode, ctx),
-    });
-    return null;
-  }
-
-  const prevWorkflow = ctx.currentWorkflow;
-  ctx.currentWorkflow = workflowName;
-
-  // Extract the saga parameter info from the callback signature
-  // e.g., `async (saga, deps) => {...}` -> { name: "saga", isDestructured: false }
-  // e.g., `async ({ step }, deps) => {...}` -> { isDestructured: true, stepAlias: "step" }
-  const sagaParamInfo = extractSagaParameterInfo(callbackNode, ctx);
-  const prevStepParamName = ctx.stepParameterName;
-  const prevIsSagaDestructured = ctx.isSagaDestructured;
-  const prevSagaStepAlias = ctx.sagaStepAlias;
-  const prevSagaTryStepAlias = ctx.sagaTryStepAlias;
-  ctx.stepParameterName = sagaParamInfo?.name;
-  ctx.isSagaDestructured = sagaParamInfo?.isDestructured;
-  ctx.sagaStepAlias = sagaParamInfo?.stepAlias;
-  ctx.sagaTryStepAlias = sagaParamInfo?.tryStepAlias;
-
-  const children = analyzeSagaCallback(callbackNode, ctx);
-
-  ctx.currentWorkflow = prevWorkflow;
-  ctx.stepParameterName = prevStepParamName;
-  ctx.isSagaDestructured = prevIsSagaDestructured;
-  ctx.sagaStepAlias = prevSagaStepAlias;
-  ctx.sagaTryStepAlias = prevSagaTryStepAlias;
-
-  const treeRoot = (callNode as unknown as { tree?: { rootNode: SyntaxNode } })
-    .tree?.rootNode;
-  const definitions = treeRoot
-    ? findSagaWorkflowDefinitions(treeRoot, parentCtx)
-    : [];
-  const definition = definitions.find((d) => d.name === workflowName);
-
-  const rootNode: StaticWorkflowNode = {
-    id: generateId(),
-    type: "workflow",
-    workflowName,
-    source: "createSagaWorkflow",
-    dependencies: [],
-    errorTypes: [],
-    children: wrapInSequence(children),
-    description: definition?.description,
-    markdown: definition?.markdown,
-  };
-
-  const metadata: StaticAnalysisMetadata = {
-    analyzedAt: Date.now(),
-    filePath: ctx.filePath,
-    warnings: workflowWarnings,
-    stats: workflowStats,
-  };
-
-  return {
-    root: rootNode,
-    metadata,
-    references: new Map(),
-  };
-}
-
-/**
- * Analyze a runSaga() call and extract the workflow structure.
- */
-function analyzeRunSagaCall(
-  callNode: SyntaxNode,
-  parentCtx: AnalyzerContext
-): StaticWorkflowIR | null {
-  const args = callNode.childForFieldName("arguments");
-  const callbackNode = args?.namedChildren[0];
-
-  const workflowWarnings: AnalysisWarning[] = [];
-  const workflowStats = createEmptyStats();
-  workflowStats.sagaWorkflowCount = 1;
-
-  const ctx: AnalyzerContext = {
-    ...parentCtx,
-    warnings: workflowWarnings,
-    stats: workflowStats,
-  };
-
-  if (
-    !callbackNode ||
-    (callbackNode.type !== "arrow_function" &&
-      callbackNode.type !== "function_expression")
-  ) {
-    workflowWarnings.push({
-      code: "CALLBACK_NOT_FOUND",
-      message: "Could not find callback for runSaga()",
-      location: getLocation(callNode, ctx),
-    });
-    return null;
-  }
-
-  const workflowName = generateSagaName(callNode, ctx);
-
-  const sagaParamInfo = extractSagaParameterInfo(callbackNode, ctx);
-  const prevStepParamName = ctx.stepParameterName;
-  const prevIsSagaDestructured = ctx.isSagaDestructured;
-  const prevSagaStepAlias = ctx.sagaStepAlias;
-  const prevSagaTryStepAlias = ctx.sagaTryStepAlias;
-  ctx.stepParameterName = sagaParamInfo?.name;
-  ctx.isSagaDestructured = sagaParamInfo?.isDestructured;
-  ctx.sagaStepAlias = sagaParamInfo?.stepAlias;
-  ctx.sagaTryStepAlias = sagaParamInfo?.tryStepAlias;
-
-  const children = analyzeSagaCallback(callbackNode, ctx);
-
-  ctx.stepParameterName = prevStepParamName;
-  ctx.isSagaDestructured = prevIsSagaDestructured;
-  ctx.sagaStepAlias = prevSagaStepAlias;
-  ctx.sagaTryStepAlias = prevSagaTryStepAlias;
-
-  const rootNode: StaticWorkflowNode = {
-    id: generateId(),
-    type: "workflow",
-    workflowName,
-    source: "runSaga",
-    dependencies: [],
-    errorTypes: [],
-    children: wrapInSequence(children),
-    location: ctx.opts.includeLocations ? getLocation(callNode, ctx) : undefined,
-  };
-
-  const metadata: StaticAnalysisMetadata = {
-    analyzedAt: Date.now(),
-    filePath: ctx.filePath,
-    warnings: workflowWarnings,
-    stats: workflowStats,
-  };
-
-  return {
-    root: rootNode,
-    metadata,
-    references: new Map(),
-  };
-}
-
-/**
- * Generate a unique name for a runSaga() call based on file and line number.
- */
-function generateSagaName(callNode: SyntaxNode, ctx: AnalyzerContext): string {
-  const line = callNode.startPosition.row + 1;
-  const filePath = ctx.filePath;
-  const fileName = filePath.includes("/")
-    ? filePath.split("/").pop() || filePath
-    : filePath.includes("\\")
-      ? filePath.split("\\").pop() || filePath
-      : filePath;
-  return `runSaga@${fileName}:${line}`;
-}
-
-/**
- * Result of extracting saga parameter info.
+ * Info about saga parameter destructuring.
+ * e.g., `async (saga) => {...}` -> { name: "saga", isDestructured: false }
+ * e.g., `async ({ step, tryStep }) => {...}` -> { isDestructured: true, stepAlias: "step", tryStepAlias: "tryStep" }
  */
 interface SagaParameterInfo {
-  /** The saga parameter name (when not destructured) */
   name?: string;
-  /** Whether the saga context is destructured (e.g., `({ step })` instead of `saga`) */
   isDestructured: boolean;
-  /** The alias for `step` when destructured (e.g., "step" or "s" from `{ step: s }`) */
   stepAlias?: string;
-  /** The alias for `tryStep` when destructured */
   tryStepAlias?: string;
 }
 
 /**
- * Extract the saga parameter info from a saga workflow callback.
- * e.g., `async (saga, deps) => {...}` -> { name: "saga", isDestructured: false }
- * e.g., `async ({ step }, deps) => {...}` -> { isDestructured: true, stepAlias: "step" }
- * e.g., `async ({ step: s, tryStep }, deps) => {...}` -> { isDestructured: true, stepAlias: "s", tryStepAlias: "tryStep" }
+ * Context for saga analysis.
  */
-function extractSagaParameterInfo(
-  callbackNode: SyntaxNode,
-  ctx: AnalyzerContext
-): SagaParameterInfo | undefined {
-  const params = callbackNode.childForFieldName("parameters");
-  if (!params) return undefined;
-
-  const firstParam = params.namedChildren[0];
-  if (!firstParam) return undefined;
-
-  if (firstParam.type === "identifier") {
-    return { name: getText(firstParam, ctx), isDestructured: false };
-  }
-
-  if (firstParam.type === "required_parameter") {
-    const patternNode = firstParam.childForFieldName("pattern");
-    if (patternNode) {
-      if (patternNode.type === "object_pattern") {
-        const aliases = extractSagaAliasesFromObjectPattern(patternNode, ctx);
-        if (aliases.stepAlias || aliases.tryStepAlias) {
-          return { isDestructured: true, ...aliases };
-        }
-      }
-      return { name: getText(patternNode, ctx), isDestructured: false };
-    }
-  }
-
-  // Handle direct object_pattern (no type annotation)
-  if (firstParam.type === "object_pattern") {
-    const aliases = extractSagaAliasesFromObjectPattern(firstParam, ctx);
-    if (aliases.stepAlias || aliases.tryStepAlias) {
-      return { isDestructured: true, ...aliases };
-    }
-  }
-
-  return undefined;
+interface SagaContext {
+  isSagaWorkflow: boolean;
+  sagaParamInfo?: SagaParameterInfo;
 }
 
 /**
- * Extract step and tryStep aliases from a saga destructuring pattern.
- * e.g., `{ step }` -> { stepAlias: "step" }
- * e.g., `{ step: s, tryStep: ts }` -> { stepAlias: "s", tryStepAlias: "ts" }
+ * Get the callee text, unwrapping ParenthesizedExpression so that (run)(cb)
+ * is recognized as "run".
  */
-function extractSagaAliasesFromObjectPattern(
-  objectPattern: SyntaxNode,
-  ctx: AnalyzerContext
-): { stepAlias?: string; tryStepAlias?: string } {
-  const result: { stepAlias?: string; tryStepAlias?: string } = {};
-
-  for (const child of objectPattern.namedChildren) {
-    // Handle pair_pattern: `step: s` or `step: s = fallback`
-    if (child.type === "pair_pattern") {
-      const keyNode = child.childForFieldName("key");
-      const valueNode = child.childForFieldName("value");
-
-      if (keyNode && valueNode) {
-        const key = getText(keyNode, ctx);
-        if (key === "step" || key === "tryStep") {
-          let alias: string;
-          // Handle assignment_pattern: `step: s = fallback`
-          if (valueNode.type === "assignment_pattern") {
-            const left = valueNode.childForFieldName("left");
-            alias = left ? getText(left, ctx) : getText(valueNode, ctx);
-          } else {
-            alias = getText(valueNode, ctx);
-          }
-          if (key === "step") {
-            result.stepAlias = alias;
-          } else {
-            result.tryStepAlias = alias;
-          }
-        }
-      }
-    }
-
-    // Handle shorthand_property_identifier_pattern: `{ step }` or `{ tryStep }`
-    if (child.type === "shorthand_property_identifier_pattern") {
-      const name = getText(child, ctx);
-      if (name === "step") {
-        result.stepAlias = "step";
-      } else if (name === "tryStep") {
-        result.tryStepAlias = "tryStep";
-      }
-    }
-
-    // Handle assignment_pattern: `{ step = fallback }` or `{ tryStep = fallback }`
-    if (child.type === "assignment_pattern") {
-      const left = child.childForFieldName("left");
-      if (left) {
-        const name = getText(left, ctx);
-        if (name === "step") {
-          result.stepAlias = "step";
-        } else if (name === "tryStep") {
-          result.tryStepAlias = "tryStep";
-        }
-      }
-    }
+function getCalleeText(expression: Node): string {
+  const { Node } = loadTsMorph();
+  let current: Node = expression;
+  while (Node.isParenthesizedExpression(current)) {
+    current = current.getExpression();
   }
-
-  return result;
+  return current.getText();
 }
 
 /**
- * Analyze a saga workflow callback function body.
+ * Get the effective callee node (unwrap parentheses) for checks like
+ * isPropertyAccessExpression.
  */
-function analyzeSagaCallback(
-  callbackNode: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  const body = callbackNode.childForFieldName("body");
-  if (!body) return [];
-
-  if (body.type === "statement_block") {
-    return analyzeSagaStatements(body.namedChildren, ctx);
+function getCalleeExpression(expression: Node): Node {
+  const { Node } = loadTsMorph();
+  let current: Node = expression;
+  while (Node.isParenthesizedExpression(current)) {
+    current = current.getExpression();
   }
-
-  return analyzeSagaExpression(body, ctx);
+  return current;
 }
 
-/**
- * Analyze saga statements for saga step calls.
- */
-function analyzeSagaStatements(
-  statements: SyntaxNode[],
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  const results: StaticFlowNode[] = [];
+function findWorkflowCalls(sourceFile: SourceFile, opts: Required<AnalyzerOptions>): WorkflowCallInfo[] {
+  const { Node } = loadTsMorph();
+  const workflows: WorkflowCallInfo[] = [];
 
-  for (const stmt of statements) {
-    const nodes = analyzeSagaStatement(stmt, ctx);
-    results.push(...nodes);
-  }
+  // Track imports from awaitly
+  const awaitlyImports = findAwaitlyImports(sourceFile, opts);
 
-  return results;
-}
+  // Track local declarations that shadow imports
+  const localDeclarations = findLocalDeclarations(sourceFile);
 
-/**
- * Analyze a single saga statement.
- */
-function analyzeSagaStatement(
-  stmt: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  switch (stmt.type) {
-    case "expression_statement": {
-      const expr = stmt.namedChildren[0];
-      if (expr) {
-        return analyzeSagaExpression(expr, ctx);
-      }
-      return [];
-    }
+  // Find all call expressions
+  sourceFile.forEachDescendant((node) => {
+    if (!Node.isCallExpression(node)) return;
 
-    case "variable_declaration":
-    case "lexical_declaration":
-      return analyzeSagaVariableDeclaration(stmt, ctx);
+    const expression = node.getExpression();
+    const callee = getCalleeExpression(expression);
+    const text = getCalleeText(expression);
 
-    case "return_statement": {
-      const returnExpr = stmt.childForFieldName("value");
-      if (returnExpr) {
-        return analyzeSagaExpression(returnExpr, ctx);
-      }
-      return [];
-    }
+    // Check for createWorkflow calls (direct, aliased, or via namespace/default import)
+    const calleeExprText = Node.isPropertyAccessExpression(callee) ? callee.getExpression().getText() : "";
+    const isNamespaceOrDefaultImport = awaitlyImports.namespaceImports.has(calleeExprText) || awaitlyImports.defaultImports.has(calleeExprText);
+    const isCreateWorkflowCall =
+      text === "createWorkflow" ||
+      awaitlyImports.namedImportAliases.get(text) === "createWorkflow" ||
+      (Node.isPropertyAccessExpression(callee) &&
+        callee.getName() === "createWorkflow" &&
+        isNamespaceOrDefaultImport);
 
-    case "if_statement":
-      return analyzeSagaIfStatement(stmt, ctx);
+    if (isCreateWorkflowCall && (opts.detect === "all" || opts.detect === "createWorkflow")) {
+      // Only count if imported from awaitly or assumeImported
+      if (awaitlyImports.namedImports.has("createWorkflow") || awaitlyImports.namespaceImports.size > 0 || awaitlyImports.defaultImports.size > 0 || opts.assumeImported) {
+        const args = node.getArguments();
+        const parent = node.getParent();
 
-    case "for_statement":
-    case "for_in_statement":
-    case "while_statement":
-      return analyzeSagaLoopStatement(stmt, ctx);
+        let name = "anonymous";
+        let variableDeclaration: Node | undefined;
+        let depsObject: Node | undefined;
+        let optionsObject: Node | undefined;
 
-    case "switch_statement":
-      return analyzeSagaSwitchStatement(stmt, ctx);
-
-    default:
-      return [];
-  }
-}
-
-/**
- * Analyze an expression for saga step calls.
- */
-function analyzeSagaExpression(
-  expr: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  if (expr.type === "await_expression") {
-    const inner = expr.namedChildren[0];
-    if (inner) {
-      return analyzeSagaExpression(inner, ctx);
-    }
-    return [];
-  }
-
-  if (expr.type === "parenthesized_expression") {
-    const inner = expr.namedChildren[0];
-    if (inner) {
-      return analyzeSagaExpression(inner, ctx);
-    }
-    return [];
-  }
-
-  if (expr.type === "call_expression") {
-    return analyzeSagaCallExpression(expr, ctx);
-  }
-
-  return [];
-}
-
-/**
- * Analyze a saga variable declaration for step calls.
- */
-function analyzeSagaVariableDeclaration(
-  decl: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  const results: StaticFlowNode[] = [];
-
-  for (const child of decl.namedChildren) {
-    if (child.type === "variable_declarator") {
-      const value = child.childForFieldName("value");
-      if (value) {
-        results.push(...analyzeSagaExpression(value, ctx));
-      }
-    }
-  }
-
-  return results;
-}
-
-/**
- * Analyze a saga if statement.
- */
-function analyzeSagaIfStatement(
-  ifStmt: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  ctx.stats.conditionalCount++;
-
-  const conditionNode = ifStmt.childForFieldName("condition");
-  const consequentNode = ifStmt.childForFieldName("consequence");
-  const alternateNode = ifStmt.childForFieldName("alternative");
-
-  const condition = conditionNode
-    ? getText(conditionNode, ctx).replace(/^\(|\)$/g, "")
-    : "<unknown>";
-
-  const consequent = consequentNode
-    ? analyzeSagaBlock(consequentNode, ctx)
-    : [];
-
-  let alternate: StaticFlowNode[] | undefined;
-  if (alternateNode) {
-    if (alternateNode.type === "else_clause") {
-      const elseContent = alternateNode.namedChildren[0];
-      if (elseContent) {
-        alternate = analyzeSagaBlock(elseContent, ctx);
-      }
-    } else {
-      alternate = analyzeSagaBlock(alternateNode, ctx);
-    }
-  }
-
-  return [
-    {
-      id: generateId(),
-      type: "conditional",
-      condition,
-      helper: null,
-      consequent,
-      alternate: alternate?.length ? alternate : undefined,
-      location: ctx.opts.includeLocations ? getLocation(ifStmt, ctx) : undefined,
-    },
-  ];
-}
-
-/**
- * Analyze a saga block.
- */
-function analyzeSagaBlock(
-  node: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  if (node.type === "statement_block") {
-    return analyzeSagaStatements(node.namedChildren, ctx);
-  }
-  return analyzeSagaStatement(node, ctx);
-}
-
-/**
- * Analyze saga loop statements.
- */
-function analyzeSagaLoopStatement(
-  loopStmt: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  const bodyNode = loopStmt.childForFieldName("body");
-  if (!bodyNode) return [];
-
-  const bodyChildren = analyzeSagaBlock(bodyNode, ctx);
-  if (bodyChildren.length === 0) return [];
-
-  ctx.stats.loopCount++;
-
-  let loopType: "for" | "while" | "for-of" | "for-in" = "for";
-  if (loopStmt.type === "while_statement") {
-    loopType = "while";
-  } else if (loopStmt.type === "for_in_statement") {
-    const stmtText = getText(loopStmt, ctx);
-    loopType = stmtText.includes(" of ") ? "for-of" : "for-in";
-  }
-
-  const rightNode = loopStmt.childForFieldName("right");
-  const iterSource = rightNode ? getText(rightNode, ctx) : undefined;
-
-  return [
-    {
-      id: generateId(),
-      type: "loop",
-      loopType,
-      iterSource,
-      body: bodyChildren,
-      boundKnown: false,
-      location: ctx.opts.includeLocations ? getLocation(loopStmt, ctx) : undefined,
-    } as StaticLoopNode,
-  ];
-}
-
-/**
- * Analyze a saga switch statement.
- */
-function analyzeSagaSwitchStatement(
-  switchStmt: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  const valueNode = switchStmt.childForFieldName("value");
-  const bodyNode = switchStmt.childForFieldName("body");
-
-  const expression = valueNode
-    ? getText(valueNode, ctx).replace(/^\(|\)$/g, "")
-    : "<unknown>";
-
-  const cases: StaticSwitchCase[] = [];
-  let hasStepCalls = false;
-
-  if (bodyNode) {
-    for (const caseNode of bodyNode.namedChildren) {
-      if (caseNode.type === "switch_case" || caseNode.type === "switch_default") {
-        const caseValueNode = caseNode.childForFieldName("value");
-        const isDefault = caseNode.type === "switch_default" || !caseValueNode;
-        const caseValue = caseValueNode ? getText(caseValueNode, ctx) : undefined;
-
-        // Analyze statements in the case body (all named children except the value)
-        const bodyStatements = caseNode.namedChildren.filter(
-          (n) => n !== caseValueNode
-        );
-        const body = analyzeSagaStatements(bodyStatements, ctx);
-
-        if (body.length > 0) {
-          hasStepCalls = true;
+        // Try to get the name from variable declaration
+        if (Node.isVariableDeclaration(parent)) {
+          name = parent.getName();
+          variableDeclaration = parent;
+        } else if (Node.isPropertyAssignment(parent)) {
+          name = parent.getName();
         }
 
-        cases.push({
-          value: caseValue,
-          isDefault,
-          body,
+        // createWorkflow can have (deps) or (deps, options)
+        if (args[0]) {
+          depsObject = args[0];
+        }
+        if (args[1] && Node.isObjectLiteralExpression(args[1])) {
+          optionsObject = args[1];
+        }
+
+        workflows.push({
+          name,
+          callExpression: node,
+          depsObject,
+          optionsObject,
+          callbackFunction: undefined,
+          variableDeclaration,
+          source: "createWorkflow",
         });
       }
     }
-  }
 
-  // Only count if there are step calls inside
-  if (hasStepCalls) {
-    ctx.stats.conditionalCount++;
-  }
+    // Check for createSagaWorkflow calls (direct, aliased, or via namespace/default import)
+    const isCreateSagaWorkflowCall =
+      text === "createSagaWorkflow" ||
+      awaitlyImports.namedImportAliases.get(text) === "createSagaWorkflow" ||
+      (Node.isPropertyAccessExpression(callee) &&
+        callee.getName() === "createSagaWorkflow" &&
+        isNamespaceOrDefaultImport);
 
-  // If no step calls, return empty
-  if (!hasStepCalls) {
-    return [];
-  }
+    if (isCreateSagaWorkflowCall && (opts.detect === "all" || opts.detect === "createSagaWorkflow")) {
+      if (awaitlyImports.namedImports.has("createSagaWorkflow") || awaitlyImports.namespaceImports.size > 0 || awaitlyImports.defaultImports.size > 0 || opts.assumeImported) {
+        const args = node.getArguments();
+        const parent = node.getParent();
 
-  const switchNode: StaticSwitchNode = {
-    id: generateId(),
-    type: "switch",
-    expression,
-    cases,
-    location: ctx.opts.includeLocations ? getLocation(switchStmt, ctx) : undefined,
-  };
+        let name = "anonymous";
+        let variableDeclaration: Node | undefined;
 
-  return [switchNode];
-}
-
-/**
- * Analyze a saga call expression for saga.step() and saga.tryStep() calls.
- * Handles both forms:
- * - `saga.step()` when saga context is passed as identifier (e.g., `async (saga) => ...`)
- * - `step()` when saga context is destructured (e.g., `async ({ step }) => ...`)
- */
-function analyzeSagaCallExpression(
-  call: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  const funcNode = call.childForFieldName("function");
-  if (!funcNode) return [];
-
-  const funcText = getText(funcNode, ctx);
-  const sagaParam = ctx.stepParameterName || "saga";
-
-  // When saga context is destructured, match against the destructured aliases
-  if (ctx.isSagaDestructured) {
-    // Check for step() calls (destructured from saga context)
-    if (ctx.sagaStepAlias && funcText === ctx.sagaStepAlias) {
-      return [analyzeSagaStepCall(call, ctx)];
-    }
-
-    // Check for tryStep() calls (destructured from saga context)
-    if (ctx.sagaTryStepAlias && funcText === ctx.sagaTryStepAlias) {
-      return [analyzeSagaTryStepCall(call, ctx)];
-    }
-
-    return [];
-  }
-
-  // Check for saga.step() calls
-  if (funcText === `${sagaParam}.step`) {
-    return [analyzeSagaStepCall(call, ctx)];
-  }
-
-  // Check for saga.tryStep() calls
-  if (funcText === `${sagaParam}.tryStep`) {
-    return [analyzeSagaTryStepCall(call, ctx)];
-  }
-
-  return [];
-}
-
-/**
- * Analyze a saga.step() call.
- * API: saga.step(() => deps.fn(), { compensate: () => deps.undo() })
- */
-function analyzeSagaStepCall(
-  call: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticSagaStepNode {
-  ctx.stats.totalSteps++;
-
-  const args = call.childForFieldName("arguments");
-  const firstArg = args?.namedChildren[0];
-  const secondArg = args?.namedChildren[1];
-
-  let callee = "<unknown>";
-  if (firstArg) {
-    if (
-      firstArg.type === "arrow_function" ||
-      firstArg.type === "function_expression"
-    ) {
-      const body = firstArg.childForFieldName("body");
-      if (body) {
-        callee = extractCalleeFromFunctionBody(body, ctx);
-      }
-    } else {
-      callee = getText(firstArg, ctx);
-    }
-  }
-
-  // Extract compensation from options
-  const { hasCompensation, compensationCallee, name, description, markdown } =
-    extractSagaStepOptions(secondArg, ctx);
-
-  if (hasCompensation) {
-    ctx.stats.compensatedStepCount = (ctx.stats.compensatedStepCount || 0) + 1;
-  }
-
-  return {
-    id: generateId(),
-    type: "saga-step",
-    callee,
-    name,
-    description,
-    markdown,
-    hasCompensation,
-    compensationCallee,
-    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
-  };
-}
-
-/**
- * Analyze a saga.tryStep() call.
- * API: saga.tryStep(() => deps.fn(), { compensate: () => deps.undo(), mapError: (e) => ... })
- */
-function analyzeSagaTryStepCall(
-  call: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticSagaStepNode {
-  ctx.stats.totalSteps++;
-
-  const args = call.childForFieldName("arguments");
-  const firstArg = args?.namedChildren[0];
-  const secondArg = args?.namedChildren[1];
-
-  let callee = "<unknown>";
-  if (firstArg) {
-    if (
-      firstArg.type === "arrow_function" ||
-      firstArg.type === "function_expression"
-    ) {
-      const body = firstArg.childForFieldName("body");
-      if (body) {
-        callee = extractCalleeFromFunctionBody(body, ctx);
-      }
-    } else {
-      callee = getText(firstArg, ctx);
-    }
-  }
-
-  const { hasCompensation, compensationCallee, name, description, markdown } =
-    extractSagaStepOptions(secondArg, ctx);
-
-  if (hasCompensation) {
-    ctx.stats.compensatedStepCount = (ctx.stats.compensatedStepCount || 0) + 1;
-  }
-
-  return {
-    id: generateId(),
-    type: "saga-step",
-    callee,
-    name,
-    description,
-    markdown,
-    hasCompensation,
-    compensationCallee,
-    isTryStep: true,
-    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
-  };
-}
-
-/**
- * Extract saga step options including compensation.
- */
-function extractSagaStepOptions(
-  optionsNode: SyntaxNode | undefined,
-  ctx: AnalyzerContext
-): {
-  hasCompensation: boolean;
-  compensationCallee?: string;
-  name?: string;
-  description?: string;
-  markdown?: string;
-} {
-  const result = {
-    hasCompensation: false,
-    compensationCallee: undefined as string | undefined,
-    name: undefined as string | undefined,
-    description: undefined as string | undefined,
-    markdown: undefined as string | undefined,
-  };
-
-  if (!optionsNode || optionsNode.type !== "object") {
-    return result;
-  }
-
-  for (const prop of optionsNode.namedChildren) {
-    if (prop.type === "pair") {
-      const keyNode = prop.childForFieldName("key");
-      const valueNode = prop.childForFieldName("value");
-
-      if (keyNode && valueNode) {
-        const key = getText(keyNode, ctx);
-
-        if (key === "compensate") {
-          result.hasCompensation = true;
-          if (
-            valueNode.type === "arrow_function" ||
-            valueNode.type === "function_expression"
-          ) {
-            const body = valueNode.childForFieldName("body");
-            if (body) {
-              result.compensationCallee = extractCalleeFromFunctionBody(body, ctx);
-            }
-          }
-        } else if (key === "name") {
-          const value = extractStringValue(valueNode, ctx);
-          if (value) result.name = value;
-        } else if (key === "description") {
-          const value = extractStringValue(valueNode, ctx);
-          if (value) result.description = value;
-        } else if (key === "markdown") {
-          const value = extractStringValue(valueNode, ctx);
-          if (value) result.markdown = value;
+        // Try to get the name from variable declaration
+        if (Node.isVariableDeclaration(parent)) {
+          name = parent.getName();
+          variableDeclaration = parent;
+        } else if (Node.isPropertyAssignment(parent)) {
+          name = parent.getName();
         }
+
+        workflows.push({
+          name,
+          callExpression: node,
+          depsObject: args[0],
+          optionsObject: args[1],
+          callbackFunction: undefined,
+          variableDeclaration,
+          source: "createSagaWorkflow",
+        });
+      }
+    }
+
+    // Check for runSaga() calls (direct, aliased, or via namespace/default import)
+    const isRunSagaCall =
+      text === "runSaga" ||
+      awaitlyImports.namedImportAliases.get(text) === "runSaga" ||
+      (Node.isPropertyAccessExpression(callee) &&
+        callee.getName() === "runSaga" &&
+        isNamespaceOrDefaultImport);
+
+    if (isRunSagaCall && (opts.detect === "all" || opts.detect === "createSagaWorkflow")) {
+      if (awaitlyImports.namedImports.has("runSaga") || awaitlyImports.namespaceImports.size > 0 || awaitlyImports.defaultImports.size > 0 || opts.assumeImported) {
+        const args = node.getArguments();
+        const line = node.getStartLineNumber();
+        const filePath = sourceFile.getFilePath();
+        const fileName = filePath.includes("/")
+          ? filePath.split("/").pop() || filePath
+          : filePath;
+
+        workflows.push({
+          name: `runSaga@${fileName}:${line}`,
+          callExpression: node,
+          depsObject: undefined,
+          optionsObject: undefined,
+          callbackFunction: args[0], // First argument is the callback
+          variableDeclaration: undefined,
+          source: "runSaga",
+        });
+      }
+    }
+
+    // Check for run() calls (direct, aliased, or via namespace/default import)
+    const isRunCall =
+      text === "run" ||
+      awaitlyImports.namedImportAliases.get(text) === "run" ||
+      (Node.isPropertyAccessExpression(callee) &&
+        callee.getName() === "run" &&
+        isNamespaceOrDefaultImport);
+
+    if (isRunCall && (opts.detect === "all" || opts.detect === "run")) {
+      // Check if run is imported from awaitly (or assumeImported) and not shadowed
+      const isImported = awaitlyImports.namedImports.has("run") || awaitlyImports.namedImportAliases.get(text) === "run" || awaitlyImports.namespaceImports.size > 0 || awaitlyImports.defaultImports.size > 0 || opts.assumeImported;
+      const isShadowed = isIdentifierShadowed("run", node, localDeclarations);
+
+      // For namespace/default calls (Awaitly.run()), we allow PropertyAccessExpression
+      // For direct calls, we don't match obj.run() - only bare run() calls
+      const isNamespaceCall = Node.isPropertyAccessExpression(callee) && isNamespaceOrDefaultImport;
+      if (isImported && !isShadowed && (isNamespaceCall || !Node.isPropertyAccessExpression(callee))) {
+        const args = node.getArguments();
+        const line = node.getStartLineNumber();
+        const filePath = sourceFile.getFilePath();
+        const fileName = filePath.includes("/")
+          ? filePath.split("/").pop() || filePath
+          : filePath;
+
+        workflows.push({
+          name: `run@${fileName}:${line}`,
+          callExpression: node,
+          depsObject: undefined,
+          optionsObject: undefined,
+          callbackFunction: args[0], // First argument is the callback
+          variableDeclaration: undefined,
+          source: "run",
+        });
+      }
+    }
+  });
+
+  return workflows;
+}
+
+interface AwaitlyImports {
+  /** Named imports like { createWorkflow } - stores original names */
+  namedImports: Set<string>;
+  /** Maps local name (alias or original) to original name for named imports */
+  namedImportAliases: Map<string, string>;
+  /** Namespace imports like * as Awaitly */
+  namespaceImports: Set<string>;
+  /** Default imports like import Awaitly from 'awaitly' */
+  defaultImports: Set<string>;
+}
+
+/**
+ * Find awaitly imports in the source file.
+ */
+function findAwaitlyImports(sourceFile: SourceFile, _opts: Required<AnalyzerOptions>): AwaitlyImports {
+  const result: AwaitlyImports = {
+    namedImports: new Set<string>(),
+    namedImportAliases: new Map<string, string>(),
+    namespaceImports: new Set<string>(),
+    defaultImports: new Set<string>(),
+  };
+
+  for (const importDecl of sourceFile.getImportDeclarations()) {
+    const moduleSpecifier = importDecl.getModuleSpecifierValue();
+
+    // Check if importing from awaitly or awaitly/*
+    if (moduleSpecifier === "awaitly" || moduleSpecifier.startsWith("awaitly/")) {
+      // Check if this is a type-only import
+      if (importDecl.isTypeOnly()) {
+        continue; // Skip type-only imports
+      }
+
+      const namedImports = importDecl.getNamedImports();
+      for (const namedImport of namedImports) {
+        // Skip type-only import specifiers
+        if (namedImport.isTypeOnly()) {
+          continue;
+        }
+        const originalName = namedImport.getName();
+        const aliasNode = namedImport.getAliasNode();
+        const localName = aliasNode ? aliasNode.getText() : originalName;
+        result.namedImports.add(originalName);
+        result.namedImportAliases.set(localName, originalName);
+      }
+
+      // Check default import
+      const defaultImport = importDecl.getDefaultImport();
+      if (defaultImport) {
+        result.defaultImports.add(defaultImport.getText());
+      }
+
+      // Check namespace import (import * as X from 'awaitly')
+      const namespaceImport = importDecl.getNamespaceImport();
+      if (namespaceImport) {
+        result.namespaceImports.add(namespaceImport.getText());
       }
     }
   }
@@ -1582,309 +588,596 @@ function extractSagaStepOptions(
 }
 
 /**
- * Generate a unique name for a run() call based on file and line number.
- * Format: run@<filename>:<line>
+ * Find local declarations (variables, functions, parameters) that might shadow imports.
  */
-function generateRunName(callNode: SyntaxNode, ctx: AnalyzerContext): string {
-  const line = callNode.startPosition.row + 1; // 0-indexed to 1-indexed
-  // Extract just the filename from the path
-  const filePath = ctx.filePath;
-  const fileName = filePath.includes("/")
-    ? filePath.split("/").pop() || filePath
-    : filePath.includes("\\")
-      ? filePath.split("\\").pop() || filePath
-      : filePath;
-  return `run@${fileName}:${line}`;
+function findLocalDeclarations(sourceFile: SourceFile): Map<string, Node[]> {
+  const { Node } = loadTsMorph();
+  const declarations = new Map<string, Node[]>();
+
+  const addDeclaration = (name: string, node: Node) => {
+    const existing = declarations.get(name) || [];
+    existing.push(node);
+    declarations.set(name, existing);
+  };
+
+  // Helper to extract names from binding patterns (destructuring)
+  const extractBindingNames = (node: Node, containerNode: Node) => {
+    if (Node.isIdentifier(node)) {
+      addDeclaration(node.getText(), containerNode);
+    } else if (Node.isObjectBindingPattern(node)) {
+      for (const element of node.getElements()) {
+        const nameNode = element.getNameNode();
+        extractBindingNames(nameNode, containerNode);
+      }
+    } else if (Node.isArrayBindingPattern(node)) {
+      for (const element of node.getElements()) {
+        if (Node.isBindingElement(element)) {
+          const nameNode = element.getNameNode();
+          extractBindingNames(nameNode, containerNode);
+        }
+      }
+    }
+  };
+
+  sourceFile.forEachDescendant((node) => {
+    if (Node.isVariableDeclaration(node)) {
+      const nameNode = node.getNameNode();
+      extractBindingNames(nameNode, node);
+    } else if (Node.isFunctionDeclaration(node)) {
+      const name = node.getName();
+      if (name) {
+        addDeclaration(name, node);
+      }
+    } else if (Node.isParameterDeclaration(node)) {
+      const nameNode = node.getNameNode();
+      extractBindingNames(nameNode, node);
+    }
+  });
+
+  return declarations;
 }
 
 /**
- * Analyze a run() call and extract the workflow structure.
+ * Check if an identifier is shadowed at a given call site.
  */
-function analyzeRunCall(
-  callNode: SyntaxNode,
-  parentCtx: AnalyzerContext
-): StaticWorkflowIR | null {
-  // Get the callback argument
-  const args = callNode.childForFieldName("arguments");
-  const callbackNode = args?.namedChildren[0];
+function isIdentifierShadowed(
+  name: string,
+  callSite: Node,
+  localDeclarations: Map<string, Node[]>
+): boolean {
+  const { Node } = loadTsMorph();
+  const decls = localDeclarations.get(name);
+  if (!decls || decls.length === 0) return false;
 
-  // Create fresh stats and warnings for this workflow
-  const workflowWarnings: AnalysisWarning[] = [];
-  const workflowStats = createEmptyStats();
+  const callStart = callSite.getStart();
 
-  // Create a workflow-scoped context
-  const ctx: AnalyzerContext = {
-    ...parentCtx,
-    warnings: workflowWarnings,
-    stats: workflowStats,
-  };
+  for (const decl of decls) {
+    // Get the scope of the declaration
+    const declParent = decl.getParent();
+    if (!declParent) continue;
 
-  if (
-    !callbackNode ||
-    (callbackNode.type !== "arrow_function" &&
-      callbackNode.type !== "function_expression")
-  ) {
-    workflowWarnings.push({
-      code: "CALLBACK_NOT_FOUND",
-      message: "Could not find callback for run()",
-      location: getLocation(callNode, ctx),
-    });
-    return null;
+    // Check if the call site is within the scope of this declaration
+    const scopeParent = findContainingScope(decl);
+
+    // For var declarations, they are hoisted to function scope
+    // ts-morph returns string values: "var", "let", "const"
+    const declKind = Node.isVariableDeclaration(decl)
+      ? decl.getVariableStatement()?.getDeclarationKind()
+      : undefined;
+    const isVar = declKind === "var";
+
+    if (isVar) {
+      // var declarations are hoisted to function scope
+      const declFunctionScope = findFunctionScope(decl);
+      const callFunctionScope = findFunctionScope(callSite);
+      if (declFunctionScope === callFunctionScope) {
+        return true; // Shadowed by hoisted var
+      }
+    } else {
+      // let/const are block-scoped
+      if (scopeParent && isAncestorOf(scopeParent, callSite)) {
+        // Check if the declaration comes before the call (for let/const)
+        const declEnd = decl.getEnd();
+        if (declEnd <= callStart) {
+          return true;
+        }
+      }
+    }
   }
 
-  // Generate synthetic name: run@<filename>:<line>
-  const workflowName = generateRunName(callNode, ctx);
-
-  // Extract the step parameter name from the callback signature
-  const stepParamName = extractStepParameterName(callbackNode, ctx);
-  const prevStepParamName = ctx.stepParameterName;
-  ctx.stepParameterName = stepParamName;
-
-  // Analyze the callback body
-  const children = analyzeCallback(callbackNode, ctx);
-
-  // Restore previous step parameter name
-  ctx.stepParameterName = prevStepParamName;
-
-  // Create the root workflow node
-  const rootNode: StaticWorkflowNode = {
-    id: generateId(),
-    type: "workflow",
-    workflowName,
-    source: "run",
-    dependencies: [], // run() has no declared dependencies
-    errorTypes: [],
-    children: wrapInSequence(children),
-    location: ctx.opts.includeLocations ? getLocation(callNode, ctx) : undefined,
-  };
-
-  // Create metadata with workflow-specific stats and warnings
-  const metadata: StaticAnalysisMetadata = {
-    analyzedAt: Date.now(),
-    filePath: ctx.filePath,
-    warnings: workflowWarnings,
-    stats: workflowStats,
-  };
-
-  return {
-    root: rootNode,
-    metadata,
-    references: new Map(),
-  };
+  return false;
 }
 
 /**
- * Analyze a workflow invocation and extract the workflow structure.
+ * Find the containing scope (block or function) of a node.
  */
-function analyzeWorkflowCall(
-  callNode: SyntaxNode,
-  parentCtx: AnalyzerContext
-): StaticWorkflowIR | null {
-  // Get the workflow name from the function being called
-  const funcNode = callNode.childForFieldName("function");
-  const workflowName = funcNode ? getText(funcNode, parentCtx) : "<unknown>";
+function findContainingScope(node: Node): Node | undefined {
+  const { Node } = loadTsMorph();
+  let current = node.getParent();
 
-  // Get the callback argument
-  const args = callNode.childForFieldName("arguments");
-  const callbackNode = args?.namedChildren[0];
-
-  // Create fresh stats and warnings for this workflow
-  const workflowWarnings: AnalysisWarning[] = [];
-  const workflowStats = createEmptyStats();
-
-  // Create a workflow-scoped context
-  const ctx: AnalyzerContext = {
-    ...parentCtx,
-    warnings: workflowWarnings,
-    stats: workflowStats,
-  };
-
-  if (
-    !callbackNode ||
-    (callbackNode.type !== "arrow_function" &&
-      callbackNode.type !== "function_expression")
-  ) {
-    workflowWarnings.push({
-      code: "CALLBACK_NOT_FOUND",
-      message: `Could not find callback for workflow ${workflowName}`,
-      location: getLocation(callNode, ctx),
-    });
-    return null;
-  }
-
-  // Set current workflow to detect self-references
-  const prevWorkflow = ctx.currentWorkflow;
-  ctx.currentWorkflow = workflowName;
-
-  // Extract the step parameter name from the callback signature
-  // e.g., `async (step, deps) => {...}` -> "step"
-  const stepParamName = extractStepParameterName(callbackNode, ctx);
-  const prevStepParamName = ctx.stepParameterName;
-  ctx.stepParameterName = stepParamName;
-
-  // Analyze the callback body
-  const children = analyzeCallback(callbackNode, ctx);
-
-  // Restore previous workflow and step parameter name
-  ctx.currentWorkflow = prevWorkflow;
-  ctx.stepParameterName = prevStepParamName;
-
-  // Find the definition to get documentation
-  // Access the root node through the tree property (available at runtime)
-  const treeRoot = (callNode as unknown as { tree?: { rootNode: SyntaxNode } })
-    .tree?.rootNode;
-  const definitions = treeRoot
-    ? findWorkflowDefinitions(treeRoot, parentCtx)
-    : [];
-  const definition = definitions.find((d) => d.name === workflowName);
-
-  // Create the root workflow node
-  const rootNode: StaticWorkflowNode = {
-    id: generateId(),
-    type: "workflow",
-    workflowName,
-    source: "createWorkflow",
-    dependencies: [], // Not implemented in POC
-    errorTypes: [],
-    children: wrapInSequence(children),
-    description: definition?.description,
-    markdown: definition?.markdown,
-  };
-
-  // Create metadata with workflow-specific stats and warnings
-  const metadata: StaticAnalysisMetadata = {
-    analyzedAt: Date.now(),
-    filePath: ctx.filePath,
-    warnings: workflowWarnings,
-    stats: workflowStats,
-  };
-
-  return {
-    root: rootNode,
-    metadata,
-    references: new Map(),
-  };
-}
-
-/**
- * Extract the workflow name from parent variable declaration.
- */
-function extractWorkflowName(
-  callNode: SyntaxNode,
-  ctx: AnalyzerContext
-): string | null {
-  // Walk up to find variable_declarator
-  let current: SyntaxNode | null = callNode;
   while (current) {
-    if (current.type === "variable_declarator") {
-      const nameNode = current.childForFieldName("name");
-      if (nameNode) {
-        return getText(nameNode, ctx);
-      }
+    if (Node.isBlock(current) ||
+        Node.isFunctionDeclaration(current) ||
+        Node.isArrowFunction(current) ||
+        Node.isFunctionExpression(current) ||
+        Node.isSourceFile(current)) {
+      return current;
     }
-    current = current.parent;
-  }
-  return null;
-}
-
-/**
- * Extract the step parameter name from a workflow callback.
- * e.g., `async (step, deps) => {...}` -> "step"
- * e.g., `async (s, dependencies) => {...}` -> "s"
- * e.g., `async ({ step: runStep }, deps) => {...}` -> "runStep"
- */
-function extractStepParameterName(
-  callbackNode: SyntaxNode,
-  ctx: AnalyzerContext
-): string | undefined {
-  const params = callbackNode.childForFieldName("parameters");
-  if (!params) return undefined;
-
-  // Get the first parameter (which is the step function)
-  const firstParam = params.namedChildren[0];
-  if (!firstParam) return undefined;
-
-  // Handle simple identifier: `(step, deps) => ...`
-  if (firstParam.type === "identifier") {
-    return getText(firstParam, ctx);
-  }
-
-  // Handle typed parameter: `(step: StepFn, deps: Deps) => ...`
-  if (firstParam.type === "required_parameter") {
-    const patternNode = firstParam.childForFieldName("pattern");
-    if (patternNode) {
-      // Check if the pattern is a destructuring pattern
-      if (patternNode.type === "object_pattern") {
-        return extractStepFromObjectPattern(patternNode, ctx);
-      }
-      return getText(patternNode, ctx);
-    }
-  }
-
-  // Handle destructuring without type annotation: `({ step: runStep }, deps) => ...`
-  if (firstParam.type === "object_pattern") {
-    return extractStepFromObjectPattern(firstParam, ctx);
+    current = current.getParent();
   }
 
   return undefined;
 }
 
 /**
- * Extract the step parameter name from a destructuring pattern.
- * e.g., `{ step: runStep }` -> "runStep"
- * e.g., `{ step }` -> "step" (shorthand)
- * e.g., `{ step = defaultStep }` -> "step" (shorthand with default)
+ * Find the function scope containing a node.
  */
-function extractStepFromObjectPattern(
-  objectPattern: SyntaxNode,
-  ctx: AnalyzerContext
-): string | undefined {
-  // Look for a property that maps "step" to an alias
-  for (const child of objectPattern.namedChildren) {
-    // Handle pair_pattern: `step: runStep` or `step: runStep = fallback`
-    if (child.type === "pair_pattern") {
-      const keyNode = child.childForFieldName("key");
-      const valueNode = child.childForFieldName("value");
+function findFunctionScope(node: Node): Node | undefined {
+  const { Node } = loadTsMorph();
+  let current = node.getParent();
 
-      if (keyNode && valueNode) {
-        const key = getText(keyNode, ctx);
-        // If the key is "step", return the alias (value)
-        if (key === "step") {
-          // Handle assignment_pattern: `step: runStep = fallback`
-          // Extract just the identifier, not the default value
-          if (valueNode.type === "assignment_pattern") {
-            const left = valueNode.childForFieldName("left");
-            if (left) {
-              return getText(left, ctx);
-            }
+  while (current) {
+    if (Node.isFunctionDeclaration(current) ||
+        Node.isArrowFunction(current) ||
+        Node.isFunctionExpression(current) ||
+        Node.isSourceFile(current)) {
+      return current;
+    }
+    current = current.getParent();
+  }
+
+  return undefined;
+}
+
+/**
+ * Check if a node is an ancestor of another node.
+ */
+function isAncestorOf(ancestor: Node, descendant: Node): boolean {
+  let current = descendant.getParent();
+
+  while (current) {
+    if (current === ancestor) return true;
+    current = current.getParent();
+  }
+
+  return false;
+}
+
+// =============================================================================
+// Workflow Analysis
+// =============================================================================
+
+function analyzeWorkflowCall(
+  workflowInfo: WorkflowCallInfo,
+  sourceFile: SourceFile,
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats
+): StaticWorkflowNode {
+  const { name, callExpression, depsObject, optionsObject, source } = workflowInfo;
+
+  // Track saga workflows
+  if (source === "createSagaWorkflow" || source === "runSaga") {
+    stats.sagaWorkflowCount = (stats.sagaWorkflowCount || 0) + 1;
+  }
+
+  // Extract dependencies
+  const dependencies = depsObject
+    ? extractDependencies(depsObject, warnings)
+    : [];
+
+  // Extract error types from dependencies
+  const errorTypes = extractErrorTypes(dependencies);
+
+  // Extract workflow documentation from options or deps object
+  // (description and markdown can be in either place)
+  const optionsDocs = optionsObject
+    ? extractWorkflowDocumentation(optionsObject)
+    : { description: undefined, markdown: undefined };
+  const depsDocs = depsObject
+    ? extractWorkflowDocumentation(depsObject)
+    : { description: undefined, markdown: undefined };
+
+  // Merge docs - prefer options, fall back to deps
+  const workflowDocs = {
+    description: optionsDocs.description || depsDocs.description,
+    markdown: optionsDocs.markdown || depsDocs.markdown,
+  };
+
+  // Determine saga context for proper step detection
+  const isSagaWorkflow = source === "createSagaWorkflow" || source === "runSaga";
+  const sagaContext: SagaContext = { isSagaWorkflow };
+
+  // For run() and runSaga(), the callback is already in callbackFunction
+  const children: StaticFlowNode[] = [];
+
+  if (source === "run" || source === "runSaga") {
+    // run() and runSaga() have the callback as the first argument
+    if (workflowInfo.callbackFunction) {
+      // Extract saga parameter info for runSaga
+      if (source === "runSaga") {
+        sagaContext.sagaParamInfo = extractSagaParameterInfo(workflowInfo.callbackFunction);
+      }
+      // Extract step parameter info for proper step detection
+      const stepParamInfo = extractStepParameterInfo(workflowInfo.callbackFunction);
+      const analyzed = analyzeCallback(
+        workflowInfo.callbackFunction,
+        opts,
+        warnings,
+        stats,
+        sagaContext,
+        stepParamInfo
+      );
+      children.push(...analyzed);
+    }
+  } else {
+    // For createWorkflow and createSagaWorkflow, find invocations
+    const invocations = findWorkflowInvocations(workflowInfo, sourceFile);
+
+    for (const invocation of invocations) {
+      const callback = invocation.callbackArg;
+      if (callback) {
+        // Extract saga parameter info for saga workflows
+        if (isSagaWorkflow) {
+          sagaContext.sagaParamInfo = extractSagaParameterInfo(callback);
+        }
+        // Extract step parameter info for all workflows
+        const stepParamInfo = extractStepParameterInfo(callback);
+        const analyzed = analyzeCallback(callback, opts, warnings, stats, sagaContext, stepParamInfo);
+        children.push(...analyzed);
+      }
+    }
+  }
+
+  return {
+    id: generateId(),
+    type: "workflow",
+    workflowName: name,
+    source,
+    dependencies,
+    errorTypes,
+    children,
+    description: workflowDocs.description,
+    markdown: workflowDocs.markdown,
+    location: opts.includeLocations ? getLocation(callExpression) : undefined,
+  };
+}
+
+/**
+ * Extract step parameter info from a workflow callback.
+ * Handles: (step), ({ step }), ({ step: s }), ({ step = default }), ({ step: s = default })
+ */
+interface StepParameterInfo {
+  name?: string;
+  isDestructured: boolean;
+  stepAlias?: string;
+}
+
+function extractStepParameterInfo(callback: Node): StepParameterInfo | undefined {
+  const { Node } = loadTsMorph();
+
+  let params: Node[] = [];
+  if (Node.isArrowFunction(callback)) {
+    params = callback.getParameters();
+  } else if (Node.isFunctionExpression(callback)) {
+    params = callback.getParameters();
+  }
+
+  if (params.length === 0) return undefined;
+
+  const firstParam = params[0];
+  if (!Node.isParameterDeclaration(firstParam)) return undefined;
+
+  const nameNode = firstParam.getNameNode();
+
+  // Check if it's destructured: ({ step }) or ({ step: s })
+  if (Node.isObjectBindingPattern(nameNode)) {
+    const result: StepParameterInfo = { isDestructured: true };
+
+    for (const element of nameNode.getElements()) {
+      const propName = element.getPropertyNameNode()?.getText() || element.getName();
+      const bindingName = element.getName();
+
+      if (propName === "step") {
+        result.stepAlias = bindingName;
+      }
+    }
+
+    return result;
+  }
+
+  // Not destructured: (step) or (s)
+  return {
+    name: nameNode.getText(),
+    isDestructured: false,
+  };
+}
+
+/**
+ * Extract description and markdown from workflow options.
+ * Can be in either the deps object or a separate options object.
+ */
+function extractWorkflowDocumentation(optionsNode: Node): {
+  description?: string;
+  markdown?: string;
+} {
+  const { Node } = loadTsMorph();
+  const result: { description?: string; markdown?: string } = {};
+
+  if (!Node.isObjectLiteralExpression(optionsNode)) {
+    return result;
+  }
+
+  for (const prop of optionsNode.getProperties()) {
+    if (!Node.isPropertyAssignment(prop)) continue;
+
+    const propName = prop.getName();
+    const init = prop.getInitializer();
+
+    if (propName === "description" && init) {
+      result.description = extractStringValue(init);
+    } else if (propName === "markdown" && init) {
+      result.markdown = extractStringValue(init);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Extract saga parameter info from a callback.
+ * e.g., `async (saga) => {...}` -> { name: "saga", isDestructured: false }
+ * e.g., `async ({ step, tryStep }) => {...}` -> { isDestructured: true, stepAlias: "step", tryStepAlias: "tryStep" }
+ */
+function extractSagaParameterInfo(callback: Node): SagaParameterInfo | undefined {
+  const { Node } = loadTsMorph();
+
+  let params: Node[] = [];
+  if (Node.isArrowFunction(callback)) {
+    params = callback.getParameters();
+  } else if (Node.isFunctionExpression(callback)) {
+    params = callback.getParameters();
+  }
+
+  if (params.length === 0) return undefined;
+
+  const firstParam = params[0];
+  if (!Node.isParameterDeclaration(firstParam)) return undefined;
+
+  const nameNode = firstParam.getNameNode();
+
+  // Check if it's destructured: ({ step, tryStep })
+  if (Node.isObjectBindingPattern(nameNode)) {
+    const result: SagaParameterInfo = { isDestructured: true };
+
+    for (const element of nameNode.getElements()) {
+      const propName = element.getPropertyNameNode()?.getText() || element.getName();
+      const bindingName = element.getName();
+
+      if (propName === "step") {
+        result.stepAlias = bindingName;
+      } else if (propName === "tryStep") {
+        result.tryStepAlias = bindingName;
+      }
+    }
+
+    return result;
+  }
+
+  // Not destructured: (saga)
+  return {
+    name: nameNode.getText(),
+    isDestructured: false,
+  };
+}
+
+interface WorkflowInvocation {
+  callExpression: Node;
+  callbackArg: Node | undefined;
+}
+
+/**
+ * Check if a node is contained within another node (is a descendant).
+ */
+function isDescendantOf(node: Node, potentialAncestor: Node): boolean {
+  let current = node.getParent();
+  while (current) {
+    if (current === potentialAncestor) return true;
+    current = current.getParent();
+  }
+  return false;
+}
+
+function findWorkflowInvocations(
+  workflowInfo: WorkflowCallInfo,
+  sourceFile: SourceFile
+): WorkflowInvocation[] {
+  const { Node } = loadTsMorph();
+  const invocations: WorkflowInvocation[] = [];
+  const workflowName = workflowInfo.name;
+
+  // Get the position of the workflow definition to limit search
+  const workflowDefinitionNode =
+    workflowInfo.variableDeclaration || workflowInfo.callExpression;
+  const workflowDefinitionPos = workflowDefinitionNode.getStart();
+
+  // Scope in which this workflow's binding is visible. We only count invocations inside this scope.
+  // For var declarations use function scope (var hoists); for const/let use containing block/function.
+  let workflowContainingScope: Node | undefined;
+  if (workflowInfo.variableDeclaration && Node.isVariableDeclaration(workflowInfo.variableDeclaration)) {
+    const list = workflowInfo.variableDeclaration.getVariableStatement()?.getDeclarationKind();
+    if (list === "var") {
+      workflowContainingScope = findFunctionScope(workflowDefinitionNode);
+    }
+  }
+  workflowContainingScope ??= findContainingScope(workflowDefinitionNode);
+
+  // First pass: find all scopes where the workflow name is shadowed
+  // This includes variable declarations AND function parameters
+  const shadowingScopes: Node[] = [];
+
+  /**
+   * Extract all bound names from a name node.
+   * Handles simple identifiers, object destructuring, and array destructuring.
+   */
+  function extractBoundNames(nameNode: Node): string[] {
+    const names: string[] = [];
+
+    if (Node.isIdentifier(nameNode)) {
+      names.push(nameNode.getText());
+    } else if (Node.isObjectBindingPattern(nameNode)) {
+      for (const element of nameNode.getElements()) {
+        const elementName = element.getNameNode();
+        names.push(...extractBoundNames(elementName));
+      }
+    } else if (Node.isArrayBindingPattern(nameNode)) {
+      for (const element of nameNode.getElements()) {
+        if (Node.isBindingElement(element)) {
+          const elementName = element.getNameNode();
+          names.push(...extractBoundNames(elementName));
+        }
+      }
+    }
+
+    return names;
+  }
+
+  sourceFile.forEachDescendant((node) => {
+    // Check for variable declarations that shadow the workflow name
+    // Handles both simple identifiers and destructuring patterns
+    if (Node.isVariableDeclaration(node)) {
+      if (node.getStart() <= workflowDefinitionPos) return;
+
+      const nameNode = node.getNameNode();
+      const boundNames = extractBoundNames(nameNode);
+
+      if (boundNames.includes(workflowName)) {
+        // Check if this is a var declaration (function-scoped) vs const/let (block-scoped)
+        const declarationList = node.getParent();
+        const isVar =
+          declarationList &&
+          Node.isVariableDeclarationList(declarationList) &&
+          declarationList.getDeclarationKind() === "var";
+
+        // Find the containing scope based on declaration type
+        let scope: Node | undefined = node.getParent();
+
+        if (isVar) {
+          // var hoists to function scope - find containing function
+          while (
+            scope &&
+            !Node.isFunctionDeclaration(scope) &&
+            !Node.isFunctionExpression(scope) &&
+            !Node.isArrowFunction(scope) &&
+            !Node.isSourceFile(scope)
+          ) {
+            scope = scope.getParent();
           }
-          return getText(valueNode, ctx);
+        } else {
+          // const/let are block-scoped - find containing block or function
+          while (
+            scope &&
+            !Node.isFunctionDeclaration(scope) &&
+            !Node.isFunctionExpression(scope) &&
+            !Node.isArrowFunction(scope) &&
+            !Node.isBlock(scope) &&
+            !Node.isSourceFile(scope)
+          ) {
+            scope = scope.getParent();
+          }
+        }
+
+        if (scope && !Node.isSourceFile(scope)) {
+          shadowingScopes.push(scope);
+        }
+      }
+      return;
+    }
+
+    // Check for function declarations that shadow the workflow name
+    // Function declarations hoist to their containing block/function scope
+    if (Node.isFunctionDeclaration(node)) {
+      if (node.getStart() <= workflowDefinitionPos) return;
+
+      const fnName = node.getName();
+      if (fnName === workflowName) {
+        // Find the containing scope (block or function)
+        let scope: Node | undefined = node.getParent();
+        while (
+          scope &&
+          !Node.isFunctionDeclaration(scope) &&
+          !Node.isFunctionExpression(scope) &&
+          !Node.isArrowFunction(scope) &&
+          !Node.isBlock(scope) &&
+          !Node.isSourceFile(scope)
+        ) {
+          scope = scope.getParent();
+        }
+        if (scope && !Node.isSourceFile(scope)) {
+          shadowingScopes.push(scope);
         }
       }
     }
 
-    // Handle shorthand_property_identifier_pattern: `{ step }` (no alias)
-    if (child.type === "shorthand_property_identifier_pattern") {
-      const name = getText(child, ctx);
-      if (name === "step") {
-        return "step";
-      }
-    }
+    // Check for function/method parameters that shadow the workflow name
+    // Parameters shadow for the entire function body
+    if (
+      Node.isFunctionDeclaration(node) ||
+      Node.isFunctionExpression(node) ||
+      Node.isArrowFunction(node) ||
+      Node.isMethodDeclaration(node)
+    ) {
+      if (node.getStart() <= workflowDefinitionPos) return;
 
-    // Handle assignment_pattern: `{ step = defaultStep }` (shorthand with default)
-    // Tree-sitter may parse this as assignment_pattern directly in object_pattern
-    if (child.type === "assignment_pattern") {
-      const left = child.childForFieldName("left");
-      if (left) {
-        const name = getText(left, ctx);
-        if (name === "step") {
-          return "step";
+      const parameters = node.getParameters();
+      for (const param of parameters) {
+        const paramNameNode = param.getNameNode();
+
+        // Check if any bound name in the parameter matches the workflow name
+        const boundNames = extractBoundNames(paramNameNode);
+        if (boundNames.includes(workflowName)) {
+          // The function itself is the shadowing scope
+          shadowingScopes.push(node);
+          break;
         }
       }
     }
-  }
+  });
 
-  return undefined;
+  // Second pass: find invocations, excluding those in shadowed scopes
+  sourceFile.forEachDescendant((node) => {
+    if (!Node.isCallExpression(node)) return;
+
+    const expression = node.getExpression();
+    const text = getCalleeText(expression);
+
+    // Check if this is an invocation of our workflow
+    // Handle: workflow(...), await workflow(...), (await workflow)(...)
+    if (
+      text === workflowName ||
+      text === `await ${workflowName}` ||
+      text === `(await ${workflowName})`
+    ) {
+      // Only count invocations that are inside this workflow's containing scope
+      // (so inner workflow doesn't pick up outer invocations with the same name).
+      const isInWorkflowScope =
+        !workflowContainingScope || isDescendantOf(node, workflowContainingScope);
+      // Check if this invocation is inside a scope that shadows the workflow name
+      const isInShadowedScope = shadowingScopes.some((scope) =>
+        isDescendantOf(node, scope)
+      );
+
+      if (isInWorkflowScope && !isInShadowedScope) {
+        const args = node.getArguments();
+        invocations.push({
+          callExpression: node,
+          callbackArg: args[0],
+        });
+      }
+    }
+  });
+
+  return invocations;
 }
 
 // =============================================================================
@@ -1892,381 +1185,537 @@ function extractStepFromObjectPattern(
 // =============================================================================
 
 /**
- * Analyze a workflow callback function body.
+ * Extended context for analyzing workflow structure.
+ * Tracks whether we're inside the workflow callback to properly count
+ * control structures regardless of whether they contain step calls.
  */
+interface AnalysisContext {
+  /** Names that refer to the step function */
+  stepNames: Set<string>;
+  /** Whether we're currently inside the workflow callback body */
+  isInWorkflowCallback: boolean;
+  /** Nesting depth for tracking nested functions */
+  depth: number;
+}
+
 function analyzeCallback(
-  callbackNode: SyntaxNode,
-  ctx: AnalyzerContext
+  callback: Node,
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  stepParamInfo?: StepParameterInfo
 ): StaticFlowNode[] {
-  const body = callbackNode.childForFieldName("body");
-  if (!body) return [];
+  const { Node } = loadTsMorph();
+  // Get the function body
+  let body: Node | undefined;
 
-  // If body is a block statement, analyze its statements
-  if (body.type === "statement_block") {
-    return analyzeStatements(body.namedChildren, ctx);
+  if (Node.isArrowFunction(callback)) {
+    body = callback.getBody();
+  } else if (Node.isFunctionExpression(callback)) {
+    body = callback.getBody();
   }
 
-  // If body is a single expression (implicit return), analyze it
-  return analyzeExpression(body, ctx);
+  if (!body) {
+    warnings.push({
+      code: "CALLBACK_NO_BODY",
+      message: "Could not extract callback body",
+      location: getLocation(callback),
+    });
+    return [];
+  }
+
+  // Build analysis context from step parameter info
+  const context: AnalysisContext = { stepNames: new Set(), isInWorkflowCallback: true, depth: 0 };
+  if (stepParamInfo) {
+    if (stepParamInfo.isDestructured && stepParamInfo.stepAlias) {
+      context.stepNames.add(stepParamInfo.stepAlias);
+    } else if (stepParamInfo.name) {
+      context.stepNames.add(stepParamInfo.name);
+    }
+  }
+  // Default to "step" if no explicit parameter info
+  if (context.stepNames.size === 0) {
+    context.stepNames.add("step");
+  }
+
+  // Analyze the body with workflow callback context
+  return analyzeNode(body, opts, warnings, stats, sagaContext, context);
 }
 
-/**
- * Analyze a list of statements.
- */
-function analyzeStatements(
-  statements: SyntaxNode[],
-  ctx: AnalyzerContext
+function analyzeNode(
+  node: Node,
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: false, depth: 0 }
 ): StaticFlowNode[] {
+  const { Node } = loadTsMorph();
   const results: StaticFlowNode[] = [];
 
-  for (const stmt of statements) {
-    const nodes = analyzeStatement(stmt, ctx);
-    results.push(...nodes);
+  // Handle block statement
+  if (Node.isBlock(node)) {
+    for (const statement of node.getStatements()) {
+      results.push(...analyzeNode(statement, opts, warnings, stats, sagaContext, context));
+    }
+    return wrapInSequence(results, opts);
+  }
+
+  // Handle expression statement (e.g., await step(...))
+  if (Node.isExpressionStatement(node)) {
+    return analyzeNode(node.getExpression(), opts, warnings, stats, sagaContext, context);
+  }
+
+  // Handle await expression
+  if (Node.isAwaitExpression(node)) {
+    return analyzeNode(node.getExpression(), opts, warnings, stats, sagaContext, context);
+  }
+
+  // Handle parenthesized expression (e.g., (step(...)))
+  if (Node.isParenthesizedExpression(node)) {
+    return analyzeNode(node.getExpression(), opts, warnings, stats, sagaContext, context);
+  }
+
+  // Handle variable declaration (const result = await step(...))
+  if (Node.isVariableStatement(node)) {
+    for (const decl of node.getDeclarationList().getDeclarations()) {
+      const initializer = decl.getInitializer();
+      if (initializer) {
+        results.push(...analyzeNode(initializer, opts, warnings, stats, sagaContext, context));
+      }
+    }
+    return results;
+  }
+
+  // Handle individual variable declaration (for nested function expressions)
+  if (Node.isVariableDeclaration(node)) {
+    const initializer = node.getInitializer();
+    if (initializer) {
+      // If initializer is a function expression, traverse into its body
+      // Keep isInWorkflowCallback if already in callback (for tree-sitter parity)
+      if (Node.isArrowFunction(initializer) || Node.isFunctionExpression(initializer)) {
+        const body = initializer.getBody();
+        const nestedContext: AnalysisContext = { 
+          ...context, 
+          isInWorkflowCallback: context.isInWorkflowCallback, 
+          depth: context.depth + 1 
+        };
+        results.push(...analyzeNode(body, opts, warnings, stats, sagaContext, nestedContext));
+      } else {
+        // Otherwise analyze the initializer normally
+        results.push(...analyzeNode(initializer, opts, warnings, stats, sagaContext, context));
+      }
+    }
+    return results;
+  }
+
+  // Handle call expression
+  if (Node.isCallExpression(node)) {
+    const analyzed = analyzeCallExpression(node, opts, warnings, stats, sagaContext, context);
+    if (analyzed) {
+      results.push(analyzed);
+    }
+    return results;
+  }
+
+  // Handle if statement
+  if (Node.isIfStatement(node)) {
+    const analyzed = analyzeIfStatement(node, opts, warnings, stats, sagaContext, context);
+    if (analyzed) {
+      results.push(analyzed);
+    }
+    return results;
+  }
+
+  // Handle switch statement
+  if (Node.isSwitchStatement(node)) {
+    const analyzed = analyzeSwitchStatement(node, opts, warnings, stats, sagaContext, context);
+    if (analyzed) {
+      results.push(analyzed);
+    }
+    return results;
+  }
+
+  // Handle for statement
+  if (Node.isForStatement(node)) {
+    const analyzed = analyzeForStatement(node, opts, warnings, stats, sagaContext, context);
+    if (analyzed) {
+      results.push(analyzed);
+    }
+    return results;
+  }
+
+  // Handle for-of statement
+  if (Node.isForOfStatement(node)) {
+    const analyzed = analyzeForOfStatement(node, opts, warnings, stats, sagaContext, context);
+    if (analyzed) {
+      results.push(analyzed);
+    }
+    return results;
+  }
+
+  // Handle for-in statement
+  if (Node.isForInStatement(node)) {
+    const analyzed = analyzeForInStatement(node, opts, warnings, stats, sagaContext, context);
+    if (analyzed) {
+      results.push(analyzed);
+    }
+    return results;
+  }
+
+  // Handle while statement
+  if (Node.isWhileStatement(node)) {
+    const analyzed = analyzeWhileStatement(node, opts, warnings, stats, sagaContext, context);
+    if (analyzed) {
+      results.push(analyzed);
+    }
+    return results;
+  }
+
+  // Handle try statement
+  if (Node.isTryStatement(node)) {
+    const analyzed = analyzeTryStatement(node, opts, warnings, stats, sagaContext, context);
+    results.push(...analyzed);
+    return results;
+  }
+
+  // Handle return statement
+  if (Node.isReturnStatement(node)) {
+    const expr = node.getExpression();
+    if (expr) {
+      return analyzeNode(expr, opts, warnings, stats, sagaContext, context);
+    }
+    return results;
+  }
+
+  // Handle ternary/conditional expression
+  if (Node.isConditionalExpression(node)) {
+    const whenTrue = analyzeNode(node.getWhenTrue(), opts, warnings, stats, sagaContext, context);
+    const whenFalse = analyzeNode(node.getWhenFalse(), opts, warnings, stats, sagaContext, context);
+    results.push(...whenTrue, ...whenFalse);
+    return results;
+  }
+
+  // Handle array literal (for Promise.all etc.)
+  if (Node.isArrayLiteralExpression(node)) {
+    for (const element of node.getElements()) {
+      results.push(...analyzeNode(element, opts, warnings, stats, sagaContext, context));
+    }
+    return results;
+  }
+
+  // Handle object literal (for step definitions in objects) - recursively handle nested objects
+  if (Node.isObjectLiteralExpression(node)) {
+    for (const prop of node.getProperties()) {
+      if (Node.isPropertyAssignment(prop)) {
+        const init = prop.getInitializer();
+        if (init) {
+          // Check if the initializer is a function that contains steps
+          if (Node.isArrowFunction(init) || Node.isFunctionExpression(init)) {
+            const body = init.getBody();
+            // Keep isInWorkflowCallback if already in callback (for tree-sitter parity)
+            const nestedContext: AnalysisContext = { 
+              ...context, 
+              isInWorkflowCallback: context.isInWorkflowCallback, 
+              depth: context.depth + 1 
+            };
+            results.push(...analyzeNode(body, opts, warnings, stats, sagaContext, nestedContext));
+          } else if (Node.isObjectLiteralExpression(init)) {
+            // Recursively analyze nested objects
+            results.push(...analyzeNode(init, opts, warnings, stats, sagaContext, context));
+          } else if (Node.isCallExpression(init)) {
+            // Handle call expressions like tool({...}) - analyze their arguments
+            for (const arg of init.getArguments()) {
+              results.push(...analyzeNode(arg, opts, warnings, stats, sagaContext, context));
+            }
+          }
+        }
+      } else if (Node.isMethodDeclaration(prop)) {
+        // Handle object methods like { async foo() { ... } }
+        const body = prop.getBody();
+        if (body) {
+          // Keep isInWorkflowCallback if already in callback (for tree-sitter parity)
+          const nestedContext: AnalysisContext = { 
+            ...context, 
+            isInWorkflowCallback: context.isInWorkflowCallback, 
+            depth: context.depth + 1 
+          };
+          results.push(...analyzeNode(body, opts, warnings, stats, sagaContext, nestedContext));
+        }
+      }
+    }
+    return results;
+  }
+
+  // Handle arrow functions and function expressions (nested functions with step calls)
+  if (Node.isArrowFunction(node)) {
+    const body = node.getBody();
+    // Keep isInWorkflowCallback if already in callback (for tree-sitter parity)
+    // Only reset if at top level (depth 0)
+    const nestedContext: AnalysisContext = { 
+      ...context, 
+      isInWorkflowCallback: context.isInWorkflowCallback, 
+      depth: context.depth + 1 
+    };
+    return analyzeNode(body, opts, warnings, stats, sagaContext, nestedContext);
+  }
+
+  if (Node.isFunctionExpression(node)) {
+    const body = node.getBody();
+    // Keep isInWorkflowCallback if already in callback (for tree-sitter parity)
+    // Only reset if at top level (depth 0)
+    const nestedContext: AnalysisContext = { 
+      ...context, 
+      isInWorkflowCallback: context.isInWorkflowCallback, 
+      depth: context.depth + 1 
+    };
+    return analyzeNode(body, opts, warnings, stats, sagaContext, nestedContext);
   }
 
   return results;
 }
 
 /**
- * Analyze a single statement.
+ * Analyze try-catch-finally statements.
  */
-function analyzeStatement(
-  stmt: SyntaxNode,
-  ctx: AnalyzerContext
+function analyzeTryStatement(
+  node: Node,
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext,
+  context: AnalysisContext
 ): StaticFlowNode[] {
-  switch (stmt.type) {
-    case "expression_statement": {
-      // Unwrap expression statement
-      const expr = stmt.namedChildren[0];
-      if (expr) {
-        return analyzeExpression(expr, ctx);
-      }
-      return [];
-    }
+  const { Node } = loadTsMorph();
+  if (!Node.isTryStatement(node)) return [];
 
-    case "variable_declaration":
-    case "lexical_declaration":
-      // Check for step calls in variable declarations
-      // lexical_declaration is used for const/let, variable_declaration for var
-      return analyzeVariableDeclaration(stmt, ctx);
-
-    case "return_statement": {
-      // Analyze return expression
-      // Note: tree-sitter TypeScript doesn't use "value" field for return_statement,
-      // the return expression is just a named child
-      const returnExpr =
-        stmt.childForFieldName("value") ?? stmt.namedChildren[0];
-      if (returnExpr) {
-        return analyzeExpression(returnExpr, ctx);
-      }
-      return [];
-    }
-
-    case "if_statement":
-      return analyzeIfStatement(stmt, ctx);
-
-    case "for_statement":
-      return analyzeForStatement(stmt, ctx);
-
-    case "for_in_statement":
-      return analyzeForInStatement(stmt, ctx);
-
-    case "while_statement":
-      return analyzeWhileStatement(stmt, ctx);
-
-    case "switch_statement":
-      return analyzeSwitchStatement(stmt, ctx);
-
-    case "try_statement": {
-      // Analyze try block and catch/finally blocks
-      const results: StaticFlowNode[] = [];
-
-      // Analyze the try body
-      const body = stmt.childForFieldName("body");
-      if (body && body.type === "statement_block") {
-        results.push(...analyzeStatements(body.namedChildren, ctx));
-      }
-
-      // Analyze catch clause if present
-      const handler = stmt.childForFieldName("handler");
-      if (handler && handler.type === "catch_clause") {
-        const catchBody = handler.childForFieldName("body");
-        if (catchBody && catchBody.type === "statement_block") {
-          results.push(...analyzeStatements(catchBody.namedChildren, ctx));
-        }
-      }
-
-      // Analyze finally clause if present
-      const finalizer = stmt.childForFieldName("finalizer");
-      if (finalizer && finalizer.type === "finally_clause") {
-        const finallyBody = finalizer.childForFieldName("body");
-        if (finallyBody && finallyBody.type === "statement_block") {
-          results.push(...analyzeStatements(finallyBody.namedChildren, ctx));
-        }
-      }
-
-      return results;
-    }
-
-    default:
-      return [];
-  }
-}
-
-/**
- * Analyze an expression for step calls.
- */
-function analyzeExpression(
-  expr: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  // Handle await expressions
-  if (expr.type === "await_expression") {
-    const inner = expr.namedChildren[0];
-    if (inner) {
-      return analyzeExpression(inner, ctx);
-    }
-    return [];
-  }
-
-  // Handle parenthesized expressions - unwrap and recurse
-  // e.g., `await (step(...))` or `return (await step(...))`
-  if (expr.type === "parenthesized_expression") {
-    const inner = expr.namedChildren[0];
-    if (inner) {
-      return analyzeExpression(inner, ctx);
-    }
-    return [];
-  }
-
-  // Handle call expressions
-  if (expr.type === "call_expression") {
-    return analyzeCallExpression(expr, ctx);
-  }
-
-  // Handle array expressions - recurse into elements
-  // This catches patterns like [step(), step()] in Promise.all([...])
-  if (expr.type === "array") {
-    const results: StaticFlowNode[] = [];
-    for (const element of expr.namedChildren) {
-      results.push(...analyzeExpression(element, ctx));
-    }
-    return results;
-  }
-
-  // Handle arrow functions - recurse into body (for .map callbacks etc.)
-  // This catches patterns like items.map(x => step(...))
-  if (expr.type === "arrow_function" || expr.type === "function_expression") {
-    const body = expr.childForFieldName("body");
-    if (body) {
-      if (body.type === "statement_block") {
-        return analyzeStatements(body.namedChildren, ctx);
-      }
-      return analyzeExpression(body, ctx);
-    }
-    return [];
-  }
-
-  // Handle ternary expressions - analyze both branches
-  // This catches patterns like condition ? step1() : step2()
-  if (expr.type === "ternary_expression") {
-    const results: StaticFlowNode[] = [];
-    const consequence = expr.childForFieldName("consequence");
-    const alternative = expr.childForFieldName("alternative");
-    if (consequence) results.push(...analyzeExpression(consequence, ctx));
-    if (alternative) results.push(...analyzeExpression(alternative, ctx));
-    return results;
-  }
-
-  // Handle object expressions - recurse into property values
-  // This catches patterns like { tools: { execute: async () => step(...) } }
-  if (expr.type === "object") {
-    const results: StaticFlowNode[] = [];
-    for (const child of expr.namedChildren) {
-      if (child.type === "pair") {
-        const value = child.childForFieldName("value");
-        if (value) {
-          results.push(...analyzeExpression(value, ctx));
-        }
-      } else if (child.type === "shorthand_property_identifier") {
-        // Shorthand like { foo } - skip, no step calls here
-      } else if (child.type === "spread_element") {
-        // Spread like { ...obj } - analyze the spread expression
-        const spreadArg = child.namedChildren[0];
-        if (spreadArg) {
-          results.push(...analyzeExpression(spreadArg, ctx));
-        }
-      } else if (child.type === "method_definition") {
-        // Object method like { async foo() { ... } }
-        const body = child.childForFieldName("body");
-        if (body && body.type === "statement_block") {
-          results.push(...analyzeStatements(body.namedChildren, ctx));
-        }
-      }
-    }
-    return results;
-  }
-
-  return [];
-}
-
-/**
- * Analyze a variable declaration for step calls.
- */
-function analyzeVariableDeclaration(
-  decl: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
   const results: StaticFlowNode[] = [];
 
-  // Find all declarators
-  for (const child of decl.namedChildren) {
-    if (child.type === "variable_declarator") {
-      const value = child.childForFieldName("value");
-      if (value) {
-        results.push(...analyzeExpression(value, ctx));
-      }
-    }
+  // Analyze try block
+  const tryBlock = node.getTryBlock();
+  results.push(...analyzeNode(tryBlock, opts, warnings, stats, sagaContext, context));
+
+  // Analyze catch clause
+  const catchClause = node.getCatchClause();
+  if (catchClause) {
+    results.push(...analyzeNode(catchClause.getBlock(), opts, warnings, stats, sagaContext, context));
   }
+
+  // Analyze finally block
+  const finallyBlock = node.getFinallyBlock();
+  if (finallyBlock) {
+    results.push(...analyzeNode(finallyBlock, opts, warnings, stats, sagaContext, context));
+  }
+
+  // Note: tree-sitter does NOT count try-catch as a conditional
+  // It only counts the statements inside (like if statements)
 
   return results;
 }
 
 /**
- * Analyze a call expression for step invocations.
+ * Analyze a callback argument (arrow function or function expression).
+ * Only use this in explicit callback contexts like when(), unless(), allAsync(), etc.
  */
+function analyzeCallbackArgument(
+  node: Node,
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: true, depth: 0 }
+): StaticFlowNode[] {
+  const { Node } = loadTsMorph();
+  // Handle arrow function (e.g., () => step(...))
+  if (Node.isArrowFunction(node)) {
+    const body = node.getBody();
+    return analyzeNode(body, opts, warnings, stats, sagaContext, context);
+  }
+
+  // Handle function expression (e.g., function() { step(...) })
+  if (Node.isFunctionExpression(node)) {
+    const body = node.getBody();
+    return analyzeNode(body, opts, warnings, stats, sagaContext, context);
+  }
+
+  // Fallback: try analyzing as a regular node (e.g., a direct call expression)
+  return analyzeNode(node, opts, warnings, stats, sagaContext, context);
+}
+
+// =============================================================================
+// Call Expression Analysis
+// =============================================================================
+
 function analyzeCallExpression(
-  call: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  const funcNode = call.childForFieldName("function");
-  if (!funcNode) return [];
+  node: Node,
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: false, depth: 0 }
+): StaticFlowNode | undefined {
+  const { Node } = loadTsMorph();
+  if (!Node.isCallExpression(node)) return undefined;
 
-  const funcText = getText(funcNode, ctx);
+  const expression = node.getExpression();
+  const callee = expression.getText();
+  const args = node.getArguments();
 
-  // Check for step() calls - only match the actual step parameter, not any object with a .step method
-  // e.g., `step(...)` matches, but `tracker.step(...)` does not
-  const stepParam = ctx.stepParameterName || "step";
-  if (funcText === stepParam) {
-    return [analyzeStepCall(call, ctx)];
-  }
+  // Handle saga workflow step detection
+  if (sagaContext.isSagaWorkflow && sagaContext.sagaParamInfo) {
+    const sagaParam = sagaContext.sagaParamInfo;
 
-  // Check for step.retry() - only match <stepParam>.retry, not arbitrary .retry()
-  if (funcText === `${stepParam}.retry`) {
-    return [analyzeStepRetryCall(call, ctx)];
-  }
-
-  // Check for step.withTimeout() - only match <stepParam>.withTimeout, not arbitrary .withTimeout()
-  if (funcText === `${stepParam}.withTimeout`) {
-    return [analyzeStepTimeoutCall(call, ctx)];
-  }
-
-  // Check for step.parallel - only match <stepParam>.parallel, not arbitrary .parallel()
-  if (funcText === `${stepParam}.parallel`) {
-    return analyzeParallelCall(call, ctx);
-  }
-
-  // Check for step.race - only match <stepParam>.race, not arbitrary .race()
-  if (funcText === `${stepParam}.race`) {
-    return analyzeRaceCall(call, ctx);
-  }
-
-  // Check for streaming methods - step.getWritable(), step.getReadable(), step.streamForEach()
-  if (funcText === `${stepParam}.getWritable`) {
-    return [analyzeStreamWritableCall(call, ctx)];
-  }
-  if (funcText === `${stepParam}.getReadable`) {
-    return [analyzeStreamReadableCall(call, ctx)];
-  }
-  if (funcText === `${stepParam}.streamForEach`) {
-    return [analyzeStreamForEachCall(call, ctx)];
-  }
-
-  // Check for step.sleep() - sleep for a duration
-  if (funcText === `${stepParam}.sleep`) {
-    return [analyzeSleepCall(call, ctx)];
-  }
-
-  // Check for conditional helpers: when(), unless(), whenOr(), unlessOr()
-  if (["when", "unless", "whenOr", "unlessOr"].includes(funcText)) {
-    return analyzeConditionalHelper(
-      call,
-      funcText as "when" | "unless" | "whenOr" | "unlessOr",
-      ctx
-    );
-  }
-
-  // Check for parallel helpers: allAsync(), allSettledAsync()
-  if (funcText === "allAsync" || funcText === "allSettledAsync") {
-    return analyzeAllAsyncCall(
-      call,
-      funcText === "allAsync" ? "all" : "allSettled",
-      ctx
-    );
-  }
-
-  // Check for race helper: anyAsync()
-  if (funcText === "anyAsync") {
-    return analyzeAnyAsyncCall(call, ctx);
-  }
-
-  // Check for workflow references (calls to other workflows)
-  if (isLikelyWorkflowCall(call, funcText, ctx)) {
-    return analyzeWorkflowRefCall(call, funcText, ctx);
-  }
-
-  // Fallback: for unrecognized calls, still analyze their arguments
-  // This catches patterns like Promise.all([step(), step()])
-  const args = call.childForFieldName("arguments");
-  if (args) {
-    const results: StaticFlowNode[] = [];
-    for (const arg of args.namedChildren) {
-      results.push(...analyzeExpression(arg, ctx));
+    // Destructured form: step() or tryStep()
+    if (sagaParam.isDestructured) {
+      if (sagaParam.stepAlias && callee === sagaParam.stepAlias) {
+        return analyzeSagaStepCall(node, args, false, opts, warnings, stats);
+      }
+      if (sagaParam.tryStepAlias && callee === sagaParam.tryStepAlias) {
+        return analyzeSagaStepCall(node, args, true, opts, warnings, stats);
+      }
+    } else if (sagaParam.name) {
+      // Non-destructured form: saga.step() or saga.tryStep()
+      if (callee === `${sagaParam.name}.step`) {
+        return analyzeSagaStepCall(node, args, false, opts, warnings, stats);
+      }
+      if (callee === `${sagaParam.name}.tryStep`) {
+        return analyzeSagaStepCall(node, args, true, opts, warnings, stats);
+      }
     }
-    return results;
   }
 
-  return [];
+  // Check for step calls using custom step parameter names
+  const isStepCall = isStepFunctionCall(callee, context);
+
+  // step() call (regular workflow) - use context to match custom parameter names
+  if (isStepCall) {
+    return analyzeStepCall(node, args, opts, warnings, stats);
+  }
+
+  // step.sleep() call
+  if (isStepMethodCall(callee, "sleep", context)) {
+    return analyzeStepSleepCall(node, args, opts, stats);
+  }
+
+  // step.retry() call
+  if (isStepMethodCall(callee, "retry", context)) {
+    return analyzeStepRetryCall(node, args, opts, warnings, stats);
+  }
+
+  // step.withTimeout() call
+  if (isStepMethodCall(callee, "withTimeout", context)) {
+    return analyzeStepTimeoutCall(node, args, opts, warnings, stats);
+  }
+
+  // step.parallel() call
+  if (isStepMethodCall(callee, "parallel", context)) {
+    return analyzeParallelCall(node, args, "all", opts, warnings, stats, sagaContext, context);
+  }
+
+  // step.race() call
+  if (isStepMethodCall(callee, "race", context)) {
+    return analyzeRaceCall(node, args, opts, warnings, stats, sagaContext, context);
+  }
+
+  // Streaming operations
+  if (isStepMethodCall(callee, "getWritable", context)) {
+    return analyzeStreamCall(node, "write", opts, stats);
+  }
+  if (isStepMethodCall(callee, "getReadable", context)) {
+    return analyzeStreamCall(node, "read", opts, stats);
+  }
+  if (isStepMethodCall(callee, "streamForEach", context)) {
+    return analyzeStreamCall(node, "forEach", opts, stats);
+  }
+
+  // allAsync() call
+  if (callee === "allAsync") {
+    return analyzeAllAsyncCall(node, args, "all", opts, warnings, stats, sagaContext, context);
+  }
+
+  // allSettledAsync() call
+  if (callee === "allSettledAsync") {
+    return analyzeAllAsyncCall(node, args, "allSettled", opts, warnings, stats, sagaContext, context);
+  }
+
+  // anyAsync() call
+  if (callee === "anyAsync") {
+    return analyzeAnyAsyncCall(node, args, opts, warnings, stats, sagaContext, context);
+  }
+
+  // when() / unless() / whenOr() / unlessOr() calls
+  if (["when", "unless", "whenOr", "unlessOr"].includes(callee)) {
+    return analyzeConditionalHelper(
+      node,
+      callee as "when" | "unless" | "whenOr" | "unlessOr",
+      args,
+      opts,
+      warnings,
+      stats,
+      sagaContext,
+      context
+    );
+  }
+
+  // Promise.all() - treat like allAsync for step detection
+  if (callee === "Promise.all") {
+    return analyzePromiseAllCall(node, args, opts, warnings, stats, sagaContext, context);
+  }
+
+  // Handle method calls with callbacks (e.g., .map(), .forEach(), .filter(), etc.)
+  // These might contain step calls in their callback arguments
+  // NOTE: This must come BEFORE isLikelyWorkflowCall check, since methods with callbacks also match that pattern
+  if (Node.isPropertyAccessExpression(expression)) {
+    const methodName = expression.getName();
+    const callbackMethods = ["map", "forEach", "filter", "reduce", "some", "every", "find", "flatMap"];
+
+    if (callbackMethods.includes(methodName)) {
+      // Analyze the callback argument for step calls
+      if (args[0]) {
+        const callbackResults = analyzeCallbackArgument(args[0], opts, warnings, stats, sagaContext, context);
+        if (callbackResults.length > 0) {
+          // Return the first result (or wrap in sequence if multiple)
+          return callbackResults.length === 1 ? callbackResults[0] : {
+            id: generateId(),
+            type: "sequence",
+            children: callbackResults,
+          } as StaticSequenceNode;
+        }
+      }
+    }
+  }
+
+  // Check if this might be a workflow call
+  if (isLikelyWorkflowCall(node)) {
+    return analyzeWorkflowRefCall(node, callee, opts, warnings, stats);
+  }
+
+  return undefined;
 }
 
 /**
- * Check if a call expression is likely a workflow call.
- * A workflow call has a callback as the first argument.
+ * Check if a callee represents a step function call.
+ * Matches: step, s (custom param), runStep (alias), etc.
+ * Does NOT match: obj.step (property access on non-step object)
  */
-function isLikelyWorkflowCall(
-  call: SyntaxNode,
-  funcText: string,
-  ctx: AnalyzerContext
-): boolean {
-  // Don't count the current workflow as a reference to itself
-  if (funcText === ctx.currentWorkflow) {
-    return false;
+function isStepFunctionCall(callee: string, context: AnalysisContext): boolean {
+  // Direct step call - check if callee is in the stepNames set from context
+  if (context.stepNames.has(callee)) {
+    return true;
   }
 
-  // Check if the first argument is a callback
-  const args = call.childForFieldName("arguments");
-  const firstArg = args?.namedChildren[0];
+  return false;
+}
 
-  if (!firstArg) return false;
-
-  // Workflow calls take a callback as first argument
-  if (
-    firstArg.type === "arrow_function" ||
-    firstArg.type === "function_expression"
-  ) {
-    // Check if it's a known workflow name
-    if (ctx.workflowNames.has(funcText)) {
+/**
+ * Check if a callee represents a step method call.
+ * Matches: step.sleep, s.sleep, runStep.retry, etc.
+ */
+function isStepMethodCall(callee: string, method: string, context: AnalysisContext): boolean {
+  for (const stepName of context.stepNames) {
+    if (callee === `${stepName}.${method}`) {
       return true;
-    }
-
-    // Heuristic: if it looks like a workflow call (has step, deps params)
-    // This helps with cross-file references
-    const params = firstArg.childForFieldName("parameters");
-    if (params) {
-      const paramText = getText(params, ctx);
-      if (paramText.includes("step") || paramText.includes("deps")) {
-        return true;
-      }
     }
   }
 
@@ -2274,731 +1723,700 @@ function isLikelyWorkflowCall(
 }
 
 /**
- * Analyze a workflow reference call.
+ * Analyze step.sleep() call.
  */
-function analyzeWorkflowRefCall(
-  call: SyntaxNode,
-  workflowName: string,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  ctx.stats.workflowRefCount++;
+function analyzeStepSleepCall(
+  node: Node,
+  args: Node[],
+  opts: Required<AnalyzerOptions>,
+  stats: AnalysisStats
+): StaticStepNode {
+  const { Node } = loadTsMorph();
+  stats.totalSteps++;
 
-  const refNode: StaticWorkflowRefNode = {
+  const stepNode: StaticStepNode = {
     id: generateId(),
-    type: "workflow-ref",
-    workflowName,
-    resolved: false, // Tree-sitter doesn't resolve cross-file references
-    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
+    type: "step",
+    callee: "step.sleep",
+    location: opts.includeLocations ? getLocation(node) : undefined,
   };
 
-  return [refNode];
+  // Extract duration from first argument
+  let durationText = "";
+  if (args[0]) {
+    if (Node.isStringLiteral(args[0])) {
+      durationText = args[0].getLiteralValue();
+    } else {
+      durationText = args[0].getText();
+    }
+  }
+
+  // Extract options from second argument
+  if (args[1] && Node.isObjectLiteralExpression(args[1])) {
+    const options = extractStepOptions(args[1]);
+    if (options.key) stepNode.key = options.key;
+    if (options.name) stepNode.name = options.name;
+    // Extract description if present
+    for (const prop of args[1].getProperties()) {
+      if (Node.isPropertyAssignment(prop) && prop.getName() === "description") {
+        const init = prop.getInitializer();
+        if (init) {
+          stepNode.description = extractStringValue(init);
+        }
+      }
+    }
+  }
+
+  // Set default name if not provided
+  if (!stepNode.name) {
+    stepNode.name = durationText ? `sleep ${durationText}` : "sleep";
+  }
+
+  return stepNode;
+}
+
+/**
+ * Analyze Promise.all() call - detect steps inside array.
+ */
+function analyzePromiseAllCall(
+  node: Node,
+  args: Node[],
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext,
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: false, depth: 0 }
+): StaticFlowNode | undefined {
+  const { Node } = loadTsMorph();
+
+  if (!args[0]) return undefined;
+
+  // Handle array literal: Promise.all([...])
+  if (Node.isArrayLiteralExpression(args[0])) {
+    const results: StaticFlowNode[] = [];
+    for (const element of args[0].getElements()) {
+      results.push(...analyzeNode(element, opts, warnings, stats, sagaContext, context));
+    }
+    if (results.length > 0) {
+      return wrapInSequence(results, opts)[0];
+    }
+  }
+
+  // Handle method calls like: Promise.all(items.map(...))
+  if (Node.isCallExpression(args[0])) {
+    const callExpr = args[0];
+    const calleeExpr = callExpr.getExpression();
+
+    // Check if it's a method call like items.map()
+    if (Node.isPropertyAccessExpression(calleeExpr)) {
+      const methodName = calleeExpr.getName();
+      const callbackMethods = ["map", "flatMap", "filter"];
+
+      if (callbackMethods.includes(methodName)) {
+        const callbackArgs = callExpr.getArguments();
+        if (callbackArgs[0]) {
+          return analyzeCallbackArgument(callbackArgs[0], opts, warnings, stats, sagaContext, context)[0];
+        }
+      }
+    }
+  }
+
+  return undefined;
 }
 
 // =============================================================================
 // Step Analysis
 // =============================================================================
 
-/**
- * Extract the callee from a function body (arrow function or function expression).
- * Handles both expression bodies: () => deps.fn()
- * And block bodies: () => { return deps.fn(); }
- */
-function extractCalleeFromFunctionBody(
-  body: SyntaxNode,
-  ctx: AnalyzerContext
-): string {
-  // Expression body: () => deps.fetchUser() or () => someCall()
-  if (body.type === "call_expression") {
-    const funcNode = body.childForFieldName("function");
-    if (funcNode) {
-      return getText(funcNode, ctx);
-    }
-  }
-
-  // Block body: () => { return deps.fetchUser(); }
-  if (body.type === "statement_block") {
-    // Look for a return statement
-    for (const child of body.namedChildren) {
-      if (child.type === "return_statement") {
-        // Get the expression being returned
-        const returnExpr = child.namedChildren[0];
-        if (returnExpr?.type === "call_expression") {
-          const funcNode = returnExpr.childForFieldName("function");
-          if (funcNode) {
-            return getText(funcNode, ctx);
-          }
-        } else if (returnExpr) {
-          return getText(returnExpr, ctx);
-        }
-      }
-    }
-  }
-
-  // Fallback: return the body text
-  return getText(body, ctx);
-}
-
-/**
- * Analyze a step() call.
- */
-function analyzeStepCall(call: SyntaxNode, ctx: AnalyzerContext): StaticStepNode {
-  ctx.stats.totalSteps++;
-
-  const args = call.childForFieldName("arguments");
-  const firstArg = args?.namedChildren[0];
-  const secondArg = args?.namedChildren[1];
-
-  // Extract the callee (what the step executes)
-  let callee = "<unknown>";
-  if (firstArg) {
-    if (
-      firstArg.type === "arrow_function" ||
-      firstArg.type === "function_expression"
-    ) {
-      const body = firstArg.childForFieldName("body");
-      if (body) {
-        callee = extractCalleeFromFunctionBody(body, ctx);
-      }
-    } else {
-      callee = getText(firstArg, ctx);
-    }
-  }
-
-  // Extract options (key, name, retry, timeout, etc.)
-  const options = secondArg ? extractStepOptions(secondArg, ctx) : {};
+function analyzeStepCall(
+  node: Node,
+  args: Node[],
+  opts: Required<AnalyzerOptions>,
+  _warnings: AnalysisWarning[],
+  stats: AnalysisStats
+): StaticStepNode {
+  const { Node } = loadTsMorph();
+  stats.totalSteps++;
 
   const stepNode: StaticStepNode = {
     id: generateId(),
     type: "step",
-    callee,
-    key: options.key,
-    name: options.name,
-    description: options.description,
-    markdown: options.markdown,
-    retry: options.retry,
-    timeout: options.timeout,
-    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
+    location: opts.includeLocations ? getLocation(node) : undefined,
   };
+
+  // Extract the operation being called
+  if (args[0]) {
+    const firstArg = args[0];
+    if (Node.isArrowFunction(firstArg) || Node.isFunctionExpression(firstArg)) {
+      // step(() => fetchUser(id)) or step(() => { return fetchUser(id); })
+      let body: Node = firstArg.getBody();
+
+      // Unwrap ParenthesizedExpression: () => (deps.fetchUser(id))
+      while (Node.isParenthesizedExpression(body)) {
+        body = body.getExpression();
+      }
+
+      if (Node.isCallExpression(body)) {
+        // Arrow function with expression body: () => deps.fetchUser(id)
+        stepNode.callee = body.getExpression().getText();
+      } else if (Node.isBlock(body)) {
+        // Block body: () => { return deps.fetchUser(id); }
+        // Look for a return statement with a call expression
+        const statements = body.getStatements();
+        for (const stmt of statements) {
+          if (Node.isReturnStatement(stmt)) {
+            const returnExpr = stmt.getExpression();
+            if (returnExpr && Node.isCallExpression(returnExpr)) {
+              stepNode.callee = returnExpr.getExpression().getText();
+              break;
+            }
+          }
+        }
+        // Fallback if no call expression found
+        if (!stepNode.callee) {
+          stepNode.callee = body.getText();
+        }
+      } else if (body) {
+        stepNode.callee = body.getText();
+      }
+    } else if (Node.isCallExpression(firstArg)) {
+      // step(fetchUser(id)) - direct call
+      stepNode.callee = firstArg.getExpression().getText();
+    } else {
+      // step(someResult) - passing a result directly
+      stepNode.callee = firstArg.getText();
+    }
+  }
+
+  // Extract options from second argument
+  if (args[1] && Node.isObjectLiteralExpression(args[1])) {
+    const options = extractStepOptions(args[1]);
+    if (options.key) stepNode.key = options.key;
+    if (options.name) stepNode.name = options.name;
+    if (options.retry) stepNode.retry = options.retry;
+    if (options.timeout) stepNode.timeout = options.timeout;
+  }
+
+  // Use callee as name if no name specified
+  if (!stepNode.name && stepNode.callee) {
+    stepNode.name = stepNode.callee;
+  }
 
   return stepNode;
 }
 
-/**
- * Analyze a step.retry() call.
- * Actual API: step.retry(() => deps.fn(), { key, attempts, backoff, ... })
- * First argument is the operation, second is combined options with retry config.
- */
 function analyzeStepRetryCall(
-  call: SyntaxNode,
-  ctx: AnalyzerContext
+  node: Node,
+  args: Node[],
+  opts: Required<AnalyzerOptions>,
+  _warnings: AnalysisWarning[],
+  stats: AnalysisStats
 ): StaticStepNode {
-  ctx.stats.totalSteps++;
+  const { Node } = loadTsMorph();
+  stats.totalSteps++;
 
-  const args = call.childForFieldName("arguments");
-  const argList = args?.namedChildren || [];
-
-  // First argument is the function to execute
-  const funcArg = argList[0];
-  let callee = "<unknown>";
-  if (funcArg) {
-    if (
-      funcArg.type === "arrow_function" ||
-      funcArg.type === "function_expression"
-    ) {
-      const body = funcArg.childForFieldName("body");
-      if (body) {
-        callee = extractCalleeFromFunctionBody(body, ctx);
-      }
-    } else {
-      callee = getText(funcArg, ctx);
-    }
-  }
-
-  // Second argument is combined options (key, name, attempts, backoff, etc.)
-  const optionsArg = argList[1];
-  const options = optionsArg ? extractStepOptions(optionsArg, ctx) : {};
-
-  // Extract retry config directly from combined options
-  const retry = optionsArg ? extractRetryConfig(optionsArg, ctx) : undefined;
-
-  return {
+  const stepNode: StaticStepNode = {
     id: generateId(),
     type: "step",
-    callee,
-    key: options.key,
-    name: options.name,
-    description: options.description,
-    markdown: options.markdown,
-    retry,
-    timeout: options.timeout,
-    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
+    location: opts.includeLocations ? getLocation(node) : undefined,
   };
+
+  // Extract the operation
+  if (args[0]) {
+    stepNode.callee = extractCallee(args[0]);
+    stepNode.name = stepNode.callee;
+  }
+
+  // Extract retry options
+  if (args[1] && Node.isObjectLiteralExpression(args[1])) {
+    stepNode.retry = extractRetryConfig(args[1]);
+  }
+
+  return stepNode;
 }
 
-/**
- * Analyze a step.withTimeout() call.
- * Actual API: step.withTimeout(() => deps.fn(), { key, ms, ... })
- * First argument is the operation, second is combined options with timeout config.
- */
 function analyzeStepTimeoutCall(
-  call: SyntaxNode,
-  ctx: AnalyzerContext
+  node: Node,
+  args: Node[],
+  opts: Required<AnalyzerOptions>,
+  _warnings: AnalysisWarning[],
+  stats: AnalysisStats
 ): StaticStepNode {
-  ctx.stats.totalSteps++;
+  const { Node } = loadTsMorph();
+  stats.totalSteps++;
 
-  const args = call.childForFieldName("arguments");
-  const argList = args?.namedChildren || [];
-
-  // First argument is the function to execute
-  const funcArg = argList[0];
-  let callee = "<unknown>";
-  if (funcArg) {
-    if (
-      funcArg.type === "arrow_function" ||
-      funcArg.type === "function_expression"
-    ) {
-      const body = funcArg.childForFieldName("body");
-      if (body) {
-        callee = extractCalleeFromFunctionBody(body, ctx);
-      }
-    } else {
-      callee = getText(funcArg, ctx);
-    }
-  }
-
-  // Second argument is combined options (key, name, ms, etc.)
-  const optionsArg = argList[1];
-  const options = optionsArg ? extractStepOptions(optionsArg, ctx) : {};
-
-  // Extract timeout config directly from combined options
-  const timeout = optionsArg ? extractTimeoutConfig(optionsArg, ctx) : undefined;
-
-  return {
+  const stepNode: StaticStepNode = {
     id: generateId(),
     type: "step",
-    callee,
-    key: options.key,
-    name: options.name,
-    description: options.description,
-    markdown: options.markdown,
-    retry: options.retry,
-    timeout,
-    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
+    location: opts.includeLocations ? getLocation(node) : undefined,
   };
-}
 
-/**
- * Analyze a step.sleep() call.
- * API: step.sleep(duration, { name?, key?, description? })
- * - duration: string (e.g., "5s", "100ms") or Duration object (e.g., seconds(5))
- * - options: optional object with name, key, description
- */
-function analyzeSleepCall(
-  call: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticStepNode {
-  ctx.stats.totalSteps++;
-
-  const args = call.childForFieldName("arguments");
-  const argList = args?.namedChildren || [];
-
-  // First argument is the duration (string or Duration object)
-  const durationArg = argList[0];
-  let durationText: string | undefined;
-  if (durationArg) {
-    const rawText = getText(durationArg, ctx);
-    // Check if it's a string literal like "5s" or "100ms"
-    if (durationArg.type === "string") {
-      // Remove quotes from string literals
-      durationText = rawText.slice(1, -1);
-    } else {
-      // For Duration objects or other expressions, use the raw text
-      durationText = rawText;
-    }
+  // Extract the operation
+  if (args[0]) {
+    stepNode.callee = extractCallee(args[0]);
+    stepNode.name = stepNode.callee;
   }
 
-  // Second argument is options (name, key, description)
-  const optionsArg = argList[1];
-  const options = optionsArg ? extractStepOptions(optionsArg, ctx) : {};
-
-  // Generate a default name if none provided
-  const defaultName = durationText ? `sleep ${durationText}` : "sleep";
-
-  return {
-    id: generateId(),
-    type: "step",
-    callee: "step.sleep",
-    key: options.key,
-    name: options.name ?? defaultName,
-    description: options.description,
-    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
-  };
-}
-
-/**
- * Step options extracted from an object literal.
- */
-interface StepOptions {
-  key?: string;
-  name?: string;
-  description?: string;
-  markdown?: string;
-  retry?: StaticRetryConfig;
-  timeout?: StaticTimeoutConfig;
-}
-
-/**
- * Extract step options from an object literal.
- */
-function extractStepOptions(
-  optionsNode: SyntaxNode,
-  ctx: AnalyzerContext
-): StepOptions {
-  const result: StepOptions = {};
-
-  if (optionsNode.type !== "object") {
-    return result;
+  // Extract timeout options
+  if (args[1] && Node.isObjectLiteralExpression(args[1])) {
+    stepNode.timeout = extractTimeoutConfig(args[1]);
   }
 
-  for (const prop of optionsNode.namedChildren) {
-    if (prop.type === "pair") {
-      const keyNode = prop.childForFieldName("key");
-      const valueNode = prop.childForFieldName("value");
-
-      if (keyNode && valueNode) {
-        const key = getText(keyNode, ctx);
-
-        if (key === "key") {
-          const value = extractStringValue(valueNode, ctx);
-          if (value) result.key = value;
-        } else if (key === "name") {
-          const value = extractStringValue(valueNode, ctx);
-          if (value) result.name = value;
-        } else if (key === "description") {
-          const value = extractStringValue(valueNode, ctx);
-          if (value) result.description = value;
-        } else if (key === "markdown") {
-          const value = extractStringValue(valueNode, ctx);
-          if (value) result.markdown = value;
-        } else if (key === "retry") {
-          result.retry = extractRetryConfig(valueNode, ctx);
-        } else if (key === "timeout") {
-          result.timeout = extractTimeoutConfig(valueNode, ctx);
-        }
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
- * Extract retry configuration from an object literal.
- */
-function extractRetryConfig(
-  node: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticRetryConfig {
-  const config: StaticRetryConfig = {};
-
-  if (node.type !== "object") {
-    return config;
-  }
-
-  for (const prop of node.namedChildren) {
-    if (prop.type === "pair") {
-      const keyNode = prop.childForFieldName("key");
-      const valueNode = prop.childForFieldName("value");
-
-      if (keyNode && valueNode) {
-        const key = getText(keyNode, ctx);
-
-        if (key === "attempts") {
-          const value = extractNumberValue(valueNode, ctx);
-          config.attempts = value;
-        } else if (key === "backoff") {
-          const value = extractStringValue(valueNode, ctx);
-          if (value === "fixed" || value === "linear" || value === "exponential") {
-            config.backoff = value;
-          } else {
-            config.backoff = "<dynamic>";
-          }
-        } else if (key === "baseDelay") {
-          const value = extractNumberValue(valueNode, ctx);
-          config.baseDelay = value;
-        } else if (key === "retryOn") {
-          config.retryOn = getText(valueNode, ctx);
-        }
-      }
-    }
-  }
-
-  return config;
-}
-
-/**
- * Extract timeout configuration from an object literal.
- */
-function extractTimeoutConfig(
-  node: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticTimeoutConfig {
-  const config: StaticTimeoutConfig = {};
-
-  if (node.type !== "object") {
-    return config;
-  }
-
-  for (const prop of node.namedChildren) {
-    if (prop.type === "pair") {
-      const keyNode = prop.childForFieldName("key");
-      const valueNode = prop.childForFieldName("value");
-
-      if (keyNode && valueNode) {
-        const key = getText(keyNode, ctx);
-
-        if (key === "ms") {
-          const value = extractNumberValue(valueNode, ctx);
-          config.ms = value;
-        }
-      }
-    }
-  }
-
-  return config;
-}
-
-/**
- * Extract a number value from a node.
- */
-function extractNumberValue(
-  node: SyntaxNode,
-  ctx: AnalyzerContext
-): number | "<dynamic>" {
-  const text = getText(node, ctx);
-
-  if (node.type === "number") {
-    const num = parseFloat(text);
-    return isNaN(num) ? "<dynamic>" : num;
-  }
-
-  return "<dynamic>";
+  return stepNode;
 }
 
 // =============================================================================
 // Parallel/Race Analysis
 // =============================================================================
 
-/**
- * Analyze a step.parallel() call.
- * Handles both object form: step.parallel({ key: () => ... })
- * And array form: step.parallel("name", () => allAsync([...]))
- */
 function analyzeParallelCall(
-  call: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  const args = call.childForFieldName("arguments");
-  const firstArg = args?.namedChildren[0];
+  node: Node,
+  args: Node[],
+  mode: "all" | "allSettled",
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: false, depth: 0 }
+): StaticParallelNode {
+  const { Node } = loadTsMorph();
+  stats.parallelCount++;
 
-  if (!firstArg) {
-    return [];
+  const parallelNode: StaticParallelNode = {
+    id: generateId(),
+    type: "parallel",
+    mode,
+    children: [],
+    callee: "step.parallel",
+    location: opts.includeLocations ? getLocation(node) : undefined,
+  };
+
+  // Check for step.parallel("name", callback) form
+  if (args[0] && Node.isStringLiteral(args[0])) {
+    parallelNode.name = args[0].getLiteralValue();
+    // Analyze the callback in args[1]
+    if (args[1]) {
+      const children = analyzeCallbackArgument(args[1], opts, warnings, stats, sagaContext, context);
+      // If callback contains allAsync, extract its children
+      if (children.length === 1 && children[0].type === "parallel") {
+        const inner = children[0] as StaticParallelNode;
+        parallelNode.children = inner.children;
+        parallelNode.mode = inner.mode;
+        return parallelNode;
+      }
+      parallelNode.children.push(...children);
+    }
+    return parallelNode;
   }
 
-  // Array form: step.parallel("name", () => allAsync([...]))
-  // or step.parallel(ParallelOps.fetchAll, () => allAsync([...]))
-  // First arg is string/name/identifier, second arg is callback
-  if (firstArg.type === "string" || firstArg.type === "identifier" || firstArg.type === "member_expression") {
-    // Extract the name from the first argument
-    // Use extractStringValue for string literals, getText for identifiers/member expressions
-    const parallelName = firstArg.type === "string"
-      ? extractStringValue(firstArg, ctx)
-      : getText(firstArg, ctx);
+  // Check for step.parallel(NamedConstant, callback) form
+  if (args[0] && !Node.isObjectLiteralExpression(args[0]) && !Node.isArrayLiteralExpression(args[0]) && args[1]) {
+    // First arg is a name expression (like ParallelOps.fetchAll)
+    parallelNode.name = args[0].getText();
+    const children = analyzeCallbackArgument(args[1], opts, warnings, stats, sagaContext, context);
+    if (children.length === 1 && children[0].type === "parallel") {
+      const inner = children[0] as StaticParallelNode;
+      parallelNode.children = inner.children;
+      parallelNode.mode = inner.mode;
+      return parallelNode;
+    }
+    parallelNode.children.push(...children);
+    return parallelNode;
+  }
 
-    const secondArg = args?.namedChildren[1];
-    if (secondArg && (secondArg.type === "arrow_function" || secondArg.type === "function_expression")) {
-      // Analyze the callback body - it likely contains allAsync() or similar
-      // Don't increment parallelCount here - allAsync/allSettledAsync will do it
-      const analyzed = analyzeCallbackBody(secondArg, ctx);
-      // The callback body analysis will produce the parallel node from allAsync()
-      // Apply the name from step.parallel() to the parallel nodes
-      if (analyzed.length > 0) {
-        for (const node of analyzed) {
-          if (node.type === "parallel" && parallelName) {
-            (node as StaticParallelNode).name = parallelName;
+  // Extract operations from arguments
+  if (args[0] && Node.isObjectLiteralExpression(args[0])) {
+    // Named parallel: step.parallel({ a: () => ..., b: () => ... })
+    for (const prop of args[0].getProperties()) {
+      if (Node.isPropertyAssignment(prop)) {
+        const name = prop.getName();
+        const init = prop.getInitializer();
+        if (init) {
+          const implicitStep = tryExtractImplicitStep(init, opts, stats);
+          if (implicitStep) {
+            implicitStep.name = name;
+            parallelNode.children.push(implicitStep);
+          } else {
+            const children = analyzeCallbackArgument(init, opts, warnings, stats, sagaContext, context);
+            if (children.length > 0) {
+              const child = children[0];
+              child.name = name;
+              parallelNode.children.push(child);
+            }
           }
         }
-        return analyzed;
       }
     }
-    return [];
-  }
-
-  // Object form: step.parallel({ key: () => ... }, { name: ... })
-  if (firstArg.type !== "object") {
-    return [];
-  }
-
-  // Count parallel only for object form (array form counts via allAsync)
-  ctx.stats.parallelCount++;
-
-  // Extract children from the object
-  const children: StaticFlowNode[] = [];
-
-  for (const prop of firstArg.namedChildren) {
-    if (prop.type === "pair") {
-      const keyNode = prop.childForFieldName("key");
-      const valueNode = prop.childForFieldName("value");
-
-      if (keyNode && valueNode) {
-        const stepNode = analyzeParallelItem(keyNode, valueNode, ctx);
-        if (stepNode) {
-          children.push(stepNode);
+    // Check for options in second argument
+    if (args[1] && Node.isObjectLiteralExpression(args[1])) {
+      for (const prop of args[1].getProperties()) {
+        if (Node.isPropertyAssignment(prop) && prop.getName() === "name") {
+          const init = prop.getInitializer();
+          if (init) {
+            parallelNode.name = extractStringValue(init);
+          }
         }
       }
     }
-  }
-
-  // Extract options from second argument (e.g., { name: 'Fetch all' })
-  const secondArg = args?.namedChildren[1];
-  const options = secondArg ? extractStepOptions(secondArg, ctx) : {};
-
-  return [
-    {
-      id: generateId(),
-      type: "parallel",
-      mode: "all",
-      name: options.name,
-      children,
-      callee: "step.parallel",
-      location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
-    },
-  ];
-}
-
-/**
- * Analyze a single item in a parallel object.
- */
-function analyzeParallelItem(
-  keyNode: SyntaxNode,
-  valueNode: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticStepNode | null {
-  ctx.stats.totalSteps++;
-
-  const name = getText(keyNode, ctx);
-
-  // Extract callee from the value (usually an arrow function)
-  let callee = "<unknown>";
-  if (
-    valueNode.type === "arrow_function" ||
-    valueNode.type === "function_expression"
-  ) {
-    const body = valueNode.childForFieldName("body");
-    if (body?.type === "call_expression") {
-      const funcNode = body.childForFieldName("function");
-      if (funcNode) {
-        callee = getText(funcNode, ctx);
+  } else if (args[0] && Node.isArrayLiteralExpression(args[0])) {
+    // Array parallel: step.parallel([() => ..., () => ...])
+    for (const element of args[0].getElements()) {
+      const implicitStep = tryExtractImplicitStep(element, opts, stats);
+      if (implicitStep) {
+        parallelNode.children.push(implicitStep);
+      } else {
+        const children = analyzeCallbackArgument(element, opts, warnings, stats, sagaContext, context);
+        parallelNode.children.push(...children);
       }
     }
   }
 
-  return {
+  return parallelNode;
+}
+
+/**
+ * Try to extract an implicit step from a callback that wraps a direct call expression.
+ * e.g., () => deps.fetchPosts(id) -> implicit step for "fetchPosts"
+ */
+function tryExtractImplicitStep(
+  node: Node,
+  opts: Required<AnalyzerOptions>,
+  stats: AnalysisStats
+): StaticStepNode | undefined {
+  const { Node } = loadTsMorph();
+  // Check if it's an arrow function with a call expression body
+  if (Node.isArrowFunction(node)) {
+    const body = node.getBody();
+    if (Node.isCallExpression(body)) {
+      const callee = body.getExpression().getText();
+      stats.totalSteps++;
+      return {
+        id: generateId(),
+        type: "step",
+        location: opts.includeLocations ? getLocation(body) : undefined,
+        callee,
+        name: extractImplicitStepName(callee),
+      };
+    }
+  }
+
+  // Check if it's a function expression with a single return statement
+  if (Node.isFunctionExpression(node)) {
+    const body = node.getBody();
+    if (!Node.isBlock(body)) return undefined;
+    const statements = body.getStatements();
+    if (statements.length === 1 && Node.isReturnStatement(statements[0])) {
+      const expr = statements[0].getExpression();
+      if (expr && Node.isCallExpression(expr)) {
+        const callee = expr.getExpression().getText();
+        stats.totalSteps++;
+        return {
+          id: generateId(),
+          type: "step",
+          location: opts.includeLocations ? getLocation(expr) : undefined,
+          callee,
+          name: extractImplicitStepName(callee),
+        };
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function analyzeAllAsyncCall(
+  node: Node,
+  args: Node[],
+  mode: "all" | "allSettled",
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: false, depth: 0 }
+): StaticParallelNode {
+  const { Node } = loadTsMorph();
+  stats.parallelCount++;
+
+  const parallelNode: StaticParallelNode = {
     id: generateId(),
-    type: "step",
-    callee,
-    name,
-    location: ctx.opts.includeLocations ? getLocation(valueNode, ctx) : undefined,
+    type: "parallel",
+    mode,
+    children: [],
+    callee: mode === "all" ? "allAsync" : "allSettledAsync",
+    location: opts.includeLocations ? getLocation(node) : undefined,
   };
+
+  // Extract operations from array argument
+  if (args[0] && Node.isArrayLiteralExpression(args[0])) {
+    for (const element of args[0].getElements()) {
+      // Use analyzeCallbackArgument for arrow functions/function expressions
+      const children = analyzeCallbackArgument(element, opts, warnings, stats, sagaContext, context);
+
+      // If analyzeCallbackArgument found known patterns (step, etc.), use those
+      if (children.length > 0) {
+        // Group multiple children in a sequence
+        if (children.length > 1) {
+          parallelNode.children.push({
+            id: generateId(),
+            type: "sequence",
+            children,
+          } as StaticSequenceNode);
+        } else {
+          parallelNode.children.push(...children);
+        }
+      } else if (Node.isCallExpression(element)) {
+        // Treat direct call expressions as implicit steps
+        // e.g., allAsync([deps.fetchPosts(id), deps.fetchFriends(id)])
+        const callee = element.getExpression().getText();
+        stats.totalSteps++;
+        const implicitStep: StaticStepNode = {
+          id: generateId(),
+          type: "step",
+          location: opts.includeLocations ? getLocation(element) : undefined,
+          callee,
+          name: extractImplicitStepName(callee),
+        };
+        parallelNode.children.push(implicitStep);
+      }
+    }
+  }
+
+  return parallelNode;
 }
 
 /**
- * Analyze a step.race() call.
+ * Extract a human-readable name from a callee expression.
+ * e.g., "deps.fetchPosts" -> "fetchPosts", "fetchUser" -> "fetchUser"
  */
+function extractImplicitStepName(callee: string): string {
+  // Get the last part after the last dot
+  const parts = callee.split(".");
+  return parts[parts.length - 1];
+}
+
 function analyzeRaceCall(
-  call: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  ctx.stats.raceCount++;
+  node: Node,
+  args: Node[],
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: false, depth: 0 }
+): StaticRaceNode {
+  const { Node } = loadTsMorph();
+  stats.raceCount++;
 
-  // Similar structure to parallel, but with race semantics
-  const args = call.childForFieldName("arguments");
-  const firstArg = args?.namedChildren[0];
+  const raceNode: StaticRaceNode = {
+    id: generateId(),
+    type: "race",
+    children: [],
+    callee: "step.race",
+    location: opts.includeLocations ? getLocation(node) : undefined,
+  };
 
-  if (!firstArg || firstArg.type !== "object") {
-    return [];
-  }
-
-  const children: StaticFlowNode[] = [];
-
-  for (const prop of firstArg.namedChildren) {
-    if (prop.type === "pair") {
-      const keyNode = prop.childForFieldName("key");
-      const valueNode = prop.childForFieldName("value");
-
-      if (keyNode && valueNode) {
-        const stepNode = analyzeParallelItem(keyNode, valueNode, ctx);
-        if (stepNode) {
-          children.push(stepNode);
+  // Extract operations from array or object
+  if (args[0] && Node.isArrayLiteralExpression(args[0])) {
+    for (const element of args[0].getElements()) {
+      // Try to extract implicit step first (arrow function with direct call)
+      const implicitStep = tryExtractImplicitStep(element, opts, stats);
+      if (implicitStep) {
+        raceNode.children.push(implicitStep);
+      } else {
+        const children = analyzeCallbackArgument(element, opts, warnings, stats, sagaContext, context);
+        raceNode.children.push(...children);
+      }
+    }
+  } else if (args[0] && Node.isObjectLiteralExpression(args[0])) {
+    // Object form: step.race({ cacheA: () => ..., cacheB: () => ... })
+    for (const prop of args[0].getProperties()) {
+      if (Node.isPropertyAssignment(prop)) {
+        const name = prop.getName();
+        const init = prop.getInitializer();
+        if (init) {
+          const implicitStep = tryExtractImplicitStep(init, opts, stats);
+          if (implicitStep) {
+            implicitStep.name = name;
+            raceNode.children.push(implicitStep);
+          } else {
+            const children = analyzeCallbackArgument(init, opts, warnings, stats, sagaContext, context);
+            if (children.length > 0) {
+              const child = children[0];
+              child.name = name;
+              raceNode.children.push(child);
+            }
+          }
         }
       }
     }
   }
 
-  return [
-    {
-      id: generateId(),
-      type: "race",
-      children,
-      callee: "step.race",
-      location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
-    },
-  ];
+  return raceNode;
+}
+
+function analyzeAnyAsyncCall(
+  node: Node,
+  args: Node[],
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: false, depth: 0 }
+): StaticRaceNode {
+  const { Node } = loadTsMorph();
+  stats.raceCount++;
+
+  const raceNode: StaticRaceNode = {
+    id: generateId(),
+    type: "race",
+    children: [],
+    callee: "anyAsync",
+    location: opts.includeLocations ? getLocation(node) : undefined,
+  };
+
+  if (args[0] && Node.isArrayLiteralExpression(args[0])) {
+    for (const element of args[0].getElements()) {
+      const children = analyzeCallbackArgument(element, opts, warnings, stats, sagaContext, context);
+      raceNode.children.push(...children);
+    }
+  }
+
+  return raceNode;
 }
 
 // =============================================================================
 // Streaming Analysis
 // =============================================================================
 
-/**
- * Analyze a step.getWritable() call.
- */
-function analyzeStreamWritableCall(
-  call: SyntaxNode,
-  ctx: AnalyzerContext
+function analyzeStreamCall(
+  node: Node,
+  streamType: "write" | "read" | "forEach",
+  opts: Required<AnalyzerOptions>,
+  stats: AnalysisStats
 ): StaticStreamNode {
-  ctx.stats.streamCount++;
+  const { Node } = loadTsMorph();
 
-  const args = call.childForFieldName("arguments");
-  const optionsArg = args?.namedChildren[0];
+  stats.streamCount = (stats.streamCount || 0) + 1;
 
-  const options = optionsArg ? extractStreamOptions(optionsArg, ctx) : {};
-
-  return {
-    id: generateId(),
-    type: "stream",
-    streamType: "write",
-    namespace: options.namespace,
-    options: options.highWaterMark !== undefined ? { highWaterMark: options.highWaterMark } : undefined,
-    callee: "step.getWritable",
-    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
-  };
-}
-
-/**
- * Analyze a step.getReadable() call.
- */
-function analyzeStreamReadableCall(
-  call: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticStreamNode {
-  ctx.stats.streamCount++;
-
-  const args = call.childForFieldName("arguments");
-  const optionsArg = args?.namedChildren[0];
-
-  const options = optionsArg ? extractStreamOptions(optionsArg, ctx) : {};
-
-  return {
-    id: generateId(),
-    type: "stream",
-    streamType: "read",
-    namespace: options.namespace,
-    options: options.startIndex !== undefined ? { startIndex: options.startIndex } : undefined,
-    callee: "step.getReadable",
-    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
-  };
-}
-
-/**
- * Analyze a step.streamForEach() call.
- */
-function analyzeStreamForEachCall(
-  call: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticStreamNode {
-  ctx.stats.streamCount++;
-
-  const args = call.childForFieldName("arguments");
-  // streamForEach(source, processor, options?)
-  const optionsArg = args?.namedChildren[2];
-
-  const options = optionsArg ? extractStreamForEachOptions(optionsArg, ctx) : {};
-
-  return {
-    id: generateId(),
-    type: "stream",
-    streamType: "forEach",
-    options: {
-      ...(options.concurrency !== undefined ? { concurrency: options.concurrency } : {}),
-      ...(options.checkpointInterval !== undefined ? { checkpointInterval: options.checkpointInterval } : {}),
-    },
-    callee: "step.streamForEach",
-    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
-  };
-}
-
-/**
- * Extract stream options from an object literal.
- */
-function extractStreamOptions(
-  optionsNode: SyntaxNode,
-  ctx: AnalyzerContext
-): { namespace?: string; highWaterMark?: number | "<dynamic>"; startIndex?: number | "<dynamic>" } {
-  const result: { namespace?: string; highWaterMark?: number | "<dynamic>"; startIndex?: number | "<dynamic>" } = {};
-
-  if (optionsNode.type !== "object") {
-    return result;
+  if (!Node.isCallExpression(node)) {
+    return {
+      id: generateId(),
+      type: "stream",
+      streamType,
+      callee: `step.${streamType === "write" ? "getWritable" : streamType === "read" ? "getReadable" : "streamForEach"}`,
+      location: opts.includeLocations ? getLocation(node) : undefined,
+    };
   }
 
-  for (const prop of optionsNode.namedChildren) {
-    if (prop.type === "pair") {
-      const keyNode = prop.childForFieldName("key");
-      const valueNode = prop.childForFieldName("value");
+  const args = node.getArguments();
+  const streamNode: StaticStreamNode = {
+    id: generateId(),
+    type: "stream",
+    streamType,
+    callee: node.getExpression().getText(),
+    location: opts.includeLocations ? getLocation(node) : undefined,
+  };
 
-      if (keyNode && valueNode) {
-        const key = getText(keyNode, ctx);
+  // Extract namespace from first argument (string literal)
+  if (args[0] && Node.isStringLiteral(args[0])) {
+    streamNode.namespace = args[0].getLiteralValue();
+  }
 
-        if (key === "namespace") {
-          const value = extractStringValue(valueNode, ctx);
-          if (value && value !== "<dynamic>") result.namespace = value;
-        } else if (key === "highWaterMark") {
-          result.highWaterMark = extractNumberValue(valueNode, ctx);
-        } else if (key === "startIndex") {
-          result.startIndex = extractNumberValue(valueNode, ctx);
-        }
-      }
+  return streamNode;
+}
+
+// =============================================================================
+// Saga Analysis
+// =============================================================================
+
+function analyzeSagaStepCall(
+  node: Node,
+  args: Node[],
+  isTryStep: boolean,
+  opts: Required<AnalyzerOptions>,
+  _warnings: AnalysisWarning[],
+  stats: AnalysisStats
+): StaticSagaStepNode {
+  const { Node } = loadTsMorph();
+
+  stats.totalSteps++;
+
+  const sagaNode: StaticSagaStepNode = {
+    id: generateId(),
+    type: "saga-step",
+    hasCompensation: false,
+    isTryStep,
+    location: opts.includeLocations ? getLocation(node) : undefined,
+  };
+
+  // Extract the operation from first argument
+  if (args[0]) {
+    sagaNode.callee = extractCallee(args[0]);
+    sagaNode.name = sagaNode.callee;
+  }
+
+  // Check for options object in second argument (saga.step(() => ..., { name, compensate }))
+  if (args[1] && Node.isObjectLiteralExpression(args[1])) {
+    const sagaOptions = extractSagaStepOptions(args[1]);
+    if (sagaOptions.name) {
+      sagaNode.name = sagaOptions.name;
+    }
+    if (sagaOptions.hasCompensation) {
+      sagaNode.hasCompensation = true;
+      sagaNode.compensationCallee = sagaOptions.compensationCallee;
+      stats.compensatedStepCount = (stats.compensatedStepCount || 0) + 1;
     }
   }
 
-  return result;
+  return sagaNode;
 }
 
 /**
- * Extract streamForEach options from an object literal.
+ * Extract options from a saga step options object.
+ * e.g., { name: 'Create Order', compensate: () => deps.cancelOrder() }
  */
-function extractStreamForEachOptions(
-  optionsNode: SyntaxNode,
-  ctx: AnalyzerContext
-): { concurrency?: number | "<dynamic>"; checkpointInterval?: number | "<dynamic>" } {
-  const result: { concurrency?: number | "<dynamic>"; checkpointInterval?: number | "<dynamic>" } = {};
+function extractSagaStepOptions(optionsNode: Node): {
+  name?: string;
+  hasCompensation: boolean;
+  compensationCallee?: string;
+} {
+  const { Node } = loadTsMorph();
+  const result = {
+    name: undefined as string | undefined,
+    hasCompensation: false,
+    compensationCallee: undefined as string | undefined,
+  };
 
-  if (optionsNode.type !== "object") {
+  if (!Node.isObjectLiteralExpression(optionsNode)) {
     return result;
   }
 
-  for (const prop of optionsNode.namedChildren) {
-    if (prop.type === "pair") {
-      const keyNode = prop.childForFieldName("key");
-      const valueNode = prop.childForFieldName("value");
+  for (const prop of optionsNode.getProperties()) {
+    if (!Node.isPropertyAssignment(prop)) continue;
 
-      if (keyNode && valueNode) {
-        const key = getText(keyNode, ctx);
+    const propName = prop.getName();
+    const init = prop.getInitializer();
 
-        if (key === "concurrency") {
-          result.concurrency = extractNumberValue(valueNode, ctx);
-        } else if (key === "checkpointInterval") {
-          result.checkpointInterval = extractNumberValue(valueNode, ctx);
+    if (propName === "name" && init) {
+      result.name = extractStringValue(init);
+    } else if (propName === "compensate" && init) {
+      result.hasCompensation = true;
+      if (Node.isArrowFunction(init) || Node.isFunctionExpression(init)) {
+        const body = init.getBody();
+        if (Node.isCallExpression(body)) {
+          // Concise arrow: () => deps.cancelOrder()
+          result.compensationCallee = body.getExpression().getText();
+        } else if (Node.isBlock(body)) {
+          // Block body: () => { return deps.cancelOrder(); }
+          // Find return statement and extract call expression
+          const returnStmt = body
+            .getStatements()
+            .find((s) => Node.isReturnStatement(s));
+          if (returnStmt && Node.isReturnStatement(returnStmt)) {
+            const expr = returnStmt.getExpression();
+            if (expr && Node.isCallExpression(expr)) {
+              result.compensationCallee = expr.getExpression().getText();
+            }
+          }
         }
       }
     }
@@ -3011,485 +2429,565 @@ function extractStreamForEachOptions(
 // Conditional Analysis
 // =============================================================================
 
-/**
- * Analyze an if statement.
- */
 function analyzeIfStatement(
-  ifStmt: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  ctx.stats.conditionalCount++;
+  node: Node,
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: false, depth: 0 }
+): StaticConditionalNode | undefined {
+  const { Node } = loadTsMorph();
+  if (!Node.isIfStatement(node)) return undefined;
 
-  const conditionNode = ifStmt.childForFieldName("condition");
-  const consequentNode = ifStmt.childForFieldName("consequence");
-  const alternateNode = ifStmt.childForFieldName("alternative");
+  const condition = node.getExpression().getText();
+  const thenStatement = node.getThenStatement();
+  const elseStatement = node.getElseStatement();
 
-  const condition = conditionNode
-    ? getText(conditionNode, ctx).replace(/^\(|\)$/g, "")
-    : "<unknown>";
+  const consequent = analyzeNode(thenStatement, opts, warnings, stats, sagaContext, context);
+  const alternate = elseStatement
+    ? analyzeNode(elseStatement, opts, warnings, stats, sagaContext, context)
+    : undefined;
 
-  const consequent = consequentNode
-    ? analyzeBlock(consequentNode, ctx)
-    : [];
-
-  // Handle else clause - tree-sitter wraps else in an "else_clause" node
-  let alternate: StaticFlowNode[] | undefined;
-  if (alternateNode) {
-    if (alternateNode.type === "else_clause") {
-      // The actual content is the first named child (statement_block or another if_statement)
-      const elseContent = alternateNode.namedChildren[0];
-      if (elseContent) {
-        alternate = analyzeBlock(elseContent, ctx);
-      }
-    } else {
-      alternate = analyzeBlock(alternateNode, ctx);
-    }
+  // Always count conditionals when inside workflow callback (for tree-sitter parity)
+  // Only return undefined (no node) if no content, but still count it
+  if (context.isInWorkflowCallback) {
+    stats.conditionalCount++;
+  } else if (consequent.length === 0 && (!alternate || alternate.length === 0)) {
+    // Outside workflow callback: only skip if no steps
+    return undefined;
+  } else {
+    // Outside workflow callback but has steps: count it
+    stats.conditionalCount++;
   }
 
-  return [
-    {
-      id: generateId(),
-      type: "conditional",
-      condition,
-      helper: null,
-      consequent,
-      alternate: alternate?.length ? alternate : undefined,
-      location: ctx.opts.includeLocations ? getLocation(ifStmt, ctx) : undefined,
-    },
-  ];
-}
-
-/**
- * Analyze a block (statement_block or single statement).
- */
-function analyzeBlock(
-  node: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  if (node.type === "statement_block") {
-    return analyzeStatements(node.namedChildren, ctx);
+  // Only create conditional node if there are step calls inside
+  if (consequent.length === 0 && (!alternate || alternate.length === 0)) {
+    return undefined;
   }
-  // Single statement (no braces)
-  return analyzeStatement(node, ctx);
+
+  return {
+    id: generateId(),
+    type: "conditional",
+    condition,
+    helper: null,
+    consequent,
+    alternate,
+    location: opts.includeLocations ? getLocation(node) : undefined,
+  };
 }
 
-/**
- * Analyze a switch statement.
- */
 function analyzeSwitchStatement(
-  switchStmt: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  const valueNode = switchStmt.childForFieldName("value");
-  const bodyNode = switchStmt.childForFieldName("body");
+  node: Node,
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: false, depth: 0 }
+): StaticSwitchNode | undefined {
+  const { Node } = loadTsMorph();
+  if (!Node.isSwitchStatement(node)) return undefined;
 
-  const expression = valueNode
-    ? getText(valueNode, ctx).replace(/^\(|\)$/g, "")
-    : "<unknown>";
-
+  const expression = node.getExpression().getText();
+  const clauses = node.getClauses();
   const cases: StaticSwitchCase[] = [];
-  let hasStepCalls = false;
+  let hasSteps = false;
 
-  if (bodyNode) {
-    for (const caseNode of bodyNode.namedChildren) {
-      if (caseNode.type === "switch_case" || caseNode.type === "switch_default") {
-        const caseValueNode = caseNode.childForFieldName("value");
-        const isDefault = caseNode.type === "switch_default" || !caseValueNode;
-        const caseValue = caseValueNode ? getText(caseValueNode, ctx) : undefined;
+  for (const clause of clauses) {
+    const isDefault = Node.isDefaultClause(clause);
+    let value: string | undefined;
 
-        // Analyze statements in the case body (all named children except the value)
-        const bodyStatements = caseNode.namedChildren.filter(
-          (n) => n !== caseValueNode
-        );
-        const body = analyzeStatements(bodyStatements, ctx);
-
-        if (body.length > 0) {
-          hasStepCalls = true;
-        }
-
-        cases.push({
-          value: caseValue,
-          isDefault,
-          body,
-        });
-      }
+    if (Node.isCaseClause(clause)) {
+      value = clause.getExpression().getText();
     }
+
+    const statements = clause.getStatements();
+    const body: StaticFlowNode[] = [];
+
+    for (const statement of statements) {
+      const analyzed = analyzeNode(statement, opts, warnings, stats, sagaContext, context);
+      body.push(...analyzed);
+    }
+
+    if (body.length > 0) {
+      hasSteps = true;
+    }
+
+    cases.push({
+      value,
+      isDefault,
+      body,
+    });
   }
 
-  // Only count if there are step calls inside
-  if (hasStepCalls) {
-    ctx.stats.conditionalCount++;
+  // Always count switch when inside workflow callback (for tree-sitter parity)
+  if (context.isInWorkflowCallback) {
+    stats.conditionalCount++;
+  } else if (!hasSteps) {
+    // Outside workflow callback: only skip if no steps
+    return undefined;
+  } else {
+    // Outside workflow callback but has steps: count it
+    stats.conditionalCount++;
   }
 
-  // If no step calls, return empty
-  if (!hasStepCalls) {
-    return [];
+  // Only create switch node if there are step calls inside
+  if (!hasSteps) {
+    return undefined;
   }
 
-  const switchNode: StaticSwitchNode = {
+  return {
     id: generateId(),
     type: "switch",
     expression,
     cases,
-    location: ctx.opts.includeLocations ? getLocation(switchStmt, ctx) : undefined,
+    location: opts.includeLocations ? getLocation(node) : undefined,
   };
-
-  return [switchNode];
 }
 
-/**
- * Analyze a conditional helper call: when(), unless(), whenOr(), unlessOr()
- */
 function analyzeConditionalHelper(
-  call: SyntaxNode,
+  node: Node,
   helper: "when" | "unless" | "whenOr" | "unlessOr",
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  ctx.stats.conditionalCount++;
-
-  const args = call.childForFieldName("arguments");
-  const argList = args?.namedChildren || [];
-
-  // First argument is the condition
-  const conditionNode = argList[0];
-  const condition = conditionNode ? getText(conditionNode, ctx) : "<unknown>";
-
-  // Second argument is the callback
-  const callbackNode = argList[1];
-  const consequent = callbackNode
-    ? analyzeCallbackBody(callbackNode, ctx)
-    : [];
-
-  // For whenOr/unlessOr, third argument is the default value
-  let defaultValue: string | undefined;
-  if ((helper === "whenOr" || helper === "unlessOr") && argList[2]) {
-    defaultValue = getText(argList[2], ctx);
-  }
+  args: Node[],
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: true, depth: 0 }
+): StaticConditionalNode {
+  stats.conditionalCount++;
 
   const conditionalNode: StaticConditionalNode = {
     id: generateId(),
     type: "conditional",
-    condition,
+    condition: args[0]?.getText() ?? "<unknown>",
     helper,
-    consequent,
-    defaultValue,
-    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
+    consequent: [],
+    location: opts.includeLocations ? getLocation(node) : undefined,
   };
 
-  return [conditionalNode];
-}
+  // when(condition, () => step(...))
+  // unless(condition, () => step(...))
+  // whenOr(condition, () => step(...), defaultValue)
+  // unlessOr(condition, () => step(...), defaultValue)
 
-/**
- * Analyze a callback body (arrow function or function expression).
- */
-function analyzeCallbackBody(
-  node: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  if (node.type === "arrow_function" || node.type === "function_expression") {
-    const body = node.childForFieldName("body");
-    if (body) {
-      if (body.type === "statement_block") {
-        return analyzeStatements(body.namedChildren, ctx);
-      }
-      // Implicit return (arrow function with expression body)
-      return analyzeExpression(body, ctx);
-    }
-  }
-  // Fallback: try to analyze as an expression
-  return analyzeExpression(node, ctx);
-}
-
-/**
- * Analyze allAsync() or allSettledAsync() call.
- */
-function analyzeAllAsyncCall(
-  call: SyntaxNode,
-  mode: "all" | "allSettled",
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  ctx.stats.parallelCount++;
-
-  const args = call.childForFieldName("arguments");
-  const firstArg = args?.namedChildren[0];
-
-  // allAsync expects an array of callbacks
-  if (!firstArg || firstArg.type !== "array") {
-    return [];
+  if (args[1]) {
+    conditionalNode.consequent = analyzeCallbackArgument(args[1], opts, warnings, stats, sagaContext, context);
   }
 
-  const children: StaticFlowNode[] = [];
-
-  for (const element of firstArg.namedChildren) {
-    if (element.type === "call_expression") {
-      // First try to analyze as a known call (step, step.parallel, etc.)
-      // This preserves metadata for step() calls
-      const analyzed = analyzeCallExpression(element, ctx);
-      if (analyzed.length > 0) {
-        children.push(...wrapInSequence(analyzed));
-      } else {
-        // Fall back to implicit step for direct calls like deps.fetch()
-        const implicitStep = createImplicitStepFromCall(element, ctx);
-        if (implicitStep) {
-          children.push(implicitStep);
-        }
-      }
-    } else {
-      // Handle callbacks: allAsync([() => step(...), () => step(...)])
-      const analyzed = analyzeCallbackBody(element, ctx);
-      // Wrap each branch - multiple steps become a sequence, single step stays as-is
-      children.push(...wrapInSequence(analyzed));
-    }
+  if ((helper === "whenOr" || helper === "unlessOr") && args[2]) {
+    conditionalNode.defaultValue = args[2].getText();
   }
 
-  return [
-    {
-      id: generateId(),
-      type: "parallel",
-      mode,
-      children,
-      callee: mode === "all" ? "allAsync" : "allSettledAsync",
-      location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
-    },
-  ];
-}
-
-/**
- * Analyze anyAsync() call.
- */
-function analyzeAnyAsyncCall(
-  call: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  ctx.stats.raceCount++;
-
-  const args = call.childForFieldName("arguments");
-  const firstArg = args?.namedChildren[0];
-
-  // anyAsync expects an array of callbacks
-  if (!firstArg || firstArg.type !== "array") {
-    return [];
-  }
-
-  const children: StaticFlowNode[] = [];
-
-  for (const element of firstArg.namedChildren) {
-    if (element.type === "call_expression") {
-      // First try to analyze as a known call (step, step.parallel, etc.)
-      // This preserves metadata for step() calls
-      const analyzed = analyzeCallExpression(element, ctx);
-      if (analyzed.length > 0) {
-        children.push(...wrapInSequence(analyzed));
-      } else {
-        // Fall back to implicit step for direct calls like deps.fetch()
-        const implicitStep = createImplicitStepFromCall(element, ctx);
-        if (implicitStep) {
-          children.push(implicitStep);
-        }
-      }
-    } else {
-      // Handle callbacks: anyAsync([() => step(...), () => step(...)])
-      const analyzed = analyzeCallbackBody(element, ctx);
-      // Wrap each branch - multiple steps become a sequence, single step stays as-is
-      children.push(...wrapInSequence(analyzed));
-    }
-  }
-
-  const raceNode: StaticRaceNode = {
-    id: generateId(),
-    type: "race",
-    children,
-    callee: "anyAsync",
-    location: ctx.opts.includeLocations ? getLocation(call, ctx) : undefined,
-  };
-
-  return [raceNode];
-}
-
-/**
- * Create an implicit step node from a direct call expression.
- * Used for allAsync([deps.fetch(), deps.load()]) where calls are not wrapped in callbacks.
- */
-function createImplicitStepFromCall(
-  callNode: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticStepNode | null {
-  ctx.stats.totalSteps++;
-
-  const funcNode = callNode.childForFieldName("function");
-  const callee = funcNode ? getText(funcNode, ctx) : "<unknown>";
-
-  // Try to derive a name from the callee (e.g., "deps.fetchPosts" -> "fetchPosts")
-  const name = callee.includes(".") ? callee.split(".").pop() : callee;
-
-  return {
-    id: generateId(),
-    type: "step",
-    name,
-    callee,
-    location: ctx.opts.includeLocations ? getLocation(callNode, ctx) : undefined,
-  };
+  return conditionalNode;
 }
 
 // =============================================================================
 // Loop Analysis
 // =============================================================================
 
-/**
- * Analyze a for statement.
- */
 function analyzeForStatement(
-  forStmt: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  const bodyNode = forStmt.childForFieldName("body");
-  if (!bodyNode) return [];
+  node: Node,
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: false, depth: 0 }
+): StaticLoopNode | undefined {
+  const { Node } = loadTsMorph();
+  if (!Node.isForStatement(node)) return undefined;
 
-  const bodyChildren = analyzeBlock(bodyNode, ctx);
-  if (bodyChildren.length === 0) return [];
+  const body = node.getStatement();
+  const bodyChildren = analyzeNode(body, opts, warnings, stats, sagaContext, context);
 
-  ctx.stats.loopCount++;
+  // Always count loops when inside workflow callback (for tree-sitter parity)
+  if (context.isInWorkflowCallback) {
+    stats.loopCount++;
+  } else if (bodyChildren.length === 0) {
+    // Outside workflow callback: only skip if no steps
+    return undefined;
+  } else {
+    // Outside workflow callback but has steps: count it
+    stats.loopCount++;
+  }
 
-  const loopNode: StaticLoopNode = {
+  // Only create loop node if there are step calls inside
+  if (bodyChildren.length === 0) {
+    return undefined;
+  }
+
+  return {
     id: generateId(),
     type: "loop",
     loopType: "for",
     body: bodyChildren,
     boundKnown: false,
-    location: ctx.opts.includeLocations ? getLocation(forStmt, ctx) : undefined,
+    location: opts.includeLocations ? getLocation(node) : undefined,
   };
-
-  return [loopNode];
 }
 
-/**
- * Analyze a for-in or for-of statement.
- * Tree-sitter uses "for_in_statement" for both, distinguished by the "of" or "in" token.
- */
-function analyzeForInStatement(
-  forStmt: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  const bodyNode = forStmt.childForFieldName("body");
-  if (!bodyNode) return [];
+function analyzeForOfStatement(
+  node: Node,
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: false, depth: 0 }
+): StaticLoopNode | undefined {
+  const { Node } = loadTsMorph();
+  if (!Node.isForOfStatement(node)) return undefined;
 
-  const bodyChildren = analyzeBlock(bodyNode, ctx);
-  if (bodyChildren.length === 0) return [];
+  const body = node.getStatement();
+  const bodyChildren = analyzeNode(body, opts, warnings, stats, sagaContext, context);
 
-  ctx.stats.loopCount++;
+  // Always count loops when inside workflow callback (for tree-sitter parity)
+  if (context.isInWorkflowCallback) {
+    stats.loopCount++;
+  } else if (bodyChildren.length === 0) {
+    // Outside workflow callback: only skip if no steps
+    return undefined;
+  } else {
+    // Outside workflow callback but has steps: count it
+    stats.loopCount++;
+  }
 
-  // Determine if it's for-of or for-in by checking for "of" keyword
-  const stmtText = getText(forStmt, ctx);
-  const isForOf = stmtText.includes(" of ");
+  // Only create loop node if there are step calls inside
+  if (bodyChildren.length === 0) {
+    return undefined;
+  }
 
-  // Extract the iteration source (the thing being iterated)
-  const rightNode = forStmt.childForFieldName("right");
-  const iterSource = rightNode ? getText(rightNode, ctx) : undefined;
-
-  const loopNode: StaticLoopNode = {
+  return {
     id: generateId(),
     type: "loop",
-    loopType: isForOf ? "for-of" : "for-in",
-    iterSource,
+    loopType: "for-of",
+    iterSource: node.getExpression().getText(),
     body: bodyChildren,
     boundKnown: false,
-    location: ctx.opts.includeLocations ? getLocation(forStmt, ctx) : undefined,
+    location: opts.includeLocations ? getLocation(node) : undefined,
   };
-
-  return [loopNode];
 }
 
-/**
- * Analyze a while statement.
- */
+function analyzeForInStatement(
+  node: Node,
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: false, depth: 0 }
+): StaticLoopNode | undefined {
+  const { Node } = loadTsMorph();
+  if (!Node.isForInStatement(node)) return undefined;
+
+  const body = node.getStatement();
+  const bodyChildren = analyzeNode(body, opts, warnings, stats, sagaContext, context);
+
+  // Always count loops when inside workflow callback (for tree-sitter parity)
+  if (context.isInWorkflowCallback) {
+    stats.loopCount++;
+  } else if (bodyChildren.length === 0) {
+    // Outside workflow callback: only skip if no steps
+    return undefined;
+  } else {
+    // Outside workflow callback but has steps: count it
+    stats.loopCount++;
+  }
+
+  // Only create loop node if there are step calls inside
+  if (bodyChildren.length === 0) {
+    return undefined;
+  }
+
+  return {
+    id: generateId(),
+    type: "loop",
+    loopType: "for-in",
+    iterSource: node.getExpression().getText(),
+    body: bodyChildren,
+    boundKnown: false,
+    location: opts.includeLocations ? getLocation(node) : undefined,
+  };
+}
+
 function analyzeWhileStatement(
-  whileStmt: SyntaxNode,
-  ctx: AnalyzerContext
-): StaticFlowNode[] {
-  const bodyNode = whileStmt.childForFieldName("body");
-  if (!bodyNode) return [];
+  node: Node,
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext = { isSagaWorkflow: false },
+  context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: false, depth: 0 }
+): StaticLoopNode | undefined {
+  const { Node } = loadTsMorph();
+  if (!Node.isWhileStatement(node)) return undefined;
 
-  const bodyChildren = analyzeBlock(bodyNode, ctx);
-  if (bodyChildren.length === 0) return [];
+  const body = node.getStatement();
+  const bodyChildren = analyzeNode(body, opts, warnings, stats, sagaContext, context);
 
-  ctx.stats.loopCount++;
+  // Always count loops when inside workflow callback (for tree-sitter parity)
+  if (context.isInWorkflowCallback) {
+    stats.loopCount++;
+  } else if (bodyChildren.length === 0) {
+    // Outside workflow callback: only skip if no steps
+    return undefined;
+  } else {
+    // Outside workflow callback but has steps: count it
+    stats.loopCount++;
+  }
 
-  const loopNode: StaticLoopNode = {
+  // Only create loop node if there are step calls inside
+  if (bodyChildren.length === 0) {
+    return undefined;
+  }
+
+  return {
     id: generateId(),
     type: "loop",
     loopType: "while",
     body: bodyChildren,
     boundKnown: false,
-    location: ctx.opts.includeLocations ? getLocation(whileStmt, ctx) : undefined,
+    location: opts.includeLocations ? getLocation(node) : undefined,
   };
+}
 
-  return [loopNode];
+// =============================================================================
+// Workflow Reference Analysis
+// =============================================================================
+
+function analyzeWorkflowRefCall(
+  node: Node,
+  callee: string,
+  opts: Required<AnalyzerOptions>,
+  _warnings: AnalysisWarning[],
+  stats: AnalysisStats
+): StaticWorkflowRefNode {
+  stats.workflowRefCount++;
+
+  return {
+    id: generateId(),
+    type: "workflow-ref",
+    workflowName: callee,
+    resolved: false,
+    location: opts.includeLocations ? getLocation(node) : undefined,
+  };
+}
+
+function isLikelyWorkflowCall(node: Node): boolean {
+  const { Node } = loadTsMorph();
+  if (!Node.isCallExpression(node)) return false;
+
+  // Check if the call has a callback as first argument
+  const args = node.getArguments();
+  if (args.length === 0) return false;
+
+  const firstArg = args[0];
+  
+  // Check if first arg is a function (arrow or function expression)
+  if (Node.isArrowFunction(firstArg) || Node.isFunctionExpression(firstArg)) {
+    // Heuristic: check for step/deps in parameters
+    // This helps identify factory-generated workflows like createWorkflow(deps)(async (step, deps) => {...})
+    const params = firstArg.getParameters();
+    const paramText = params.map(p => p.getText()).join(',');
+    if (paramText.includes("step") || paramText.includes("deps")) {
+      return true;
+    }
+    // Still return true for any callback, but the heuristic helps with confidence
+    return true;
+  }
+  
+  return false;
 }
 
 // =============================================================================
 // Utility Functions
 // =============================================================================
 
-/**
- * Get the text content of a node.
- */
-function getText(node: SyntaxNode, ctx: AnalyzerContext): string {
-  return ctx.sourceCode.slice(node.startIndex, node.endIndex);
-}
+function extractDependencies(
+  depsNode: Node,
+  _warnings: AnalysisWarning[]
+): DependencyInfo[] {
+  const { Node } = loadTsMorph();
+  const dependencies: DependencyInfo[] = [];
 
-/**
- * Extract a string value from a node (handling quotes).
- */
-function extractStringValue(
-  node: SyntaxNode,
-  ctx: AnalyzerContext
-): string | undefined {
-  const text = getText(node, ctx);
-
-  // Handle string literals
-  if (node.type === "string") {
-    // Remove quotes
-    return text.slice(1, -1);
+  if (!Node.isObjectLiteralExpression(depsNode)) {
+    return dependencies;
   }
 
-  // Handle template literals
-  if (node.type === "template_string") {
+  for (const prop of depsNode.getProperties()) {
+    if (Node.isPropertyAssignment(prop)) {
+      const name = prop.getName();
+      // TODO: Extract type signature and error types
+      dependencies.push({
+        name,
+        errorTypes: [],
+      });
+    } else if (Node.isShorthandPropertyAssignment(prop)) {
+      const name = prop.getName();
+      dependencies.push({
+        name,
+        errorTypes: [],
+      });
+    }
+  }
+
+  return dependencies;
+}
+
+function extractErrorTypes(dependencies: DependencyInfo[]): string[] {
+  const errorTypes = new Set<string>();
+  for (const dep of dependencies) {
+    for (const error of dep.errorTypes) {
+      errorTypes.add(error);
+    }
+  }
+  return Array.from(errorTypes);
+}
+
+interface StepOptions {
+  key?: string;
+  name?: string;
+  retry?: StaticRetryConfig;
+  timeout?: StaticTimeoutConfig;
+}
+
+function extractStepOptions(optionsNode: Node): StepOptions {
+  const { Node } = loadTsMorph();
+  const options: StepOptions = {};
+
+  if (!Node.isObjectLiteralExpression(optionsNode)) {
+    return options;
+  }
+
+  for (const prop of optionsNode.getProperties()) {
+    if (!Node.isPropertyAssignment(prop)) continue;
+
+    const propName = prop.getName();
+    const init = prop.getInitializer();
+
+    if (propName === "key" && init) {
+      options.key = extractStringValue(init);
+    } else if (propName === "name" && init) {
+      options.name = extractStringValue(init);
+    } else if (propName === "retry" && init && Node.isObjectLiteralExpression(init)) {
+      options.retry = extractRetryConfig(init);
+    } else if (propName === "timeout" && init && Node.isObjectLiteralExpression(init)) {
+      options.timeout = extractTimeoutConfig(init);
+    }
+  }
+
+  return options;
+}
+
+function extractRetryConfig(node: Node): StaticRetryConfig {
+  const { Node } = loadTsMorph();
+  const config: StaticRetryConfig = {};
+
+  if (!Node.isObjectLiteralExpression(node)) {
+    return config;
+  }
+
+  for (const prop of node.getProperties()) {
+    if (!Node.isPropertyAssignment(prop)) continue;
+
+    const propName = prop.getName();
+    const init = prop.getInitializer();
+
+    if (propName === "attempts" && init) {
+      config.attempts = extractNumberValue(init);
+    } else if (propName === "backoff" && init) {
+      const val = extractStringValue(init);
+      if (val === "fixed" || val === "linear" || val === "exponential") {
+        config.backoff = val;
+      } else {
+        config.backoff = "<dynamic>";
+      }
+    } else if (propName === "baseDelay" && init) {
+      config.baseDelay = extractNumberValue(init);
+    } else if (propName === "retryOn" && init) {
+      config.retryOn = init.getText();
+    }
+  }
+
+  return config;
+}
+
+function extractTimeoutConfig(node: Node): StaticTimeoutConfig {
+  const { Node } = loadTsMorph();
+  const config: StaticTimeoutConfig = {};
+
+  if (!Node.isObjectLiteralExpression(node)) {
+    return config;
+  }
+
+  for (const prop of node.getProperties()) {
+    if (!Node.isPropertyAssignment(prop)) continue;
+
+    const propName = prop.getName();
+    const init = prop.getInitializer();
+
+    if (propName === "ms" && init) {
+      config.ms = extractNumberValue(init);
+    }
+  }
+
+  return config;
+}
+
+function extractStringValue(node: Node): string {
+  const { Node } = loadTsMorph();
+  if (Node.isStringLiteral(node)) {
+    return node.getLiteralValue();
+  }
+  if (Node.isTemplateExpression(node)) {
     return "<dynamic>";
   }
-
-  return text;
+  if (Node.isNoSubstitutionTemplateLiteral(node)) {
+    return node.getLiteralValue();
+  }
+  return node.getText();
 }
 
-/**
- * Get source location for a node.
- */
-function getLocation(node: SyntaxNode, ctx: AnalyzerContext): SourceLocation {
+function extractNumberValue(node: Node): number | "<dynamic>" {
+  const { Node } = loadTsMorph();
+  if (Node.isNumericLiteral(node)) {
+    return node.getLiteralValue();
+  }
+  return "<dynamic>";
+}
+
+function extractCallee(node: Node): string {
+  const { Node } = loadTsMorph();
+  if (Node.isArrowFunction(node) || Node.isFunctionExpression(node)) {
+    const body = node.getBody();
+    if (Node.isCallExpression(body)) {
+      return body.getExpression().getText();
+    }
+    return body?.getText() ?? "<unknown>";
+  }
+  if (Node.isCallExpression(node)) {
+    return node.getExpression().getText();
+  }
+  return node.getText();
+}
+
+function getLocation(node: Node): SourceLocation {
+  const sourceFile = node.getSourceFile();
+  const start = node.getStart();
+  const end = node.getEnd();
+  const startPos = sourceFile.getLineAndColumnAtPos(start);
+  const endPos = sourceFile.getLineAndColumnAtPos(end);
+
   return {
-    filePath: ctx.filePath,
-    line: node.startPosition.row + 1, // 0-indexed to 1-indexed
-    column: node.startPosition.column,
-    endLine: node.endPosition.row + 1,
-    endColumn: node.endPosition.column,
+    filePath: sourceFile.getFilePath(),
+    line: startPos.line,
+    column: startPos.column - 1,
+    endLine: endPos.line,
+    endColumn: endPos.column - 1,
   };
 }
 
-/**
- * Traverse all nodes in the AST.
- */
-function traverseNode(
-  node: SyntaxNode,
-  callback: (node: SyntaxNode) => void
-): void {
-  callback(node);
-  for (const child of node.namedChildren) {
-    traverseNode(child, callback);
-  }
-}
-
-/**
- * Wrap nodes in a sequence if there are multiple.
- */
-function wrapInSequence(nodes: StaticFlowNode[]): StaticFlowNode[] {
+function wrapInSequence(
+  nodes: StaticFlowNode[],
+  _opts: Required<AnalyzerOptions>
+): StaticFlowNode[] {
   if (nodes.length <= 1) {
     return nodes;
   }
@@ -3503,9 +3001,6 @@ function wrapInSequence(nodes: StaticFlowNode[]): StaticFlowNode[] {
   ];
 }
 
-/**
- * Create empty stats object.
- */
 function createEmptyStats(): AnalysisStats {
   return {
     totalSteps: 0,
@@ -3521,16 +3016,13 @@ function createEmptyStats(): AnalysisStats {
   };
 }
 
-/**
- * Generate a unique ID.
- */
 let idCounter = 0;
 function generateId(): string {
-  return `ts-${++idCounter}`;
+  return `static-${++idCounter}`;
 }
 
 /**
- * Reset the ID counter (for testing).
+ * Reset the ID counter (useful for testing).
  */
 export function resetIdCounter(): void {
   idCounter = 0;

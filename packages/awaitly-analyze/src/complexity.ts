@@ -473,9 +473,10 @@ function depthOfNode(node: StaticFlowNode, currentDepth: number): number {
 
 /**
  * Calculate the maximum parallel breadth (concurrent operations).
+ * Returns 0 if there are no parallel/race operations.
  */
 function calculateMaxParallelBreadth(nodes: StaticFlowNode[]): number {
-  let maxBreadth = 1;
+  let maxBreadth = 0;
 
   for (const node of nodes) {
     maxBreadth = Math.max(maxBreadth, parallelBreadthOfNode(node));
@@ -485,12 +486,12 @@ function calculateMaxParallelBreadth(nodes: StaticFlowNode[]): number {
 }
 
 function parallelBreadthOfNode(node: StaticFlowNode): number {
-  let maxBreadth = 1;
+  let maxBreadth = 0;
 
   switch (node.type) {
     case "parallel":
-      // This node's breadth
-      maxBreadth = Math.max(maxBreadth, node.children.length);
+      // This node's breadth is the number of concurrent children
+      maxBreadth = node.children.length;
       // Check children for nested parallel
       for (const child of node.children) {
         maxBreadth = Math.max(maxBreadth, parallelBreadthOfNode(child));
@@ -498,7 +499,7 @@ function parallelBreadthOfNode(node: StaticFlowNode): number {
       break;
 
     case "race":
-      maxBreadth = Math.max(maxBreadth, node.children.length);
+      maxBreadth = node.children.length;
       for (const child of node.children) {
         maxBreadth = Math.max(maxBreadth, parallelBreadthOfNode(child));
       }

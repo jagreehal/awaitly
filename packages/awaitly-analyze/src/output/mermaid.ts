@@ -16,6 +16,7 @@ import type {
   StaticSwitchNode,
   StaticLoopNode,
   StaticWorkflowRefNode,
+  StaticStreamNode,
   StaticSagaStepNode,
 } from "../types";
 
@@ -28,31 +29,24 @@ export interface MermaidOptions {
   direction?: "TB" | "LR" | "BT" | "RL";
   /** Show step keys in labels */
   showKeys?: boolean;
-  /** Show step descriptions in labels (default: false) */
-  showStepDescriptions?: boolean;
-  /** Include step markdown as Mermaid comments (default: false) */
-  includeStepMarkdown?: boolean;
   /** Show condition labels on edges */
   showConditions?: boolean;
   /** Use subgraphs for parallel/race blocks */
   useSubgraphs?: boolean;
   /** Custom node styles */
   styles?: MermaidStyles;
-  /** Max markdown lines to include as comments (default: 10) */
-  maxMarkdownLines?: number;
-  /** Include markdown in output (default: true) */
-  includeMarkdown?: boolean;
 }
 
 export interface MermaidStyles {
   step?: string;
+  sagaStep?: string;
+  stream?: string;
   parallel?: string;
   race?: string;
   conditional?: string;
+  switch?: string;
   loop?: string;
   workflowRef?: string;
-  sagaStep?: string;
-  sagaCompensation?: string;
   start?: string;
   end?: string;
 }
@@ -60,24 +54,21 @@ export interface MermaidStyles {
 const DEFAULT_OPTIONS: Required<MermaidOptions> = {
   direction: "TB",
   showKeys: false,
-  showStepDescriptions: false,
-  includeStepMarkdown: false,
   showConditions: true,
   useSubgraphs: true,
   styles: {
-    step: "fill:#e1f5fe,stroke:#01579b,color:#01579b",
-    parallel: "fill:#e8f5e9,stroke:#1b5e20,color:#1b5e20",
-    race: "fill:#fff3e0,stroke:#e65100,color:#bf360c",
-    conditional: "fill:#fce4ec,stroke:#880e4f,color:#880e4f",
-    loop: "fill:#f3e5f5,stroke:#4a148c,color:#4a148c",
-    workflowRef: "fill:#e0f2f1,stroke:#004d40,color:#004d40",
-    sagaStep: "fill:#fff8e1,stroke:#ff6f00,color:#e65100",
-    sagaCompensation: "fill:#ffebee,stroke:#c62828,color:#b71c1c",
-    start: "fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20",
-    end: "fill:#ffcdd2,stroke:#c62828,color:#b71c1c",
+    step: "fill:#e1f5fe,stroke:#01579b",
+    sagaStep: "fill:#e8eaf6,stroke:#1a237e",
+    stream: "fill:#e0f7fa,stroke:#006064",
+    parallel: "fill:#e8f5e9,stroke:#1b5e20",
+    race: "fill:#fff3e0,stroke:#e65100",
+    conditional: "fill:#fce4ec,stroke:#880e4f",
+    switch: "fill:#f3e5f5,stroke:#4a148c",
+    loop: "fill:#f3e5f5,stroke:#4a148c",
+    workflowRef: "fill:#e0f2f1,stroke:#004d40",
+    start: "fill:#c8e6c9,stroke:#2e7d32",
+    end: "fill:#ffcdd2,stroke:#c62828",
   },
-  maxMarkdownLines: 10,
-  includeMarkdown: true,
 };
 
 // =============================================================================
@@ -108,26 +99,6 @@ export function renderStaticMermaid(
 
   // Add workflow title as comment
   lines.push(`  %% Workflow: ${ir.root.workflowName}`);
-
-  // Description (short) - always show if present
-  if (ir.root.description) {
-    lines.push(`  %% ${ir.root.description}`);
-  }
-
-  // Markdown (full docs) - first N lines as comments
-  if (opts.includeMarkdown && ir.root.markdown) {
-    lines.push(`  %%`);
-    const markdownLines = ir.root.markdown.trim().split("\n");
-    const maxLines = opts.maxMarkdownLines;
-    const displayLines = markdownLines.slice(0, maxLines);
-    for (const line of displayLines) {
-      lines.push(`  %% ${line}`);
-    }
-    if (markdownLines.length > maxLines) {
-      lines.push(`  %% ... (${markdownLines.length - maxLines} more lines)`);
-    }
-  }
-
   lines.push("");
 
   // Add start node
@@ -179,13 +150,14 @@ export function renderStaticMermaid(
   lines.push("");
   lines.push("  %% Styles");
   lines.push(`  classDef stepStyle ${opts.styles.step}`);
+  lines.push(`  classDef sagaStepStyle ${opts.styles.sagaStep}`);
+  lines.push(`  classDef streamStyle ${opts.styles.stream}`);
   lines.push(`  classDef parallelStyle ${opts.styles.parallel}`);
   lines.push(`  classDef raceStyle ${opts.styles.race}`);
   lines.push(`  classDef conditionalStyle ${opts.styles.conditional}`);
+  lines.push(`  classDef switchStyle ${opts.styles.switch}`);
   lines.push(`  classDef loopStyle ${opts.styles.loop}`);
   lines.push(`  classDef workflowRefStyle ${opts.styles.workflowRef}`);
-  lines.push(`  classDef sagaStepStyle ${opts.styles.sagaStep}`);
-  lines.push(`  classDef sagaCompensationStyle ${opts.styles.sagaCompensation}`);
   lines.push(`  classDef startStyle ${opts.styles.start}`);
   lines.push(`  classDef endStyle ${opts.styles.end}`);
 
@@ -278,6 +250,12 @@ function renderNode(
     case "step":
       return renderStepNode(node, context, lines);
 
+    case "saga-step":
+      return renderSagaStepNode(node, context, lines);
+
+    case "stream":
+      return renderStreamNode(node, context, lines);
+
     case "sequence":
       return renderSequenceNode(node, context, lines);
 
@@ -291,16 +269,13 @@ function renderNode(
       return renderConditionalNode(node, context, lines);
 
     case "switch":
-      return renderSwitchNode(node as StaticSwitchNode, context, lines);
+      return renderSwitchNode(node, context, lines);
 
     case "loop":
       return renderLoopNode(node, context, lines);
 
     case "workflow-ref":
       return renderWorkflowRefNode(node, context, lines);
-
-    case "saga-step":
-      return renderSagaStepNode(node as StaticSagaStepNode, context, lines);
 
     case "unknown":
       return renderUnknownNode(node, context, lines);
@@ -322,11 +297,6 @@ function renderStepNode(
     label = `${label}\\n[${node.key}]`;
   }
 
-  // Add description to label when showStepDescriptions is enabled
-  if (context.opts.showStepDescriptions && node.description) {
-    label = `${label}\\n${truncate(node.description, 40)}`;
-  }
-
   // Add retry/timeout indicators
   if (node.retry) {
     label += "\\n(retry)";
@@ -335,22 +305,53 @@ function renderStepNode(
     label += "\\n(timeout)";
   }
 
-  // Add markdown as Mermaid comments when includeStepMarkdown is enabled
-  if (context.opts.includeStepMarkdown && node.markdown) {
-    const markdownLines = node.markdown.trim().split("\n");
-    const maxLines = context.opts.maxMarkdownLines;
-    const displayLines = markdownLines.slice(0, maxLines);
-    lines.push(`  %% Step: ${node.name ?? node.callee ?? "step"}`);
-    for (const line of displayLines) {
-      lines.push(`  %% ${line}`);
-    }
-    if (markdownLines.length > maxLines) {
-      lines.push(`  %% ... (${markdownLines.length - maxLines} more lines)`);
-    }
+  lines.push(`  ${nodeId}[${escapeLabel(label)}]`);
+  context.styleClasses.set(nodeId, "stepStyle");
+
+  return {
+    firstNodeId: nodeId,
+    lastNodeIds: [nodeId],
+  };
+}
+
+function renderSagaStepNode(
+  node: StaticSagaStepNode,
+  context: RenderContext,
+  lines: string[]
+): RenderResult {
+  const nodeId = `saga_step_${++context.nodeCounter}`;
+  let label = node.name ?? node.callee ?? "saga-step";
+
+  if (context.opts.showKeys && node.key) {
+    label = `${label}\\n[${node.key}]`;
   }
 
-  lines.push(`  ${nodeId}["${escapeLabel(label)}"]`);
-  context.styleClasses.set(nodeId, "stepStyle");
+  if (node.hasCompensation) {
+    label += "\\n(compensable)";
+  }
+  if (node.isTryStep) {
+    label += "\\n(try)";
+  }
+
+  lines.push(`  ${nodeId}[${escapeLabel(label)}]`);
+  context.styleClasses.set(nodeId, "sagaStepStyle");
+
+  return {
+    firstNodeId: nodeId,
+    lastNodeIds: [nodeId],
+  };
+}
+
+function renderStreamNode(
+  node: StaticStreamNode,
+  context: RenderContext,
+  lines: string[]
+): RenderResult {
+  const nodeId = `stream_${++context.nodeCounter}`;
+  const label = node.namespace ? `stream:${node.namespace}` : `stream:${node.streamType}`;
+
+  lines.push(`  ${nodeId}[/${escapeLabel(label)}/]`);
+  context.styleClasses.set(nodeId, "streamStyle");
 
   return {
     firstNodeId: nodeId,
@@ -374,8 +375,10 @@ function renderParallelNode(
   const forkId = `parallel_fork_${++context.nodeCounter}`;
   const joinId = `parallel_join_${++context.nodeCounter}`;
 
-  // Fork node (diamond shape for parallel)
-  const parallelLabel = node.name ? `${node.name} (${node.mode})` : `Parallel (${node.mode})`;
+  // Fork node (diamond shape for parallel) - include name if present
+  const parallelLabel = node.name
+    ? `${escapeLabel(node.name)} (${node.mode})`
+    : `Parallel (${node.mode})`;
   lines.push(`  ${forkId}{{"${parallelLabel}"}}`);
   context.styleClasses.set(forkId, "parallelStyle");
 
@@ -417,8 +420,8 @@ function renderRaceNode(
   const forkId = `race_fork_${++context.nodeCounter}`;
   const joinId = `race_join_${++context.nodeCounter}`;
 
-  // Fork node (hexagon for race)
-  const raceLabel = node.name ? node.name : "Race";
+  // Fork node (hexagon for race) - include name if present
+  const raceLabel = node.name ? escapeLabel(node.name) : "Race";
   lines.push(`  ${forkId}{{{"${raceLabel}"}}}`);
   context.styleClasses.set(forkId, "raceStyle");
 
@@ -461,7 +464,7 @@ function renderConditionalNode(
 
   // Decision diamond
   const conditionLabel = truncate(node.condition, 30);
-  lines.push(`  ${decisionId}{"${escapeLabel(conditionLabel)}"}`);
+  lines.push(`  ${decisionId}{${escapeLabel(conditionLabel)}}`);
   context.styleClasses.set(decisionId, "conditionalStyle");
 
   const lastNodeIds: string[] = [];
@@ -510,41 +513,40 @@ function renderSwitchNode(
   context: RenderContext,
   lines: string[]
 ): RenderResult {
-  const decisionId = `switch_${++context.nodeCounter}`;
+  const switchId = `switch_${++context.nodeCounter}`;
 
-  // Diamond shape for switch expression
-  const expressionLabel = truncate(node.expression, 30);
-  lines.push(`  ${decisionId}{"${escapeLabel(expressionLabel)}"}`);
-  context.styleClasses.set(decisionId, "conditionalStyle");
+  // Switch diamond
+  const exprLabel = truncate(node.expression, 30);
+  lines.push(`  ${switchId}{${escapeLabel(`switch: ${exprLabel}`)}}`);
+  context.styleClasses.set(switchId, "switchStyle");
 
   const lastNodeIds: string[] = [];
 
-  for (const switchCase of node.cases) {
-    const caseLabel = switchCase.isDefault ? "default" : (switchCase.value || "?");
+  // Each case branch
+  for (const caseClause of node.cases) {
+    if (caseClause.body.length === 0) continue;
 
-    if (switchCase.body.length > 0) {
-      const branchResult = renderNodes(switchCase.body, context, lines);
-      if (branchResult.firstNodeId) {
-        context.edges.push({
-          from: decisionId,
-          to: branchResult.firstNodeId,
-          label: truncate(caseLabel, 20),
-        });
-        lastNodeIds.push(...branchResult.lastNodeIds);
-      }
-    } else {
-      // Empty case - falls through or skip
-      lastNodeIds.push(decisionId);
+    const caseResult = renderNodes(caseClause.body, context, lines);
+    if (caseResult.firstNodeId) {
+      const caseLabel = caseClause.isDefault
+        ? "default"
+        : truncate(caseClause.value ?? "", 15);
+      context.edges.push({
+        from: switchId,
+        to: caseResult.firstNodeId,
+        label: caseLabel,
+      });
+      lastNodeIds.push(...caseResult.lastNodeIds);
     }
   }
 
-  // If no cases matched anything, decision is exit
+  // If no cases with bodies, switch itself is the end
   if (lastNodeIds.length === 0) {
-    lastNodeIds.push(decisionId);
+    lastNodeIds.push(switchId);
   }
 
   return {
-    firstNodeId: decisionId,
+    firstNodeId: switchId,
     lastNodeIds,
   };
 }
@@ -561,7 +563,7 @@ function renderLoopNode(
   const loopLabel = node.iterSource
     ? `${node.loopType}: ${truncate(node.iterSource, 20)}`
     : node.loopType;
-  lines.push(`  ${loopStartId}("[${escapeLabel(loopLabel)}]")`);
+  lines.push(`  ${loopStartId}([${escapeLabel(loopLabel)}])`);
   context.styleClasses.set(loopStartId, "loopStyle");
 
   // Loop body
@@ -577,7 +579,7 @@ function renderLoopNode(
   }
 
   // Loop end check
-  lines.push(`  ${loopEndId}("[Continue?]")`);
+  lines.push(`  ${loopEndId}([Continue?])`);
   context.styleClasses.set(loopEndId, "loopStyle");
 
   // Connect body end to loop check
@@ -616,62 +618,6 @@ function renderWorkflowRefNode(
   };
 }
 
-function renderSagaStepNode(
-  node: StaticSagaStepNode,
-  context: RenderContext,
-  lines: string[]
-): RenderResult {
-  const nodeId = `saga_step_${++context.nodeCounter}`;
-  let label = node.name ?? node.callee ?? "saga step";
-
-  if (context.opts.showKeys && node.key) {
-    label = `${label}\\n[${node.key}]`;
-  }
-
-  // Add description to label when showStepDescriptions is enabled
-  if (context.opts.showStepDescriptions && node.description) {
-    label = `${label}\\n${truncate(node.description, 40)}`;
-  }
-
-  // Add compensation indicator
-  if (node.hasCompensation) {
-    const compensationLabel = node.compensationCallee
-      ? `🔄 ${node.compensationCallee}`
-      : "🔄 compensated";
-    label = `${label}\\n${compensationLabel}`;
-  }
-
-  // Add tryStep indicator
-  if (node.isTryStep) {
-    label = `${label}\\n(try)`;
-  }
-
-  // Add markdown as Mermaid comments when includeStepMarkdown is enabled
-  if (context.opts.includeStepMarkdown && node.markdown) {
-    const markdownLines = node.markdown.trim().split("\n");
-    const maxLines = context.opts.maxMarkdownLines;
-    const displayLines = markdownLines.slice(0, maxLines);
-    lines.push(`  %% Saga Step: ${node.name ?? node.callee ?? "saga step"}`);
-    for (const line of displayLines) {
-      lines.push(`  %% ${line}`);
-    }
-    if (markdownLines.length > maxLines) {
-      lines.push(`  %% ... (${markdownLines.length - maxLines} more lines)`);
-    }
-  }
-
-  lines.push(`  ${nodeId}["${escapeLabel(label)}"]`);
-
-  // Use compensation style if step has compensation, otherwise saga step style
-  const styleClass = node.hasCompensation ? "sagaCompensationStyle" : "sagaStepStyle";
-  context.styleClasses.set(nodeId, styleClass);
-
-  return {
-    firstNodeId: nodeId,
-    lastNodeIds: [nodeId],
-  };
-}
-
 function renderUnknownNode(
   node: StaticFlowNode & { type: "unknown" },
   context: RenderContext,
@@ -692,11 +638,16 @@ function renderUnknownNode(
 // =============================================================================
 
 function escapeLabel(label: string): string {
-  // Only escape characters that break quoted strings in Mermaid
   return label
-    .replace(/"/g, "#quot;")  // Escape double quotes for Mermaid
+    .replace(/\r?\n/g, " ")
+    .replace(/"/g, "'")
+    .replace(/\[/g, "(")
+    .replace(/\]/g, ")")
+    .replace(/\{/g, "(")
+    .replace(/\}/g, ")")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/#/g, "&num;");
 }
 
 function truncate(str: string, maxLength: number): string {
@@ -726,17 +677,17 @@ export function renderPathsMermaid(
   lines.push("");
 
   // Create unique node IDs for each step across all paths
-  // Key by nodeId (unique), store both the generated ID and display label
-  const stepNodes = new Map<string, { id: string; label: string }>();
+  // Use nodeId as the unique key to avoid merging distinct steps with the same name
+  const stepNodes = new Map<string, { id: string; name: string }>();
   let nodeCounter = 0;
 
   for (const path of paths) {
     for (const step of path.steps) {
-      // Use nodeId as unique key to prevent merging distinct steps with same name
-      if (!stepNodes.has(step.nodeId)) {
-        stepNodes.set(step.nodeId, {
+      const key = step.nodeId; // Use nodeId to keep distinct steps separate
+      if (!stepNodes.has(key)) {
+        stepNodes.set(key, {
           id: `step_${++nodeCounter}`,
-          label: step.name ?? step.nodeId,
+          name: step.name ?? step.nodeId,
         });
       }
     }
@@ -748,8 +699,8 @@ export function renderPathsMermaid(
   lines.push("");
 
   // Add all step nodes
-  for (const [, { id, label }] of stepNodes) {
-    lines.push(`  ${id}["${escapeLabel(label)}"]`);
+  for (const [_nodeId, stepInfo] of stepNodes) {
+    lines.push(`  ${stepInfo.id}["${escapeLabel(stepInfo.name)}"]`);
   }
   lines.push("");
 
@@ -761,22 +712,22 @@ export function renderPathsMermaid(
 
     // Start to first step
     const firstStep = path.steps[0];
-    const firstStepId = stepNodes.get(firstStep.nodeId)!.id;
-    edges.add(`start --> ${firstStepId}`);
+    const firstStepInfo = stepNodes.get(firstStep.nodeId)!;
+    edges.add(`start --> ${firstStepInfo.id}`);
 
     // Between steps
     for (let i = 0; i < path.steps.length - 1; i++) {
       const current = path.steps[i];
       const next = path.steps[i + 1];
-      const currentId = stepNodes.get(current.nodeId)!.id;
-      const nextId = stepNodes.get(next.nodeId)!.id;
-      edges.add(`${currentId} --> ${nextId}`);
+      const currentInfo = stepNodes.get(current.nodeId)!;
+      const nextInfo = stepNodes.get(next.nodeId)!;
+      edges.add(`${currentInfo.id} --> ${nextInfo.id}`);
     }
 
     // Last step to end
     const lastStep = path.steps[path.steps.length - 1];
-    const lastStepId = stepNodes.get(lastStep.nodeId)!.id;
-    edges.add(`${lastStepId} --> end_node`);
+    const lastStepInfo = stepNodes.get(lastStep.nodeId)!;
+    edges.add(`${lastStepInfo.id} --> end_node`);
   }
 
   // Add edges

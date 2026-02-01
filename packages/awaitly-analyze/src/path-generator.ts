@@ -40,6 +40,13 @@ const DEFAULT_OPTIONS: Required<PathGeneratorOptions> = {
 // Path Generation
 // =============================================================================
 
+export interface PathGenerationResult {
+  /** Generated workflow paths */
+  paths: WorkflowPath[];
+  /** Whether the maxPaths limit was hit (truncation occurred) */
+  limitHit: boolean;
+}
+
 /**
  * Generate all possible execution paths through a workflow.
  *
@@ -51,6 +58,20 @@ export function generatePaths(
   ir: StaticWorkflowIR,
   options: PathGeneratorOptions = {}
 ): WorkflowPath[] {
+  return generatePathsWithMetadata(ir, options).paths;
+}
+
+/**
+ * Generate all possible execution paths through a workflow with metadata.
+ *
+ * @param ir - Static workflow IR
+ * @param options - Generation options
+ * @returns Paths and metadata about generation
+ */
+export function generatePathsWithMetadata(
+  ir: StaticWorkflowIR,
+  options: PathGeneratorOptions = {}
+): PathGenerationResult {
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
   // Start path generation from the workflow root
@@ -70,7 +91,7 @@ export function generatePaths(
   const states = generatePathsForNodes(ir.root.children, initialState, context);
 
   // Convert states to WorkflowPath objects
-  return states.map((state, index) => ({
+  const paths = states.map((state, index) => ({
     id: `path-${index + 1}`,
     description: generatePathDescription(state),
     steps: state.steps,
@@ -78,6 +99,11 @@ export function generatePaths(
     hasLoops: state.hasLoops,
     hasUnresolvedRefs: state.hasUnresolvedRefs,
   }));
+
+  return {
+    paths,
+    limitHit: context.hasHitLimit,
+  };
 }
 
 // =============================================================================
@@ -116,11 +142,6 @@ function generatePathsForNodes(
     const newStates: PathState[] = [];
 
     for (const state of states) {
-      const currentPaths = context.pathCount + 1;
-      if (!context.hasHitLimit && currentPaths >= context.opts.maxPaths) {
-        context.hasHitLimit = true;
-      }
-
       const nodeStates = generatePathsForNode(node, state, context);
       newStates.push(...nodeStates);
     }
@@ -536,10 +557,21 @@ export interface PathStatistics {
   avgPathLength: number;
 }
 
+export interface PathStatisticsOptions {
+  /** Whether the path limit was hit during generation (from generatePathsWithMetadata) */
+  limitHit?: boolean;
+}
+
 /**
  * Calculate statistics about generated paths.
+ *
+ * @param paths - Generated workflow paths
+ * @param options - Options including limitHit from path generation
  */
-export function calculatePathStatistics(paths: WorkflowPath[]): PathStatistics {
+export function calculatePathStatistics(
+  paths: WorkflowPath[],
+  options?: PathStatisticsOptions
+): PathStatistics {
   if (paths.length === 0) {
     return {
       totalPaths: 0,
@@ -576,7 +608,7 @@ export function calculatePathStatistics(paths: WorkflowPath[]): PathStatistics {
 
   return {
     totalPaths: paths.length,
-    pathLimitHit: false,
+    pathLimitHit: options?.limitHit ?? false,
     pathsWithLoops,
     pathsWithUnresolvedRefs,
     uniqueConditions: Array.from(conditions),

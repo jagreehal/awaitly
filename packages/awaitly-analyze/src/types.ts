@@ -271,7 +271,7 @@ export interface StaticWorkflowNode extends StaticBaseNode {
   /** Name of the workflow (from variable name or file name) */
   workflowName: string;
   /** Source pattern: 'createWorkflow', 'run', 'createSagaWorkflow', or 'runSaga' */
-  source: "createWorkflow" | "run" | "createSagaWorkflow" | "runSaga";
+  source?: "createWorkflow" | "run" | "createSagaWorkflow" | "runSaga";
   /** Dependencies declared in createWorkflow */
   dependencies: DependencyInfo[];
   /** Inferred error types from dependencies */
@@ -351,7 +351,7 @@ export interface AnalysisStats {
   /** Number of loops */
   loopCount: number;
   /** Number of streaming operations */
-  streamCount: number;
+  streamCount?: number;
   /** Number of workflow references */
   workflowRefCount: number;
   /** Number of unknown/unanalyzable blocks */
@@ -374,14 +374,6 @@ export interface AnalyzerOptions {
   maxReferenceDepth?: number;
   /** Whether to include source locations in output */
   includeLocations?: boolean;
-  /** Filter which patterns to detect (default: 'all') */
-  detect?: "all" | "createWorkflow" | "run" | "createSagaWorkflow" | "runSaga";
-  /**
-   * Assume 'run' is imported from awaitly even without an explicit import.
-   * Useful for analyzing snippets in docs, REPL, or tests.
-   * Default: false (strict mode - requires actual import)
-   */
-  assumeImported?: boolean;
 }
 
 // =============================================================================
