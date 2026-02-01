@@ -234,7 +234,7 @@ const chatWorkflow = createWorkflow({
 });
 
 // Execute workflow
-const result = await chatWorkflow(async (step, deps) => {
+const result = await chatWorkflow(async (step) => {
   let messages: Message[] = [{ role: 'user', content: 'What is the weather?' }];
   let iterations = 0;
   const maxIterations = 10;

@@ -240,7 +240,7 @@ describe('workflow with policies', () => {
 
     const harness = createWorkflowHarness({ fetchData: mockFetch });
 
-    const result = await harness.run(async (step, deps) => {
+    const result = await harness.run(async (step) => {
       return await step(
         () => deps.fetchData(),
         withPolicy(servicePolicies.httpApi, { name: 'fetch' })
@@ -258,7 +258,7 @@ describe('workflow with policies', () => {
 
     const harness = createWorkflowHarness({ fetchData: () => slowFetch() });
 
-    const result = await harness.run(async (step, deps) => {
+    const result = await harness.run(async (step) => {
       return await step(
         () => deps.fetchData(),
         withPolicy({ timeout: { ms: 100 } }, { name: 'fetch' })

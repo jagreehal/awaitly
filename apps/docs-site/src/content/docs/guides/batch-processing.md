@@ -422,4 +422,4 @@ async function retryFailedItems() {
 
 ## Next
 
-[See Patterns: Checkout Flow →/../patterns/checkout-flow/)
+[See Patterns: Checkout Flow →](/patterns/checkout-flow/)

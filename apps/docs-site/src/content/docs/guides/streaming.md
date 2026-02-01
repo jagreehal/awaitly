@@ -480,5 +480,5 @@ import {
 
 ## Next
 
-- [Batch Processing →/batch-processing/) - Process items in bulk
-- [Persistence →/persistence/) - Save workflow state for resume
+- [Batch Processing →](/guides/batch-processing/) - Process items in bulk
+- [Persistence →](/guides/persistence/) - Save workflow state for resume

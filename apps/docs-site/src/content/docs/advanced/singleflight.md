@@ -478,4 +478,4 @@ const getUserWithFallback = async (id: string) => {
 
 ## Next
 
-[Learn about Webhooks & Events →/webhooks/)
+[Learn about Webhooks & Events →](/advanced/webhooks/)

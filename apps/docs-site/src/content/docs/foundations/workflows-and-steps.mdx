@@ -121,6 +121,11 @@ workflow error = 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
 With automatic inference, you never forget to handle an error type. Add a new dependency, and TypeScript immediately warns you about the new error cases.
 </Aside>
 
+<Aside type="caution" title="Return raw values, not Result">
+Workflow executors return raw values. awaitly wraps them automatically.
+See [Troubleshooting: Double-wrapping](/guides/troubleshooting/#returning-ok-from-workflow-executor-double-wrapping).
+</Aside>
+
 ## When to Use Each
 
 | Scenario | Use |
@@ -131,6 +136,7 @@ With automatic inference, you never forget to handle an error type. Add a new de
 | Need caching or resume | `createWorkflow()` |
 | Testing with mocks | `run()` |
 | Dependencies known at compile time | `createWorkflow()` |
+| Dependencies passed as parameters | `run()` |
 
 ## Step Options
 
@@ -140,6 +146,8 @@ Give steps names and keys for visualization and caching:
 const user = await step(() => fetchUser('1'), {
   name: 'Fetch user',       // For visualization/logging
   key: 'user:1',            // For caching/deduplication
+  retry: { attempts: 3 },   // Retry on failure
+  timeout: { ms: 5000 },    // Timeout after 5 seconds
 });
 ```
 
@@ -178,6 +186,8 @@ const data = await step.try(
 The `as const` assertion is important. It tells TypeScript this is the literal string `'FETCH_FAILED'`, not just `string`.
 </Aside>
 
+The error type is added to the workflow's error union automatically.
+
 ## step.fromResult() - Preserve Error Details
 
 When your operation returns a Result with rich error objects:
@@ -201,6 +211,257 @@ const data = await step.fromResult(
 // On rate limit: { ok: false, error: { type: 'API_ERROR', code: 429, message: 'Rate limited' } }
 ```
 
+## step.retry() - Retry with Backoff
+
+```typescript
+const user = await step.retry(
+  () => fetchUser('1'),
+  {
+    attempts: 3,
+    backoff: 'exponential',  // 'fixed' | 'linear' | 'exponential'
+    delayMs: 100,            // Base delay
+    maxDelayMs: 5000,        // Cap for exponential
+    jitter: true,            // Add randomness
+    retryOn: (error) => error !== 'NOT_FOUND', // Don't retry NOT_FOUND
+  }
+);
+```
+
+### Backoff strategies visualized
+
+```text
+Fixed (delayMs: 100):
+#1: 100ms   ████
+#2: 100ms   ████
+#3: 100ms   ████
+
+Linear (delayMs: 100):
+#1: 100ms   ████
+#2: 200ms   ████████
+#3: 300ms   ████████████
+
+Exponential (delayMs: 100):
+#1: 100ms   ████
+#2: 200ms   ████████
+#3: 400ms   ████████████████
+#4: 800ms   ████████████████████████████████
+```
+
+<Aside type="note">
+Exponential backoff is recommended for network calls. It reduces load on struggling services while still retrying failed operations.
+</Aside>
+
+## step.withTimeout() - Add Timeout
+
+```typescript
+const data = await step.withTimeout(
+  () => slowOperation(),
+  {
+    ms: 5000,
+    name: 'Slow operation', // For error messages
+  }
+);
+/*
+Output (completes in time):
+data contains the result
+
+Output (times out):
+{ ok: false, error: StepTimeoutError }
+*/
+```
+
+If the timeout is reached, the workflow gets a `StepTimeoutError`.
+
+## Combining retry and timeout
+
+```typescript
+const data = await step.retry(
+  () => step.withTimeout(() => fetchData(), { ms: 2000 }),
+  { attempts: 3, backoff: 'exponential' }
+);
+```
+
+Each attempt has a 2-second timeout. The whole operation retries up to 3 times.
+
+```text
+Timeline:
+├── Attempt 1 ──────────────► timeout at 2s
+│   wait 100ms
+├── Attempt 2 ──────────────► timeout at 2s
+│   wait 200ms
+├── Attempt 3 ──────────────► timeout at 2s (or success!)
+```
+
+## step.sleep() - Pause Execution
+
+Pause execution for a specified duration. Use for intentional delays between operations (rate limiting, polling intervals, debouncing). Respects workflow cancellation.
+
+### Basic usage
+
+```typescript
+// String duration
+await step.sleep("5s", { name: "rate-limit-delay" });
+
+// Duration object
+import { seconds, millis } from 'awaitly/workflow';
+await step.sleep(seconds(5), { key: "my-sleep" });
+await step.sleep(millis(100));
+```
+
+### With options
+
+```typescript
+await step.sleep("2s", {
+  name: "Polling delay",      // For visualization/logging
+  key: "poll-delay",          // For caching/deduplication
+  ttl: 5000,                  // Cache TTL in milliseconds
+  description: "Wait before next poll attempt",
+  signal: controller.signal   // Optional AbortSignal for cancellation
+});
+```
+
+### Rate limiting example
+
+```typescript
+const result = await workflow(async (step) => {
+  const data = await step(() => fetchData());
+  
+  // Respect rate limits - wait 1 second between requests
+  await step.sleep("1s", { name: "Rate limit delay" });
+  
+  const moreData = await step(() => fetchMoreData());
+  return { data, moreData };
+});
+```
+
+### Polling example
+
+```typescript
+const result = await workflow(async (step) => {
+  let status = await step(() => checkStatus());
+  
+  // Poll every 2 seconds until complete
+  while (status !== "complete") {
+    await step.sleep("2s", { name: "Poll interval" });
+    status = await step(() => checkStatus());
+  }
+  
+  return status;
+});
+```
+
+### Cancellation
+
+`step.sleep` supports two cancellation mechanisms:
+
+**Workflow cancellation** - Cancel the entire workflow:
+
+```typescript
+const controller = new AbortController();
+const workflow = createWorkflow({}, { signal: controller.signal });
+
+const resultPromise = workflow(async (step) => {
+  await step.sleep("10s", { name: "Long sleep" });
+  return "completed";
+});
+
+// Cancel after 1 second
+setTimeout(() => controller.abort(), 1000);
+
+const result = await resultPromise;
+// result.ok is false, error is WorkflowCancelledError
+```
+
+**User-provided signal** - Cancel a specific sleep without affecting the workflow:
+
+```typescript
+const result = await run(async (step) => {
+  const sleepController = new AbortController();
+
+  // Cancel this specific sleep after 1 second
+  setTimeout(() => sleepController.abort(), 1000);
+
+  try {
+    await step.sleep("10s", {
+      name: "Long sleep",
+      signal: sleepController.signal
+    });
+    return "completed normally";
+  } catch {
+    // Sleep was cancelled by user signal
+    return "sleep cancelled, continuing workflow";
+  }
+});
+```
+
+<Aside type="tip" title="Duration formats">
+You can use string durations like `"5s"`, `"100ms"`, `"2m"`, or Duration objects from `awaitly/workflow` like `seconds(5)`, `millis(100)`.
+</Aside>
+
+## Parallel Steps
+
+Run multiple steps concurrently:
+
+<Tabs>
+  <TabItem label="All or nothing">
+```typescript
+import { allAsync } from 'awaitly';
+
+const result = await workflow(async (step) => {
+  const [user, posts, comments] = await step(() =>
+    allAsync([
+      fetchUser('1'),
+      fetchPosts('1'),
+      fetchComments('1'),
+    ])
+  );
+  return { user, posts, comments };
+});
+/*
+Output (all succeed):
+{ ok: true, value: { user, posts, comments } }
+
+Output (any fails):
+{ ok: false, error: <first error> }
+*/
+```
+  </TabItem>
+  <TabItem label="Partial success">
+```typescript
+import { allSettled } from 'awaitly';
+
+const result = await workflow(async (step) => {
+  const results = await step(() =>
+    Promise.all([
+      fetchUser('1'),
+      fetchPosts('1'),
+      fetchComments('1'),
+    ]).then(allSettled)
+  );
+  // results contains all outcomes, even failures
+  return results;
+});
+```
+  </TabItem>
+</Tabs>
+
+## Named Steps for Visualization
+
+Give steps names to see them in workflow diagrams:
+
+```typescript
+const user = await step(() => fetchUser('1'), { name: 'Fetch user' });
+const posts = await step(() => fetchPosts(user.id), { name: 'Fetch posts' });
+/*
+Workflow diagram shows:
+┌─────────────┐     ┌─────────────┐
+│ Fetch user  │ ──► │ Fetch posts │
+└─────────────┘     └─────────────┘
+*/
+```
+
+See [Visualization](/guides/visualization/) for details.
+
 ## Workflow Options
 
 ### cache
@@ -218,6 +479,50 @@ const result = await workflow(async (step) => {
   return user;
 });
 ```
+
+<Aside type="note">
+The `key` option is required for caching. Steps without keys always execute.
+</Aside>
+
+### resumeState
+
+Resume a workflow from saved state:
+
+```typescript
+const workflow = createWorkflow(deps, {
+  resumeState: savedState, // From a previous run
+});
+
+const result = await workflow(async (step) => {
+  // Cached steps return their saved values
+  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  return user;
+});
+```
+
+See [Persistence](/guides/persistence/) for details.
+
+### streamStore
+
+Enable streaming within workflows:
+
+```typescript
+import { createMemoryStreamStore } from 'awaitly/streaming';
+
+const workflow = createWorkflow(deps, {
+  streamStore: createMemoryStreamStore(),
+});
+
+const result = await workflow(async (step) => {
+  const writer = step.getWritable<string>({ namespace: 'tokens' });
+
+  await writer.write('Hello');
+  await writer.write(' World');
+  await writer.close();
+});
+```
+
+See [Streaming](/guides/streaming/) for details.
 
 ### onEvent
 
@@ -239,17 +544,40 @@ const workflow = createWorkflow(deps, {
     }
   },
 });
+/*
+Output:
+Starting: Fetch user
+Completed: Fetch user 45 ms
+Starting: Send email
+Failed: Send email EMAIL_FAILED
+*/
+```
+
+### strict
+
+Force explicit handling of unexpected errors:
+
+```typescript
+const workflow = createWorkflow(deps, {
+  strict: true,
+  catchUnexpected: (thrown) => ({
+    type: 'UNEXPECTED' as const,
+    message: String(thrown),
+  }),
+});
 ```
 
 ### signal (Cancellation)
 
-Cancel workflows externally:
+Cancel workflows externally using an AbortSignal:
 
 ```typescript
 import { isWorkflowCancelled } from 'awaitly/workflow';
 
 const controller = new AbortController();
-const workflow = createWorkflow(deps, { signal: controller.signal });
+const workflow = createWorkflow(deps, {
+  signal: controller.signal,
+});
 
 // Start workflow
 const resultPromise = workflow(async (step) => {
@@ -258,22 +586,67 @@ const resultPromise = workflow(async (step) => {
   return user;
 });
 
-// Cancel from outside
+// Cancel from outside (e.g., timeout, user action)
 setTimeout(() => controller.abort('timeout'), 5000);
 
 const result = await resultPromise;
 if (!result.ok && isWorkflowCancelled(result.error)) {
   console.log('Cancelled:', result.error.reason);
 }
+/*
+Output (if cancelled):
+Cancelled: timeout
+*/
+```
+
+<Aside type="note" title="When cancellation applies">
+- Abort signaled before workflow starts
+- Abort occurs between steps
+- A step throws `AbortError` (e.g., from `fetch` respecting the signal)
+- Abort fires during the last step but the step completes successfully
+
+**Typed errors are preserved:** If a step returns `err("KNOWN_ERROR")` even while abort is signaled, that typed error is returned, not masked as cancellation.
+</Aside>
+
+**Passing signal to operations:**
+
+Steps using `step.withTimeout` can receive the workflow signal:
+
+```typescript
+const result = await workflow(async (step) => {
+  // Signal fires on EITHER timeout OR workflow cancellation
+  const data = await step.withTimeout(
+    (signal) => fetch(url, { signal }),
+    { ms: 3000, signal: true }
+  );
+  return data;
+});
+```
+
+Or access the signal directly via context:
+
+```typescript
+const result = await workflow(async (step, deps, ctx) => {
+  // Manual signal access
+  const response = await fetch(url, { signal: ctx.signal });
+
+  // Check if cancelled
+  if (ctx.signal?.aborted) {
+    return err('CANCELLED' as const);
+  }
+  return ok(response);
+});
 ```
 
 ## Execution-Time Options
 
 Override options for specific runs with `workflow.run()`:
 
+<Tabs>
+  <TabItem label="workflow.run()">
 ```typescript
 const workflow = createWorkflow({ fetchUser }, {
-  onEvent: defaultLogger,
+  onEvent: defaultLogger,  // Creation-time default
 });
 
 // Normal run - uses creation-time options
@@ -284,20 +657,129 @@ await workflow.run(async (step) => {
   const user = await step(() => fetchUser('1'));
   return user;
 }, {
-  onEvent: visualizer.handleEvent,
-  signal: controller.signal,
+  onEvent: vizualizer.handleEvent,  // Override for this run only
+  signal: controller.signal,         // Add signal for this run
 });
 ```
-
-Or pre-bind options with `.with()`:
-
+  </TabItem>
+  <TabItem label="workflow.with()">
 ```typescript
+// Pre-bind options for repeated use
 const visualized = workflow.with({
   onEvent: viz.handleEvent,
 });
 
 // All calls use viz.handleEvent
 await visualized(async (step) => { /* ... */ });
+await visualized(async (step) => { /* ... */ });
+
+// Chaining works
+const w = workflow
+  .with({ onEvent: viz.handleEvent })
+  .with({ signal: controller.signal });
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="tip" title="When to use each">
+- **`workflow(...)`** - Normal runs with creation-time options
+- **`workflow.run(..., exec)`** - One-off runs needing per-run options
+- **`workflow.with(exec)`** - Pre-bind options for a category of runs (e.g., all visualized runs)
+</Aside>
+
+### Override semantics
+
+Execution-time options override creation-time options:
+
+```typescript
+const workflow = createWorkflow(deps, {
+  onEvent: handlerA,        // Creation-time
+  signal: signalA,
+});
+
+// handlerB overrides handlerA for this run
+// signalA is NOT used (signalB takes over)
+await workflow.run(fn, {
+  onEvent: handlerB,        // Wins
+  signal: signalB,          // Wins
+});
+
+// Back to creation-time defaults
+await workflow(fn);  // Uses handlerA, signalA
+```
+
+### Available execution options
+
+| Option | Description |
+|--------|-------------|
+| `onEvent` | Event handler for this run |
+| `onError` | Error handler for this run |
+| `signal` | AbortSignal for this run |
+| `createContext` | Context factory for this run |
+| `resumeState` | Resume state for this run (can be async factory) |
+| `shouldRun` | Concurrency control hook |
+| `onBeforeStart` | Pre-start hook |
+| `onAfterStep` | Post-step hook for checkpointing |
+| `streamStore` | Stream store for this run |
+
+<Aside type="note">
+Options like `cache` and `strict` are **creation-time only**. They define the workflow's fundamental behavior and cannot be changed per-run.
+</Aside>
+
+### Merging with `.with()`
+
+When using `.with().run()`, caller options override bound options:
+
+```typescript
+const w2 = workflow.with({ onEvent: handlerB });
+
+// handlerC wins (caller overrides bound)
+await w2.run(fn, { onEvent: handlerC });
+```
+
+## Context
+
+Pass context through workflow execution:
+
+```typescript
+const workflow = createWorkflow(deps);
+
+const result = await workflow(
+  async (step, context) => {
+    console.log('User ID:', context.userId);
+    const user = await step(fetchUser(context.userId));
+    return user;
+  },
+  { context: { userId: '123', requestId: 'abc' } }
+);
+/*
+Output:
+User ID: 123
+*/
+```
+
+## Composing Workflows
+
+Workflows are just functions. Compose them naturally:
+
+```typescript
+const validateInput = createWorkflow({ validateEmail, validatePassword });
+const processPayment = createWorkflow({ chargeCard, saveReceipt });
+
+const checkout = createWorkflow({
+  validateEmail,
+  validatePassword,
+  chargeCard,
+  saveReceipt,
+});
+
+const result = await checkout(async (step) => {
+  // Use steps from all dependencies
+  await step(validateEmail(input.email));
+  await step(validatePassword(input.password));
+  await step(chargeCard(input.amount));
+  await step(saveReceipt(input.orderId));
+});
 ```
 
 ## Step Variants at a Glance
@@ -309,6 +791,7 @@ await visualized(async (step) => { /* ... */ });
 | `step.fromResult(fn, opts)` | Need to transform Result errors |
 | `step.retry(fn, opts)` | Operation might fail transiently |
 | `step.withTimeout(fn, opts)` | Operation might hang |
+| `step.sleep(duration, opts)` | Need intentional delay (rate limiting, polling) |
 
 ## Complete Example
 

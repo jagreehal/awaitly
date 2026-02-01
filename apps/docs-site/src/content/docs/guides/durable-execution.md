@@ -444,7 +444,7 @@ const store = createMemoryStatePersistence();
 async function processCheckout(orderId: string, userId: string, items: Item[]) {
   const result = await durable.run(
     { fetchUser, createOrder, sendConfirmation },
-    async (step, deps) => {
+    async (step) => {
       const user = await step(() => deps.fetchUser(userId), { key: 'fetch-user' });
       const order = await step(() => deps.createOrder(user, items), { key: 'create-order' });
       await step(() => deps.sendConfirmation(order), { key: 'send-email' });
@@ -472,4 +472,4 @@ async function processCheckout(orderId: string, userId: string, items: Item[]) {
 
 ## Next
 
-[Learn about Human-in-the-Loop →/human-in-loop/)
+[Learn about Human-in-the-Loop →](/guides/human-in-loop/)

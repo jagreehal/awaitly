@@ -2,6 +2,51 @@
 
 Static workflow analysis for [awaitly](https://github.com/jagreehal/awaitly). Analyze workflow source code to extract structure, calculate complexity metrics, and generate visualizations.
 
+## CLI Usage
+
+```bash
+# Basic usage - output to stdout
+awaitly-analyze ./src/workflows/checkout.ts
+
+# JSON format
+awaitly-analyze ./src/workflows/checkout.ts --format=json
+
+# Show step keys and change diagram direction
+awaitly-analyze ./src/workflows/checkout.ts --keys --direction=LR
+
+# Write output file adjacent to source (creates checkout.workflow.md)
+awaitly-analyze ./src/workflows/checkout.ts --output-adjacent
+
+# Custom suffix (creates checkout.diagram.md)
+awaitly-analyze ./src/workflows/checkout.ts -o --suffix=diagram
+
+# JSON format with adjacent output (creates checkout.analysis.json)
+awaitly-analyze ./src/workflows/checkout.ts -o --suffix=analysis --format=json
+
+# Write to file only, suppress stdout
+awaitly-analyze ./src/workflows/checkout.ts -o --no-stdout
+```
+
+### CLI Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--format=<format>` | `mermaid` | Output format: `mermaid` or `json` |
+| `--keys` | - | Show step cache keys in diagram |
+| `--direction=<dir>` | `TB` | Diagram direction: `TB`, `LR`, `BT`, `RL` |
+| `--output-adjacent`, `-o` | - | Write output file next to source file |
+| `--suffix=<value>` | `workflow` | Configurable suffix for output file |
+| `--no-stdout` | - | Suppress stdout when writing to file (requires `-o`) |
+| `--help`, `-h` | - | Show help message |
+
+### Output File Naming
+
+When using `--output-adjacent`:
+- Mermaid format: `{basename}.{suffix}.md`
+- JSON format: `{basename}.{suffix}.json`
+
+Example: `checkout.ts` with `--suffix=workflow` produces `checkout.workflow.md`
+
 ## Features
 
 - **Static Analysis** - Extract workflow structure from TypeScript source without execution

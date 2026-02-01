@@ -328,7 +328,7 @@ const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
 // Workflow with dependency injection
 const workflow = createWorkflow({ getUser });
 
-const result = await workflow(async (step, deps) => {
+const result = await workflow(async (step) => {
   const user = await step(() => deps.getUser('1'));
   return user;
 });
@@ -436,7 +436,7 @@ const getPosts = wrapEffect(legacyEffectService.getPosts);
 
 const workflow = createWorkflow({ getUser, getPosts });
 
-const result = await workflow(async (step, deps) => {
+const result = await workflow(async (step) => {
   const user = await step(() => deps.getUser('1'));
   const posts = await step(() => deps.getPosts(user.id));
   return { user, posts };

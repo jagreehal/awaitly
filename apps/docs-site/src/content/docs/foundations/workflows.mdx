@@ -185,7 +185,7 @@ const result = await workflow(async (step) => {
 });
 ```
 
-See [Persistence/../guides/persistence/) for details.
+See [Persistence](/guides/persistence/) for details.
 
 ### streamStore
 
@@ -207,7 +207,7 @@ const result = await workflow(async (step) => {
 });
 ```
 
-See [Streaming/../guides/streaming/) for details.
+See [Streaming](/guides/streaming/) for details.
 
 ### onEvent
 
@@ -386,7 +386,7 @@ const workflow = createWorkflow(deps, {
 // signalA is NOT used (signalB takes over)
 await workflow.run(fn, {
   onEvent: handlerB,        // Wins
-  signal: signalB,          // Wins
+  signal: signalB,         // Wins
 });
 
 // Back to creation-time defaults
@@ -469,4 +469,4 @@ User ID: 123
 
 ## Next
 
-[Learn about Tagged Errors →/tagged-errors/)
+[Learn about Tagged Errors →](/foundations/tagged-errors/)
