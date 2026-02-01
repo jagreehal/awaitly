@@ -326,6 +326,54 @@ import type {
 } from 'awaitly-analyze';
 ```
 
+### API types reference
+
+Main static-analysis node types and when fields are populated:
+
+- **StaticWorkflowNode** (root): `workflowName`, `source`, `dependencies`, `children`, `description`, `markdown`, `jsdocDescription?`, `errorTypes`.  
+  `description` and `markdown` are set only for `createWorkflow` / `createSagaWorkflow` (from options or deps). They are undefined for `run()` / `runSaga()` (no options object). `jsdocDescription` is extracted from JSDoc above the workflow variable when present.
+
+- **StaticStepNode**: `callee`, `name`, `key`, `description`, `markdown`, `jsdocDescription?`, `retry`, `timeout`.  
+  `description` and `markdown` come from step options (e.g. `step(fn, { description, markdown })`, `step.sleep(duration, { description, markdown })`). `jsdocDescription` is extracted from JSDoc above the step statement when present.
+
+- **StaticSagaStepNode**: `callee`, `name`, `description`, `markdown`, `jsdocDescription?`, `hasCompensation`, `compensationCallee`, `isTryStep`.  
+  `description` and `markdown` come from saga step options (e.g. `saga.step(fn, { description, markdown })`). `jsdocDescription` is extracted from JSDoc above the saga step statement when present.
+
+- **DependencyInfo**: `name`, `typeSignature?`, `errorTypes`.  
+  `typeSignature` is the TypeScript type of the dependency (e.g. the function type), when the type checker is available; it may be undefined. `errorTypes` is not yet inferred from types and is typically empty.
+
+### JSDoc
+
+The analyzer extracts JSDoc comments from workflow declarations (`createWorkflow` / `createSagaWorkflow` variable statements) and from step call sites (the statement containing `await step(...)`, `step.sleep(...)`, `saga.step(...)`, etc.). Extracted text is exposed as **`jsdocDescription`** on the root (`StaticWorkflowNode`) and on step nodes (`StaticStepNode`, `StaticSagaStepNode`). Only the main description (text before the first `@tag`) is extracted; `@param` / `@returns` are not parsed into separate fields. Option-based `description` and `markdown` remain the canonical documentation fields and take precedence for display; JSDoc is additive so consumers can use `description ?? jsdocDescription` for fallback.
+
+### JSON output shape
+
+The output of `renderStaticJSON(ir)` has this structure. Agents and doc generators can use it to parse or validate the JSON.
+
+- **Top level**: `{ root, metadata?, references? }`
+  - `root`: StaticWorkflowNode (see below)
+  - `metadata`: `{ analyzedAt, filePath, tsVersion?, warnings?, stats? }`
+  - `references`: object mapping workflow name to `{ root, metadata? }` (when inlined)
+
+- **StaticWorkflowNode** (`root`): `type: "workflow"`, `id`, `workflowName`, `source?`, `dependencies[]`, `errorTypes[]`, `children[]`, `description?`, `markdown?`, `jsdocDescription?`, `name?`, `key?`, `location?`
+
+- **DependencyInfo** (each entry in `dependencies`): `name`, `typeSignature?`, `errorTypes[]`
+
+- **Flow nodes** (`children` and nested): discriminated by `type`:
+  - `"step"`: `id`, `name?`, `key?`, `callee?`, `description?`, `markdown?`, `jsdocDescription?`, `retry?`, `timeout?`, `location?`
+  - `"saga-step"`: `id`, `name?`, `callee?`, `description?`, `markdown?`, `jsdocDescription?`, `hasCompensation`, `compensationCallee?`, `isTryStep?`, `location?`
+  - `"sequence"`: `id`, `children[]`
+  - `"parallel"`: `id`, `children[]`, `mode` ("all" | "allSettled"), `callee?`
+  - `"race"`: `id`, `children[]`, `callee?`
+  - `"conditional"`: `id`, `condition`, `consequent[]`, `alternate?`, `helper?`, `defaultValue?`
+  - `"switch"`: `id`, `expression`, `cases[]` (each: `value?`, `isDefault`, `body[]`)
+  - `"loop"`: `id`, `loopType`, `body[]`, `iterSource?`, `boundKnown`, `boundCount?`
+  - `"stream"`: `id`, `streamType`, `namespace?`, `options?`, `callee?`
+  - `"workflow-ref"`: `id`, `workflowName`, `resolved`, `resolvedPath?`, `inlinedIR?`
+  - `"unknown"`: `id`, `reason`, `sourceCode?`
+
+A JSON Schema for this structure is available at `schema/static-workflow-ir.schema.json` in this package.
+
 ## Requirements
 
 - Node.js >= 22

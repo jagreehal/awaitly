@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jagreehal/awaitly/packages/awaitly-analyze/schema/static-workflow-ir.schema.json",
+  "title": "StaticWorkflowIR",
+  "description": "JSON shape of awaitly-analyze renderStaticJSON output. Used for validation and machine consumption.",
+  "type": "object",
+  "required": ["root"],
+  "properties": {
+    "root": { "$ref": "#/$defs/StaticWorkflowNode" },
+    "metadata": { "$ref": "#/$defs/StaticAnalysisMetadata" },
+    "references": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "root": { "$ref": "#/$defs/StaticWorkflowNode" },
+          "metadata": { "$ref": "#/$defs/StaticAnalysisMetadata" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "SourceLocation": {
+      "type": "object",
+      "properties": {
+        "filePath": { "type": "string" },
+        "line": { "type": "number" },
+        "column": { "type": "number" },
+        "endLine": { "type": "number" },
+        "endColumn": { "type": "number" }
+      }
+    },
+    "DependencyInfo": {
+      "type": "object",
+      "required": ["name", "errorTypes"],
+      "properties": {
+        "name": { "type": "string" },
+        "typeSignature": { "type": "string" },
+        "errorTypes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "StaticAnalysisMetadata": {
+      "type": "object",
+      "properties": {
+        "analyzedAt": { "type": "number" },
+        "filePath": { "type": "string" },
+        "tsVersion": { "type": "string" },
+        "warnings": { "type": "array" },
+        "stats": {
+          "type": "object",
+          "properties": {
+            "totalSteps": { "type": "number" },
+            "conditionalCount": { "type": "number" },
+            "parallelCount": { "type": "number" },
+            "raceCount": { "type": "number" },
+            "loopCount": { "type": "number" },
+            "workflowRefCount": { "type": "number" },
+            "unknownCount": { "type": "number" }
+          }
+        }
+      }
+    },
+    "StaticWorkflowNode": {
+      "type": "object",
+      "required": ["type", "id", "workflowName", "dependencies", "errorTypes", "children"],
+      "properties": {
+        "type": { "const": "workflow" },
+        "id": { "type": "string" },
+        "workflowName": { "type": "string" },
+        "source": { "enum": ["createWorkflow", "run", "createSagaWorkflow", "runSaga"] },
+        "dependencies": { "type": "array", "items": { "$ref": "#/$defs/DependencyInfo" } },
+        "errorTypes": { "type": "array", "items": { "type": "string" } },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/StaticFlowNode" } },
+        "description": { "type": "string" },
+        "markdown": { "type": "string" },
+        "jsdocDescription": { "type": "string" },
+        "name": { "type": "string" },
+        "key": { "type": "string" },
+        "location": { "$ref": "#/$defs/SourceLocation" }
+      }
+    },
+    "StaticFlowNode": {
+      "oneOf": [
+        { "$ref": "#/$defs/StaticStepNode" },
+        { "$ref": "#/$defs/StaticSagaStepNode" },
+        { "$ref": "#/$defs/StaticSequenceNode" },
+        { "$ref": "#/$defs/StaticParallelNode" },
+        { "$ref": "#/$defs/StaticRaceNode" },
+        { "$ref": "#/$defs/StaticConditionalNode" },
+        { "$ref": "#/$defs/StaticSwitchNode" },
+        { "$ref": "#/$defs/StaticLoopNode" },
+        { "$ref": "#/$defs/StaticStreamNode" },
+        { "$ref": "#/$defs/StaticWorkflowRefNode" },
+        { "$ref": "#/$defs/StaticUnknownNode" }
+      ]
+    },
+    "StaticStepNode": {
+      "type": "object",
+      "required": ["type", "id"],
+      "properties": {
+        "type": { "const": "step" },
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "key": { "type": "string" },
+        "callee": { "type": "string" },
+        "description": { "type": "string" },
+        "markdown": { "type": "string" },
+        "jsdocDescription": { "type": "string" },
+        "retry": { "type": "object" },
+        "timeout": { "type": "object" },
+        "location": { "$ref": "#/$defs/SourceLocation" }
+      }
+    },
+    "StaticSagaStepNode": {
+      "type": "object",
+      "required": ["type", "id", "hasCompensation"],
+      "properties": {
+        "type": { "const": "saga-step" },
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "callee": { "type": "string" },
+        "description": { "type": "string" },
+        "markdown": { "type": "string" },
+        "jsdocDescription": { "type": "string" },
+        "hasCompensation": { "type": "boolean" },
+        "compensationCallee": { "type": "string" },
+        "isTryStep": { "type": "boolean" },
+        "location": { "$ref": "#/$defs/SourceLocation" }
+      }
+    },
+    "StaticSequenceNode": {
+      "type": "object",
+      "required": ["type", "id", "children"],
+      "properties": {
+        "type": { "const": "sequence" },
+        "id": { "type": "string" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/StaticFlowNode" } }
+      }
+    },
+    "StaticParallelNode": {
+      "type": "object",
+      "required": ["type", "id", "children", "mode"],
+      "properties": {
+        "type": { "const": "parallel" },
+        "id": { "type": "string" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/StaticFlowNode" } },
+        "mode": { "enum": ["all", "allSettled"] },
+        "callee": { "type": "string" }
+      }
+    },
+    "StaticRaceNode": {
+      "type": "object",
+      "required": ["type", "id", "children"],
+      "properties": {
+        "type": { "const": "race" },
+        "id": { "type": "string" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/StaticFlowNode" } },
+        "callee": { "type": "string" }
+      }
+    },
+    "StaticConditionalNode": {
+      "type": "object",
+      "required": ["type", "id", "condition", "consequent"],
+      "properties": {
+        "type": { "const": "conditional" },
+        "id": { "type": "string" },
+        "condition": { "type": "string" },
+        "consequent": { "type": "array", "items": { "$ref": "#/$defs/StaticFlowNode" } },
+        "alternate": { "type": "array", "items": { "$ref": "#/$defs/StaticFlowNode" } },
+        "helper": { "enum": ["when", "unless", "whenOr", "unlessOr"] },
+        "defaultValue": { "type": "string" }
+      }
+    },
+    "StaticSwitchNode": {
+      "type": "object",
+      "required": ["type", "id", "expression", "cases"],
+      "properties": {
+        "type": { "const": "switch" },
+        "id": { "type": "string" },
+        "expression": { "type": "string" },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": { "type": "string" },
+              "isDefault": { "type": "boolean" },
+              "body": { "type": "array", "items": { "$ref": "#/$defs/StaticFlowNode" } }
+            }
+          }
+        }
+      }
+    },
+    "StaticLoopNode": {
+      "type": "object",
+      "required": ["type", "id", "loopType", "body", "boundKnown"],
+      "properties": {
+        "type": { "const": "loop" },
+        "id": { "type": "string" },
+        "loopType": { "enum": ["for", "while", "forEach", "map", "for-of", "for-in"] },
+        "body": { "type": "array", "items": { "$ref": "#/$defs/StaticFlowNode" } },
+        "iterSource": { "type": "string" },
+        "boundKnown": { "type": "boolean" },
+        "boundCount": { "type": "number" }
+      }
+    },
+    "StaticStreamNode": {
+      "type": "object",
+      "required": ["type", "id", "streamType"],
+      "properties": {
+        "type": { "const": "stream" },
+        "id": { "type": "string" },
+        "streamType": { "enum": ["write", "read", "forEach"] },
+        "namespace": { "type": "string" },
+        "options": { "type": "object" },
+        "callee": { "type": "string" }
+      }
+    },
+    "StaticWorkflowRefNode": {
+      "type": "object",
+      "required": ["type", "id", "workflowName", "resolved"],
+      "properties": {
+        "type": { "const": "workflow-ref" },
+        "id": { "type": "string" },
+        "workflowName": { "type": "string" },
+        "resolvedPath": { "type": "string" },
+        "resolved": { "type": "boolean" },
+        "inlinedIR": { "type": "object" }
+      }
+    },
+    "StaticUnknownNode": {
+      "type": "object",
+      "required": ["type", "id", "reason"],
+      "properties": {
+        "type": { "const": "unknown" },
+        "id": { "type": "string" },
+        "reason": { "type": "string" },
+        "sourceCode": { "type": "string" }
+      }
+    }
+  }
+}

@@ -11,6 +11,11 @@
  * - Calculating complexity metrics
  * - Extracting type information (input types, result types, error types)
  *
+ * @remarks
+ * Description and markdown on workflows are only set for `createWorkflow` / `createSagaWorkflow`
+ * (from options or deps). They are undefined for `run()` / `runSaga()`. Step and saga-step
+ * description and markdown come from their options objects when present.
+ *
  * @example
  * ```typescript
  * import {

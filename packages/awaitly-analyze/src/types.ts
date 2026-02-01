@@ -55,6 +55,8 @@ export interface StaticStepNode extends StaticBaseNode {
   description?: string;
   /** Full markdown documentation (static analysis) */
   markdown?: string;
+  /** JSDoc description from comment above the step statement (static analysis) */
+  jsdocDescription?: string;
   /** Retry configuration if specified */
   retry?: StaticRetryConfig;
   /** Timeout configuration if specified */
@@ -239,6 +241,8 @@ export interface StaticSagaStepNode extends StaticBaseNode {
   description?: string;
   /** Full markdown documentation */
   markdown?: string;
+  /** JSDoc description from comment above the saga step statement (static analysis) */
+  jsdocDescription?: string;
   /** Whether this is a tryStep (error-mapped step) */
   isTryStep?: boolean;
 }
@@ -265,6 +269,10 @@ export type StaticFlowNode =
 
 /**
  * Root node representing the analyzed workflow.
+ *
+ * @remarks
+ * `description` and `markdown` are only set for `createWorkflow` / `createSagaWorkflow`
+ * (from options or deps). They are undefined for `run()` / `runSaga()`.
  */
 export interface StaticWorkflowNode extends StaticBaseNode {
   type: "workflow";
@@ -282,17 +290,23 @@ export interface StaticWorkflowNode extends StaticBaseNode {
   description?: string;
   /** Full markdown documentation */
   markdown?: string;
+  /** JSDoc description from comment above the workflow declaration (static analysis) */
+  jsdocDescription?: string;
 }
 
 /**
  * Information about a workflow dependency.
+ *
+ * @remarks
+ * `typeSignature` is populated when the type checker is available (best-effort).
+ * `errorTypes` is not yet inferred from types and is typically empty.
  */
 export interface DependencyInfo {
   /** Name of the dependency (e.g., "fetchUser") */
   name: string;
-  /** Type signature as string */
+  /** Type signature as string (when type checker available) */
   typeSignature?: string;
-  /** Error types this dependency can return */
+  /** Error types this dependency can return (not yet inferred from types) */
   errorTypes: string[];
 }
 

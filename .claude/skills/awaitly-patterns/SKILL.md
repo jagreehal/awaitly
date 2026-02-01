@@ -585,6 +585,33 @@ it('retries on failure', async () => {
 
 ---
 
+## Documentation and static analysis
+
+### Documentation options
+
+- **Workflows:** Set `description` and `markdown` in `createWorkflow` (deps or second-argument options) for doc generation and static analysis. Not available on `run()` / `runSaga()` (no options object).
+- **Steps:** Set `description` and `markdown` in step options, e.g. `step(fn, { key, description, markdown })`, `step.sleep(duration, { description, markdown })`, `saga.step(fn, { description, markdown, compensate })`.
+
+### Static analysis output
+
+`awaitly-analyze` can output JSON via `renderStaticJSON(ir)`. The shape includes:
+
+- `root.workflowName`, `root.description`, `root.markdown`
+- `root.children` (steps and control nodes; steps have `name`, `key`, `description`, `markdown`)
+- `root.dependencies` (each: `name`, `typeSignature?` when type checker available, `errorTypes`)
+
+Full structure is documented in awaitly-analyze README (“JSON output shape”) and in `packages/awaitly-analyze/schema/static-workflow-ir.schema.json`.
+
+### Options quick reference
+
+| Context | Option keys (use when generating/editing workflow code) |
+|---------|--------------------------------------------------------|
+| Workflow (createWorkflow / createSagaWorkflow) | `description`, `markdown`, `strict`, `catchUnexpected`, `onEvent`, `createContext`, `cache`, `resumeState`, `signal`, `streamStore` |
+| Step (step, step.sleep, step.retry, step.withTimeout) | `name`, `key`, `description`, `markdown`, `ttl`, `retry`, `timeout`, `signal` |
+| Saga step (saga.step / saga.tryStep) | `name`, `description`, `markdown`, `compensate` |
+
+---
+
 ## Imports
 
 `UNEXPECTED_ERROR` is imported from `awaitly` in all examples.
