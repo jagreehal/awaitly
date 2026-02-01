@@ -1,5 +1,12 @@
 # awaitly-docs
 
+## 1.10.0
+
+### Minor Changes
+
+- dcef438: - **awaitly-analyze**: Static analyzer updates (schema, CLI/scripts, JSDoc fixtures, types). Improves workflow analysis and output structure.
+  - **awaitly-docs**: New "Documenting workflows" guide, static analysis docs updates, API reference updates, and typedoc-based API generation.
+
 ## 1.9.0
 
 ### Minor Changes
