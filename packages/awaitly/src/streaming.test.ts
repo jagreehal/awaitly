@@ -930,11 +930,7 @@ describe("step.streamForEach", () => {
 
       // Process items in same workflow
       const reader = step.getReadable<number>({ namespace: "process" });
-      return step.streamForEach(
-        reader,
-        async (item) => deps.process(item),
-        { name: "process-items" }
-      );
+      return step.streamForEach(reader, async (item) => deps.process(item));
     });
 
     expect(isOk(result)).toBe(true);
@@ -967,7 +963,7 @@ describe("step.streamForEach", () => {
       return step.streamForEach(
         reader,
         async (item) => ok(item),
-        { name: "checkpoint-items", checkpointInterval: 1 }
+        { checkpointInterval: 1 }
       );
     });
 
@@ -1002,7 +998,7 @@ describe("step.streamForEach", () => {
       const firstPass = await step.streamForEach(
         reader1,
         async (item) => ok(item * 2),
-        { name: "first-pass", checkpointInterval: 1 }
+        { checkpointInterval: 1 }
       );
 
       // Second pass: process from position 1 (should use different keys)
@@ -1014,7 +1010,7 @@ describe("step.streamForEach", () => {
       const secondPass = await step.streamForEach(
         reader2,
         async (item) => ok(item * 3), // Different multiplier to verify actual processing
-        { name: "second-pass", checkpointInterval: 1 }
+        { checkpointInterval: 1 }
       );
 
       return { firstPass, secondPass };
@@ -1055,8 +1051,7 @@ describe("step.streamForEach", () => {
     const result = await workflow(async (step, deps) => {
       return step.streamForEach(
         source(),
-        async (item) => deps.process(item),
-        { name: "uppercase" }
+        async (item) => deps.process(item)
       );
     });
 
@@ -1088,7 +1083,7 @@ describe("step.streamForEach", () => {
           startedProcessing = true;
           return ok(item);
         },
-        { name: "async-iterable-concurrent", concurrency: 2 }
+        { concurrency: 2 }
       );
 
       const processingStarted = await Promise.race([
@@ -1137,7 +1132,7 @@ describe("step.streamForEach", () => {
           }
           return ok(item);
         },
-        { name: "out-of-order", concurrency: 2 }
+        { concurrency: 2 }
       );
     });
 
@@ -1171,7 +1166,7 @@ describe("step.streamForEach", () => {
           inFlight--;
           return ok(item);
         },
-        { name: "concurrent-processing", checkpointInterval: 1, concurrency: 2 }
+        { checkpointInterval: 1, concurrency: 2 }
       );
     });
 
@@ -1198,7 +1193,7 @@ describe("step.streamForEach", () => {
           processed.push(item);
           return ok(item);
         },
-        { name: "live-processing", checkpointInterval: 1, concurrency: 2 }
+        { checkpointInterval: 1, concurrency: 2 }
       );
 
       await writer.write(1);

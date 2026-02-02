@@ -68,19 +68,44 @@ export {
   type WorkflowFnWithArgs,
   type WorkflowContext,
   type StepCache,
-  type ResumeState,
-  type ResumeStateEntry,
   type WorkflowCancelledError,
+
+  // New Snapshot API types
+  type GetSnapshotOptions,
+  type SubscribeEvent,
+  type SubscribeOptions,
 
   // Functions
   createWorkflow,
   isStepComplete,
-  createResumeStateCollector,
   isWorkflowCancelled,
 } from "./workflow";
 
 // Re-export UNEXPECTED_ERROR constant for convenience
 export { UNEXPECTED_ERROR } from "./core";
+
+// =============================================================================
+// Snapshot API (re-exported from persistence for convenience)
+// =============================================================================
+export {
+  // Types
+  type JSONValue,
+  type WorkflowSnapshot,
+  type StepResult,
+  type SerializedCause,
+  type SnapshotWarning,
+
+  // Validation
+  looksLikeWorkflowSnapshot,
+  validateSnapshot,
+  assertValidSnapshot,
+  mergeSnapshots,
+
+  // Error classes
+  SnapshotFormatError,
+  SnapshotMismatchError,
+  SnapshotDecodeError,
+} from "./persistence";
 
 // =============================================================================
 // Duration - Re-exported for convenience (timeouts/delays)

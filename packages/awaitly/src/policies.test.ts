@@ -200,13 +200,15 @@ describe("policies", () => {
       const result = await workflow(async (step, { fetchUser, fetchOrders }) => {
         // ✓ One policy, used everywhere
         const user = await step(
+          "fetch-user",
           () => fetchUser("123"),
-          withPolicy(servicePolicies.httpApi, "Fetch user")
+          withPolicy(servicePolicies.httpApi)
         );
 
         const orders = await step(
+          "fetch-orders",
           () => fetchOrders("123"),
-          withPolicy(servicePolicies.httpApi, "Fetch orders")
+          withPolicy(servicePolicies.httpApi)
         );
 
         return ok({ user, orders });
@@ -219,21 +221,12 @@ describe("policies", () => {
   describe("withPolicy", () => {
     it("applies single policy with object options", () => {
       const result = withPolicy(servicePolicies.httpApi, {
-        name: "Fetch user",
         key: "user:123",
       });
 
-      expect(result.name).toBe("Fetch user");
       expect(result.key).toBe("user:123");
       expect(result.timeout?.ms).toBe(5000);
       expect(result.retry?.attempts).toBe(3);
-    });
-
-    it("applies single policy with string shorthand", () => {
-      const result = withPolicy(servicePolicies.httpApi, "Fetch user");
-
-      expect(result.name).toBe("Fetch user");
-      expect(result.timeout?.ms).toBe(5000);
     });
 
     it("works without step options", () => {
@@ -248,10 +241,10 @@ describe("policies", () => {
     it("applies multiple policies", () => {
       const result = withPolicies(
         [timeoutPolicies.api, retryPolicies.transient],
-        { name: "Fetch data" }
+        { key: "data:1" }
       );
 
-      expect(result.name).toBe("Fetch data");
+      expect(result.key).toBe("data:1");
       expect(result.timeout?.ms).toBe(5000);
       expect(result.retry?.attempts).toBe(3);
     });
@@ -262,7 +255,7 @@ describe("policies", () => {
           timeoutPolicies.api, // 5000ms
           timeoutPolicies.fast, // 1000ms (overrides)
         ],
-        "Test"
+        { key: "test:1" }
       );
 
       expect(result.timeout?.ms).toBe(1000);
@@ -274,37 +267,34 @@ describe("policies", () => {
       const merged = mergePolicies(
         timeoutPolicies.api,
         retryPolicies.transient,
-        { name: "fetch-user" }
+        { key: "fetch-user:1" }
       );
 
-      expect(merged.name).toBe("fetch-user");
+      expect(merged.key).toBe("fetch-user:1");
       expect(merged.timeout?.ms).toBe(5000);
       expect(merged.retry?.attempts).toBe(3);
     });
 
-    it("creates custom policy bundle with default name", () => {
-      // Example from markdown: mergePolicies with default name
+    it("creates custom policy bundle", () => {
+      // Example: mergePolicies for reuse
       const myApiPolicy = mergePolicies(
         timeoutPolicies.api,
-        retryPolicies.standard,
-        { name: "api-call" } // Default name
+        retryPolicies.standard
       );
 
-      expect(myApiPolicy.name).toBe("api-call");
       expect(myApiPolicy.timeout?.ms).toBe(5000);
       expect(myApiPolicy.retry?.attempts).toBe(3);
     });
 
-    it("allows overriding name when using merged policy", async () => {
+    it("allows adding key when using merged policy", async () => {
       const myApiPolicy = mergePolicies(
         timeoutPolicies.api,
-        retryPolicies.standard,
-        { name: "api-call" }
+        retryPolicies.standard
       );
 
-      // Use it - override name
-      const options = withPolicy(myApiPolicy, "Fetch user"); // Override name
-      expect(options.name).toBe("Fetch user");
+      // Use it - add key
+      const options = withPolicy(myApiPolicy, { key: "user:1" });
+      expect(options.key).toBe("user:1");
       expect(options.timeout?.ms).toBe(5000);
     });
 
@@ -342,16 +332,16 @@ describe("policies", () => {
       const policies = createPolicyRegistry();
       policies.register("api", servicePolicies.httpApi);
 
-      const options = policies.apply("api", "Fetch user");
+      const options = policies.apply("api", { key: "user:1" });
 
-      expect(options.name).toBe("Fetch user");
+      expect(options.key).toBe("user:1");
       expect(options.timeout?.ms).toBe(5000);
     });
 
     it("throws on unknown policy", () => {
       const policies = createPolicyRegistry();
 
-      expect(() => policies.apply("unknown", "Test")).toThrow(
+      expect(() => policies.apply("unknown", { key: "test:1" })).toThrow(
         "Policy not found: unknown"
       );
     });
@@ -368,13 +358,15 @@ describe("policies", () => {
 
       const result = await workflow(async (step, { fetchUser, checkCache }) => {
         const user = await step(
+          "fetch-user",
           () => fetchUser("123"),
-          policies.apply("api", "Fetch user")
+          policies.apply("api")
         );
 
         const cached = await step(
+          "check-cache",
           () => checkCache("123"),
-          policies.apply("cache", "Check cache")
+          policies.apply("cache")
         );
 
         return ok({ user, cached });
@@ -387,13 +379,11 @@ describe("policies", () => {
   describe("stepOptions fluent builder", () => {
     it("builds step options with fluent API", () => {
       const options = stepOptions()
-        .name("fetch-user")
         .key("user:123")
         .timeout(5000)
         .retries(3)
         .build();
 
-      expect(options.name).toBe("fetch-user");
       expect(options.key).toBe("user:123");
       expect(options.timeout?.ms).toBe(5000);
       expect(options.retry?.attempts).toBe(3);
@@ -401,13 +391,11 @@ describe("policies", () => {
 
     it("matches exact markdown example", () => {
       const options = stepOptions()
-        .name("Fetch user profile")
         .key("user:123")
         .timeout(5000)
         .retries(3)
         .build();
 
-      expect(options.name).toBe("Fetch user profile");
       expect(options.key).toBe("user:123");
       expect(options.timeout?.ms).toBe(5000);
       expect(options.retry?.attempts).toBe(3);
@@ -418,14 +406,12 @@ describe("policies", () => {
       // But when .policy() is applied after, it may override retry settings
       // The markdown shows the pattern, but the actual behavior depends on merge order
       const options = stepOptions()
-        .name("step-name") // Set step name
         .key("cache-key") // Set caching key
         .timeout(5000) // Set timeout in ms
         .retry({ attempts: 3, backoff: "linear" }) // Full retry config (before policy)
         .policy(servicePolicies.httpApi) // Apply a policy (may override retry)
         .build(); // Get StepOptions
 
-      expect(options.name).toBe("step-name");
       expect(options.key).toBe("cache-key");
       expect(options.timeout?.ms).toBe(5000);
       // Policy is applied last, so it may override the retry backoff
@@ -436,10 +422,10 @@ describe("policies", () => {
     it("allows chaining policy application", () => {
       const options = stepOptions()
         .policy(servicePolicies.httpApi)
-        .name("Custom name")
+        .key("custom-key")
         .build();
 
-      expect(options.name).toBe("Custom name");
+      expect(options.key).toBe("custom-key");
       expect(options.timeout?.ms).toBe(5000);
     });
 
@@ -532,12 +518,11 @@ describe("policies", () => {
     it("creates reusable policy applier", () => {
       const apiStep = createPolicyApplier(servicePolicies.httpApi);
 
-      const options1 = apiStep("Fetch user");
-      expect(options1.name).toBe("Fetch user");
+      const options1 = apiStep({ key: "user:1" });
+      expect(options1.key).toBe("user:1");
       expect(options1.timeout?.ms).toBe(5000);
 
-      const options2 = apiStep({ name: "Fetch orders", key: "orders:123" });
-      expect(options2.name).toBe("Fetch orders");
+      const options2 = apiStep({ key: "orders:123" });
       expect(options2.key).toBe("orders:123");
     });
 
@@ -550,8 +535,8 @@ describe("policies", () => {
       const workflow = createWorkflow(deps);
 
       const result = await workflow(async (step, { fetchUser, queryOrders }) => {
-        const user = await step(() => fetchUser("123"), apiStep("Fetch user"));
-        const orders = await step(() => queryOrders("123"), dbStep("Query orders"));
+        const user = await step("fetch-user", () => fetchUser("123"), apiStep());
+        const orders = await step("query-orders", () => queryOrders("123"), dbStep());
         return ok({ user, orders });
       });
 
@@ -564,7 +549,7 @@ describe("policies", () => {
         retryPolicies.aggressive
       );
 
-      const options = apiStep("Heavy operation");
+      const options = apiStep({ key: "heavy:1" });
       expect(options.timeout?.ms).toBe(30000);
       expect(options.retry?.attempts).toBe(5);
     });
@@ -596,13 +581,15 @@ describe("policies", () => {
 
       const result = await workflow(async (step, { fetchUser, queryOrders }) => {
         const user = await step(
-          fetchUser("123"),
-          policies.apply("api", "Fetch user")
+          "fetch-user",
+          () => fetchUser("123"),
+          policies.apply("api")
         );
 
         const orders = await step(
-          queryOrders("123"),
-          policies.apply("db", "Query orders")
+          "query-orders",
+          () => queryOrders("123"),
+          policies.apply("db")
         );
 
         return ok({ user, orders });
@@ -618,13 +605,15 @@ describe("policies", () => {
       const result = await workflow(async (step, { fetchUser, checkCache }) => {
         // Use simple policy without timeout for test reliability
         const user = await step(
-          fetchUser("123"),
-          withPolicy(retryPolicies.none, "Fetch user")
+          "fetch-user",
+          () => fetchUser("123"),
+          withPolicy(retryPolicies.none)
         );
 
         const cached = await step(
-          checkCache("123"),
-          withPolicy(retryPolicies.none, "Check cache")
+          "check-cache",
+          () => checkCache("123"),
+          withPolicy(retryPolicies.none)
         );
 
         return ok({ user, cached });
@@ -640,11 +629,10 @@ describe("policies", () => {
       const result = await workflow(async (step, { fetchUser }) => {
         // Build simple options using fluent API
         const options = stepOptions()
-          .name("Fetch user profile")
           .key("user:123")
           .build();
 
-        const user = await step(fetchUser("123"), options);
+        const user = await step("fetch-user", () => fetchUser("123"), options);
         return ok(user);
       });
 

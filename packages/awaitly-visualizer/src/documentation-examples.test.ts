@@ -90,12 +90,8 @@ describe("visualization", () => {
       });
 
       await workflow(async (step, { validateCart, processPayment }) => {
-        await step(validateCart({ items: ["item-1"] }), {
-          name: "Validate cart",
-        });
-        await step(processPayment({ amount: 100 }), {
-          name: "Process payment",
-        });
+        await step("Validate cart", () => validateCart({ items: ["item-1"] }));
+        await step("Process payment", () => processPayment({ amount: 100 }));
         return DONE;
       });
 
@@ -151,8 +147,8 @@ describe("visualization", () => {
       );
 
       await workflow(async (step, { fetchUser, fetchOrders }) => {
-        await step(fetchUser("123"), { name: "Fetch user" });
-        await step(fetchOrders("123"), { name: "Fetch orders" });
+        await step("Fetch user", () => fetchUser("123"));
+        await step("Fetch orders", () => fetchOrders("123"));
         return DONE;
       });
 
@@ -436,7 +432,7 @@ describe("visualization", () => {
       live.start(); // Begin live updates
 
       await workflow(async (step, { fetchUser }) => {
-        await step(() => fetchUser("123"), { name: "Processing..." });
+        await step("Processing...", () => fetchUser("123"));
         return DONE;
       });
 
@@ -548,13 +544,9 @@ describe("visualization", () => {
       );
 
       await workflow(async (step, { fetchUser, validateCart }) => {
-        // ✓ Clear names
-        await step(() => fetchUser("123"), {
-          name: "Fetch user profile",
-        });
-        await step(() => validateCart({ items: [] }), {
-          name: "Validate cart items",
-        });
+        // ✓ Clear names (using explicit ID as first param)
+        await step("Fetch user profile", () => fetchUser("123"));
+        await step("Validate cart items", () => validateCart({ items: [] }));
         return DONE;
       });
 
@@ -588,9 +580,9 @@ describe("visualization", () => {
 
       await workflow(
         async (step, { fetchUser, fetchOrders, fetchSettings }) => {
-          await step(() => fetchUser("123"), { name: "Fetch user" });
-          await step(() => fetchOrders("123"), { name: "Validate input" });
-          await step(() => fetchSettings("123"), { name: "Process data" });
+          await step("Fetch user", () => fetchUser("123"));
+          await step("Validate input", () => fetchOrders("123"));
+          await step("Process data", () => fetchSettings("123"));
           return DONE;
         }
       );

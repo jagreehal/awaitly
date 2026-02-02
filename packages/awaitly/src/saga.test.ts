@@ -51,16 +51,14 @@ describe("Saga / Compensation Pattern", () => {
 
       const result = await saga(async (ctx) => {
         const reservation = await ctx.step(() => reserveInventory(), {
-          name: "reserve",
           compensate: compensate1,
         });
 
         const payment = await ctx.step(() => chargeCard(), {
-          name: "charge",
           compensate: compensate2,
         });
 
-        await ctx.step(() => sendEmail(), { name: "email" });
+        await ctx.step(() => sendEmail());
 
         return { reservation, payment };
       });
@@ -88,12 +86,11 @@ describe("Saga / Compensation Pattern", () => {
       const saga = createSagaWorkflow({ reserveInventory, chargeCard });
 
       const result = await saga(async (ctx) => {
-        const reservation = await ctx.step(() => reserveInventory(), {
-          name: "reserve",
+        const reservation = await ctx.step("reserve", () => reserveInventory(), {
           compensate: compensate1,
         });
 
-        await ctx.step(() => chargeCard(), { name: "charge" });
+        await ctx.step("charge", () => chargeCard());
 
         return { reservation };
       });
@@ -118,13 +115,11 @@ describe("Saga / Compensation Pattern", () => {
       let recordedCompensations: Array<{ name?: string; hasValue: boolean }> = [];
 
       await saga(async (ctx) => {
-        await ctx.step(() => step1(), {
-          name: "step1",
+        await ctx.step("step1", () => step1(), {
           compensate: () => {},
         });
 
-        await ctx.step(() => step2(), {
-          name: "step2",
+        await ctx.step("step2", () => step2(), {
           compensate: () => {},
         });
 
@@ -148,7 +143,7 @@ describe("Saga / Compensation Pattern", () => {
       );
 
       await saga(async (ctx) => {
-        await ctx.step(() => step1());
+        await ctx.step("step1", () => step1());
         return {};
       });
 
@@ -168,11 +163,10 @@ describe("Saga / Compensation Pattern", () => {
       );
 
       await saga(async (ctx) => {
-        await ctx.step(() => step1(), {
-          name: "step1",
+        await ctx.step("step1", () => step1(), {
           compensate,
         });
-        await ctx.step(() => step2());
+        await ctx.step("step2", () => step2());
         return {};
       });
 
@@ -191,19 +185,20 @@ describe("Saga / Compensation Pattern", () => {
 
       const result = await runSaga<string, MyError>(async (ctx) => {
         const value = await ctx.tryStep(
+          "step1",
           () => Promise.resolve("success"),
           {
             error: "STEP_ERROR",
-            name: "step1",
             compensate,
           }
         );
 
         await ctx.tryStep(
+          "step2",
           () => {
             throw new Error("Boom!");
           },
-          { error: "STEP2_ERROR", name: "step2" }
+          { error: "STEP2_ERROR" }
         );
 
         return value;
@@ -221,6 +216,7 @@ describe("Saga / Compensation Pattern", () => {
 
       const result = await runSaga<Record<string, never>, MappedError>(async (ctx) => {
         await ctx.tryStep(
+          "mapped-step",
           () => {
             throw new Error("Custom error message");
           },
@@ -246,13 +242,11 @@ describe("Saga / Compensation Pattern", () => {
       type MyError = "STEP1_ERROR" | "STEP2_ERROR";
 
       const result = await runSaga<{ value: string }, MyError>(async (ctx) => {
-        const v1 = await ctx.step(() => ok("hello"), {
-          name: "step1",
+        const v1 = await ctx.step("step1", () => ok("hello"), {
           compensate: () => {},
         });
 
-        const v2 = await ctx.step(() => ok("world"), {
-          name: "step2",
+        const v2 = await ctx.step("step2", () => ok("world"), {
           compensate: () => {},
         });
 
@@ -269,21 +263,19 @@ describe("Saga / Compensation Pattern", () => {
       const compensationOrder: string[] = [];
 
       const result = await runSaga<{ value: string }, "FAIL">(async (ctx) => {
-        await ctx.step(() => ok("a"), {
-          name: "step1",
+        await ctx.step("step1", () => ok("a"), {
           compensate: () => {
             compensationOrder.push("comp1");
           },
         });
 
-        await ctx.step(() => ok("b"), {
-          name: "step2",
+        await ctx.step("step2", () => ok("b"), {
           compensate: () => {
             compensationOrder.push("comp2");
           },
         });
 
-        await ctx.step(() => err("FAIL" as const));
+        await ctx.step("step3", () => err("FAIL" as const));
 
         return { value: "never" };
       });

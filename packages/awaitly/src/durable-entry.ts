@@ -28,17 +28,6 @@ export {
   isWorkflowCancelled,
   type WorkflowCancelledError,
 
-  // Re-exports from persistence
-  type StatePersistence,
-  type ListPageOptions,
-  type ListPageResult,
+  // Re-exports from persistence (new snapshot API)
+  type SnapshotStore,
 } from "./durable";
-
-// Also export persistence helpers for convenience
-export {
-  createMemoryStatePersistence,
-  createFileStatePersistence,
-  type MemoryStatePersistenceOptions,
-  type FileStatePersistenceOptions,
-  type FileSystemInterface,
-} from "./persistence";

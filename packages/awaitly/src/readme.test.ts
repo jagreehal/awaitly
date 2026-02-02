@@ -5,9 +5,9 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { ok, err, type AsyncResult } from "./index";
-import { createWorkflow, UNEXPECTED_ERROR, createResumeStateCollector } from "./workflow-entry";
+import { createWorkflow, UNEXPECTED_ERROR } from "./workflow-entry";
 import { createApprovalStep, isPendingApproval } from "./hitl-entry";
-import { stringifyState, parseState, createStatePersistence } from "./persistence-entry";
+import { type WorkflowSnapshot } from "./persistence-entry";
 import { run } from "./workflow-entry";
 
 describe("README Examples", () => {
@@ -302,59 +302,27 @@ describe("README Examples", () => {
     });
   });
 
-  describe("Save & Resume - Step 1: Collect state", () => {
-    it("should work as shown in README", async () => {
-      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, never> => {
-        return ok({ id, name: "Alice" });
-      };
-
-      const fetchPosts = async (userId: string): AsyncResult<Array<{ id: string }>, never> => {
-        return ok([{ id: "post-1" }]);
-      };
-
-      // Create a collector to automatically capture step results
-      const collector = createResumeStateCollector();
-
-      const workflow = createWorkflow({ fetchUser, fetchPosts }, {
-        onEvent: collector.handleEvent, // Automatically collects step_complete events
-      });
-
-      await workflow(async (step, deps) => {
-        // Only steps with keys are saved
-        const user = await step(() => deps.fetchUser("1"), { key: "user:1" });
-        const posts = await step(() => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
-        return { user, posts };
-      });
-
-      // Get the collected state
-      const state = collector.getResumeState(); // Returns ResumeState
-      expect(state).toBeDefined();
-      expect(state.steps.size).toBeGreaterThan(0);
-    });
-  });
-
-  describe("Save & Resume - Step 2: Save to database", () => {
-    it("should work with stringifyState as shown in README", async () => {
-      const collector = createResumeStateCollector();
+  describe("Save & Resume - Save to database", () => {
+    it("should work with getSnapshot as shown in README (new API)", async () => {
       const fetchUser = async (id: string): AsyncResult<{ id: string }, never> => {
         return ok({ id });
       };
 
-      const workflow = createWorkflow({ fetchUser }, {
-        onEvent: collector.handleEvent,
-      });
+      const workflow = createWorkflow({ fetchUser });
 
       await workflow(async (step, deps) => {
         await step(() => deps.fetchUser("1"), { key: "user:1" });
       });
 
-      // Serialize to JSON
+      // Get snapshot and serialize to JSON (new API)
       const workflowId = "123";
-      const state = collector.getResumeState();
-      const json = stringifyState(state, { workflowId, timestamp: Date.now() });
+      const snapshot = workflow.getSnapshot();
+      const json = JSON.stringify(snapshot);
 
       expect(json).toBeDefined();
       expect(typeof json).toBe("string");
+      expect(snapshot.formatVersion).toBe(1);
+      expect(snapshot.steps["user:1"]).toBeDefined();
 
       // Save to your database (simulated)
       const dbRecord = {
@@ -369,7 +337,7 @@ describe("README Examples", () => {
   });
 
   describe("Save & Resume - Step 3: Resume from saved state", () => {
-    it("should work as shown in README", async () => {
+    it("should work with snapshot option as shown in README (new API)", async () => {
       const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, never> => {
         return ok({ id, name: "Alice" });
       };
@@ -378,90 +346,31 @@ describe("README Examples", () => {
         return ok([{ id: "post-1" }]);
       };
 
-      // First run - collect state
-      const collector = createResumeStateCollector();
-      const workflow1 = createWorkflow({ fetchUser, fetchPosts }, {
-        onEvent: collector.handleEvent,
-      });
+      // First run - execute workflow
+      const workflow1 = createWorkflow({ fetchUser, fetchPosts });
 
       await workflow1(async (step, deps) => {
         await step(() => deps.fetchUser("1"), { key: "user:1" });
         await step(() => deps.fetchPosts("1"), { key: "posts:1" });
       });
 
-      const savedState = collector.getResumeState();
-      const json = stringifyState(savedState);
+      // Get snapshot and serialize (new API)
+      const snapshot = workflow1.getSnapshot();
+      const json = JSON.stringify(snapshot);
 
-      // Load from database
-      const workflowId = "123";
+      // Load from database and parse
       const saved = { state: json }; // Simulated database record
-      const savedStateParsed = parseState(saved.state);
+      const loadedSnapshot = JSON.parse(saved.state) as WorkflowSnapshot;
 
-      // Resume workflow - cached steps skip execution
+      // Resume workflow with snapshot option (new API)
       const workflow2 = createWorkflow({ fetchUser, fetchPosts }, {
-        resumeState: savedStateParsed, // Pre-populates cache from saved state
+        snapshot: loadedSnapshot, // Pre-populates cache from saved snapshot
       });
 
       const result = await workflow2(async (step, deps) => {
         const user = await step(() => deps.fetchUser("1"), { key: "user:1" }); // ✅ Cache hit
         const posts = await step(() => deps.fetchPosts(user.id), { key: `posts:${user.id}` }); // ✅ Cache hit
         return { user, posts };
-      });
-
-      expect(result.ok).toBe(true);
-    });
-  });
-
-  describe("Save & Resume - With database adapter", () => {
-    it("should work with createStatePersistence as shown in README", async () => {
-      // Mock Redis-like interface
-      const mockStore = new Map<string, string>();
-
-      // Create persistence adapter
-      const persistence = createStatePersistence({
-        get: async (key) => mockStore.get(key) ?? null,
-        set: async (key, value) => {
-          mockStore.set(key, value);
-        },
-        delete: async (key) => {
-          const existed = mockStore.has(key);
-          mockStore.delete(key);
-          return existed;
-        },
-        exists: async (key) => mockStore.has(key),
-        keys: async (pattern) => {
-          const regex = new RegExp(pattern.replace(/\*/g, ".*"));
-          return Array.from(mockStore.keys()).filter((k) => regex.test(k));
-        },
-      }, "workflow:state:");
-
-      const collector = createResumeStateCollector();
-      const fetchUser = async (id: string): AsyncResult<{ id: string }, never> => {
-        return ok({ id });
-      };
-
-      const workflow = createWorkflow({ fetchUser }, {
-        onEvent: collector.handleEvent,
-      });
-
-      await workflow(async (step, deps) => {
-        await step(() => deps.fetchUser("1"), { key: "user:1" });
-      });
-
-      const state = collector.getResumeState();
-      const runId = "run-123";
-
-      // Save
-      await persistence.save(runId, state, { metadata: { userId: "user-1" } });
-
-      // Load
-      const savedState = await persistence.load(runId);
-      expect(savedState).toBeDefined();
-
-      // Resume
-      const workflow2 = createWorkflow({ fetchUser }, { resumeState: savedState ?? undefined });
-      const result = await workflow2(async (step, deps) => {
-        return await step(() => deps.fetchUser("1"), { key: "user:1" });
       });
 
       expect(result.ok).toBe(true);

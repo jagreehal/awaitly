@@ -116,23 +116,6 @@ A TTL index is automatically created on the `expiresAt` field, which MongoDB use
 
 The collection is created automatically on first use. You can customize the collection name via the `collection` option.
 
-## Advanced Usage
-
-### Direct KeyValueStore Access
-
-If you need more control, you can use the `MongoKeyValueStore` class directly:
-
-```typescript
-import { MongoKeyValueStore } from 'awaitly-mongo';
-import { createStatePersistence } from 'awaitly/persistence';
-
-const store = new MongoKeyValueStore({
-  connectionString: process.env.MONGODB_URI,
-});
-
-const persistence = createStatePersistence(store, 'custom:prefix:');
-```
-
 ## Features
 
 - ✅ Automatic collection creation

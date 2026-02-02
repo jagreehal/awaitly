@@ -93,7 +93,7 @@ describe('require-thunk-for-key', () => {
     });
 
     it('allows thunk with key and name options', () => {
-      const code = `step(() => fetchUser('1'), { key: 'user:1', name: 'fetchUser' });`;
+      const code = `step('fetchUser', () => fetchUser('1'), { key: 'user:1' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
@@ -105,7 +105,7 @@ describe('require-thunk-for-key', () => {
     });
 
     it('allows immediate execution with name but no key', () => {
-      const code = `step(fetchUser('1'), { name: 'fetchUser' });`;
+      const code = `step('fetchUser', fetchUser('1'));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
@@ -146,7 +146,7 @@ describe('require-thunk-for-key', () => {
     });
 
     it('reports immediate execution with key and name options', () => {
-      const code = `step(fetchUser('1'), { key: 'user:1', name: 'fetchUser' });`;
+      const code = `step('fetchUser', fetchUser('1'), { key: 'user:1' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
     });

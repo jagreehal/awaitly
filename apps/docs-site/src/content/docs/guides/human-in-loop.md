@@ -40,37 +40,28 @@ const result = await refundWorkflow(async (step) => {
 
 ```typescript
 if (!result.ok && isPendingApproval(result.error)) {
-  // Save state, notify team
+  // Save snapshot, notify team
   await notifySlack(`Refund ${orderId} needs approval`);
-  await db.workflowStates.create({
-    id: orderId,
-    state: stringifyState(collector.getResumeState()),
-  });
+  await store.save(orderId, workflow.getSnapshot());
 }
 ```
 
-## Inject approval and resume
+## Resume after approval
 
-When approval is granted:
+When approval is granted, record it in your approval store (e.g. database). Then load the snapshot and run the workflow again; the approval step's `checkApproval` will return the approved value:
 
 ```typescript
-import { injectApproval } from 'awaitly/hitl';
-import { parseState } from 'awaitly/persistence';
-
-// Load saved state
-const saved = await db.workflowStates.findUnique({ where: { id: orderId } });
-const state = parseState(saved.state);
-
-// Inject the approval
-const updatedState = injectApproval(state, {
-  stepKey: 'approve:refund',
-  value: { approvedBy: 'alice@company.com', timestamp: Date.now() },
+// Record approval (e.g. in your DB)
+await db.approvals.upsert({
+  where: { id: orderId },
+  data: { approved: true, approvedBy: 'alice@company.com', timestamp: new Date() },
 });
 
-// Resume workflow
+// Load snapshot and resume
+const snapshot = await store.load(orderId);
 const workflow = createWorkflow(
   { calculateRefund, processRefund, requireApproval },
-  { resumeState: updatedState }
+  { snapshot }
 );
 
 const result = await workflow(async (step) => {
@@ -78,7 +69,7 @@ const result = await workflow(async (step) => {
   const approval = await step(requireApproval, { key: 'approve:refund' });
   return await step(processRefund(refund, approval));
 });
-// Now completes successfully
+// checkApproval reads from DB and returns { status: 'approved', value }
 ```
 
 ## Handle rejection
@@ -97,6 +88,7 @@ if (!result.ok && isApprovalRejected(result.error)) {
 ```typescript
 import { getPendingApprovals } from 'awaitly/hitl';
 
+// From in-memory collector (during same run)
 const state = collector.getResumeState();
 const pending = getPendingApprovals(state);
 // [{ stepKey: 'approve:refund', ... }]
@@ -167,13 +159,11 @@ app.post('/webhooks/approve', async (req, res) => {
 ## Full example
 
 ```typescript
-import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly/workflow';
 import {
   createApprovalStep,
   isPendingApproval,
-  injectApproval,
 } from 'awaitly/hitl';
-import { stringifyState, parseState } from 'awaitly/persistence';
 
 // Define approval step
 const requireManagerApproval = createApprovalStep({
@@ -194,8 +184,7 @@ const expenseWorkflow = createWorkflow({
   requireManagerApproval,
 });
 
-const collector = createResumeStateCollector();
-const workflow = createWorkflow(deps, { onEvent: collector.handleEvent });
+const workflow = createWorkflow(deps);
 
 const result = await workflow(async (step) => {
   const expense = await step(validateExpense(data));
@@ -204,11 +193,8 @@ const result = await workflow(async (step) => {
 });
 
 if (!result.ok && isPendingApproval(result.error)) {
-  // Save for later
-  await db.pendingWorkflows.create({
-    id: 'expense-123',
-    state: stringifyState(collector.getResumeState()),
-  });
+  // Save snapshot for later
+  await store.save('expense-123', workflow.getSnapshot());
   await sendSlackMessage('Expense needs approval: expense-123');
 }
 ```

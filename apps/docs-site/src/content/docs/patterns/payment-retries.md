@@ -20,23 +20,18 @@ async function processPayment(order: Order) {
 
 ## The solution
 
-Use step keys and persistence to make the workflow resumable:
+Use step keys and a **SnapshotStore** to make the workflow resumable:
 
 ```typescript
-import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
-import { stringifyState, parseState } from 'awaitly/persistence';
+import { createWorkflow } from 'awaitly/workflow';
+import { postgres } from 'awaitly-postgres';
 
-const processPayment = createWorkflow({
+const store = postgres(process.env.DATABASE_URL!);
+
+const workflow = createWorkflow({
   validateCard,
   chargeProvider,
   persistResult,
-});
-
-// Collect state for persistence
-const collector = createResumeStateCollector();
-
-const workflow = createWorkflow(deps, {
-  onEvent: collector.handleEvent,
 });
 
 const result = await workflow(async (step) => {
@@ -65,15 +60,8 @@ const result = await workflow(async (step) => {
 ## Save state after each run
 
 ```typescript
-// Always save state (success or failure)
-const state = collector.getResumeState();
-const json = stringifyState(state, { orderId });
-
-await db.workflowStates.upsert({
-  where: { idempotencyKey },
-  update: { state: json, updatedAt: new Date() },
-  create: { idempotencyKey, state: json },
-});
+// Always save snapshot (success or failure)
+await store.save(idempotencyKey, workflow.getSnapshot());
 ```
 
 ## Crash recovery
@@ -81,16 +69,11 @@ await db.workflowStates.upsert({
 If the workflow crashes after charging but before persisting:
 
 ```typescript
-// On restart, check for existing state
-const saved = await db.workflowStates.findUnique({
-  where: { idempotencyKey },
-});
+// On restart, load existing snapshot
+const snapshot = await store.load(idempotencyKey);
 
-if (saved) {
-  // Resume from saved state
-  const resumeState = parseState(saved.state);
-
-  const workflow = createWorkflow(deps, { resumeState });
+if (snapshot) {
+  const workflow = createWorkflow(deps, { snapshot });
 
   const result = await workflow(async (step) => {
     const card = await step(
@@ -134,8 +117,10 @@ const idempotencyKey = `payment:${Date.now()}`;
 
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
-import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
-import { stringifyState, parseState } from 'awaitly/persistence';
+import { createWorkflow } from 'awaitly/workflow';
+import { postgres } from 'awaitly-postgres';
+
+const store = postgres(process.env.DATABASE_URL!);
 
 const validateCard = async (
   cardToken: string
@@ -175,24 +160,13 @@ const persistResult = async (
   }
 };
 
-// Main function
 async function handlePayment(orderId: string, cardToken: string, amount: number) {
   const idempotencyKey = `payment:${orderId}`;
-
-  // Check for existing attempt
-  const existing = await db.workflowStates.findUnique({
-    where: { id: idempotencyKey },
-  });
-
-  const collector = createResumeStateCollector();
-  const resumeState = existing ? parseState(existing.state) : undefined;
+  const snapshot = await store.load(idempotencyKey);
 
   const workflow = createWorkflow(
     { validateCard, chargeProvider, persistResult },
-    {
-      resumeState,
-      onEvent: collector.handleEvent,
-    }
+    { snapshot: snapshot ?? undefined }
   );
 
   const result = await workflow(async (step) => {
@@ -211,14 +185,7 @@ async function handlePayment(orderId: string, cardToken: string, amount: number)
     return { chargeId: charge.id };
   });
 
-  // Always save state
-  const state = collector.getResumeState();
-  await db.workflowStates.upsert({
-    where: { id: idempotencyKey },
-    update: { state: stringifyState(state), updatedAt: new Date() },
-    create: { id: idempotencyKey, state: stringifyState(state) },
-  });
-
+  await store.save(idempotencyKey, workflow.getSnapshot());
   return result;
 }
 ```

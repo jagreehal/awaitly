@@ -23,8 +23,8 @@ import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow({ fetchUser, chargeCard });
 const result = await workflow(async (step) => {
-  const user = await step(() => fetchUser('1'));
-  const charge = await step(() => chargeCard(user.id, 100));
+  const user = await step('fetchUser', () => fetchUser('1'));
+  const charge = await step('chargeCard', () => chargeCard(user.id, 100));
   return { user, charge };
 });
 // result.error is: 'NOT_FOUND' | 'CARD_DECLINED' | UnexpectedError
@@ -91,8 +91,7 @@ const result = await saga(async (s) => {
 ### Wait for human approval
 
 ```typescript
-import { createApprovalStep, isPendingApproval, injectApproval } from 'awaitly/hitl';
-import { stringifyState, parseState } from 'awaitly/persistence';
+import { createApprovalStep, isPendingApproval } from 'awaitly/hitl';
 
 const approvalStep = createApprovalStep({
   key: 'manager-approval',
@@ -111,28 +110,24 @@ const result = await workflow(async (step) => {
 });
 
 if (!result.ok && isPendingApproval(result.error)) {
-  // Save state and wait for approval...
+  await store.save(workflowId, workflow.getSnapshot());
 }
 ```
 
 ### Persist and resume workflow state
 
 ```typescript
-import { createResumeStateCollector, createWorkflow } from 'awaitly/workflow';
-import { stringifyState, parseState } from 'awaitly/persistence';
+import { createWorkflow } from 'awaitly/workflow';
+import { postgres } from 'awaitly-postgres';
 
-// Capture state as workflow executes
-const collector = createResumeStateCollector();
-await workflow(fn, { onEvent: collector.handleEvent });
+const store = postgres(process.env.DATABASE_URL!);
 
-// Persist state
-const json = stringifyState(collector.getResumeState());
-await db.save(workflowId, json);
+await workflow(fn);
+await store.save(workflowId, workflow.getSnapshot());
 
 // Resume later
-const saved = await db.load(workflowId);
-const resumeState = parseState(saved);
-const workflow = createWorkflow(deps, { resumeState });
+const snapshot = await store.load(workflowId);
+const workflow = createWorkflow(deps, { snapshot: snapshot ?? undefined });
 ```
 
 ### Retry failed operations
@@ -281,7 +276,7 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 | Saga pattern (`createSagaWorkflow`) | `awaitly/workflow` |
 | Parallel ops (`allAsync`, `allSettledAsync`, `zip`, `zipAsync`) | `awaitly` |
 | HITL (`pendingApproval`, `createApprovalStep`, `gatedStep`, `injectApproval`, `isPendingApproval`) | `awaitly/hitl` |
-| State persistence (`stringifyState`, `parseState`) | `awaitly/persistence` |
+| Snapshot store types and validation (`SnapshotStore`, `WorkflowSnapshot`, `validateSnapshot`) | `awaitly/persistence` |
 | Batch processing (`processInBatches`) | `awaitly/batch` |
 | Circuit breaker | `awaitly/circuit-breaker` |
 | Rate limiting | `awaitly/ratelimit` |
@@ -306,7 +301,7 @@ For optimal bundle size, import from specific entry points:
 | `awaitly/workflow` | Workflow engine (`createWorkflow`, `Duration`, etc.) |
 | `awaitly/functional` | Functional utilities (`pipe`, `flow`, `compose`, `R` namespace) |
 | `awaitly/hitl` | Human-in-the-loop (`createApprovalStep`, `isPendingApproval`, etc.) |
-| `awaitly/persistence` | State serialization (`stringifyState`, `parseState`) |
+| `awaitly/persistence` | Snapshot types, validation, `createMemoryCache` |
 | `awaitly/batch` | Batch processing only |
 
 ---

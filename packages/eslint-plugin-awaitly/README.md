@@ -69,7 +69,7 @@ step(() => fetch(id), { key: `user:${userId}` });
 
 ### `awaitly/no-options-on-executor` (error)
 
-Prevents passing workflow options (like `cache`, `onEvent`, `resumeState`) to the workflow executor function. Options must be passed to `createWorkflow()` instead.
+Prevents passing workflow options (like `cache`, `onEvent`, `snapshot`) to the workflow executor function. Options must be passed to `createWorkflow()` instead.
 
 ```typescript
 // BAD - options are silently ignored here
@@ -81,7 +81,7 @@ const workflow = createWorkflow(deps, { cache: new Map() });
 await workflow(async (step) => { ... });
 ```
 
-Detected option keys: `cache`, `onEvent`, `resumeState`, `onError`, `onBeforeStart`, `onAfterStep`, `shouldRun`, `createContext`, `signal`, `strict`, `catchUnexpected`, `description`, `markdown`.
+Detected option keys: `cache`, `onEvent`, `resumeState`, `snapshot`, `serialization`, `snapshotSerialization`, `onUnknownSteps`, `onDefinitionChange`, `onError`, `onBeforeStart`, `onAfterStep`, `shouldRun`, `createContext`, `signal`, `strict`, `catchUnexpected`, `description`, `markdown`, `streamStore`.
 
 ## Why These Rules?
 

@@ -4,7 +4,7 @@ import type { CallExpression, Identifier, ObjectExpression, Property } from 'est
 /**
  * Rule: no-options-on-executor
  *
- * Detects when workflow options (cache, onEvent, resumeState, etc.) are passed
+ * Detects when workflow options (cache, onEvent, snapshot, etc.) are passed
  * to the workflow executor function instead of createWorkflow().
  *
  * Options passed to the executor are silently ignored, which is a common mistake.
@@ -18,6 +18,11 @@ const KNOWN_OPTION_KEYS = new Set([
   'cache',
   'onEvent',
   'resumeState',
+  'snapshot',
+  'serialization',
+  'snapshotSerialization',
+  'onUnknownSteps',
+  'onDefinitionChange',
   'onError',
   'onBeforeStart',
   'onAfterStep',
@@ -100,7 +105,7 @@ const rule: Rule.RuleModule = {
     type: 'problem',
     docs: {
       description:
-        'Disallow passing workflow options to the executor function. Options like cache, onEvent, and resumeState should be passed to createWorkflow() instead.',
+        'Disallow passing workflow options to the executor function. Options like cache, onEvent, and snapshot should be passed to createWorkflow() instead.',
       recommended: true,
     },
     schema: [],

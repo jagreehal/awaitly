@@ -590,6 +590,19 @@ Single place for all workflow and step option keys (for docs and static analysis
 | `resumeState` | `ResumeState?` | Resume from saved state |
 | `signal` | `AbortSignal?` | Workflow cancellation |
 | `streamStore` | `StreamStore?` | Streaming backend |
+| `snapshot` | `WorkflowSnapshot?` | Resume from saved snapshot |
+| `onUnknownSteps` | `'warn' | 'error' | 'ignore'?` | When snapshot has steps not in this run |
+| `onDefinitionChange` | `'warn' | 'error' | 'ignore'?` | When snapshot definition hash differs |
+
+**getSnapshot()** — options object:
+
+| Option | Type | Purpose |
+|--------|------|---------|
+| `include` | `'all' | 'completed' | 'failed'?` | Which steps to include. Default: 'all' |
+| `metadata` | `Record<string, JSONValue>?` | Custom metadata to merge into snapshot |
+| `limit` | `number?` | Max number of steps to include |
+| `sinceStepId` | `string?` | Incremental: only include steps after this step ID |
+| `strict` | `boolean?` | Override workflow strict mode for this snapshot |
 
 **Step (step, step.sleep, step.retry, step.withTimeout)** — in options object:
 

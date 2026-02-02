@@ -13,10 +13,7 @@ import {
   type AsyncResult,
   isUnexpectedError,
 } from "./index";
-import {
-  createWorkflow,
-  createResumeStateCollector,
-} from "./workflow-entry";
+import { createWorkflow } from "./workflow-entry";
 import {
   isPendingApproval,
   createApprovalStep,
@@ -31,10 +28,6 @@ import {
   isBatchProcessingError,
   batchPresets,
 } from "./batch";
-import {
-  stringifyState,
-  parseState,
-} from "./persistence";
 
 // =============================================================================
 // Type Definitions (matching the docs)
@@ -280,9 +273,9 @@ describe("Workflows Documentation - Saga Pattern", () => {
 
     const result = await saga(async (ctx, deps) => {
       const payment = await ctx.step(
+        "charge-payment",
         () => deps.chargePayment(),
         {
-          name: "charge-payment",
           compensate: async () => {
             throw new Error("Refund service unavailable");
           },
@@ -658,10 +651,7 @@ describe("Workflows Documentation - Approval Workflows", () => {
     };
 
     // Include requireApproval in deps so its error types are part of the workflow's union
-    const collector = createResumeStateCollector();
-    const refundWorkflow = createWorkflow({ calculateRefund, requireApproval }, {
-      onEvent: collector.handleEvent,
-    });
+    const refundWorkflow = createWorkflow({ calculateRefund, requireApproval });
 
     const result = await refundWorkflow(
       async (step, deps) => {
@@ -731,114 +721,9 @@ describe("Workflows Documentation - Approval Workflows", () => {
     }
   });
 
-  it("collects workflow state for persistence using createResumeStateCollector", async () => {
-    const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> => {
-      return ok({ id, name: "Alice", email: "alice@example.com" });
-    };
-
-    const collector = createResumeStateCollector();
-
-    // Note: onEvent is passed in the options of createWorkflow, not to the workflow call
-    const workflow = createWorkflow(
-      { fetchUser },
-      { onEvent: collector.handleEvent }
-    );
-
-    await workflow(async (step, deps) => {
-      // Only keyed steps are collected
-      const user = await step(() => deps.fetchUser("user_1"), { key: "user:1" });
-      return user;
-    });
-
-    // From docs: Get collected state for persistence
-    const state = collector.getResumeState();
-    expect(state.steps.has("user:1")).toBe(true);
-
-    const entry = state.steps.get("user:1");
-    expect(entry?.result.ok).toBe(true);
-  });
-
-  it("supports state serialization with stringifyState and parseState", async () => {
-    const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> => {
-      return ok({ id, name: "Alice", email: "alice@example.com" });
-    };
-
-    const collector = createResumeStateCollector();
-
-    // Note: onEvent is passed in the options of createWorkflow
-    const workflow = createWorkflow(
-      { fetchUser },
-      { onEvent: collector.handleEvent }
-    );
-
-    await workflow(async (step, deps) => {
-      const user = await step(() => deps.fetchUser("user_1"), { key: "user:1" });
-      return user;
-    });
-
-    const state = collector.getResumeState();
-
-    // From docs: stringifyState and parseState for persistence
-    const serialized = stringifyState(state);
-    expect(typeof serialized).toBe("string");
-
-    // Can parse it back
-    const parsed = parseState(serialized);
-    expect(parsed.steps.has("user:1")).toBe(true);
-  });
-
-  it("resumes workflow from saved state", async () => {
-    let fetchCallCount = 0;
-
-    const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> => {
-      fetchCallCount++;
-      return ok({ id, name: "Alice", email: "alice@example.com" });
-    };
-
-    const collector = createResumeStateCollector();
-
-    // First run - collect state
-    // Note: onEvent is passed in the options of createWorkflow
-    const workflow1 = createWorkflow(
-      { fetchUser },
-      { onEvent: collector.handleEvent }
-    );
-
-    await workflow1(async (step, deps) => {
-      const user = await step(() => deps.fetchUser("user_1"), { key: "user:1" });
-      return user;
-    });
-
-    expect(fetchCallCount).toBe(1);
-
-    // Simulate persistence round-trip
-    const savedState = stringifyState(collector.getResumeState());
-    const resumeState = parseState(savedState);
-
-    // Second run - resume from state
-    const workflow2 = createWorkflow({ fetchUser }, {
-      resumeState,
-    });
-
-    const result = await workflow2(async (step, deps) => {
-      // This step should use cached result, not call fetchUser again
-      const user = await step(() => deps.fetchUser("user_1"), { key: "user:1" });
-      return user;
-    });
-
-    // From docs: Cached steps skip execution
-    expect(fetchCallCount).toBe(1); // Still 1, not 2
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.name).toBe("Alice");
-    }
-  });
-
   it("supports injecting approval into resume state", async () => {
-    const collector = createResumeStateCollector();
-
-    // Create initial state with a pending approval
-    const initialState = collector.getResumeState();
+    // Create empty initial state
+    const initialState = { steps: new Map() };
 
     // From docs: injectApproval usage
     const updatedState = injectApproval(initialState, {
@@ -1029,12 +914,5 @@ describe("Workflows Documentation - API Verification", () => {
     if (result.ok) {
       expect(result.value).toBe(84);
     }
-  });
-
-  it("verifies stringifyState and parseState are from awaitly/persistence", async () => {
-    // These functions are imported from ./persistence, not from ./index
-    // This is consistent with the modular design
-    expect(typeof stringifyState).toBe("function");
-    expect(typeof parseState).toBe("function");
   });
 });

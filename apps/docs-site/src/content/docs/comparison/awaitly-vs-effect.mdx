@@ -451,23 +451,21 @@ const workflow = createWorkflow(deps, {
   resumeState: savedState, // Resume from previous run
 });
 
-// Option 2: Database persistence (awaitly-mongo or awaitly-postgres)
-import { createMongoPersistence } from 'awaitly-mongo';
-// or: import { createPostgresPersistence } from 'awaitly-postgres';
+// Option 2: Snapshot store (awaitly-mongo or awaitly-postgres)
+import { mongo } from 'awaitly-mongo';
+// or: import { postgres } from 'awaitly-postgres';
 
-const store = await createMongoPersistence({
-  connectionString: process.env.MONGODB_URI,
-});
+const store = mongo(process.env.MONGODB_URI!);
 
 const workflow = createWorkflow(deps, {
-  persistence: store, // Automatic state persistence
+  snapshot: await store.load('wf-1'), // Resume from saved snapshot (or null)
 });
 
 const result = await workflow(async (step) => {
-  // Cached steps skip re-execution on resume
   const user = await step(() => fetchUser('1'), { key: 'user:1' });
   return user;
 });
+await store.save('wf-1', workflow.getSnapshot());
 ```
   </TabItem>
   <TabItem label="Effect">

@@ -211,143 +211,159 @@ const result = await runWithSentry('checkout', () =>
 
 ## State Persistence
 
-### Redis adapter
+Use a **SnapshotStore** (`save`, `load`, `delete`, `list`, `close`) with **WorkflowSnapshot**. Prefer the official adapters (PostgreSQL, MongoDB, libSQL) or implement the interface for Redis/DynamoDB.
+
+### Official adapters (recommended)
 
 ```typescript
-import { createStatePersistence, stringifyState, parseState } from 'awaitly/persistence';
-import { createClient } from 'redis';
+import { postgres } from 'awaitly-postgres';
+// or: import { mongo } from 'awaitly-mongo';
+// or: import { libsql } from 'awaitly-libsql';
 
-const redis = createClient({ url: process.env.REDIS_URL });
-await redis.connect();
+const store = postgres(process.env.DATABASE_URL!);
 
-const persistence = createStatePersistence(
-  {
-    get: (key) => redis.get(key),
-    set: (key, value, ttlMs) =>
-      ttlMs ? redis.setEx(key, Math.floor(ttlMs / 1000), value) : redis.set(key, value),
-    delete: (key) => redis.del(key).then((n) => n > 0),
-    exists: (key) => redis.exists(key).then((n) => n > 0),
-    keys: (pattern) => redis.keys(pattern),
-  },
-  'workflow:state:' // Key prefix
-);
-
-// Save workflow state
-const collector = createResumeStateCollector();
-const workflow = createWorkflow(deps, { onEvent: collector.handleEvent });
-
+const workflow = createWorkflow(deps);
 await workflow(async (step) => {
   const user = await step(() => fetchUser('1'), { key: 'user:1' });
   return user;
 });
 
-// Save with 24 hour TTL
-await persistence.save('run-123', collector.getResumeState(), {
-  ttl: 24 * 60 * 60 * 1000,
-  metadata: { userId: 'user-1', startedAt: Date.now() },
-});
+await store.save('run-123', workflow.getSnapshot());
 
 // Resume later
-const savedState = await persistence.load('run-123');
-const resumed = createWorkflow(deps, { resumeState: savedState });
+const snapshot = await store.load('run-123');
+const resumed = createWorkflow(deps, { snapshot });
+await resumed(/* same workflow fn */);
 ```
 
-### PostgreSQL adapter
+See [Persistence](/guides/persistence/) and [PostgreSQL](/guides/postgres-persistence/) guides.
+
+### Redis (custom SnapshotStore)
+
+Implement the `SnapshotStore` interface from `awaitly/persistence`:
 
 ```typescript
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
+import { createClient } from 'redis';
+
+const redis = createClient({ url: process.env.REDIS_URL });
+await redis.connect();
+
+const store: SnapshotStore = {
+  async save(id, snapshot) {
+    await redis.set(`workflow:${id}`, JSON.stringify(snapshot));
+  },
+  async load(id) {
+    const data = await redis.get(`workflow:${id}`);
+    return data ? JSON.parse(data) : null;
+  },
+  async delete(id) {
+    await redis.del(`workflow:${id}`);
+  },
+  async list(options) {
+    const keys = await redis.keys('workflow:*');
+    return keys.map((k) => ({ id: k.replace('workflow:', ''), updatedAt: new Date().toISOString() })).slice(0, options?.limit ?? 100);
+  },
+  async close() {
+    await redis.quit();
+  },
+};
+
+await store.save('run-123', workflow.getSnapshot());
+const snapshot = await store.load('run-123');
+const resumed = createWorkflow(deps, { snapshot });
+```
+
+### PostgreSQL (custom schema)
+
+If you need a custom table, implement `SnapshotStore` and store `WorkflowSnapshot` as JSONB:
+
+```typescript
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
 import { Pool } from 'pg';
-import { stringifyState, parseState } from 'awaitly/persistence';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-// Schema
-await pool.query(`
-  CREATE TABLE IF NOT EXISTS workflow_states (
-    id VARCHAR(255) PRIMARY KEY,
-    state JSONB NOT NULL,
-    metadata JSONB,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
-    expires_at TIMESTAMP
-  );
-  CREATE INDEX idx_workflow_states_expires ON workflow_states(expires_at);
-`);
-
-// Adapter functions
-async function saveWorkflowState(
-  id: string,
-  state: ResumeState,
-  options?: { ttl?: number; metadata?: Record<string, unknown> }
-) {
-  const json = stringifyState(state);
-  const expiresAt = options?.ttl ? new Date(Date.now() + options.ttl) : null;
-
-  await pool.query(
-    `INSERT INTO workflow_states (id, state, metadata, expires_at, updated_at)
-     VALUES ($1, $2, $3, $4, NOW())
-     ON CONFLICT (id) DO UPDATE SET
-       state = $2, metadata = $3, expires_at = $4, updated_at = NOW()`,
-    [id, json, options?.metadata ?? null, expiresAt]
-  );
-}
-
-async function loadWorkflowState(id: string): Promise<ResumeState | null> {
-  const result = await pool.query(
-    `SELECT state FROM workflow_states
-     WHERE id = $1 AND (expires_at IS NULL OR expires_at > NOW())`,
-    [id]
-  );
-
-  if (result.rows.length === 0) return null;
-  return parseState(result.rows[0].state);
-}
-
-async function deleteExpiredStates() {
-  await pool.query(`DELETE FROM workflow_states WHERE expires_at < NOW()`);
-}
+const store: SnapshotStore = {
+  async save(id, snapshot) {
+    await pool.query(
+      `INSERT INTO workflow_snapshots (id, snapshot, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (id) DO UPDATE SET snapshot = $2, updated_at = NOW()`,
+      [id, JSON.stringify(snapshot)]
+    );
+  },
+  async load(id) {
+    const r = await pool.query('SELECT snapshot FROM workflow_snapshots WHERE id = $1', [id]);
+    return r.rows.length ? (r.rows[0].snapshot as WorkflowSnapshot) : null;
+  },
+  async delete(id) {
+    await pool.query('DELETE FROM workflow_snapshots WHERE id = $1', [id]);
+  },
+  async list(options) {
+    const limit = options?.limit ?? 100;
+    const r = await pool.query(
+      'SELECT id, updated_at FROM workflow_snapshots ORDER BY updated_at DESC LIMIT $1',
+      [limit]
+    );
+    return r.rows.map((row) => ({ id: row.id, updatedAt: row.updated_at.toISOString() }));
+  },
+  async close() {
+    await pool.end();
+  },
+};
 ```
 
-### DynamoDB adapter
+### DynamoDB (custom SnapshotStore)
+
+Implement `SnapshotStore` and store `WorkflowSnapshot` as JSON:
 
 ```typescript
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
-import { stringifyState, parseState } from 'awaitly/persistence';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 
 const client = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(client);
-const TABLE_NAME = process.env.DYNAMODB_TABLE || 'workflow-states';
+const TABLE_NAME = process.env.DYNAMODB_TABLE || 'workflow-snapshots';
 
-async function saveWorkflowState(
-  id: string,
-  state: ResumeState,
-  options?: { ttl?: number; metadata?: Record<string, unknown> }
-) {
-  const json = stringifyState(state);
-  const ttl = options?.ttl ? Math.floor((Date.now() + options.ttl) / 1000) : undefined;
-
-  await docClient.send(new PutCommand({
-    TableName: TABLE_NAME,
-    Item: {
-      pk: `workflow#${id}`,
-      sk: 'state',
-      state: json,
-      metadata: options?.metadata,
-      createdAt: Date.now(),
-      ...(ttl && { ttl }),
-    },
-  }));
-}
-
-async function loadWorkflowState(id: string): Promise<ResumeState | null> {
-  const result = await docClient.send(new GetCommand({
-    TableName: TABLE_NAME,
-    Key: { pk: `workflow#${id}`, sk: 'state' },
-  }));
-
-  if (!result.Item) return null;
-  return parseState(result.Item.state);
-}
+const store: SnapshotStore = {
+  async save(id, snapshot) {
+    await docClient.send(new PutCommand({
+      TableName: TABLE_NAME,
+      Item: {
+        pk: `workflow#${id}`,
+        sk: 'snapshot',
+        snapshot: JSON.stringify(snapshot),
+        updatedAt: new Date().toISOString(),
+      },
+    }));
+  },
+  async load(id) {
+    const result = await docClient.send(new GetCommand({
+      TableName: TABLE_NAME,
+      Key: { pk: `workflow#${id}`, sk: 'snapshot' },
+    }));
+    if (!result.Item?.snapshot) return null;
+    return JSON.parse(result.Item.snapshot) as WorkflowSnapshot;
+  },
+  async delete(id) {
+    await docClient.send(new DeleteCommand({
+      TableName: TABLE_NAME,
+      Key: { pk: `workflow#${id}`, sk: 'snapshot' },
+    }));
+  },
+  async list(options) {
+    const r = await docClient.send(new ScanCommand({
+      TableName: TABLE_NAME,
+      Limit: options?.limit ?? 100,
+    }));
+    const items = (r.Items ?? []).map((i) => ({ id: (i.pk as string).replace('workflow#', ''), updatedAt: i.updatedAt as string }));
+    items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return items;
+  },
+  async close() {},
+};
 ```
 
 ## Health Checks

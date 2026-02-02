@@ -55,10 +55,11 @@ describe("Mermaid Validation - Special Characters", () => {
     });
 
     await workflow(async (step, deps) => {
-      await step(() => deps.fetchUserWithSpecialChars("1"), {
-        key: "user:1",
-        name: "Fetch User (with parens)",
-      });
+      await step(
+        "Fetch User (with parens)",
+        () => deps.fetchUserWithSpecialChars("1"),
+        { key: "user:1" }
+      );
     });
 
     const diagram = collector.visualizeAs("mermaid");
@@ -77,10 +78,11 @@ describe("Mermaid Validation - Special Characters", () => {
     });
 
     await workflow(async (step, deps) => {
-      await step(() => deps.processDataWithBrackets({ value: "test" }), {
-        key: "process:data",
-        name: "Process [Data] with Brackets",
-      });
+      await step(
+        "Process [Data] with Brackets",
+        () => deps.processDataWithBrackets({ value: "test" }),
+        { key: "process:data" }
+      );
     });
 
     const diagram = collector.visualizeAs("mermaid");
@@ -99,10 +101,11 @@ describe("Mermaid Validation - Special Characters", () => {
     });
 
     await workflow(async (step, deps) => {
-      await step(() => deps.fetchUserWithSpecialChars("1"), {
-        key: "user:1",
-        name: 'Step with "quotes"',
-      });
+      await step(
+        'Step with "quotes"',
+        () => deps.fetchUserWithSpecialChars("1"),
+        { key: "user:1" }
+      );
     });
 
     const diagram = collector.visualizeAs("mermaid");
@@ -168,22 +171,24 @@ describe("Mermaid Validation - Special Characters", () => {
     );
 
     await workflow(async (step, deps) => {
-      // Step with special chars in name
-      const user = await step(() => deps.fetchUserWithSpecialChars("1"), {
-        key: "user:1",
-        name: 'Fetch "User" (with) [special] chars',
-      });
+      // Step with special chars in name (now using explicit ID as first param)
+      const user = await step(
+        'Fetch "User" (with) [special] chars',
+        () => deps.fetchUserWithSpecialChars("1"),
+        { key: "user:1" }
+      );
 
       // Parallel with special chars
       await step.parallel('Parallel "test" [brackets]', async () => {
         return ok([user]);
       });
 
-      // Process with brackets
-      await step(() => deps.processDataWithBrackets({ value: user.name }), {
-        key: "process",
-        name: "Process {data}",
-      });
+      // Process with brackets (now using explicit ID as first param)
+      await step(
+        "Process {data}",
+        () => deps.processDataWithBrackets({ value: user.name }),
+        { key: "process" }
+      );
     });
 
     const diagram = collector.visualizeAs("mermaid");
@@ -216,11 +221,11 @@ describe("Mermaid Enhanced Edges", () => {
     });
 
     await workflow(async (step, deps) => {
-      await step(() => deps.failingThenSucceed(), {
-        key: "retrying-step",
-        name: "Retrying Operation",
-        retry: { attempts: 3 },
-      });
+      await step(
+        "Retrying Operation",
+        () => deps.failingThenSucceed(),
+        { key: "retrying-step", retry: { attempts: 3 } }
+      );
     });
 
     const diagram = collector.visualizeAs("mermaid");
@@ -244,10 +249,11 @@ describe("Mermaid Enhanced Edges", () => {
     });
 
     await workflow(async (step, deps) => {
-      await step(() => deps.alwaysFails(), {
-        key: "failing-step",
-        name: "Failing Operation",
-      });
+      await step(
+        "Failing Operation",
+        () => deps.alwaysFails(),
+        { key: "failing-step" }
+      );
     });
 
     const diagram = collector.visualizeAs("mermaid");
@@ -275,11 +281,11 @@ describe("Mermaid Enhanced Edges", () => {
     });
 
     await workflow(async (step, deps) => {
-      await step(() => deps.slowOperation(), {
-        key: "slow-step",
-        name: "Slow Operation",
-        timeout: { ms: 50 },
-      });
+      await step(
+        "Slow Operation",
+        () => deps.slowOperation(),
+        { key: "slow-step", timeout: { ms: 50 } }
+      );
     });
 
     const diagram = collector.visualizeAs("mermaid");
@@ -311,11 +317,11 @@ describe("Mermaid Enhanced Edges", () => {
     });
 
     await workflow(async (step, deps) => {
-      await step(() => deps.failingThenSucceed(), {
-        key: "retrying-step",
-        name: "Retrying Operation",
-        retry: { attempts: 3 },
-      });
+      await step(
+        "Retrying Operation",
+        () => deps.failingThenSucceed(),
+        { key: "retrying-step", retry: { attempts: 3 } }
+      );
     });
 
     // Get IR and render with custom options

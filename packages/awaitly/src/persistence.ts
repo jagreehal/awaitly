@@ -1,65 +1,315 @@
 /**
  * awaitly/persistence
  *
- * Pluggable Persistence Adapters for StepCache and ResumeState.
- * Provides adapters for Redis, file system, and in-memory storage,
- * plus helpers for JSON-safe serialization of causes.
+ * Simplified Persistence API for workflow snapshots.
+ * Provides JSON-serializable snapshot format and store adapters.
  */
 
-import type { Result, StepFailureMeta } from "./core";
-import { ok, err } from "./core";
-import type { StepCache, ResumeState, ResumeStateEntry } from "./workflow";
+import type { Result } from "./core";
+import type { StepCache } from "./workflow";
 
 // =============================================================================
-// Serialization Types
+// JSON-Safe Type Enforcement
 // =============================================================================
 
 /**
- * JSON-safe representation of a Result.
+ * Enforce JSON-safety at type level.
+ * Only allows values that can be safely serialized with JSON.stringify.
  */
-export interface SerializedResult {
-  ok: boolean;
-  value?: unknown;
-  error?: unknown;
-  cause?: SerializedCause;
+export type JSONValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JSONValue[]
+  | { [k: string]: JSONValue };
+
+// =============================================================================
+// WorkflowSnapshot Types (Simplified API)
+// =============================================================================
+
+/**
+ * Canonical error wire format - handles both Error instances and thrown non-Errors.
+ * This is the single source of truth for serialized errors in snapshots.
+ */
+export type SerializedCause =
+  | { type: "error"; name: string; message: string; stack?: string; cause?: SerializedCause }
+  | { type: "thrown"; originalType?: string; value?: JSONValue; stringRepresentation: string; truncated?: true };
+
+/**
+ * Single source of truth for step outcome (no error/cause confusion).
+ * Uses discriminated union with `ok` field.
+ */
+export type StepResult =
+  | { ok: true; value: JSONValue }
+  | { ok: false; error: JSONValue; cause: SerializedCause; meta?: { origin: "result" | "throw" } };
+
+/**
+ * JSON-serializable workflow snapshot.
+ * Designed to be passed directly to JSON.stringify without special handling.
+ *
+ * @example
+ * ```typescript
+ * // Persist
+ * localStorage.setItem('wf-123', JSON.stringify(wf.getSnapshot()));
+ *
+ * // Restore (safe pattern - storage can be empty/corrupt)
+ * const raw = localStorage.getItem('wf-123');
+ * const snapshot = raw ? JSON.parse(raw) : null;
+ * createWorkflow(deps, { snapshot });  // null = fresh start
+ * ```
+ */
+export interface WorkflowSnapshot {
+  /** Snapshot format version (literal type - bump when shape changes) */
+  formatVersion: 1;
+  /** Step results keyed by step ID. Uses Object.create(null) internally. */
+  steps: Record<string, StepResult>;
+  /** Execution state metadata */
+  execution: {
+    status: "running" | "completed" | "failed";
+    /** ISO timestamp (UTC toISOString()) */
+    lastUpdated: string;
+    /** ISO timestamp if finished */
+    completedAt?: string;
+    /** For paused workflows */
+    currentStepId?: string;
+  };
+  /** Optional metadata for workflow identification and replay */
+  metadata?: {
+    /** Detect wrong snapshot for wrong workflow */
+    workflowId?: string;
+    /** Optional: detect definition changes (user-supplied, advisory only) */
+    definitionHash?: string;
+    /** Original input for replay */
+    input?: JSONValue;
+    [key: string]: JSONValue | undefined;
+  };
+  /** Warnings for lossy serialization (keeps step results pure) */
+  warnings?: Array<{
+    type: "lossy_value";
+    stepId: string;
+    path: string;
+    reason: "non-json" | "circular" | "encode-failed";
+  }>;
 }
 
 /**
- * JSON-safe representation of a cause value.
- * Handles Error objects and other non-JSON-safe types.
+ * Warning entry for lossy value serialization.
  */
-export interface SerializedCause {
-  type: "error" | "value" | "undefined";
-  errorName?: string;
-  errorMessage?: string;
-  errorStack?: string;
-  value?: unknown;
+export type SnapshotWarning = NonNullable<WorkflowSnapshot["warnings"]>[number];
+
+// =============================================================================
+// Snapshot Validation
+// =============================================================================
+
+/**
+ * Error thrown when snapshot structure is invalid.
+ */
+export class SnapshotFormatError extends Error {
+  constructor(
+    message: string,
+    public readonly errors: string[] = []
+  ) {
+    super(message);
+    this.name = "SnapshotFormatError";
+  }
 }
 
 /**
- * JSON-safe representation of StepFailureMeta.
+ * Error thrown when snapshot doesn't match workflow (unknown steps, workflowId mismatch).
  */
-export interface SerializedMeta {
-  origin: "result" | "throw";
-  resultCause?: SerializedCause;
-  thrown?: SerializedCause;
+export class SnapshotMismatchError extends Error {
+  constructor(
+    message: string,
+    public readonly mismatchType: "unknown_steps" | "workflow_id" | "definition_hash",
+    public readonly details?: {
+      unknownSteps?: string[];
+      snapshotWorkflowId?: string;
+      expectedWorkflowId?: string;
+      snapshotHash?: string;
+      expectedHash?: string;
+    }
+  ) {
+    super(message);
+    this.name = "SnapshotMismatchError";
+  }
 }
 
 /**
- * JSON-safe representation of a ResumeStateEntry.
+ * Error thrown when decode fails during restore.
  */
-export interface SerializedEntry {
-  result: SerializedResult;
-  meta?: SerializedMeta;
+export class SnapshotDecodeError extends Error {
+  constructor(
+    message: string,
+    public readonly stepId: string,
+    public readonly originalError?: unknown
+  ) {
+    super(message);
+    this.name = "SnapshotDecodeError";
+  }
 }
 
 /**
- * JSON-safe representation of ResumeState.
+ * Light check to see if an object looks like a WorkflowSnapshot.
+ * Cheap check for basic structure - use validateSnapshot() for full validation.
+ *
+ * @example
+ * ```typescript
+ * const raw = JSON.parse(localStorage.getItem('wf-123') || 'null');
+ * if (looksLikeWorkflowSnapshot(raw)) {
+ *   createWorkflow(deps, { snapshot: raw });
+ * }
+ * ```
  */
-export interface SerializedState {
-  version: number;
-  entries: Record<string, SerializedEntry>;
-  metadata?: Record<string, unknown>;
+export function looksLikeWorkflowSnapshot(obj: unknown): obj is WorkflowSnapshot {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    "formatVersion" in obj &&
+    (obj as { formatVersion: unknown }).formatVersion === 1 &&
+    "steps" in obj &&
+    typeof (obj as { steps: unknown }).steps === "object" &&
+    (obj as { steps: unknown }).steps !== null &&
+    "execution" in obj &&
+    typeof (obj as { execution: unknown }).execution === "object"
+  );
+}
+
+/**
+ * Full validation with detailed errors.
+ * Returns either a validated snapshot or an array of validation errors.
+ */
+export function validateSnapshot(obj: unknown): { valid: true; snapshot: WorkflowSnapshot } | { valid: false; errors: string[] } {
+  const errors: string[] = [];
+
+  if (typeof obj !== "object" || obj === null) {
+    return { valid: false, errors: ["Snapshot must be an object"] };
+  }
+
+  const snapshot = obj as Record<string, unknown>;
+
+  // Check formatVersion
+  if (!("formatVersion" in snapshot)) {
+    errors.push("Missing required field: formatVersion");
+  } else if (snapshot.formatVersion !== 1) {
+    errors.push(`Invalid formatVersion: expected 1, got ${snapshot.formatVersion}`);
+  }
+
+  // Check steps
+  if (!("steps" in snapshot)) {
+    errors.push("Missing required field: steps");
+  } else if (typeof snapshot.steps !== "object" || snapshot.steps === null) {
+    errors.push("steps must be an object");
+  } else {
+    // Validate each step result
+    const steps = snapshot.steps as Record<string, unknown>;
+    for (const [stepId, stepResult] of Object.entries(steps)) {
+      if (typeof stepResult !== "object" || stepResult === null) {
+        errors.push(`steps["${stepId}"] must be an object`);
+        continue;
+      }
+
+      const step = stepResult as Record<string, unknown>;
+      if (!("ok" in step)) {
+        errors.push(`steps["${stepId}"] missing required field: ok`);
+      } else if (typeof step.ok !== "boolean") {
+        errors.push(`steps["${stepId}"].ok must be a boolean`);
+      } else if (step.ok === false) {
+        if (!("error" in step)) {
+          errors.push(`steps["${stepId}"] is error result but missing error field`);
+        }
+        if (!("cause" in step)) {
+          errors.push(`steps["${stepId}"] is error result but missing cause field`);
+        }
+      }
+    }
+  }
+
+  // Check execution
+  if (!("execution" in snapshot)) {
+    errors.push("Missing required field: execution");
+  } else if (typeof snapshot.execution !== "object" || snapshot.execution === null) {
+    errors.push("execution must be an object");
+  } else {
+    const execution = snapshot.execution as Record<string, unknown>;
+    if (!("status" in execution)) {
+      errors.push("execution missing required field: status");
+    } else if (!["running", "completed", "failed"].includes(execution.status as string)) {
+      errors.push(`execution.status must be one of: running, completed, failed`);
+    }
+    if (!("lastUpdated" in execution)) {
+      errors.push("execution missing required field: lastUpdated");
+    } else if (typeof execution.lastUpdated !== "string") {
+      errors.push("execution.lastUpdated must be a string (ISO timestamp)");
+    }
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
+  return { valid: true, snapshot: obj as WorkflowSnapshot };
+}
+
+/**
+ * Throwing helper for cleaner code.
+ * Validates a snapshot and throws SnapshotFormatError if invalid.
+ *
+ * @throws {SnapshotFormatError} If snapshot is invalid
+ */
+export function assertValidSnapshot(obj: unknown): WorkflowSnapshot {
+  const result = validateSnapshot(obj);
+  if (!result.valid) {
+    throw new SnapshotFormatError(`Invalid snapshot format: ${result.errors[0]}`, result.errors);
+  }
+  return result.snapshot;
+}
+
+// =============================================================================
+// Snapshot Merge Helper
+// =============================================================================
+
+/**
+ * Merge two snapshots (for incremental updates).
+ * Delta steps overwrite base steps; execution from delta; metadata shallow merge.
+ */
+export function mergeSnapshots(base: WorkflowSnapshot, delta: WorkflowSnapshot): WorkflowSnapshot {
+  // Create new steps object using Object.create(null) for prototype safety
+  const mergedSteps = Object.create(null) as Record<string, StepResult>;
+
+  // Copy base steps (use Object.prototype.hasOwnProperty for ES2020 compat)
+  for (const [key, value] of Object.entries(base.steps)) {
+    if (Object.prototype.hasOwnProperty.call(base.steps, key)) {
+      mergedSteps[key] = value;
+    }
+  }
+
+  // Overlay delta steps
+  for (const [key, value] of Object.entries(delta.steps)) {
+    if (Object.prototype.hasOwnProperty.call(delta.steps, key)) {
+      mergedSteps[key] = value;
+    }
+  }
+
+  // Merge metadata (delta wins for conflicts)
+  const mergedMetadata = base.metadata || delta.metadata
+    ? { ...base.metadata, ...delta.metadata }
+    : undefined;
+
+  // Merge warnings: only keep base warnings for steps not re-executed in delta.
+  // If a step was re-executed and serialized cleanly, its old warning should disappear.
+  const baseWarnings = (base.warnings || []).filter(
+    (w) => !Object.prototype.hasOwnProperty.call(delta.steps, w.stepId)
+  );
+  const mergedWarnings = [...baseWarnings, ...(delta.warnings || [])];
+
+  return {
+    formatVersion: 1,
+    steps: mergedSteps,
+    execution: { ...delta.execution },
+    metadata: mergedMetadata,
+    warnings: mergedWarnings.length > 0 ? mergedWarnings : undefined,
+  };
 }
 
 // =============================================================================
@@ -67,181 +317,154 @@ export interface SerializedState {
 // =============================================================================
 
 /**
- * Serialize a cause value to a JSON-safe format.
+ * Maximum length for string representation in thrown non-Error values.
  */
-export function serializeCause(cause: unknown): SerializedCause {
-  if (cause === undefined) {
-    return { type: "undefined" };
+const MAX_STRING_REPRESENTATION_LENGTH = 1000;
+
+/**
+ * Serialize an Error object to SerializedCause format.
+ * Preserves Error.cause recursively.
+ */
+export function serializeError(error: Error): SerializedCause {
+  const serialized: SerializedCause = {
+    type: "error",
+    name: error.name,
+    message: error.message,
+  };
+
+  if (error.stack) {
+    serialized.stack = error.stack;
   }
 
-  if (cause instanceof Error) {
-    return {
-      type: "error",
-      errorName: cause.name,
-      errorMessage: cause.message,
-      errorStack: cause.stack,
-    };
+  // Recursively serialize Error.cause if present (ES2022 feature, but commonly available)
+  const errorWithCause = error as Error & { cause?: unknown };
+  if (errorWithCause.cause !== undefined) {
+    if (errorWithCause.cause instanceof Error) {
+      serialized.cause = serializeError(errorWithCause.cause);
+    } else {
+      // cause is not an Error, serialize as thrown value
+      serialized.cause = serializeThrown(errorWithCause.cause);
+    }
   }
 
-  // Try to serialize as JSON
-  try {
-    // Test if it's JSON-serializable
-    JSON.stringify(cause);
-    return { type: "value", value: cause };
-  } catch {
-    // Fall back to string representation
-    return { type: "value", value: String(cause) };
-  }
+  return serialized;
 }
 
 /**
- * Deserialize a cause value from JSON-safe format.
+ * Serialize a non-Error thrown value to SerializedCause format.
  */
-export function deserializeCause(serialized: SerializedCause): unknown {
-  if (serialized.type === "undefined") {
-    return undefined;
+export function serializeThrown(value: unknown): SerializedCause {
+  // Get string representation
+  let stringRepresentation: string;
+  let truncated = false;
+
+  try {
+    stringRepresentation = String(value);
+    if (stringRepresentation.length > MAX_STRING_REPRESENTATION_LENGTH) {
+      stringRepresentation = stringRepresentation.slice(0, MAX_STRING_REPRESENTATION_LENGTH);
+      truncated = true;
+    }
+  } catch {
+    stringRepresentation = "[unable to convert to string]";
   }
 
+  // Try to get the original type
+  const originalType = value === null
+    ? "null"
+    : typeof value === "object"
+      ? (value.constructor?.name ?? "Object")
+      : typeof value;
+
+  // Try to serialize the value as JSON
+  let jsonValue: JSONValue | undefined;
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized !== undefined) {
+      jsonValue = JSON.parse(serialized) as JSONValue;
+    }
+  } catch {
+    // Non-JSON-serializable, will only use stringRepresentation
+  }
+
+  const result: SerializedCause = {
+    type: "thrown",
+    originalType,
+    stringRepresentation,
+  };
+
+  if (jsonValue !== undefined) {
+    result.value = jsonValue;
+  }
+
+  if (truncated) {
+    result.truncated = true;
+  }
+
+  return result;
+}
+
+/**
+ * Deserialize a SerializedCause back to its original form.
+ */
+export function deserializeCauseNew(serialized: SerializedCause): unknown {
   if (serialized.type === "error") {
-    const error = new Error(serialized.errorMessage ?? "Unknown error");
-    error.name = serialized.errorName ?? "Error";
-    if (serialized.errorStack) {
-      error.stack = serialized.errorStack;
+    const error = new Error(serialized.message);
+    error.name = serialized.name;
+    if (serialized.stack) {
+      error.stack = serialized.stack;
+    }
+    if (serialized.cause) {
+      (error as Error & { cause: unknown }).cause = deserializeCauseNew(serialized.cause);
     }
     return error;
   }
 
-  return serialized.value;
-}
-
-/**
- * Serialize a Result to a JSON-safe format.
- */
-export function serializeResult(result: Result<unknown, unknown, unknown>): SerializedResult {
-  if (result.ok) {
-    return { ok: true, value: result.value };
-  }
-
-  return {
-    ok: false,
-    error: result.error,
-    cause: result.cause !== undefined ? serializeCause(result.cause) : undefined,
-  };
-}
-
-/**
- * Deserialize a Result from JSON-safe format.
- */
-export function deserializeResult(serialized: SerializedResult): Result<unknown, unknown, unknown> {
-  if (serialized.ok) {
-    return ok(serialized.value);
-  }
-
-  const cause = serialized.cause ? deserializeCause(serialized.cause) : undefined;
-  return err(serialized.error, cause !== undefined ? { cause } : undefined);
-}
-
-/**
- * Serialize StepFailureMeta to a JSON-safe format.
- */
-export function serializeMeta(meta: StepFailureMeta): SerializedMeta {
-  if (meta.origin === "result") {
-    return {
-      origin: "result",
-      resultCause: meta.resultCause !== undefined ? serializeCause(meta.resultCause) : undefined,
-    };
-  }
-
-  return {
-    origin: "throw",
-    thrown: serializeCause(meta.thrown),
-  };
-}
-
-/**
- * Deserialize StepFailureMeta from JSON-safe format.
- */
-export function deserializeMeta(serialized: SerializedMeta): StepFailureMeta {
-  if (serialized.origin === "result") {
-    return {
-      origin: "result",
-      resultCause: serialized.resultCause ? deserializeCause(serialized.resultCause) : undefined,
-    };
-  }
-
-  return {
-    origin: "throw",
-    thrown: serialized.thrown ? deserializeCause(serialized.thrown) : undefined,
-  };
-}
-
-/**
- * Serialize a ResumeStateEntry to a JSON-safe format.
- */
-export function serializeEntry(entry: ResumeStateEntry): SerializedEntry {
-  return {
-    result: serializeResult(entry.result),
-    meta: entry.meta ? serializeMeta(entry.meta) : undefined,
-  };
-}
-
-/**
- * Deserialize a ResumeStateEntry from JSON-safe format.
- */
-export function deserializeEntry(serialized: SerializedEntry): ResumeStateEntry {
-  return {
-    result: deserializeResult(serialized.result),
-    meta: serialized.meta ? deserializeMeta(serialized.meta) : undefined,
-  };
-}
-
-/**
- * Serialize ResumeState to a JSON-safe format.
- */
-export function serializeState(state: ResumeState, metadata?: Record<string, unknown>): SerializedState {
-  const entries: Record<string, SerializedEntry> = {};
-
-  for (const [key, entry] of state.steps) {
-    entries[key] = serializeEntry(entry);
-  }
-
-  return {
-    version: 1,
-    entries,
-    metadata,
-  };
-}
-
-/**
- * Deserialize ResumeState from JSON-safe format.
- */
-export function deserializeState(serialized: SerializedState): ResumeState {
-  const steps = new Map<string, ResumeStateEntry>();
-
-  for (const [key, entry] of Object.entries(serialized.entries)) {
-    steps.set(key, deserializeEntry(entry));
-  }
-
-  return { steps };
-}
-
-/**
- * Convert ResumeState to a JSON string.
- */
-export function stringifyState(state: ResumeState, metadata?: Record<string, unknown>): string {
-  return JSON.stringify(serializeState(state, metadata));
-}
-
-/**
- * Parse ResumeState from a JSON string.
- */
-export function parseState(json: string): ResumeState {
-  const serialized = JSON.parse(json) as SerializedState;
-  return deserializeState(serialized);
+  // type === "thrown"
+  // Return the JSON value if available, otherwise the string representation
+  return serialized.value !== undefined ? serialized.value : serialized.stringRepresentation;
 }
 
 // =============================================================================
-// In-Memory Adapter
+// SnapshotStore Interface (New Simplified API)
+// =============================================================================
+
+/**
+ * Simplified store interface for workflow snapshot persistence.
+ * Works directly with WorkflowSnapshot objects.
+ *
+ * @example
+ * ```typescript
+ * import { postgres } from 'awaitly-postgres';
+ *
+ * // One-liner setup
+ * const store = postgres('postgresql://localhost/mydb');
+ *
+ * // Execute + persist
+ * const wf = createWorkflow(deps);
+ * await wf(myWorkflowFn);
+ * await store.save('wf-123', wf.getSnapshot());
+ *
+ * // Restore
+ * const snapshot = await store.load('wf-123');
+ * const wf2 = createWorkflow(deps, { snapshot });
+ * await wf2(myWorkflowFn);
+ * ```
+ */
+export interface SnapshotStore {
+  /** Save a workflow snapshot (upsert - insert or update). */
+  save(id: string, snapshot: WorkflowSnapshot): Promise<void>;
+  /** Load a workflow snapshot. Returns null if not found. */
+  load(id: string): Promise<WorkflowSnapshot | null>;
+  /** Delete a workflow snapshot. */
+  delete(id: string): Promise<void>;
+  /** List workflow IDs with their last update time. */
+  list(options?: { prefix?: string; limit?: number }): Promise<Array<{ id: string; updatedAt: string }>>;
+  /** Clean shutdown for tests/graceful exit. */
+  close(): Promise<void>;
+}
+
+// =============================================================================
+// In-Memory Cache Adapter
 // =============================================================================
 
 /**
@@ -349,715 +572,6 @@ export function createMemoryCache(options: MemoryCacheOptions = {}): StepCache {
 
     clear(): void {
       cache.clear();
-    },
-  };
-}
-
-// =============================================================================
-// File System Adapter
-// =============================================================================
-
-/**
- * Options for the file system cache adapter.
- */
-export interface FileCacheOptions {
-  /**
-   * Directory to store cache files.
-   */
-  directory: string;
-
-  /**
-   * File extension for cache files.
-   * @default '.json'
-   */
-  extension?: string;
-
-  /**
-   * Custom file system interface (for testing or custom implementations).
-   */
-  fs?: FileSystemInterface;
-}
-
-/**
- * Minimal file system interface for cache operations.
- */
-export interface FileSystemInterface {
-  readFile(path: string): Promise<string>;
-  writeFile(path: string, data: string): Promise<void>;
-  unlink(path: string): Promise<void>;
-  exists(path: string): Promise<boolean>;
-  readdir(path: string): Promise<string[]>;
-  mkdir(path: string, options?: { recursive?: boolean }): Promise<void>;
-}
-
-/**
- * Create a file system-based StepCache.
- * Each step result is stored as a separate JSON file.
- *
- * @param options - Cache options
- * @returns StepCache implementation (async operations wrapped in sync interface)
- *
- * @example
- * ```typescript
- * import * as fs from 'fs/promises';
- *
- * const cache = createFileCache({
- *   directory: './workflow-cache',
- *   fs: {
- *     readFile: (path) => fs.readFile(path, 'utf-8'),
- *     writeFile: (path, data) => fs.writeFile(path, data, 'utf-8'),
- *     unlink: fs.unlink,
- *     exists: async (path) => fs.access(path).then(() => true).catch(() => false),
- *     readdir: fs.readdir,
- *     mkdir: fs.mkdir,
- *   },
- * });
- * ```
- */
-export function createFileCache(options: FileCacheOptions): StepCache & {
-  /** Initialize the cache directory. Call before using the cache. */
-  init(): Promise<void>;
-  /** Get a result asynchronously. */
-  getAsync(key: string): Promise<Result<unknown, unknown, unknown> | undefined>;
-  /** Set a result asynchronously. */
-  setAsync(key: string, result: Result<unknown, unknown, unknown>): Promise<void>;
-  /** Delete a result asynchronously. */
-  deleteAsync(key: string): Promise<boolean>;
-  /** Clear all results asynchronously. */
-  clearAsync(): Promise<void>;
-} {
-  const { directory, extension = ".json", fs } = options;
-
-  if (!fs) {
-    throw new Error("File system interface is required. Pass fs option with readFile, writeFile, etc.");
-  }
-
-  const keyToPath = (key: string): string => {
-    // Sanitize key for file system
-    const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, "_");
-    return `${directory}/${safeKey}${extension}`;
-  };
-
-  // In-memory fallback for sync operations
-  const memoryCache = new Map<string, Result<unknown, unknown, unknown>>();
-
-  return {
-    async init(): Promise<void> {
-      await fs.mkdir(directory, { recursive: true });
-    },
-
-    get(key: string): Result<unknown, unknown, unknown> | undefined {
-      // Sync operation uses memory cache
-      return memoryCache.get(key);
-    },
-
-    async getAsync(key: string): Promise<Result<unknown, unknown, unknown> | undefined> {
-      const path = keyToPath(key);
-      try {
-        if (!(await fs.exists(path))) return undefined;
-        const data = await fs.readFile(path);
-        const serialized = JSON.parse(data) as SerializedResult;
-        const result = deserializeResult(serialized);
-        memoryCache.set(key, result);
-        return result;
-      } catch {
-        return undefined;
-      }
-    },
-
-    set(key: string, result: Result<unknown, unknown, unknown>): void {
-      // Sync operation updates memory cache
-      memoryCache.set(key, result);
-    },
-
-    async setAsync(key: string, result: Result<unknown, unknown, unknown>): Promise<void> {
-      const path = keyToPath(key);
-      const serialized = serializeResult(result);
-      await fs.writeFile(path, JSON.stringify(serialized, null, 2));
-      memoryCache.set(key, result);
-    },
-
-    has(key: string): boolean {
-      return memoryCache.has(key);
-    },
-
-    delete(key: string): boolean {
-      return memoryCache.delete(key);
-    },
-
-    async deleteAsync(key: string): Promise<boolean> {
-      const path = keyToPath(key);
-      try {
-        await fs.unlink(path);
-        memoryCache.delete(key);
-        return true;
-      } catch {
-        return false;
-      }
-    },
-
-    clear(): void {
-      memoryCache.clear();
-    },
-
-    async clearAsync(): Promise<void> {
-      try {
-        const files = await fs.readdir(directory);
-        for (const file of files) {
-          if (file.endsWith(extension)) {
-            await fs.unlink(`${directory}/${file}`);
-          }
-        }
-        memoryCache.clear();
-      } catch {
-        // Directory may not exist
-      }
-    },
-  };
-}
-
-// =============================================================================
-// Key-Value Store Adapter
-// =============================================================================
-
-/**
- * Generic key-value store interface.
- * Implement this for Redis, DynamoDB, etc.
- */
-export interface KeyValueStore {
-  get(key: string): Promise<string | null>;
-  set(key: string, value: string, options?: { ttl?: number }): Promise<void>;
-  delete(key: string): Promise<boolean>;
-  exists(key: string): Promise<boolean>;
-  keys(pattern: string): Promise<string[]>;
-}
-
-/**
- * Options for key-value store cache adapter.
- */
-export interface KVCacheOptions {
-  /**
-   * Key-value store implementation.
-   */
-  store: KeyValueStore;
-
-  /**
-   * Key prefix for all cache entries.
-   * @default 'workflow:'
-   */
-  prefix?: string;
-
-  /**
-   * Time-to-live in seconds for cache entries.
-   */
-  ttl?: number;
-}
-
-/**
- * Create a StepCache backed by a key-value store (Redis, DynamoDB, etc.).
- *
- * @param options - Cache options
- * @returns StepCache implementation with async methods
- *
- * @example
- * ```typescript
- * // With Redis
- * import { createClient } from 'redis';
- *
- * const redis = createClient();
- * await redis.connect();
- *
- * const cache = createKVCache({
- *   store: {
- *     get: (key) => redis.get(key),
- *     set: (key, value, opts) => redis.set(key, value, { EX: opts?.ttl }),
- *     delete: (key) => redis.del(key).then(n => n > 0),
- *     exists: (key) => redis.exists(key).then(n => n > 0),
- *     keys: (pattern) => redis.keys(pattern),
- *   },
- *   prefix: 'myapp:workflow:',
- *   ttl: 3600, // 1 hour
- * });
- * ```
- */
-export function createKVCache(options: KVCacheOptions): StepCache & {
-  /** Get a result asynchronously. */
-  getAsync(key: string): Promise<Result<unknown, unknown, unknown> | undefined>;
-  /** Set a result asynchronously. */
-  setAsync(key: string, result: Result<unknown, unknown, unknown>): Promise<void>;
-  /** Check if key exists asynchronously. */
-  hasAsync(key: string): Promise<boolean>;
-  /** Delete a result asynchronously. */
-  deleteAsync(key: string): Promise<boolean>;
-  /** Clear all results asynchronously. */
-  clearAsync(): Promise<void>;
-} {
-  const { store, prefix = "workflow:", ttl } = options;
-
-  const prefixKey = (key: string): string => `${prefix}${key}`;
-
-  // In-memory fallback for sync operations
-  const memoryCache = new Map<string, Result<unknown, unknown, unknown>>();
-
-  return {
-    get(key: string): Result<unknown, unknown, unknown> | undefined {
-      return memoryCache.get(key);
-    },
-
-    async getAsync(key: string): Promise<Result<unknown, unknown, unknown> | undefined> {
-      const data = await store.get(prefixKey(key));
-      if (!data) return undefined;
-
-      try {
-        const serialized = JSON.parse(data) as SerializedResult;
-        const result = deserializeResult(serialized);
-        memoryCache.set(key, result);
-        return result;
-      } catch {
-        return undefined;
-      }
-    },
-
-    set(key: string, result: Result<unknown, unknown, unknown>): void {
-      memoryCache.set(key, result);
-    },
-
-    async setAsync(key: string, result: Result<unknown, unknown, unknown>): Promise<void> {
-      const serialized = serializeResult(result);
-      await store.set(prefixKey(key), JSON.stringify(serialized), ttl ? { ttl } : undefined);
-      memoryCache.set(key, result);
-    },
-
-    has(key: string): boolean {
-      return memoryCache.has(key);
-    },
-
-    async hasAsync(key: string): Promise<boolean> {
-      return store.exists(prefixKey(key));
-    },
-
-    delete(key: string): boolean {
-      return memoryCache.delete(key);
-    },
-
-    async deleteAsync(key: string): Promise<boolean> {
-      memoryCache.delete(key);
-      return store.delete(prefixKey(key));
-    },
-
-    clear(): void {
-      memoryCache.clear();
-    },
-
-    async clearAsync(): Promise<void> {
-      const keys = await store.keys(`${prefix}*`);
-      for (const key of keys) {
-        await store.delete(key);
-      }
-      memoryCache.clear();
-    },
-  };
-}
-
-// =============================================================================
-// List page types (pagination, filtering, ordering)
-// =============================================================================
-
-/**
- * Options for paginated list of workflow IDs.
- * Used by adapters that support listPage (Postgres, Mongo, LibSQL).
- */
-export interface ListPageOptions {
-  /** Max number of IDs to return. @default 100 */
-  limit?: number;
-  /** Number of IDs to skip. @default 0 */
-  offset?: number;
-  /** Sort by key or updatedAt. @default 'updatedAt' */
-  orderBy?: "key" | "updatedAt";
-  /** Sort direction. @default 'desc' */
-  orderDir?: "asc" | "desc";
-  /** Only include IDs updated before this time. */
-  updatedBefore?: Date;
-  /** Only include IDs updated after this time. */
-  updatedAfter?: Date;
-  /** Include total count (extra query when true or when offset > 0). */
-  includeTotal?: boolean;
-}
-
-/**
- * Result of a paginated list of workflow IDs.
- */
-export interface ListPageResult {
-  /** Workflow IDs in the requested order. */
-  ids: string[];
-  /** Total count (only set when includeTotal or offset > 0 and store supports it). */
-  total?: number;
-  /** Next offset if there are more results (offset + ids.length when ids.length === limit). */
-  nextOffset?: number;
-}
-
-// =============================================================================
-// State Persistence
-// =============================================================================
-
-/**
- * Interface for persisting workflow state.
- */
-export interface StatePersistence {
-  /**
-   * Save workflow state.
-   */
-  save(runId: string, state: ResumeState, metadata?: Record<string, unknown>): Promise<void>;
-
-  /**
-   * Load workflow state.
-   */
-  load(runId: string): Promise<ResumeState | undefined>;
-
-  /**
-   * Delete workflow state.
-   */
-  delete(runId: string): Promise<boolean>;
-
-  /**
-   * List all saved workflow IDs.
-   */
-  list(): Promise<string[]>;
-}
-
-/**
- * Create a state persistence adapter using a key-value store.
- *
- * @param store - Key-value store implementation
- * @param prefix - Key prefix for state entries
- * @returns StatePersistence implementation
- */
-export function createStatePersistence(
-  store: KeyValueStore,
-  prefix = "workflow:state:"
-): StatePersistence & {
-  /** Load raw serialized state including metadata (for version checking) */
-  loadRaw(runId: string): Promise<SerializedState | undefined>;
-} {
-  const prefixKey = (runId: string): string => `${prefix}${runId}`;
-
-  return {
-    async save(runId: string, state: ResumeState, metadata?: Record<string, unknown>): Promise<void> {
-      const serialized = serializeState(state, metadata);
-      await store.set(prefixKey(runId), JSON.stringify(serialized));
-    },
-
-    async load(runId: string): Promise<ResumeState | undefined> {
-      const data = await store.get(prefixKey(runId));
-      if (!data) return undefined;
-
-      try {
-        const serialized = JSON.parse(data) as SerializedState;
-        return deserializeState(serialized);
-      } catch {
-        return undefined;
-      }
-    },
-
-    async loadRaw(runId: string): Promise<SerializedState | undefined> {
-      const data = await store.get(prefixKey(runId));
-      if (!data) return undefined;
-
-      try {
-        return JSON.parse(data) as SerializedState;
-      } catch {
-        return undefined;
-      }
-    },
-
-    async delete(runId: string): Promise<boolean> {
-      return store.delete(prefixKey(runId));
-    },
-
-    async list(): Promise<string[]> {
-      const keys = await store.keys(`${prefix}*`);
-      return keys.map((key) => key.slice(prefix.length));
-    },
-  };
-}
-
-// =============================================================================
-// Memory State Persistence
-// =============================================================================
-
-/**
- * Options for the in-memory state persistence adapter.
- */
-export interface MemoryStatePersistenceOptions {
-  /**
-   * Time-to-live in milliseconds.
-   * State entries are automatically removed after this duration.
-   */
-  ttl?: number;
-}
-
-/**
- * Create an in-memory StatePersistence for testing and development.
- *
- * @param options - Persistence options
- * @returns StatePersistence implementation
- *
- * @example
- * ```typescript
- * import { createMemoryStatePersistence } from 'awaitly/persistence';
- *
- * const store = createMemoryStatePersistence();
- *
- * // Use with durable.run()
- * const result = await durable.run(deps, workflow, {
- *   id: 'order-123',
- *   store,
- * });
- * ```
- */
-export function createMemoryStatePersistence(
-  options: MemoryStatePersistenceOptions = {}
-): StatePersistence & {
-  /** Load raw serialized state including metadata (for version checking) */
-  loadRaw(runId: string): Promise<SerializedState | undefined>;
-} {
-  const { ttl } = options;
-  const store = new Map<string, { state: ResumeState; metadata?: Record<string, unknown>; timestamp: number }>();
-
-  const isExpired = (timestamp: number): boolean => {
-    if (!ttl) return false;
-    return Date.now() - timestamp > ttl;
-  };
-
-  const evictExpired = (): void => {
-    if (!ttl) return;
-    for (const [key, entry] of store) {
-      if (isExpired(entry.timestamp)) {
-        store.delete(key);
-      }
-    }
-  };
-
-  return {
-    async save(runId: string, state: ResumeState, metadata?: Record<string, unknown>): Promise<void> {
-      evictExpired();
-      store.set(runId, { state, metadata, timestamp: Date.now() });
-    },
-
-    async load(runId: string): Promise<ResumeState | undefined> {
-      evictExpired();
-      const entry = store.get(runId);
-      if (!entry) return undefined;
-      if (isExpired(entry.timestamp)) {
-        store.delete(runId);
-        return undefined;
-      }
-      return entry.state;
-    },
-
-    async loadRaw(runId: string): Promise<SerializedState | undefined> {
-      evictExpired();
-      const entry = store.get(runId);
-      if (!entry) return undefined;
-      if (isExpired(entry.timestamp)) {
-        store.delete(runId);
-        return undefined;
-      }
-      return serializeState(entry.state, entry.metadata);
-    },
-
-    async delete(runId: string): Promise<boolean> {
-      return store.delete(runId);
-    },
-
-    async list(): Promise<string[]> {
-      evictExpired();
-      return [...store.keys()];
-    },
-  };
-}
-
-// =============================================================================
-// File State Persistence
-// =============================================================================
-
-/**
- * Options for the file-based state persistence adapter.
- */
-export interface FileStatePersistenceOptions {
-  /**
-   * Directory to store state files.
-   */
-  directory: string;
-
-  /**
-   * File extension for state files.
-   * @default '.json'
-   */
-  extension?: string;
-
-  /**
-   * Custom file system interface (for testing or custom implementations).
-   */
-  fs: FileSystemInterface;
-}
-
-/**
- * Create a file system-based StatePersistence for local development.
- * Each workflow's state is stored as a separate JSON file.
- *
- * @param options - Persistence options
- * @returns StatePersistence implementation with init() method
- *
- * @example
- * ```typescript
- * import * as fs from 'fs/promises';
- * import { createFileStatePersistence } from 'awaitly/persistence';
- *
- * const store = createFileStatePersistence({
- *   directory: './workflow-state',
- *   fs: {
- *     readFile: (path) => fs.readFile(path, 'utf-8'),
- *     writeFile: (path, data) => fs.writeFile(path, data, 'utf-8'),
- *     unlink: fs.unlink,
- *     exists: async (path) => fs.access(path).then(() => true).catch(() => false),
- *     readdir: fs.readdir,
- *     mkdir: fs.mkdir,
- *   },
- * });
- *
- * // Initialize directory before use
- * await store.init();
- *
- * // Use with durable.run()
- * const result = await durable.run(deps, workflow, {
- *   id: 'order-123',
- *   store,
- * });
- * ```
- */
-export function createFileStatePersistence(
-  options: FileStatePersistenceOptions
-): StatePersistence & {
-  /** Initialize the state directory. Call before using the persistence. */
-  init(): Promise<void>;
-  /** Load raw serialized state including metadata (for version checking) */
-  loadRaw(runId: string): Promise<SerializedState | undefined>;
-} {
-  const { directory, extension = ".json", fs } = options;
-
-  const runIdToPath = (runId: string): string => {
-    // Sanitize runId for file system
-    const safeId = runId.replace(/[^a-zA-Z0-9_-]/g, "_");
-    return `${directory}/${safeId}${extension}`;
-  };
-
-  return {
-    async init(): Promise<void> {
-      await fs.mkdir(directory, { recursive: true });
-    },
-
-    async save(runId: string, state: ResumeState, metadata?: Record<string, unknown>): Promise<void> {
-      const path = runIdToPath(runId);
-      const serialized = serializeState(state, metadata);
-      await fs.writeFile(path, JSON.stringify(serialized, null, 2));
-    },
-
-    async load(runId: string): Promise<ResumeState | undefined> {
-      const path = runIdToPath(runId);
-      try {
-        if (!(await fs.exists(path))) return undefined;
-        const data = await fs.readFile(path);
-        const serialized = JSON.parse(data) as SerializedState;
-        return deserializeState(serialized);
-      } catch {
-        return undefined;
-      }
-    },
-
-    async loadRaw(runId: string): Promise<SerializedState | undefined> {
-      const path = runIdToPath(runId);
-      try {
-        if (!(await fs.exists(path))) return undefined;
-        const data = await fs.readFile(path);
-        return JSON.parse(data) as SerializedState;
-      } catch {
-        return undefined;
-      }
-    },
-
-    async delete(runId: string): Promise<boolean> {
-      const path = runIdToPath(runId);
-      try {
-        await fs.unlink(path);
-        return true;
-      } catch {
-        return false;
-      }
-    },
-
-    async list(): Promise<string[]> {
-      try {
-        const files = await fs.readdir(directory);
-        return files
-          .filter((file) => file.endsWith(extension))
-          .map((file) => file.slice(0, -extension.length));
-      } catch {
-        return [];
-      }
-    },
-  };
-}
-
-// =============================================================================
-// Cache Wrapper with Async Hydration
-// =============================================================================
-
-/**
- * Create a cache that hydrates from persistent storage on first access.
- *
- * @param memoryCache - In-memory cache for fast access
- * @param persistence - Persistent storage for durability
- * @returns Hydrating cache implementation
- */
-export function createHydratingCache(
-  memoryCache: StepCache,
-  persistence: StatePersistence,
-  runId: string
-): StepCache & { hydrate(): Promise<void> } {
-  let hydrated = false;
-
-  return {
-    async hydrate(): Promise<void> {
-      if (hydrated) return;
-
-      const state = await persistence.load(runId);
-      if (state) {
-        for (const [key, entry] of state.steps) {
-          memoryCache.set(key, entry.result);
-        }
-      }
-      hydrated = true;
-    },
-
-    get(key: string): Result<unknown, unknown, unknown> | undefined {
-      return memoryCache.get(key);
-    },
-
-    set(key: string, result: Result<unknown, unknown, unknown>): void {
-      memoryCache.set(key, result);
-    },
-
-    has(key: string): boolean {
-      return memoryCache.has(key);
-    },
-
-    delete(key: string): boolean {
-      return memoryCache.delete(key);
-    },
-
-    clear(): void {
-      memoryCache.clear();
     },
   };
 }

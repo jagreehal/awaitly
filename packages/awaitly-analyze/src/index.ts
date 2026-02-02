@@ -102,6 +102,84 @@ export type {
 } from "./path-generator";
 
 // =============================================================================
+// Strict Mode Diagnostics
+// =============================================================================
+
+export {
+  validateStrict,
+  formatDiagnostics,
+  formatDiagnosticsJSON,
+  getSummary,
+} from "./strict-diagnostics";
+export type {
+  StrictDiagnostic,
+  StrictRule,
+  StrictValidationResult,
+  StrictValidationOptions,
+} from "./strict-diagnostics";
+
+// =============================================================================
+// Const Inliner
+// =============================================================================
+
+export {
+  createConstCache,
+  resolveConst,
+  resolveNode,
+  constValueToJS,
+  extractStringArray,
+  extractString,
+} from "./const-inliner";
+export type {
+  ConstResolution,
+  ConstValue,
+  ConstCache,
+} from "./const-inliner";
+
+// =============================================================================
+// Data Flow Analysis
+// =============================================================================
+
+export {
+  buildDataFlowGraph,
+  getDataFlowOrder,
+  getProducers,
+  getConsumers,
+  getTransitiveDependencies,
+  findCycles,
+  validateDataFlow,
+  renderDataFlowMermaid,
+} from "./data-flow";
+export type {
+  DataFlowGraph,
+  DataFlowNode,
+  DataFlowEdge,
+  UndefinedRead,
+  DuplicateWrite,
+  DataFlowValidation,
+  DataFlowIssue,
+} from "./data-flow";
+
+// =============================================================================
+// Error Flow Analysis
+// =============================================================================
+
+export {
+  analyzeErrorFlow,
+  getErrorsAtPoint,
+  getErrorProducers,
+  validateWorkflowErrors,
+  renderErrorFlowMermaid,
+  formatErrorSummary,
+} from "./error-flow";
+export type {
+  ErrorFlowAnalysis,
+  StepErrorInfo,
+  ErrorFlowEdge,
+  ErrorValidation,
+} from "./error-flow";
+
+// =============================================================================
 // Complexity Metrics
 // =============================================================================
 
@@ -124,10 +202,12 @@ export type {
 export {
   renderStaticMermaid,
   renderPathsMermaid,
+  renderEnhancedMermaid,
 } from "./output/mermaid";
 export type {
   MermaidOptions,
   MermaidStyles,
+  EnhancedMermaidOptions,
 } from "./output/mermaid";
 
 // Test coverage matrix
@@ -145,6 +225,10 @@ export {
   renderMultipleStaticJSON,
 } from "./output/json";
 export type { JSONRenderOptions } from "./output/json";
+
+// Documentation generator
+export { generateDocs } from "./output/docs";
+export type { DocsOptions } from "./output/docs";
 
 // =============================================================================
 // Types

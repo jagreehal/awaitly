@@ -12,14 +12,15 @@
  * Output: one markdown section per workflow (title, description, markdown, step list).
  */
 
+import { analyze, getStaticChildren, isStaticStepNode } from '../dist/index.js';
+
 const filePath = process.argv[2];
 if (!filePath) {
   console.error('Usage: node generate-workflow-docs.mjs <workflow-file.ts>');
   process.exit(1);
 }
 
-async function main() {
-  const { analyze, getStaticChildren, isStaticStepNode } = await import('../dist/index.js');
+function main() {
   const result = analyze(filePath);
 
   let irs;
@@ -60,7 +61,9 @@ async function main() {
   }
 }
 
-main().catch((err) => {
+try {
+  main();
+} catch (err) {
   console.error(err);
   process.exit(1);
-});
+}

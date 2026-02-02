@@ -303,11 +303,23 @@ const rule: Rule.RuleModule = {
         if (!isStepCall(node)) return;
         if (!hasKeyOption(node)) return;
 
-        const firstArg = node.arguments[0];
-        if (!firstArg) return;
+        // Determine which argument is the executor based on API pattern
+        // New API: step('name', executor, options) - first arg is string literal
+        // Old API: step(executor, options) - first arg is the executor
+        let executorArg = node.arguments[0];
+        if (!executorArg) return;
 
-        // If first argument is already a thunk (arrow/function expression), it's fine
-        if (isThunk(firstArg)) return;
+        // If first argument is a string literal, the executor is the second argument
+        if (executorArg.type === 'Literal' && typeof (executorArg as { value: unknown }).value === 'string') {
+          executorArg = node.arguments[1];
+          if (!executorArg) return;
+        }
+
+        // If executor is already a thunk (arrow/function expression), it's fine
+        if (isThunk(executorArg)) return;
+
+        // Use executorArg instead of firstArg for all subsequent checks
+        const firstArg = executorArg;
 
         // If first argument is a CallExpression, it's an immediate call (bad)
         if (firstArg.type === 'CallExpression') {
