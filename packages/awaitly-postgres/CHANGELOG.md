@@ -1,5 +1,16 @@
 # awaitly-postgres
 
+## 4.0.0
+
+### Minor Changes
+
+- f5957ad: Persistence DX: improved snapshot store APIs, Postgres/Mongo/LibSQL adapter consistency, and updated persistence docs and API reference.
+
+### Patch Changes
+
+- Updated dependencies [f5957ad]
+  - awaitly@1.14.0
+
 ## 3.0.1
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # awaitly-analyze
 
+## 0.5.0
+
+### Minor Changes
+
+- f5957ad: Persistence DX: improved snapshot store APIs, Postgres/Mongo/LibSQL adapter consistency, and updated persistence docs and API reference.
+
 ## 0.4.0
 
 ### Minor Changes
