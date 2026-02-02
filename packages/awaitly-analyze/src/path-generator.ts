@@ -176,6 +176,9 @@ function generatePathsForNode(
     case "conditional":
       return handleConditionalNode(node, currentState, context);
 
+    case "decision":
+      return handleDecisionNode(node, currentState, context);
+
     case "switch":
       return handleSwitchNode(node, currentState, context);
 
@@ -363,6 +366,73 @@ function handleConditionalNode(
   const falseCondition: PathCondition = {
     expression: node.condition,
     mustBe: node.helper === "unless" || node.helper === "unlessOr" ? true : false,
+    location: node.location,
+  };
+
+  const falseState: PathState = {
+    ...currentState,
+    conditions: [...currentState.conditions, falseCondition],
+  };
+
+  if (node.alternate && node.alternate.length > 0) {
+    const alternateStates = generatePathsForNodes(
+      node.alternate,
+      falseState,
+      context
+    );
+    allStates.push(...alternateStates);
+  } else {
+    // No alternate - just continue with the condition marked false
+    allStates.push(falseState);
+  }
+
+  context.pathCount += allStates.length - 1;
+  if (context.pathCount + 1 >= context.opts.maxPaths) {
+    context.hasHitLimit = true;
+  }
+  return allStates;
+}
+
+function handleDecisionNode(
+  node: StaticFlowNode & { type: "decision" },
+  currentState: PathState,
+  context: PathContext
+): PathState[] {
+  const currentPaths = context.pathCount + 1;
+  const atLimit = context.hasHitLimit || currentPaths >= context.opts.maxPaths;
+  if (atLimit) {
+    context.hasHitLimit = true;
+  }
+
+  // Path where condition is true (consequent)
+  // Use conditionLabel for more readable condition expression
+  const trueCondition: PathCondition = {
+    expression: node.conditionLabel || node.condition,
+    mustBe: true,
+    location: node.location,
+  };
+
+  const trueState: PathState = {
+    ...currentState,
+    conditions: [...currentState.conditions, trueCondition],
+  };
+
+  const consequentStates = generatePathsForNodes(
+    node.consequent,
+    trueState,
+    context
+  );
+
+  if (atLimit || context.hasHitLimit) {
+    return consequentStates;
+  }
+
+  const allStates: PathState[] = [...consequentStates];
+
+  // Path where condition is false (alternate or skip)
+  const falseCondition: PathCondition = {
+    expression: node.conditionLabel || node.condition,
+    mustBe: false,
     location: node.location,
   };
 

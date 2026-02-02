@@ -33,24 +33,21 @@ export const sampleWorkflow = createWorkflow({
 // Example invocation (for analysis purposes)
 export async function runSampleWorkflow(userId: string) {
   return await sampleWorkflow(async (step, deps) => {
-    // Step 1: Fetch user
-    const user = await step(() => deps.fetchUser(userId), {
+    // Step 1: Fetch user (explicit ID as first param)
+    const user = await step("Fetch User", () => deps.fetchUser(userId), {
       key: "user",
-      name: "Fetch User",
     });
 
     // Step 2: Conditional - apply discount if premium
     if (user.isPremium) {
-      await step(() => deps.applyDiscount(user.id), {
+      await step("Apply Discount", () => deps.applyDiscount(user.id), {
         key: "discount",
-        name: "Apply Discount",
       });
     }
 
     // Step 3: Fetch posts
-    const posts = await step(() => deps.fetchPosts(user.id), {
+    const posts = await step("Fetch Posts", () => deps.fetchPosts(user.id), {
       key: "posts",
-      name: "Fetch Posts",
     });
 
     return { user, posts };

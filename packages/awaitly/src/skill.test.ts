@@ -5,13 +5,23 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  ok, err, type AsyncResult,
-  unwrapOr, unwrapOrElse,
-  map, mapError,
-  andThen, orElse,
-  fromNullable, from, fromPromise,
-  isOk, isErr,
-  tap, tapError,
+  ok,
+  err,
+  type AsyncResult,
+  unwrapOr,
+  unwrapOrElse,
+  map,
+  mapError,
+  andThen,
+  orElse,
+  fromNullable,
+  from,
+  fromPromise,
+  allAsync,
+  isOk,
+  isErr,
+  tap,
+  tapError,
   UNEXPECTED_ERROR,
   type UnexpectedError,
 } from "./index";
@@ -607,9 +617,6 @@ describe("Skill Examples", () => {
       const workflow = createWorkflow(deps);
 
       const result = await workflow(async (step, deps) => {
-        // Import would be: import { allAsync } from 'awaitly';
-        const { allAsync } = await import("./index");
-
         const [user, posts] = await step(() => allAsync([
           deps.getUser("1"),
           deps.getPosts("1"),

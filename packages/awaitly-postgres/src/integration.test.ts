@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createPostgresPersistence } from "./index";
+import { describe, it, expect } from "vitest";
+import { postgres } from "./index";
 import { durable } from "awaitly/durable";
 import { ok, err, type AsyncResult } from "awaitly";
 
@@ -9,9 +9,9 @@ const shouldSkip = !TEST_CONNECTION_STRING && !process.env.CI;
 
 describe.skipIf(shouldSkip)("Integration with durable.run", () => {
   it("should work with durable.run", async () => {
-    const store = await createPostgresPersistence({
-      connectionString: TEST_CONNECTION_STRING || "postgresql://postgres:postgres@localhost:5432/test_awaitly",
-      tableName: `test_integration_${Date.now()}`,
+    const store = postgres({
+      url: TEST_CONNECTION_STRING || "postgresql://postgres:postgres@localhost:5432/test_awaitly",
+      table: `test_integration_${Date.now()}`,
     });
 
     // Define a simple workflow
@@ -46,6 +46,6 @@ describe.skipIf(shouldSkip)("Integration with durable.run", () => {
     }
 
     // Clean up
-    await (store as any).close?.();
+    await store.close();
   });
 });

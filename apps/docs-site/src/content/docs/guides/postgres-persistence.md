@@ -3,7 +3,7 @@ title: PostgreSQL Persistence
 description: Use PostgreSQL as a persistence backend for awaitly workflows
 ---
 
-The [`awaitly-postgres`](https://www.npmjs.com/package/awaitly-postgres) package provides a ready-to-use PostgreSQL persistence adapter for awaitly workflows. Provide your connection string and you're ready to go.
+The [`awaitly-postgres`](https://www.npmjs.com/package/awaitly-postgres) package provides a ready-to-use PostgreSQL persistence adapter for awaitly workflows.
 
 **Source code**: [GitHub](https://github.com/jagreehal/awaitly/tree/main/packages/awaitly-postgres)
 
@@ -20,12 +20,122 @@ yarn add awaitly-postgres pg
 ## Quick Start
 
 ```typescript
-import { createPostgresPersistence } from 'awaitly-postgres';
+import { postgres } from 'awaitly-postgres';
+import { createWorkflow } from 'awaitly/workflow';
+
+// One-liner setup
+const store = postgres('postgresql://localhost/mydb');
+
+// Execute + persist
+const workflow = createWorkflow({ fetchUser, createOrder });
+await workflow(async (step, deps) => {
+  const user = await step(() => deps.fetchUser('123'), { key: 'fetch-user' });
+  const order = await step(() => deps.createOrder(user), { key: 'create-order' });
+  return order;
+});
+
+await store.save('checkout-123', workflow.getSnapshot());
+
+// Later: restore + resume
+const snapshot = await store.load('checkout-123');
+const workflow2 = createWorkflow({ fetchUser, createOrder }, { snapshot });
+await workflow2(/* same workflow fn */);
+```
+
+## Configuration
+
+### String Shorthand
+
+```typescript
+const store = postgres('postgresql://user:password@localhost:5432/dbname');
+```
+
+### Object Options
+
+```typescript
+const store = postgres({
+  url: 'postgresql://localhost/mydb',
+  table: 'my_workflow_snapshots',   // Default: 'awaitly_snapshots'
+  prefix: 'orders:',                // Default: ''
+  autoCreateTable: true,            // Default: true
+  lock: { lockTableName: 'my_workflow_locks' },  // Optional: cross-process locking
+});
+```
+
+### Bring Your Own Pool
+
+```typescript
+import { Pool } from 'pg';
+import { postgres } from 'awaitly-postgres';
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const store = postgres({
+  url: 'postgresql://localhost/mydb',
+  pool: pool,
+});
+```
+
+## Store Interface
+
+The store implements the `SnapshotStore` interface:
+
+```typescript
+interface SnapshotStore {
+  save(id: string, snapshot: WorkflowSnapshot): Promise<void>;
+  load(id: string): Promise<WorkflowSnapshot | null>;
+  delete(id: string): Promise<void>;
+  list(options?: { prefix?: string; limit?: number }): Promise<Array<{ id: string; updatedAt: string }>>;
+  close(): Promise<void>;
+}
+```
+
+### Usage Examples
+
+```typescript
+// Save snapshot
+await store.save('wf-123', workflow.getSnapshot());
+
+// Load snapshot (returns null if not found)
+const snapshot = await store.load('wf-123');
+
+// Delete snapshot
+await store.delete('wf-123');
+
+// List recent workflows
+const workflows = await store.list({ limit: 100 });
+// [{ id: 'wf-123', updatedAt: '2024-01-15T10:30:00Z' }, ...]
+
+// List with prefix filter
+const orderWorkflows = await store.list({ prefix: 'orders:', limit: 50 });
+
+// Clean shutdown
+await store.close();
+```
+
+## Table Schema
+
+The adapter automatically creates a table with the following schema:
+
+```sql
+CREATE TABLE IF NOT EXISTS awaitly_snapshots (
+  id TEXT PRIMARY KEY,
+  snapshot JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS awaitly_snapshots_updated_at_idx
+ON awaitly_snapshots (updated_at DESC);
+```
+
+## With Durable Execution
+
+Use the same `postgres()` store with `durable.run`:
+
+```typescript
+import { postgres } from 'awaitly-postgres';
 import { durable } from 'awaitly/durable';
 
-const store = await createPostgresPersistence({
-  connectionString: process.env.DATABASE_URL,
-});
+const store = postgres(process.env.DATABASE_URL!);
 
 const result = await durable.run(
   { fetchUser, createOrder },
@@ -34,191 +144,62 @@ const result = await durable.run(
     const order = await step(() => createOrder(user), { key: 'create-order' });
     return order;
   },
-  {
-    id: 'checkout-123',
-    store,
-  }
+  { id: 'checkout-123', store }
 );
 ```
 
-## Configuration
-
-### Connection String
-
-```typescript
-const store = await createPostgresPersistence({
-  connectionString: 'postgresql://user:password@localhost:5432/dbname',
-});
-```
-
-### Individual Options
-
-```typescript
-const store = await createPostgresPersistence({
-  host: 'localhost',
-  port: 5432,
-  database: 'myapp',
-  user: 'postgres',
-  password: 'password',
-  tableName: 'custom_workflow_state', // optional, default: 'awaitly_workflow_state'
-  prefix: 'myapp:workflow:', // optional, default: 'workflow:state:'
-});
-```
-
-### Using Existing Pool
-
-If you already have a PostgreSQL connection pool, you can reuse it:
-
-```typescript
-import { Pool } from 'pg';
-import { createPostgresPersistence } from 'awaitly-postgres';
-
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const store = await createPostgresPersistence({
-  existingPool: pool,
-});
-```
-
-### Pool Configuration
-
-Customize connection pool settings:
-
-```typescript
-const store = await createPostgresPersistence({
-  connectionString: process.env.DATABASE_URL,
-  pool: {
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
-  },
-});
-```
-
-## Table Schema
-
-The adapter automatically creates a table with the following schema:
-
-```sql
-CREATE TABLE awaitly_workflow_state (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  expires_at TIMESTAMP
-);
-
-CREATE INDEX idx_awaitly_workflow_state_expires_at 
-ON awaitly_workflow_state(expires_at) 
-WHERE expires_at IS NOT NULL;
-```
-
-The table is created automatically on first use. You can customize the table name via the `tableName` option.
+For cross-process locking, pass `lock` when creating the store so only one process runs a given workflow ID at a time.
 
 ## Features
 
+- ✅ **One-liner setup** - Just pass a connection string
 - ✅ **Automatic table creation** - No manual schema setup required
-- ✅ **TTL support** - Automatic expiration of old workflow state
+- ✅ **JSONB storage** - Native PostgreSQL JSON support
 - ✅ **Connection pooling** - Efficient connection management
-- ✅ **Pattern matching** - Query keys using glob patterns
-- ✅ **Zero configuration** - Works out of the box
-
-## Advanced Usage
-
-### Direct KeyValueStore Access
-
-If you need more control, you can use the `PostgresKeyValueStore` class directly:
-
-```typescript
-import { PostgresKeyValueStore } from 'awaitly-postgres';
-import { createStatePersistence } from 'awaitly/persistence';
-
-const store = new PostgresKeyValueStore({
-  connectionString: process.env.DATABASE_URL,
-});
-
-const persistence = createStatePersistence(store, 'custom:prefix:');
-```
-
-## Implementation Details
-
-The [`awaitly-postgres`](https://www.npmjs.com/package/awaitly-postgres) package is a reference implementation of the `KeyValueStore` interface. Here's how it works:
-
-### KeyValueStore Implementation
-
-The `PostgresKeyValueStore` class implements all five required methods:
-
-- **`get(key)`**: Queries PostgreSQL with expiration check
-- **`set(key, value, {ttl})`**: Uses `INSERT ... ON CONFLICT UPDATE` for upserts
-- **`delete(key)`**: Standard `DELETE` query
-- **`exists(key)`**: Optimized existence check with `LIMIT 1`
-- **`keys(pattern)`**: Converts glob patterns (`*`) to SQL `LIKE` queries
-
-### Automatic Table Creation
-
-The adapter creates the table and index on first use:
-
-```sql
-CREATE TABLE IF NOT EXISTS awaitly_workflow_state (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  expires_at TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_awaitly_workflow_state_expires_at 
-ON awaitly_workflow_state(expires_at) 
-WHERE expires_at IS NOT NULL;
-```
-
-### Pattern Matching
-
-Glob patterns are converted to SQL `LIKE` patterns:
-
-```typescript
-// User pattern: "workflow:state:*"
-// SQL pattern: "workflow:state:%"
-const likePattern = pattern.replace(/\*/g, '%');
-```
-
-### Connection Pooling
-
-Uses `pg.Pool` for efficient connection management. The pool is shared across all operations and handles connection lifecycle automatically.
+- ✅ **Pattern matching** - List workflows by prefix
+- ✅ **Timestamps** - Automatic `updated_at` tracking
 
 ## Production Considerations
 
 ### Connection Pooling
 
-The adapter uses `pg.Pool` for connection management. Configure pool size based on your workload:
+The pool is managed automatically. For high-load scenarios, bring your own pool with custom settings:
 
 ```typescript
-const store = await createPostgresPersistence({
+const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  pool: {
-    max: 20, // Maximum pool size
-    min: 5,  // Minimum pool size
-    idleTimeoutMillis: 30000,
-  },
+  max: 20,
+  min: 5,
+  idleTimeoutMillis: 30000,
 });
+
+const store = postgres({ url: process.env.DATABASE_URL!, pool });
 ```
 
-### Table Maintenance
+### Cleanup
 
-The `expires_at` index helps with automatic cleanup, but you may want to periodically clean up expired rows:
+List and delete completed workflows:
 
-```sql
-DELETE FROM awaitly_workflow_state 
-WHERE expires_at IS NOT NULL 
-  AND expires_at < NOW();
+```typescript
+const completed = await store.list({ limit: 1000 });
+for (const { id } of completed) {
+  const snapshot = await store.load(id);
+  if (snapshot?.execution.status === 'completed') {
+    await store.delete(id);
+  }
+}
 ```
 
 ### Monitoring
 
-Monitor table size and query performance:
-
 ```sql
 -- Check table size
-SELECT pg_size_pretty(pg_total_relation_size('awaitly_workflow_state'));
+SELECT pg_size_pretty(pg_total_relation_size('awaitly_snapshots'));
 
--- Check index usage
-SELECT * FROM pg_stat_user_indexes 
-WHERE indexrelname = 'idx_awaitly_workflow_state_expires_at';
+-- Count by status
+SELECT (snapshot->'execution')->>'status' AS status, COUNT(*)
+FROM awaitly_snapshots
+GROUP BY 1;
 ```
 
 ## Requirements

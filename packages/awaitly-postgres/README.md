@@ -103,23 +103,6 @@ WHERE expires_at IS NOT NULL;
 
 The table is created automatically on first use. You can customize the table name via the `tableName` option.
 
-## Advanced Usage
-
-### Direct KeyValueStore Access
-
-If you need more control, you can use the `PostgresKeyValueStore` class directly:
-
-```typescript
-import { PostgresKeyValueStore } from 'awaitly-postgres';
-import { createStatePersistence } from 'awaitly/persistence';
-
-const store = new PostgresKeyValueStore({
-  connectionString: process.env.DATABASE_URL,
-});
-
-const persistence = createStatePersistence(store, 'custom:prefix:');
-```
-
 ## Features
 
 - ✅ Automatic table creation

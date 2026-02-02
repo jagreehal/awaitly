@@ -98,23 +98,6 @@ ON awaitly_workflow_state(expires_at);
 
 The `expires_at` column stores ISO 8601 timestamps and is used for TTL support.
 
-## Using the KeyValueStore Directly
-
-If you want lower-level control, you can use `LibSqlKeyValueStore` directly
-and wire it into `createStatePersistence`:
-
-```ts
-import { LibSqlKeyValueStore } from "awaitly-libsql";
-import { createStatePersistence } from "awaitly/persistence";
-
-const store = new LibSqlKeyValueStore({
-  url: "file:./awaitly.db",
-  tableName: "awaitly_workflow_state",
-});
-
-const persistence = createStatePersistence(store, "custom:prefix:");
-```
-
 ## Requirements
 
 - Node.js >= 22

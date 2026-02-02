@@ -84,6 +84,13 @@ describe('no-options-on-executor', () => {
       expect(messages[0].message).toContain('resumeState');
     });
 
+    it('reports snapshot option passed to executor', () => {
+      const code = `workflow({ snapshot: loadedSnapshot }, async (step) => { return step(fetchUser('1')); });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('snapshot');
+    });
+
     it('reports multiple options passed to executor', () => {
       const code = `workflow({ cache: new Map(), onEvent: handler }, async (step) => { return step(fetchUser('1')); });`;
       const messages = linter.verify(code, config);

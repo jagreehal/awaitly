@@ -1,66 +1,40 @@
 /**
  * awaitly/persistence
  *
- * State persistence and workflow versioning: save workflow state,
- * resume from checkpoints, and migrate between schema versions.
+ * Simplified Persistence API for workflow snapshots.
  */
 
 // =============================================================================
-// Persistence
+// Snapshot API (JSON-serializable workflow state)
 // =============================================================================
 export {
-  type SerializedResult,
+  // Types
+  type JSONValue,
+  type WorkflowSnapshot,
+  type StepResult,
   type SerializedCause,
-  type SerializedMeta,
-  type SerializedEntry,
-  type SerializedState,
-  serializeCause,
-  deserializeCause,
-  serializeResult,
-  deserializeResult,
-  serializeMeta,
-  deserializeMeta,
-  serializeEntry,
-  deserializeEntry,
-  serializeState,
-  deserializeState,
-  stringifyState,
-  parseState,
+  type SnapshotWarning,
+
+  // Store interface
+  type SnapshotStore,
+
+  // Validation
+  looksLikeWorkflowSnapshot,
+  validateSnapshot,
+  assertValidSnapshot,
+  mergeSnapshots,
+
+  // Error classes
+  SnapshotFormatError,
+  SnapshotMismatchError,
+  SnapshotDecodeError,
+
+  // Serialization helpers (for custom implementations)
+  serializeError,
+  serializeThrown,
+  deserializeCauseNew,
+
+  // Cache adapter
   type MemoryCacheOptions,
   createMemoryCache,
-  type FileCacheOptions,
-  type FileSystemInterface,
-  createFileCache,
-  type KeyValueStore,
-  type KVCacheOptions,
-  createKVCache,
-  type ListPageOptions,
-  type ListPageResult,
-  type StatePersistence,
-  createStatePersistence,
-  createHydratingCache,
 } from "./persistence";
-
-// =============================================================================
-// Versioning
-// =============================================================================
-export {
-  type Version,
-  type MigrationFn,
-  type Migrations,
-  type VersionedState,
-  type VersionedWorkflowConfig,
-  type MigrationError,
-  type VersionIncompatibleError,
-  isMigrationError,
-  isVersionIncompatibleError,
-  migrateState,
-  createVersionedStateLoader,
-  createVersionedState,
-  parseVersionedState,
-  stringifyVersionedState,
-  createKeyRenameMigration,
-  createKeyRemoveMigration,
-  createValueTransformMigration,
-  composeMigrations,
-} from "./versioning";

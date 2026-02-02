@@ -41,6 +41,18 @@ export {
   type ExtractCause,
   type CauseOf,
 
+  // Error discriminants
+  UNEXPECTED_ERROR,
+  PROMISE_REJECTED,
+
+  // Named error constants (for static analysis)
+  AWAITLY_UNEXPECTED,
+  AWAITLY_CANCELLED,
+  AWAITLY_TIMEOUT,
+
+  // Static analysis helpers
+  tags,
+
   // Constructors
   ok,
   err,

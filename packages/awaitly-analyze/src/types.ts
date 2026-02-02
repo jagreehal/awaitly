@@ -49,6 +49,8 @@ export interface SourceLocation {
  */
 export interface StaticStepNode extends StaticBaseNode {
   type: "step";
+  /** Step ID from first argument (new API: step('id', fn, opts)) */
+  stepId?: string;
   /** The function being called (e.g., "fetchUser", "deps.validateCart") */
   callee?: string;
   /** Short description for labels/tooltips (static analysis) */
@@ -61,6 +63,33 @@ export interface StaticStepNode extends StaticBaseNode {
   retry?: StaticRetryConfig;
   /** Timeout configuration if specified */
   timeout?: StaticTimeoutConfig;
+  // === New API fields for static analysis ===
+  /** Declared error tags from errors option */
+  errors?: string[];
+  /** Output key for data flow (writes to ctx[out]) */
+  out?: string;
+  /** Keys read via ctx.ref() inside this step */
+  reads?: string[];
+  /** Dependency source (from step.dep() or detected from callee) */
+  depSource?: string;
+}
+
+/**
+ * A labelled decision point in the workflow (step.if).
+ * Used for stable conditional branch IDs in static analysis.
+ */
+export interface StaticDecisionNode extends StaticBaseNode {
+  type: "decision";
+  /** The decision ID (from step.if first argument) */
+  decisionId: string;
+  /** Human-readable condition label */
+  conditionLabel: string;
+  /** The condition as source code string */
+  condition: string;
+  /** The "then" branch (when condition is true) */
+  consequent: StaticFlowNode[];
+  /** The "else" branch (when condition is false) */
+  alternate?: StaticFlowNode[];
 }
 
 /**
@@ -187,7 +216,9 @@ export interface StaticSwitchNode extends StaticBaseNode {
 export interface StaticLoopNode extends StaticBaseNode {
   type: "loop";
   /** Loop type: for, while, forEach, map, etc. */
-  loopType: "for" | "while" | "forEach" | "map" | "for-of" | "for-in";
+  loopType: "for" | "while" | "forEach" | "map" | "for-of" | "for-in" | "step.forEach";
+  /** Loop ID (for step.forEach) */
+  loopId?: string;
   /** The iteration source as source string (e.g., "users", "0..10") */
   iterSource?: string;
   /** Steps inside the loop */
@@ -196,6 +227,16 @@ export interface StaticLoopNode extends StaticBaseNode {
   boundKnown: boolean;
   /** If known, the iteration count */
   boundCount?: number;
+  /** Max iterations limit (for step.forEach) */
+  maxIterations?: number;
+  /** Step ID pattern for loop iterations (e.g., "process-{i}") */
+  stepIdPattern?: string;
+  /** Declared errors for the loop body */
+  errors?: string[];
+  /** Output key for data flow (stores loop results) */
+  out?: string;
+  /** Collect mode: 'array' collects all results, 'last' stores only the last */
+  collect?: "array" | "last";
 }
 
 /**
@@ -257,6 +298,7 @@ export type StaticFlowNode =
   | StaticRaceNode
   | StaticStreamNode
   | StaticConditionalNode
+  | StaticDecisionNode
   | StaticSwitchNode
   | StaticLoopNode
   | StaticWorkflowRefNode
@@ -292,6 +334,10 @@ export interface StaticWorkflowNode extends StaticBaseNode {
   markdown?: string;
   /** JSDoc description from comment above the workflow declaration (static analysis) */
   jsdocDescription?: string;
+  /** Whether strict mode is enabled for this workflow */
+  strict?: boolean;
+  /** Declared errors for the workflow (strict mode contract) */
+  declaredErrors?: string[];
 }
 
 /**
@@ -563,6 +609,10 @@ export function isStaticConditionalNode(node: StaticFlowNode): node is StaticCon
   return node.type === "conditional";
 }
 
+export function isStaticDecisionNode(node: StaticFlowNode): node is StaticDecisionNode {
+  return node.type === "decision";
+}
+
 export function isStaticSwitchNode(node: StaticFlowNode): node is StaticSwitchNode {
   return node.type === "switch";
 }
@@ -593,6 +643,7 @@ export function hasStaticChildren(
   | StaticParallelNode
   | StaticRaceNode
   | StaticConditionalNode
+  | StaticDecisionNode
   | StaticSwitchNode
   | StaticLoopNode {
   return (
@@ -600,6 +651,7 @@ export function hasStaticChildren(
     node.type === "parallel" ||
     node.type === "race" ||
     node.type === "conditional" ||
+    node.type === "decision" ||
     node.type === "switch" ||
     node.type === "loop"
   );
@@ -615,6 +667,7 @@ export function getStaticChildren(node: StaticFlowNode): StaticFlowNode[] {
     case "race":
       return node.children;
     case "conditional":
+    case "decision":
       return [...node.consequent, ...(node.alternate ?? [])];
     case "switch":
       return node.cases.flatMap((c) => c.body);

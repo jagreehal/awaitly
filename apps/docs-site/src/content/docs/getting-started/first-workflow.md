@@ -4,7 +4,7 @@ description: Build a simple workflow with typed errors in 5 minutes
 ---
 
 :::note
-New to awaitly? Start with [The Basics/basics/) to learn `run()` and Result types first.
+New to awaitly? Start with [The Basics](/docs/getting-started/basics/) to learn `run()` and Result types first.
 :::
 
 This guide walks through building a workflow that fetches a user and their posts, with typed error handling.
@@ -63,12 +63,12 @@ await workflow({ cache: new Map() }, async (step) => { ... }); // Ignored!
 
 ## Run it
 
-Use `step()` to execute operations. If any step fails, the workflow exits early:
+Use `step()` to execute operations. Prefer **`step('id', fn)`** so step names appear in [statically generated docs](/docs/guides/static-analysis/) and diagrams. If any step fails, the workflow exits early:
 
 ```typescript
 const result = await loadUserData(async (step) => {
-  const user = await step(fetchUser('1'));
-  const posts = await step(fetchPosts(user.id));
+  const user = await step('fetchUser', () => fetchUser('1'));
+  const posts = await step('fetchPosts', () => fetchPosts(user.id));
   return { user, posts };
 });
 ```
@@ -115,8 +115,8 @@ const fetchPosts = async (userId: string): AsyncResult<Post[], 'FETCH_ERROR'> =>
 const loadUserData = createWorkflow({ fetchUser, fetchPosts });
 
 const result = await loadUserData(async (step) => {
-  const user = await step(fetchUser('1'));
-  const posts = await step(fetchPosts(user.id));
+  const user = await step('fetchUser', () => fetchUser('1'));
+  const posts = await step('fetchPosts', () => fetchPosts(user.id));
   return { user, posts };
 });
 
@@ -131,9 +131,9 @@ Change `fetchUser('1')` to `fetchUser('999')`:
 
 ```typescript
 const result = await loadUserData(async (step) => {
-  const user = await step(fetchUser('999')); // Returns err('NOT_FOUND')
+  const user = await step('fetchUser', () => fetchUser('999')); // Returns err('NOT_FOUND')
   // This line never runs
-  const posts = await step(fetchPosts(user.id));
+  const posts = await step('fetchPosts', () => fetchPosts(user.id));
   return { user, posts };
 });
 

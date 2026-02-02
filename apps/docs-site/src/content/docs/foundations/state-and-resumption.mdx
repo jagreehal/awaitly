@@ -106,99 +106,78 @@ const state = collector.getResumeState();
 Only steps with `key` are saved. Steps without keys always execute.
 </Aside>
 
-## Serializing State
+## Saving and Loading Snapshots
 
-<Aside type="danger" title="Always use stringifyState/parseState">
-`ResumeState.steps` is a `Map`, which **cannot be serialized with `JSON.stringify()`**. Maps become empty objects `{}` when serialized directly!
-</Aside>
+Workflow state is captured as a **WorkflowSnapshot** (JSON-serializable). Use `workflow.getSnapshot()` and pass it to a store:
 
 ```typescript
-import { stringifyState, parseState } from 'awaitly/persistence';
-
-// Serialize for storage
-const json = stringifyState(state, {
-  workflowId: 'wf-123',
-  timestamp: Date.now(),
+const workflow = createWorkflow(deps);
+await workflow(async (step) => {
+  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  return user;
 });
 
-await db.workflowStates.create({
-  id: 'wf-123',
-  state: json,
-  createdAt: new Date(),
-});
-
-// Later: deserialize
-const saved = await db.workflowStates.findUnique({ where: { id: 'wf-123' } });
-const resumeState = parseState(saved.state);
+// Snapshot is JSON-serializable
+const snapshot = workflow.getSnapshot();
+await store.save('wf-123', snapshot);
 ```
 
-## Resuming Workflows
-
-Pass saved state to a new workflow:
+To resume, load the snapshot and pass it to `createWorkflow`:
 
 ```typescript
-import { parseState } from 'awaitly/persistence';
-
-const saved = await db.workflowStates.findUnique({ where: { id: 'wf-123' } });
-const resumeState = parseState(saved.state);
+const snapshot = await store.load('wf-123');
 
 const workflow = createWorkflow(
   { fetchUser, fetchPosts },
-  { resumeState }
+  { snapshot: snapshot ?? undefined }
 );
 
 await workflow(async (step) => {
-  // These steps return cached values - no actual fetch
   const user = await step(() => fetchUser('1'), { key: 'user:1' });
   const posts = await step(() => fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
 ```
 
-### Async Resume State Loading
+### Async Snapshot Loading
 
-Load state lazily:
+Load the snapshot before creating the workflow:
 
 ```typescript
-const workflow = createWorkflow(deps, {
-  resumeState: async () => {
-    const saved = await db.workflowStates.findUnique({ where: { id: 'wf-123' } });
-    return saved ? parseState(saved.state) : undefined;
-  },
-});
+const snapshot = await store.load('wf-123');
+const workflow = createWorkflow(deps, { snapshot: snapshot ?? undefined });
 ```
 
 ## Crash Recovery Pattern
 
-Save state after each batch of work:
+Save a snapshot after each critical step:
 
 ```typescript
-const collector = createResumeStateCollector();
-const workflow = createWorkflow(deps, { onEvent: collector.handleEvent });
+const store = postgres(process.env.DATABASE_URL!);
+const snapshot = await store.load('wf-123');
+
+const workflow = createWorkflow(deps, { snapshot });
 
 const result = await workflow(async (step) => {
   const user = await step(() => fetchUser('1'), { key: 'user:1' });
 
-  // Save after critical step
-  await saveCheckpoint('wf-123', collector.getResumeState());
+  await store.save('wf-123', workflow.getSnapshot());
 
   const posts = await step(() => fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
 
-// Final save
-await saveCheckpoint('wf-123', collector.getResumeState());
+await store.save('wf-123', workflow.getSnapshot());
 ```
 
-If the workflow crashes, resume from the last checkpoint:
+If the workflow crashes, resume from the last saved snapshot:
 
 ```typescript
-const savedState = await loadCheckpoint('wf-123');
+const snapshot = await store.load('wf-123');
 
-const workflow = createWorkflow(deps, { resumeState: savedState });
+const workflow = createWorkflow(deps, { snapshot });
 
 await workflow(async (step) => {
-  // Completed steps use cached values
   const user = await step(() => fetchUser('1'), { key: 'user:1' });
   const posts = await step(() => fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
@@ -207,54 +186,46 @@ await workflow(async (step) => {
 
 ## Checking Step Completion
 
-Check if a step is already complete before execution:
+From a loaded snapshot, check step completion via the `ok` field:
 
 ```typescript
-import { isStepComplete } from 'awaitly/workflow';
+const snapshot = await store.load('wf-123');
 
-const state = await loadCheckpoint('wf-123');
-
-if (isStepComplete(state, 'user:1')) {
+if (snapshot?.steps['user:1']?.ok) {
   console.log('User already fetched');
 }
 ```
 
-## State Persistence Adapter
+For subscribe events, use the `isStepComplete` type guard from `awaitly/workflow` to narrow event types.
 
-For structured storage, use `createStatePersistence`:
+## Snapshot Store
+
+Use a **SnapshotStore** (e.g. from `postgres()`, `mongo()`, or `libsql()`) to persist workflow snapshots:
 
 ```typescript
-import { createStatePersistence } from 'awaitly/persistence';
+import { postgres } from 'awaitly-postgres';
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
 
-const persistence = createStatePersistence({
-  get: (key) => redis.get(key),
-  set: (key, value) => redis.set(key, value),
-  delete: (key) => redis.del(key).then(n => n > 0),
-  exists: (key) => redis.exists(key).then(n => n > 0),
-  keys: (pattern) => redis.keys(pattern),
-}, 'workflow:state:');
+const store = postgres(process.env.DATABASE_URL!);
 
-// Save
-await persistence.save('wf-123', state, { userId: 'user-1' });
+// Save after run
+await store.save('wf-123', workflow.getSnapshot());
 
-// Load
-const savedState = await persistence.load('wf-123');
-
-// Resume
-const workflow = createWorkflow(deps, { resumeState: savedState });
+// Load and resume
+const snapshot = await store.load('wf-123');
+const workflow = createWorkflow(deps, { snapshot });
 ```
 
-## File-Based Persistence
+See [Persistence](/guides/persistence/) for the full interface and custom adapters (e.g. Redis).
 
-For simple cases:
+## In-Memory Step Cache
+
+For process-local caching without persistence, use `createMemoryCache` from `awaitly/persistence`:
 
 ```typescript
-import { createFileCache } from 'awaitly/persistence';
+import { createMemoryCache } from 'awaitly/persistence';
 
-const cache = createFileCache({
-  directory: './workflow-state',
-  ttlMs: 7 * 24 * 60 * 60 * 1000, // 7 days
-});
+const cache = createMemoryCache({ maxSize: 1000, ttl: 7 * 24 * 60 * 60 });
 
 const workflow = createWorkflow(deps, { cache });
 ```
@@ -321,29 +292,17 @@ cache.delete('user:999');
 ## Complete Example
 
 ```typescript
-import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
-import { stringifyState, parseState, createStatePersistence } from 'awaitly/persistence';
+import { createWorkflow } from 'awaitly/workflow';
+import { postgres } from 'awaitly-postgres';
 
-// Setup persistence
-const persistence = createStatePersistence({
-  get: (key) => db.get(key),
-  set: (key, value) => db.set(key, value),
-  delete: (key) => db.delete(key),
-  exists: (key) => db.exists(key),
-  keys: (pattern) => db.keys(pattern),
-}, 'workflow:');
+const store = postgres(process.env.DATABASE_URL!);
 
-// Run with checkpoint saves
 async function runWithRecovery(workflowId: string) {
-  const savedState = await persistence.load(workflowId);
-  const collector = createResumeStateCollector();
+  const snapshot = await store.load(workflowId);
 
   const workflow = createWorkflow(
     { fetchUser, processPayment, sendConfirmation },
-    {
-      resumeState: savedState,
-      onEvent: collector.handleEvent,
-    }
+    { snapshot }
   );
 
   const result = await workflow(async (step) => {
@@ -353,7 +312,7 @@ async function runWithRecovery(workflowId: string) {
     );
 
     // Checkpoint after user fetch
-    await persistence.save(workflowId, collector.getResumeState());
+    await store.save(workflowId, workflow.getSnapshot());
 
     const payment = await step(
       () => processPayment(user.id, 100),
@@ -361,7 +320,7 @@ async function runWithRecovery(workflowId: string) {
     );
 
     // Checkpoint after payment
-    await persistence.save(workflowId, collector.getResumeState());
+    await store.save(workflowId, workflow.getSnapshot());
 
     await step(
       () => sendConfirmation(user.email, payment.id),
@@ -372,7 +331,7 @@ async function runWithRecovery(workflowId: string) {
   });
 
   // Final save
-  await persistence.save(workflowId, collector.getResumeState());
+  await store.save(workflowId, workflow.getSnapshot());
 
   return result;
 }

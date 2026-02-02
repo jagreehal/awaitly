@@ -10,24 +10,46 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 ## Basic usage
 
+You can call `step` in two ways. The **recommended form** is `step('id', fn, opts)` — a string literal step ID as the first argument:
+
 ```typescript
 const workflow = createWorkflow({ fetchUser, fetchPosts });
 
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('1'));
-  // If fetchUser returns err(), execution stops here and the error is returned
-
-  const posts = await step(fetchPosts(user.id));
+  const user = await step('fetchUser', () => fetchUser('1'));
+  const posts = await step('fetchPosts', () => fetchPosts(user.id));
   return { user, posts };
 });
-/*
-Output (success):
-{ ok: true, value: { user: User, posts: Post[] } }
-
-Output (user not found):
-{ ok: false, error: 'NOT_FOUND' }
-*/
 ```
+
+The legacy form `step(fn)` or `step(fn, opts)` also works. Awaitly uses the **same resolution order** at runtime and in static analysis. How the step id is determined:
+
+```mermaid
+flowchart TD
+  subgraph resolve [How step ID is determined]
+    A["step(...) called"]
+    A --> B{First arg a string?}
+    B -->|Yes| C["id = that string"]
+    B -->|No| D{First arg a function?}
+    D -->|Yes: step(fn, opts)| G["Infer from thunk"]
+    G --> H{Match callee in fn.toString()?}
+    H -->|Yes| I["id = inferred name"]
+    H -->|No| J["id = step_1, step_2, ..."]
+    D -->|No: step(result, opts)| K["id = 'directStep'"]
+  end
+```
+
+Same order as the analyzer: **key is not used for the step id** (key is for caching only).
+
+1. **Explicit id** — `step('id', fn, opts)` → use the string.
+2. **Infer from thunk** — `step(() => fn())` or `step(() => deps.fn())` → parse the thunk and use the callee name when possible.
+3. **Fallback** — when inference fails (minified code, complex body) → `step_1`, `step_2`, …
+
+So **at runtime and in static docs**, `step('fetchUser', () => fetchUser('1'))` and `step(() => fetchUser('1'))` often yield the same step id/name in events, diagrams, and caching.
+
+<Aside type="tip" title="When to use step('id', fn)">
+Use **`step('id', fn, opts)`** when you want a **stable** step id that survives minification or when the thunk body is complex (inference can fail). Use `step(() => fn())` when the thunk clearly calls a single function — awaitly will infer the name at runtime and in generated docs.
+</Aside>
 
 <Aside type="tip" title="Early exit">
 Unlike try/catch where you need explicit return statements, `step()` automatically exits the workflow on error. The error becomes the workflow's result.
@@ -38,11 +60,11 @@ Unlike try/catch where you need explicit return statements, `step()` automatical
 Pass a function (thunk) instead of calling directly to enable caching:
 
 ```typescript
-// Without thunk - always executes
+// Without thunk - always executes (legacy form)
 const user = await step(fetchUser('1'));
 
-// With thunk - can be cached
-const user = await step(() => fetchUser('1'), { key: 'user:1' });
+// With thunk - can be cached (prefer named form for static docs)
+const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 ```
 
 <Aside type="note">
@@ -51,14 +73,18 @@ A thunk is just a function with no arguments that returns the value. Using thunk
 
 ## Step options
 
+Use the named form and pass options as the third argument:
+
 ```typescript
-const user = await step(() => fetchUser('1'), {
-  name: 'Fetch user',       // For visualization/logging
+const user = await step('fetchUser', () => fetchUser('1'), {
   key: 'user:1',            // For caching/deduplication
   retry: { attempts: 3 },   // Retry on failure
   timeout: { ms: 5000 },    // Timeout after 5 seconds
+  description: 'Load user by ID',  // For generated docs
 });
 ```
+
+With the legacy form `step(fn, opts)`, you can set `name` in options for visualization; with `step('id', fn, opts)` the first argument is the step ID used by tooling.
 
 ## step.try - wrap throwing code
 
@@ -348,22 +374,22 @@ const result = await workflow(async (step) => {
   </TabItem>
 </Tabs>
 
-## Named steps for visualization
+## Named steps for visualization and static docs
 
-Give steps names to see them in workflow diagrams:
+Use **`step('id', fn, opts)`** so step names appear in workflow diagrams and in **statically generated documentation**:
 
 ```typescript
-const user = await step(() => fetchUser('1'), { name: 'Fetch user' });
-const posts = await step(() => fetchPosts(user.id), { name: 'Fetch posts' });
+const user = await step('fetchUser', () => fetchUser('1'));
+const posts = await step('fetchPosts', () => fetchPosts(user.id));
 /*
-Workflow diagram shows:
+Workflow diagram and generated docs show:
 ┌─────────────┐     ┌─────────────┐
-│ Fetch user  │ ──► │ Fetch posts │
+│ fetchUser   │ ──► │ fetchPosts  │
 └─────────────┘     └─────────────┘
 */
 ```
 
-See [Visualization](/guides/visualization/) for details.
+The string literal ID is extracted by [awaitly-analyze](/docs/guides/static-analysis/) and used in Mermaid diagrams, step tables, and doc generators. With the thunk form `step(() => fetchUser('1'))`, both the analyzer and the runtime infer the label from the callee (`fetchUser`) when possible; when inference fails (e.g. complex body or minified code), the runtime uses `step_1`, `step_2`, etc. You can still set `description` or `markdown` in options for richer docs. See [Documenting workflows](/docs/guides/documenting-workflows/) and [Visualization](/docs/guides/visualization/) for details.
 
 ## Step variants at a glance
 

@@ -3,7 +3,7 @@ title: Visualization
 description: Generate diagrams of workflow execution
 ---
 
-Visualize workflow execution as ASCII diagrams or Mermaid charts for debugging, documentation, or dashboards.
+Visualize workflow execution as ASCII diagrams or Mermaid charts for debugging, documentation, or dashboards. Use **`step('id', fn, opts)`** so step IDs appear as stable labels in diagrams and in [statically generated docs](/docs/guides/static-analysis/).
 
 ## Basic usage
 
@@ -32,8 +32,8 @@ const workflow = createWorkflow(deps, {
 });
 
 await workflow(async (step) => {
-  const order = await step(() => deps.fetchOrder('123'), { name: 'Fetch order' });
-  const payment = await step(() => deps.chargeCard(order.total), { name: 'Charge card' });
+  const order = await step('fetchOrder', () => deps.fetchOrder('123'));
+  const payment = await step('chargeCard', () => deps.chargeCard(order.total));
   return { order, payment };
 });
 

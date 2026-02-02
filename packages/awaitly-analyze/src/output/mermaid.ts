@@ -13,6 +13,7 @@ import type {
   StaticParallelNode,
   StaticRaceNode,
   StaticConditionalNode,
+  StaticDecisionNode,
   StaticSwitchNode,
   StaticLoopNode,
   StaticWorkflowRefNode,
@@ -268,6 +269,9 @@ function renderNode(
     case "conditional":
       return renderConditionalNode(node, context, lines);
 
+    case "decision":
+      return renderDecisionNode(node, context, lines);
+
     case "switch":
       return renderSwitchNode(node, context, lines);
 
@@ -508,6 +512,53 @@ function renderConditionalNode(
   };
 }
 
+function renderDecisionNode(
+  node: StaticDecisionNode,
+  context: RenderContext,
+  lines: string[]
+): RenderResult {
+  const nodeId = `decision_${++context.nodeCounter}`;
+
+  // Decision diamond - use conditionLabel for better readability
+  const label = node.conditionLabel || truncate(node.condition, 30);
+  lines.push(`  ${nodeId}{${escapeLabel(label)}}`);
+  context.styleClasses.set(nodeId, "conditionalStyle");
+
+  const lastNodeIds: string[] = [];
+
+  // True/consequent branch
+  const trueResult = renderNodes(node.consequent, context, lines);
+  if (trueResult.firstNodeId) {
+    context.edges.push({
+      from: nodeId,
+      to: trueResult.firstNodeId,
+      label: "true",
+    });
+    lastNodeIds.push(...trueResult.lastNodeIds);
+  }
+
+  // False/alternate branch
+  if (node.alternate && node.alternate.length > 0) {
+    const falseResult = renderNodes(node.alternate, context, lines);
+    if (falseResult.firstNodeId) {
+      context.edges.push({
+        from: nodeId,
+        to: falseResult.firstNodeId,
+        label: "false",
+      });
+      lastNodeIds.push(...falseResult.lastNodeIds);
+    }
+  } else {
+    // No alternate - decision can skip directly
+    lastNodeIds.push(nodeId);
+  }
+
+  return {
+    firstNodeId: nodeId,
+    lastNodeIds,
+  };
+}
+
 function renderSwitchNode(
   node: StaticSwitchNode,
   context: RenderContext,
@@ -737,4 +788,179 @@ export function renderPathsMermaid(
   }
 
   return lines.join("\n");
+}
+
+// =============================================================================
+// Enhanced Mermaid with Data Flow & Errors
+// =============================================================================
+
+import { buildDataFlowGraph } from "../data-flow";
+import { analyzeErrorFlow } from "../error-flow";
+
+/**
+ * Options for enhanced Mermaid rendering.
+ */
+export interface EnhancedMermaidOptions extends MermaidOptions {
+  /** Show data flow edges between steps */
+  showDataFlow?: boolean;
+  /** Show errors as annotations on steps */
+  showErrors?: boolean;
+  /** Show errors as separate nodes */
+  showErrorNodes?: boolean;
+  /** Show steps that don't declare errors with warning style */
+  highlightMissingErrors?: boolean;
+}
+
+const DEFAULT_ENHANCED_OPTIONS: EnhancedMermaidOptions = {
+  ...DEFAULT_OPTIONS,
+  showDataFlow: true,
+  showErrors: true,
+  showErrorNodes: false,
+  highlightMissingErrors: true,
+};
+
+/**
+ * Generate an enhanced Mermaid diagram with data flow and error annotations.
+ */
+export function renderEnhancedMermaid(
+  ir: StaticWorkflowIR,
+  options: EnhancedMermaidOptions = {}
+): string {
+  const opts = { ...DEFAULT_ENHANCED_OPTIONS, ...options };
+  const lines: string[] = [];
+
+  // Build data flow and error analysis
+  const dataFlow = buildDataFlowGraph(ir);
+  const errorFlow = analyzeErrorFlow(ir);
+
+  // Flowchart header
+  lines.push(`flowchart ${opts.direction}`);
+  lines.push("");
+  lines.push(`  %% Enhanced Workflow: ${ir.root.workflowName}`);
+  lines.push("");
+
+  // Start node
+  lines.push("  start((Start))");
+  lines.push("");
+
+  // Render all steps with enhanced info
+  lines.push("  %% Steps");
+  const stepIdMap = new Map<string, string>(); // stepId -> mermaid node id
+  let nodeCounter = 0;
+
+  for (const stepError of errorFlow.stepErrors) {
+    const mermaidId = `step_${++nodeCounter}`;
+    stepIdMap.set(stepError.stepId, mermaidId);
+
+    // Build label with optional error annotations
+    let label = stepError.stepName ?? stepError.stepId;
+
+    // Add out annotation for data flow
+    if (opts.showDataFlow) {
+      const dataNode = dataFlow.nodes.find(n => n.id === stepError.stepId);
+      if (dataNode?.writes) {
+        label += `\\nout: ${dataNode.writes}`;
+      }
+    }
+
+    // Add error annotations
+    if (opts.showErrors && stepError.errors.length > 0) {
+      const errorList = stepError.errors.slice(0, 2).join(", ");
+      const suffix = stepError.errors.length > 2 ? "..." : "";
+      label += `\\nerrors: ${errorList}${suffix}`;
+    }
+
+    lines.push(`  ${mermaidId}["${escapeLabel(label)}"]`);
+  }
+
+  // End node
+  lines.push("");
+  lines.push("  end_node((End))");
+  lines.push("");
+
+  // Control flow edges (sequential order for now)
+  lines.push("  %% Control Flow");
+  const stepIds = Array.from(stepIdMap.keys());
+  if (stepIds.length > 0) {
+    lines.push(`  start --> ${stepIdMap.get(stepIds[0])}`);
+    for (let i = 0; i < stepIds.length - 1; i++) {
+      lines.push(`  ${stepIdMap.get(stepIds[i])} --> ${stepIdMap.get(stepIds[i + 1])}`);
+    }
+    lines.push(`  ${stepIdMap.get(stepIds[stepIds.length - 1])} --> end_node`);
+  } else {
+    lines.push("  start --> end_node");
+  }
+
+  // Data flow edges
+  if (opts.showDataFlow && dataFlow.edges.length > 0) {
+    lines.push("");
+    lines.push("  %% Data Flow");
+    for (const edge of dataFlow.edges) {
+      const fromId = stepIdMap.get(edge.from);
+      const toId = stepIdMap.get(edge.to);
+      if (fromId && toId) {
+        lines.push(`  ${fromId} -.->|${edge.key}| ${toId}`);
+      }
+    }
+  }
+
+  // Error nodes (optional)
+  if (opts.showErrorNodes && errorFlow.allErrors.length > 0) {
+    lines.push("");
+    lines.push("  %% Error Types");
+    lines.push("  subgraph Errors");
+    for (const error of errorFlow.allErrors) {
+      lines.push(`    err_${sanitizeId(error)}(["${error}"])`);
+    }
+    lines.push("  end");
+    lines.push("");
+    lines.push("  %% Error Edges");
+    for (const step of errorFlow.stepErrors) {
+      const mermaidId = stepIdMap.get(step.stepId);
+      if (mermaidId) {
+        for (const error of step.errors) {
+          lines.push(`  ${mermaidId} -.->|throws| err_${sanitizeId(error)}`);
+        }
+      }
+    }
+  }
+
+  // Styles
+  lines.push("");
+  lines.push("  %% Styles");
+  lines.push(`  classDef stepStyle ${opts.styles?.step ?? DEFAULT_OPTIONS.styles.step}`);
+  lines.push(`  classDef startStyle ${opts.styles?.start ?? DEFAULT_OPTIONS.styles.start}`);
+  lines.push(`  classDef endStyle ${opts.styles?.end ?? DEFAULT_OPTIONS.styles.end}`);
+  lines.push("  classDef errorStyle fill:#ffcdd2,stroke:#c62828");
+  lines.push("  classDef noErrorStyle fill:#fff3cd,stroke:#856404");
+  lines.push("  classDef dataFlowStyle stroke:#1565c0,stroke-width:2px,stroke-dasharray:5");
+
+  lines.push("");
+  lines.push("  class start startStyle");
+  lines.push("  class end_node endStyle");
+
+  for (const [stepId, mermaidId] of stepIdMap) {
+    const hasErrors = errorFlow.stepErrors.find(s => s.stepId === stepId)?.errors.length ?? 0;
+    if (opts.highlightMissingErrors && hasErrors === 0) {
+      lines.push(`  class ${mermaidId} noErrorStyle`);
+    } else {
+      lines.push(`  class ${mermaidId} stepStyle`);
+    }
+  }
+
+  // Style error nodes
+  if (opts.showErrorNodes) {
+    for (const error of errorFlow.allErrors) {
+      lines.push(`  class err_${sanitizeId(error)} errorStyle`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Sanitize a string for use as a Mermaid node ID.
+ */
+function sanitizeId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9_]/g, "_");
 }

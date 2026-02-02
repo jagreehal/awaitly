@@ -58,12 +58,13 @@ const result = await durable.run(
 When using the default in-memory store, workflow IDs must be unique within the process.
 :::
 
-To persist across restarts or share state across processes, pass a store (file/Postgres/Mongo…):
+To persist across restarts or share state across processes, pass a **SnapshotStore** (e.g. from `postgres()`, `mongo()`, or `libsql()`):
 
 ```typescript
-import { durable, createMemoryStatePersistence } from 'awaitly/durable';
+import { durable } from 'awaitly/durable';
+import { postgres } from 'awaitly-postgres';
 
-const store = createMemoryStatePersistence();
+const store = postgres('postgresql://localhost/mydb');
 
 const result = await durable.run(
   { fetchUser, createOrder, sendEmail },
@@ -88,82 +89,73 @@ IDs should be unique per workflow instance; don't run the same id concurrently u
 5. **On success**: Delete stored state (clean up)
 6. **On error/cancellation**: State remains for future resume
 
-## State Persistence Stores
+## Snapshot Stores
 
-### Memory Store (Testing/Development)
+Durable uses a **SnapshotStore** (`save`, `load`, `delete`, `list`, `close`). When you omit `store`, an in-memory store is used (per process).
+
+### In-memory (default)
+
+Omit `store` for testing or single-process usage. State is lost on restart.
 
 ```typescript
-import { createMemoryStatePersistence } from 'awaitly/durable';
-
-const store = createMemoryStatePersistence({
-  ttl: 60 * 60 * 1000, // 1 hour expiration (optional, milliseconds)
-});
+const result = await durable.run(deps, workflowFn, { id: 'checkout-123' });
 ```
 
-### File Store (Local Development)
+### PostgreSQL (production)
 
 ```typescript
-import { createFileStatePersistence } from 'awaitly/durable';
-import * as fs from 'node:fs/promises';
+import { postgres } from 'awaitly-postgres';
 
-const store = createFileStatePersistence({
-  directory: './workflow-state',
-  fs: {
-    readFile: (p) => fs.readFile(p, 'utf-8'),
-    writeFile: (p, data) => fs.writeFile(p, data, 'utf-8'),
-    unlink: (p) => fs.unlink(p),
-    exists: async (p) => fs.access(p).then(() => true).catch(() => false),
-    readdir: (p) => fs.readdir(p),
-    mkdir: (p, opts) => fs.mkdir(p, opts),
-  },
-});
-
-// Initialize directory before first use
-await store.init();
-```
-
-### PostgreSQL Store (Production)
-
-```typescript
-import { createPostgresPersistence } from 'awaitly-postgres';
-
-const store = await createPostgresPersistence({
-  connectionString: process.env.DATABASE_URL,
-});
+const store = postgres(process.env.DATABASE_URL!);
+const result = await durable.run(deps, workflowFn, { id: 'checkout-123', store });
 ```
 
 [Learn more about PostgreSQL persistence →](./postgres-persistence/)
 
-### MongoDB Store (Production)
+### MongoDB (production)
 
 ```typescript
-import { createMongoPersistence } from 'awaitly-mongo';
+import { mongo } from 'awaitly-mongo';
 
-const store = await createMongoPersistence({
-  connectionString: process.env.MONGODB_URI,
-});
+const store = mongo(process.env.MONGODB_URI!);
+const result = await durable.run(deps, workflowFn, { id: 'checkout-123', store });
 ```
 
 [Learn more about MongoDB persistence →](./mongo-persistence/)
 
-### Custom Store (Advanced)
-
-Implement the `StatePersistence` interface for other backends:
+### libSQL / SQLite (production)
 
 ```typescript
-import { createStatePersistence } from 'awaitly/persistence';
+import { libsql } from 'awaitly-libsql';
 
-const redisStore = createStatePersistence(
-  {
-    get: (key) => redis.get(key),
-    set: (key, value, opts) =>
-      redis.set(key, value, opts?.ttl ? { EX: opts.ttl } : undefined),
-    delete: (key) => redis.del(key).then((n) => n > 0),
-    exists: (key) => redis.exists(key).then((n) => n > 0),
-    keys: (pattern) => redis.keys(pattern),
+const store = libsql('file:./workflow.db');
+const result = await durable.run(deps, workflowFn, { id: 'checkout-123', store });
+```
+
+### Custom store
+
+Implement the **SnapshotStore** interface from `awaitly/persistence`:
+
+```typescript
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
+
+const store: SnapshotStore = {
+  async save(id, snapshot) {
+    await redis.set(id, JSON.stringify(snapshot));
   },
-  'workflow:state:'
-);
+  async load(id) {
+    const data = await redis.get(id);
+    return data ? JSON.parse(data) : null;
+  },
+  async delete(id) {
+    await redis.del(id);
+  },
+  async list(options) {
+    // Return { id, updatedAt }[] from your backend
+    return [];
+  },
+  async close() {},
+};
 ```
 
 ## Version Management
@@ -208,7 +200,7 @@ Without wrapping `durable.run` in your own logic, you can handle version mismatc
 
 - **`'throw'`** (default) – Return the `VersionMismatchError`.
 - **`'clear'`** – Delete state for this id and run from scratch in the same call.
-- **`{ migratedState }`** – Supply a `ResumeState` to use as the resume state (e.g. after migrating step keys or results).
+- **`{ migratedSnapshot }`** – Supply a `WorkflowSnapshot` to use as the resume state (e.g. after migrating step keys or results).
 
 ```typescript
 const result = await durable.run(deps, workflowFn, {
@@ -218,7 +210,7 @@ const result = await durable.run(deps, workflowFn, {
   onVersionMismatch: ({ id, storedVersion, requestedVersion }) => {
     // Clear and run from scratch
     return 'clear';
-    // Or: return 'throw'; or return { migratedState: yourMigratedResumeState };
+    // Or: return 'throw'; or return { migratedSnapshot: yourMigratedSnapshot };
   },
 });
 ```
@@ -415,7 +407,7 @@ await step(() => ok({ user, connection: dbConn }), { key: 'create' });
 
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
-import { durable, createMemoryStatePersistence, isWorkflowCancelled } from 'awaitly/durable';
+import { durable, isWorkflowCancelled } from 'awaitly/durable';
 
 // Define Result-returning functions
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
@@ -437,10 +429,7 @@ const sendConfirmation = async (order: Order): AsyncResult<void, 'EMAIL_FAILED'>
   }
 };
 
-// Create store
-const store = createMemoryStatePersistence();
-
-// Run durable workflow
+// Omit store for in-memory; for production use postgres() / mongo() / libsql()
 async function processCheckout(orderId: string, userId: string, items: Item[]) {
   const result = await durable.run(
     { fetchUser, createOrder, sendConfirmation },
@@ -452,7 +441,6 @@ async function processCheckout(orderId: string, userId: string, items: Item[]) {
     },
     {
       id: `checkout-${orderId}`,
-      store,
       version: 1,
       metadata: { userId, orderId },
     }

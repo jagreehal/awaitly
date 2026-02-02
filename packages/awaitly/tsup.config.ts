@@ -10,7 +10,7 @@ export default defineConfig({
     // =========================================================================
     core: 'src/core-entry.ts',
     run: 'src/run-entry.ts',
-    result: 'src/result.ts',
+    result: 'src/result/index.ts',
     workflow: 'src/workflow-entry.ts',
 
     // =========================================================================

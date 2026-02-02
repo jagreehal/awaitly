@@ -86,7 +86,8 @@ function countDecisionPointsInNode(node: StaticFlowNode): number {
 
   switch (node.type) {
     case "conditional":
-      // Each conditional adds a decision point
+    case "decision":
+      // Each conditional/decision adds a decision point
       count += 1;
       // Count decision points in branches
       for (const child of node.consequent) {
@@ -188,7 +189,8 @@ function calculateCognitiveForNode(
 
   switch (node.type) {
     case "conditional":
-      // +1 for the conditional, plus nesting penalty
+    case "decision":
+      // +1 for the conditional/decision, plus nesting penalty
       complexity += 1 + nestingDepth;
       // Process branches at increased nesting
       complexity += calculateCognitiveForNodes(
@@ -292,7 +294,8 @@ function calculatePathCount(nodes: StaticFlowNode[]): number | "unbounded" {
 
 function pathCountForNode(node: StaticFlowNode): number | "unbounded" {
   switch (node.type) {
-    case "conditional": {
+    case "conditional":
+    case "decision": {
       // Two paths: consequent and alternate
       const consequentPaths = pathCountForNodes(node.consequent);
       const alternatePaths = node.alternate
@@ -391,6 +394,7 @@ function depthOfNode(node: StaticFlowNode, currentDepth: number): number {
 
   switch (node.type) {
     case "conditional":
+    case "decision":
       for (const child of node.consequent) {
         maxChildDepth = Math.max(
           maxChildDepth,
@@ -506,6 +510,7 @@ function parallelBreadthOfNode(node: StaticFlowNode): number {
       break;
 
     case "conditional":
+    case "decision":
       for (const child of node.consequent) {
         maxBreadth = Math.max(maxBreadth, parallelBreadthOfNode(child));
       }

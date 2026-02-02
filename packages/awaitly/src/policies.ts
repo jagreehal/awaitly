@@ -57,7 +57,6 @@ export function mergePolicies(...policies: Policy[]): StepOptions {
   const result: StepOptions = {};
 
   for (const policy of policies) {
-    if (policy.name !== undefined) result.name = policy.name;
     if (policy.key !== undefined) result.key = policy.key;
 
     // Deep merge retry options
@@ -93,18 +92,19 @@ export function mergePolicies(...policies: Policy[]): StepOptions {
  *
  * // In workflow
  * const user = await step(
+ *   'fetch-user',
  *   () => fetchUser(id),
- *   applyPolicy({ name: 'fetch-user', key: 'user:' + id })
+ *   applyPolicy({ key: 'user:' + id })
  * );
  * ```
  */
 export function createPolicyApplier(
   ...basePolicies: Policy[]
-): (stepOptions?: StepOptions | string) => StepOptions {
+): (stepOptions?: StepOptions) => StepOptions {
   const basePolicy = mergePolicies(...basePolicies);
 
-  return (stepOptions?: StepOptions | string): StepOptions => {
-    const opts = typeof stepOptions === "string" ? { name: stepOptions } : (stepOptions ?? {});
+  return (stepOptions?: StepOptions): StepOptions => {
+    const opts = stepOptions ?? {};
     return mergePolicies(basePolicy, opts);
   };
 }
@@ -395,9 +395,9 @@ export interface WithPoliciesOptions {
  */
 export function withPolicy(
   policy: Policy,
-  stepOptions?: StepOptions | string
+  stepOptions?: StepOptions
 ): StepOptions {
-  const opts = typeof stepOptions === "string" ? { name: stepOptions } : (stepOptions ?? {});
+  const opts = stepOptions ?? {};
   return mergePolicies(policy, opts);
 }
 
@@ -411,16 +411,17 @@ export function withPolicy(
  * @example
  * ```typescript
  * const user = await step(
+ *   'fetch-user',
  *   () => fetchUser(id),
- *   withPolicies([timeoutPolicies.api, retryPolicies.standard], { name: 'fetch-user' })
+ *   withPolicies([timeoutPolicies.api, retryPolicies.standard])
  * );
  * ```
  */
 export function withPolicies(
   policies: Policy[],
-  stepOptions?: StepOptions | string
+  stepOptions?: StepOptions
 ): StepOptions {
-  const opts = typeof stepOptions === "string" ? { name: stepOptions } : (stepOptions ?? {});
+  const opts = stepOptions ?? {};
   return mergePolicies(...policies, opts);
 }
 
@@ -509,7 +510,7 @@ export interface PolicyRegistry {
   /**
    * Create step options using a registered policy.
    */
-  apply(policyName: string, stepOptions?: StepOptions | string): StepOptions;
+  apply(policyName: string, stepOptions?: StepOptions): StepOptions;
 }
 
 /**
@@ -527,8 +528,9 @@ export interface PolicyRegistry {
  *
  * // Use in workflow
  * const user = await step(
+ *   'fetch-user',
  *   () => fetchUser(id),
- *   registry.apply('api', { name: 'fetch-user' })
+ *   registry.apply('api')
  * );
  * ```
  */
@@ -552,7 +554,7 @@ export function createPolicyRegistry(): PolicyRegistry {
       return Array.from(policies.keys());
     },
 
-    apply(policyName: string, stepOptions?: StepOptions | string): StepOptions {
+    apply(policyName: string, stepOptions?: StepOptions): StepOptions {
       const policy = policies.get(policyName);
       if (!policy) {
         throw new Error(`Policy not found: ${policyName}`);
@@ -570,11 +572,6 @@ export function createPolicyRegistry(): PolicyRegistry {
  * Fluent builder for constructing step options.
  */
 export interface StepOptionsBuilder {
-  /**
-   * Set step name.
-   */
-  name(name: string): StepOptionsBuilder;
-
   /**
    * Set step key for caching.
    */
@@ -614,24 +611,18 @@ export interface StepOptionsBuilder {
  * @example
  * ```typescript
  * const options = stepOptions()
- *   .name('fetch-user')
  *   .key('user:123')
  *   .timeout(5000)
  *   .retries(3)
  *   .build();
  *
- * const user = await step(() => fetchUser(id), options);
+ * const user = await step('fetch-user', () => fetchUser(id), options);
  * ```
  */
 export function stepOptions(): StepOptionsBuilder {
   const policies: Policy[] = [];
 
   const builder: StepOptionsBuilder = {
-    name(name: string) {
-      policies.push({ name });
-      return builder;
-    },
-
     key(key: string) {
       policies.push({ key });
       return builder;

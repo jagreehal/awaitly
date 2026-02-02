@@ -2,197 +2,214 @@
  * awaitly-mongo
  *
  * MongoDB persistence adapter for awaitly workflows.
- * Provides ready-to-use StatePersistence backed by MongoDB.
+ * Provides ready-to-use SnapshotStore backed by MongoDB.
  */
 
-import type { Db } from "mongodb";
+import type { Db, MongoClientOptions } from "mongodb";
 import { MongoClient as MongoClientImpl } from "mongodb";
-import { MongoKeyValueStore, type MongoKeyValueStoreOptions } from "./mongo-store";
-import { createMongoLock } from "./mongo-lock";
-import {
-  createStatePersistence,
-  type StatePersistence,
-  type SerializedState,
-  type ListPageOptions,
-  type ListPageResult,
-} from "awaitly/persistence";
+import type { WorkflowSnapshot, SnapshotStore } from "awaitly/persistence";
 import type { WorkflowLock } from "awaitly/durable";
+import { createMongoLock, type MongoLockOptions } from "./mongo-lock";
+
+// Re-export types for convenience
+export type { SnapshotStore, WorkflowSnapshot } from "awaitly/persistence";
+export type { WorkflowLock } from "awaitly/durable";
+export type { MongoLockOptions } from "./mongo-lock";
+
+// =============================================================================
+// MongoOptions
+// =============================================================================
 
 /**
- * Options for cross-process locking (lease + owner token).
- * When set, the returned store implements WorkflowLock so only one process
- * runs a given workflow ID at a time (when durable.run allowConcurrent is false).
+ * Options for the mongo() shorthand function.
  */
-export interface MongoLockOptions {
-  /**
-   * Collection name for workflow locks.
-   * @default 'workflow_lock'
-   */
-  lockCollectionName?: string;
-}
-
-/**
- * Options for creating MongoDB persistence.
- */
-export interface MongoPersistenceOptions extends MongoKeyValueStoreOptions {
-  /**
-   * Key prefix for state entries.
-   * @default 'workflow:state:'
-   */
+export interface MongoOptions {
+  /** MongoDB connection URL. */
+  url: string;
+  /** Database name. @default 'awaitly' */
+  database?: string;
+  /** Collection name for snapshots. @default 'awaitly_snapshots' */
+  collection?: string;
+  /** Key prefix for IDs. @default '' */
   prefix?: string;
-
-  /**
-   * When set, the store implements WorkflowLock for cross-process concurrency control.
-   * Uses a lease (TTL) + owner token; release verifies the token.
-   */
+  /** Bring your own client. */
+  client?: MongoClientImpl;
+  /** MongoDB client options. */
+  clientOptions?: MongoClientOptions;
+  /** Cross-process lock options. When set, the store implements WorkflowLock. */
   lock?: MongoLockOptions;
 }
 
+// =============================================================================
+// mongo() - One-liner Snapshot Store Setup
+// =============================================================================
+
 /**
- * Create a StatePersistence instance backed by MongoDB.
- *
- * The collection is automatically created on first use with a TTL index.
- *
- * @param options - MongoDB connection and configuration options
- * @returns StatePersistence instance ready to use with durable.run()
+ * Create a snapshot store backed by MongoDB.
+ * This is the simplified one-liner API for workflow persistence.
  *
  * @example
  * ```typescript
- * import { createMongoPersistence } from 'awaitly-mongo';
- * import { durable } from 'awaitly/durable';
+ * import { mongo } from 'awaitly-mongo';
  *
- * const store = await createMongoPersistence({
- *   connectionString: process.env.MONGODB_URI,
- * });
+ * // One-liner setup
+ * const store = mongo('mongodb://localhost:27017/mydb');
  *
- * const result = await durable.run(
- *   { fetchUser, createOrder },
- *   async (step, { fetchUser, createOrder }) => {
- *     const user = await step(() => fetchUser('123'), { key: 'fetch-user' });
- *     const order = await step(() => createOrder(user), { key: 'create-order' });
- *     return order;
- *   },
- *   {
- *     id: 'checkout-123',
- *     store,
- *   }
- * );
+ * // Execute + persist
+ * const wf = createWorkflow(deps);
+ * await wf(myWorkflowFn);
+ * await store.save('wf-123', wf.getSnapshot());
+ *
+ * // Restore
+ * const snapshot = await store.load('wf-123');
+ * const wf2 = createWorkflow(deps, { snapshot });
+ * await wf2(myWorkflowFn);
  * ```
  *
  * @example
  * ```typescript
- * // Using individual connection options
- * const store = await createMongoPersistence({
- *   connectionString: 'mongodb://localhost:27017',
+ * // With options including cross-process locking
+ * const store = mongo({
+ *   url: 'mongodb://localhost:27017',
  *   database: 'myapp',
- *   collection: 'custom_workflow_state',
+ *   collection: 'my_workflow_snapshots',
+ *   prefix: 'orders:',
+ *   lock: { lockCollectionName: 'my_workflow_locks' },
  * });
  * ```
  */
-export type MongoStatePersistence = StatePersistence & {
-  loadRaw(runId: string): Promise<SerializedState | undefined>;
-  listPage(options?: ListPageOptions): Promise<ListPageResult>;
-  deleteMany(ids: string[]): Promise<number>;
-  clear(): Promise<void>;
-};
+export function mongo(urlOrOptions: string | MongoOptions): SnapshotStore & Partial<WorkflowLock> {
+  const opts = typeof urlOrOptions === "string" ? { url: urlOrOptions } : urlOrOptions;
+  const prefix = opts.prefix ?? "";
 
-export type MongoStatePersistenceWithLock = MongoStatePersistence & WorkflowLock;
+  // Parse database from URL if provided
+  let databaseName = opts.database;
+  const urlMatch = opts.url.match(/mongodb(?:\+srv)?:\/\/[^/]+\/([^?]+)/);
+  if (!databaseName && urlMatch && urlMatch[1]) {
+    databaseName = urlMatch[1];
+  }
+  databaseName = databaseName ?? "awaitly";
 
-function addListPageAndDeleteMany(
-  statePersistence: StatePersistence & {
-    loadRaw(runId: string): Promise<SerializedState | undefined>;
-  },
-  store: MongoKeyValueStore,
-  prefix: string | undefined
-): MongoStatePersistence {
-  const effectivePrefix = prefix ?? "workflow:state:";
-  const stripPrefix = (key: string): string => key.slice(effectivePrefix.length);
-  const prefixKey = (runId: string): string => `${effectivePrefix}${runId}`;
-  return Object.assign(statePersistence, {
-    async listPage(options: ListPageOptions = {}): Promise<ListPageResult> {
-      const { keys, total } = await store.listKeys(`${effectivePrefix}*`, options);
-      const ids = keys.map(stripPrefix);
-      const limit = Math.min(Math.max(0, options.limit ?? 100), 10_000);
-      const nextOffset =
-        ids.length === limit ? (options.offset ?? 0) + ids.length : undefined;
-      return { ids, total, nextOffset };
-    },
-    async deleteMany(ids: string[]): Promise<number> {
-      if (ids.length === 0) return 0;
-      const keys = ids.map(prefixKey);
-      return store.deleteMany(keys);
-    },
-    async clear(): Promise<void> {
-      return store.clear();
-    },
-  });
-}
+  const collectionName = opts.collection ?? "awaitly_snapshots";
 
-export async function createMongoPersistence(
-  options: MongoPersistenceOptions = {}
-): Promise<MongoStatePersistence | MongoStatePersistenceWithLock> {
-  const { prefix, lock: lockOptions, ...storeOptions } = options;
+  // Create or use existing client
+  const ownClient = !opts.client;
+  let client: MongoClientImpl | undefined = opts.client;
+  let db: Db | undefined;
+  let connected = false;
+  let lock: { tryAcquire: WorkflowLock["tryAcquire"]; release: WorkflowLock["release"] } | null = null;
 
-  if (lockOptions !== undefined) {
-    let db: Db;
-    if (storeOptions.existingDb) {
-      db = storeOptions.existingDb;
-    } else if (storeOptions.existingClient) {
-      db = storeOptions.existingClient.db(storeOptions.database ?? "awaitly");
-    } else {
-      const connectionString =
-        storeOptions.connectionString ?? "mongodb://localhost:27017";
-      const client = new MongoClientImpl(connectionString, {
-        directConnection: true,
-        ...storeOptions.clientOptions,
+  const ensureConnected = async (): Promise<Db> => {
+    if (db && connected) return db;
+
+    if (!client) {
+      client = new MongoClientImpl(opts.url, {
+        directConnection: !opts.url.includes("mongodb+srv://"),
+        ...opts.clientOptions,
       });
-      await client.connect();
-      let databaseName = storeOptions.database;
-      const urlMatch = connectionString.match(/mongodb:\/\/[^/]+\/([^?]+)/);
-      if (urlMatch && urlMatch[1]) {
-        databaseName = databaseName ?? urlMatch[1];
-      }
-      databaseName = databaseName ?? "awaitly";
-      db = client.db(databaseName);
-      storeOptions.existingClient = client;
-      storeOptions.database = databaseName;
     }
-    const store = new MongoKeyValueStore(storeOptions);
-    const statePersistence = createStatePersistence(store, prefix) as MongoStatePersistence;
-    const lock = createMongoLock(db, {
-      lockCollectionName: lockOptions.lockCollectionName,
+
+    await client.connect();
+    connected = true;
+    db = client.db(databaseName);
+
+    // Create index on updatedAt for list queries
+    const collection = db.collection(collectionName);
+    await collection.createIndex({ updatedAt: -1 }, { background: true }).catch(() => {
+      // Index may already exist, ignore error
     });
-    return Object.assign(addListPageAndDeleteMany(statePersistence, store, prefix), {
-      tryAcquire: lock.tryAcquire.bind(lock),
-      release: lock.release.bind(lock),
-    });
+
+    // Create lock if requested
+    if (opts.lock && !lock) {
+      lock = createMongoLock(db, opts.lock);
+    }
+
+    return db;
+  };
+
+  const store: SnapshotStore & Partial<WorkflowLock> = {
+    async save(id: string, snapshot: WorkflowSnapshot): Promise<void> {
+      const db = await ensureConnected();
+      const collection = db.collection(collectionName);
+      const fullId = prefix + id;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await collection.updateOne(
+        { _id: fullId } as any,
+        {
+          $set: {
+            snapshot,
+            updatedAt: new Date(),
+          },
+        },
+        { upsert: true }
+      );
+    },
+
+    async load(id: string): Promise<WorkflowSnapshot | null> {
+      const db = await ensureConnected();
+      const collection = db.collection(collectionName);
+      const fullId = prefix + id;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const doc = await collection.findOne({ _id: fullId } as any);
+      if (!doc) return null;
+      return doc.snapshot as WorkflowSnapshot;
+    },
+
+    async delete(id: string): Promise<void> {
+      const db = await ensureConnected();
+      const collection = db.collection(collectionName);
+      const fullId = prefix + id;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await collection.deleteOne({ _id: fullId } as any);
+    },
+
+    async list(options?: { prefix?: string; limit?: number }): Promise<Array<{ id: string; updatedAt: string }>> {
+      const db = await ensureConnected();
+      const collection = db.collection(collectionName);
+      const filterPrefix = prefix + (options?.prefix ?? "");
+      const limit = options?.limit ?? 100;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cursor = collection
+        .find({ _id: { $regex: `^${filterPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}` } } as any)
+        .sort({ updatedAt: -1 })
+        .limit(limit);
+
+      const docs = await cursor.toArray();
+      return docs.map(doc => ({
+        id: String(doc._id).slice(prefix.length),
+        updatedAt: (doc.updatedAt as Date).toISOString(),
+      }));
+    },
+
+    async close(): Promise<void> {
+      // Only close client if we created it
+      if (ownClient && client) {
+        await client.close();
+        connected = false;
+        db = undefined;
+      }
+    },
+
+    // Lock methods are added dynamically below after first connection
+    async tryAcquire(id: string, options?: { ttlMs?: number }): Promise<{ ownerToken: string } | null> {
+      await ensureConnected();
+      if (!lock) return null;
+      return lock.tryAcquire(id, options);
+    },
+
+    async release(id: string, ownerToken: string): Promise<void> {
+      await ensureConnected();
+      if (!lock) return;
+      return lock.release(id, ownerToken);
+    },
+  };
+
+  // Only include lock methods if lock is configured
+  if (!opts.lock) {
+    delete store.tryAcquire;
+    delete store.release;
   }
 
-  const store = new MongoKeyValueStore(storeOptions);
-  const base = createStatePersistence(store, prefix);
-  return addListPageAndDeleteMany(
-    base as StatePersistence & {
-      loadRaw(runId: string): Promise<SerializedState | undefined>;
-    },
-    store,
-    prefix
-  );
+  return store;
 }
-
-/**
- * MongoDB KeyValueStore implementation.
- * Use this directly if you need more control over the store.
- *
- * @example
- * ```typescript
- * import { MongoKeyValueStore } from 'awaitly-mongo';
- * import { createStatePersistence } from 'awaitly/persistence';
- *
- * const store = new MongoKeyValueStore({
- *   connectionString: process.env.MONGODB_URI,
- * });
- *
- * const persistence = createStatePersistence(store, 'custom:prefix:');
- * ```
- */
-export { MongoKeyValueStore, type MongoKeyValueStoreOptions };

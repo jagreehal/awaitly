@@ -5,7 +5,8 @@
  * Handles only Slack-specific message formatting and API calls.
  */
 
-import { ok, err, type Result, type AsyncResult } from "awaitly";
+import { WebClient } from "@slack/web-api";
+import { ok, err, type AsyncResult } from "awaitly";
 import type { NotifierAdapter, NotifierContext } from "../adapter";
 import type { WorkflowIR } from "../../types";
 import type { WorkflowStatus } from "../types";
@@ -119,8 +120,6 @@ export function createSlackAdapter(
     if (client) return ok(client);
 
     try {
-      // Dynamic import to avoid bundling @slack/web-api when not used
-      const { WebClient } = await import("@slack/web-api");
       client = new WebClient(token) as unknown as SlackWebApi;
       return ok(client);
     } catch {
@@ -129,7 +128,7 @@ export function createSlackAdapter(
   }
 
   // Store the title for use in sendNew/sendUpdate
-  let currentTitle: string = "Workflow";
+  let _currentTitle: string = "Workflow";
 
   return {
     name: "Slack",
@@ -143,7 +142,7 @@ export function createSlackAdapter(
       ctx: NotifierContext
     ): SlackMessage {
       // Store title for use in API calls
-      currentTitle = title;
+      _currentTitle = title;
 
       const emoji = STATUS_EMOJIS[status];
       const blocks: SlackBlock[] = [

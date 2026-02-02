@@ -2,170 +2,180 @@
  * awaitly-libsql
  *
  * libSQL / SQLite persistence adapter for awaitly workflows.
- * Provides ready-to-use StatePersistence backed by libSQL.
+ * Provides ready-to-use SnapshotStore backed by libSQL.
  */
 
-import { createClient } from "@libsql/client";
-import { LibSqlKeyValueStore, type LibSqlKeyValueStoreOptions } from "./libsql-store";
-import { createLibSqlLock, type LibSqlLockOptions } from "./libsql-lock";
-import {
-  createStatePersistence,
-  type StatePersistence,
-  type SerializedState,
-  type ListPageOptions,
-  type ListPageResult,
-} from "awaitly/persistence";
+import { createClient, type Client } from "@libsql/client";
+import type { WorkflowSnapshot, SnapshotStore } from "awaitly/persistence";
 import type { WorkflowLock } from "awaitly/durable";
+import { createLibSqlLock, type LibSqlLockOptions } from "./libsql-lock";
 
-/**
- * Options for cross-process locking (lease + owner token).
- * When set, the returned store implements WorkflowLock so only one process
- * runs a given workflow ID at a time (when durable.run allowConcurrent is false).
- */
+// Re-export types for convenience
+export type { SnapshotStore, WorkflowSnapshot } from "awaitly/persistence";
+export type { WorkflowLock } from "awaitly/durable";
 export type { LibSqlLockOptions } from "./libsql-lock";
 
-/**
- * Options for creating libSQL persistence.
- */
-export interface LibSqlPersistenceOptions extends LibSqlKeyValueStoreOptions {
-  /**
-   * Key prefix for state entries.
-   * @default "workflow:state:"
-   */
-  prefix?: string;
+// =============================================================================
+// LibSqlOptions
+// =============================================================================
 
-  /**
-   * When set, the store implements WorkflowLock for cross-process concurrency control.
-   * Uses a lease (TTL) + owner token; release verifies the token.
-   */
+/**
+ * Options for the libsql() shorthand function.
+ */
+export interface LibSqlOptions {
+  /** libSQL connection URL (file: for local, https: for Turso). */
+  url: string;
+  /** Auth token for remote Turso instances. */
+  authToken?: string;
+  /** Table name for snapshots. @default 'awaitly_snapshots' */
+  table?: string;
+  /** Key prefix for IDs. @default '' */
+  prefix?: string;
+  /** Bring your own client. */
+  client?: Client;
+  /** Cross-process lock options. When set, the store implements WorkflowLock. */
   lock?: LibSqlLockOptions;
 }
 
+// =============================================================================
+// libsql() - One-liner Snapshot Store Setup
+// =============================================================================
+
 /**
- * Create a StatePersistence instance backed by libSQL / SQLite.
- *
- * The table is automatically created on first use.
- *
- * @param options - libSQL connection and configuration options
- * @returns StatePersistence instance ready to use with durable.run()
+ * Create a snapshot store backed by libSQL / SQLite.
+ * This is the simplified one-liner API for workflow persistence.
  *
  * @example
  * ```typescript
- * import { createLibSqlPersistence } from "awaitly-libsql";
- * import { durable } from "awaitly/durable";
+ * import { libsql } from 'awaitly-libsql';
  *
- * const store = await createLibSqlPersistence({
- *   url: "file:./awaitly.db",
- * });
+ * // One-liner setup (local SQLite)
+ * const store = libsql('file:./workflow.db');
  *
- * const result = await durable.run(
- *   { fetchUser, createOrder },
- *   async (step, { fetchUser, createOrder }) => {
- *     const user = await step(() => fetchUser("123"), { key: "fetch-user" });
- *     const order = await step(() => createOrder(user), { key: "create-order" });
- *     return order;
- *   },
- *   {
- *     id: "checkout-123",
- *     store,
- *   }
- * );
+ * // Execute + persist
+ * const wf = createWorkflow(deps);
+ * await wf(myWorkflowFn);
+ * await store.save('wf-123', wf.getSnapshot());
+ *
+ * // Restore
+ * const snapshot = await store.load('wf-123');
+ * const wf2 = createWorkflow(deps, { snapshot });
+ * await wf2(myWorkflowFn);
  * ```
  *
  * @example
  * ```typescript
- * // Using remote Turso (libSQL) instance
- * const store = await createLibSqlPersistence({
- *   url: process.env.LIBSQL_URL!,
- *   authToken: process.env.LIBSQL_AUTH_TOKEN,
- *   tableName: "awaitly_workflow_state",
+ * // With remote Turso and cross-process locking
+ * const store = libsql({
+ *   url: process.env.TURSO_URL!,
+ *   authToken: process.env.TURSO_AUTH_TOKEN,
+ *   table: 'my_workflow_snapshots',
+ *   prefix: 'orders:',
+ *   lock: { lockTableName: 'my_workflow_locks' },
  * });
  * ```
  */
-export type LibSqlStatePersistence = StatePersistence & {
-  loadRaw(runId: string): Promise<SerializedState | undefined>;
-  listPage(options?: ListPageOptions): Promise<ListPageResult>;
-  deleteMany(ids: string[]): Promise<number>;
-  clear(): Promise<void>;
-};
+export function libsql(urlOrOptions: string | LibSqlOptions): SnapshotStore & Partial<WorkflowLock> {
+  const opts = typeof urlOrOptions === "string" ? { url: urlOrOptions } : urlOrOptions;
+  const tableName = opts.table ?? "awaitly_snapshots";
+  const prefix = opts.prefix ?? "";
 
-export type LibSqlStatePersistenceWithLock = LibSqlStatePersistence & WorkflowLock;
-
-export async function createLibSqlPersistence(
-  options: LibSqlPersistenceOptions = {}
-): Promise<LibSqlStatePersistence | LibSqlStatePersistenceWithLock> {
-  const { prefix, lock: lockOptions, ...storeOptions } = options;
-
-  const effectivePrefix = prefix ?? "workflow:state:";
-  const stripPrefix = (key: string): string => key.slice(effectivePrefix.length);
-  const prefixKey = (runId: string): string => `${effectivePrefix}${runId}`;
-
-  const addExtensions = (
-    base: StatePersistence & { loadRaw(runId: string): Promise<SerializedState | undefined> },
-    store: LibSqlKeyValueStore
-  ): LibSqlStatePersistence =>
-    Object.assign(base, {
-      async listPage(options: ListPageOptions = {}): Promise<ListPageResult> {
-        const { keys, total } = await store.listKeys(`${effectivePrefix}*`, options);
-        const ids = keys.map(stripPrefix);
-        const limit = Math.min(Math.max(0, options.limit ?? 100), 10_000);
-        const nextOffset =
-          ids.length === limit ? (options.offset ?? 0) + ids.length : undefined;
-        return { ids, total, nextOffset };
-      },
-      async deleteMany(ids: string[]): Promise<number> {
-        if (ids.length === 0) return 0;
-        const keys = ids.map(prefixKey);
-        return store.deleteMany(keys);
-      },
-      async clear(): Promise<void> {
-        return store.clear();
-      },
-    });
-
-  if (lockOptions !== undefined) {
-    const client =
-      storeOptions.client ??
-      createClient({
-        url: storeOptions.url ?? "file:./awaitly.db",
-        authToken: storeOptions.authToken,
-      });
-    const store = new LibSqlKeyValueStore({ ...storeOptions, client });
-    const base = createStatePersistence(store, prefix) as LibSqlStatePersistence;
-    const persistence = addExtensions(
-      base as StatePersistence & { loadRaw(runId: string): Promise<SerializedState | undefined> },
-      store
-    );
-    const lock = createLibSqlLock(client, lockOptions);
-    return Object.assign(persistence, {
-      tryAcquire: lock.tryAcquire.bind(lock),
-      release: lock.release.bind(lock),
-    });
+  // Validate table name for SQL injection prevention
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
+    throw new Error(`Invalid table name: ${tableName}. Must be alphanumeric with underscores.`);
   }
 
-  const store = new LibSqlKeyValueStore(storeOptions);
-  const base = createStatePersistence(store, prefix);
-  return addExtensions(
-    base as StatePersistence & { loadRaw(runId: string): Promise<SerializedState | undefined> },
-    store
-  );
+  // Create or use existing client
+  const ownClient = !opts.client;
+  const client = opts.client ?? createClient({
+    url: opts.url,
+    authToken: opts.authToken,
+  });
+
+  let tableCreated = false;
+
+  // Create lock if requested
+  const lock = opts.lock ? createLibSqlLock(client, opts.lock) : null;
+
+  const ensureTable = async (): Promise<void> => {
+    if (tableCreated) return;
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS ${tableName} (
+        id TEXT PRIMARY KEY,
+        snapshot TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+    await client.execute(`
+      CREATE INDEX IF NOT EXISTS ${tableName}_updated_at_idx ON ${tableName} (updated_at DESC)
+    `);
+    tableCreated = true;
+  };
+
+  const store: SnapshotStore & Partial<WorkflowLock> = {
+    async save(id: string, snapshot: WorkflowSnapshot): Promise<void> {
+      await ensureTable();
+      const fullId = prefix + id;
+      await client.execute({
+        sql: `INSERT INTO ${tableName} (id, snapshot, updated_at)
+              VALUES (?, ?, datetime('now'))
+              ON CONFLICT(id) DO UPDATE SET snapshot = ?, updated_at = datetime('now')`,
+        args: [fullId, JSON.stringify(snapshot), JSON.stringify(snapshot)],
+      });
+    },
+
+    async load(id: string): Promise<WorkflowSnapshot | null> {
+      await ensureTable();
+      const fullId = prefix + id;
+      const result = await client.execute({
+        sql: `SELECT snapshot FROM ${tableName} WHERE id = ?`,
+        args: [fullId],
+      });
+      if (result.rows.length === 0) return null;
+      return JSON.parse(result.rows[0].snapshot as string) as WorkflowSnapshot;
+    },
+
+    async delete(id: string): Promise<void> {
+      await ensureTable();
+      const fullId = prefix + id;
+      await client.execute({
+        sql: `DELETE FROM ${tableName} WHERE id = ?`,
+        args: [fullId],
+      });
+    },
+
+    async list(options?: { prefix?: string; limit?: number }): Promise<Array<{ id: string; updatedAt: string }>> {
+      await ensureTable();
+      const filterPrefix = prefix + (options?.prefix ?? "");
+      const limit = options?.limit ?? 100;
+
+      const result = await client.execute({
+        sql: `SELECT id, updated_at FROM ${tableName}
+              WHERE id LIKE ?
+              ORDER BY updated_at DESC
+              LIMIT ?`,
+        args: [filterPrefix + "%", limit],
+      });
+
+      return result.rows.map(row => ({
+        id: (row.id as string).slice(prefix.length),
+        updatedAt: row.updated_at as string,
+      }));
+    },
+
+    async close(): Promise<void> {
+      // Only close client if we created it
+      if (ownClient) {
+        client.close();
+      }
+    },
+  };
+
+  // Add lock methods if lock is configured
+  if (lock) {
+    store.tryAcquire = lock.tryAcquire.bind(lock);
+    store.release = lock.release.bind(lock);
+  }
+
+  return store;
 }
-
-/**
- * libSQL KeyValueStore implementation.
- * Use this directly if you need more control over the store.
- *
- * @example
- * ```typescript
- * import { LibSqlKeyValueStore } from "awaitly-libsql";
- * import { createStatePersistence } from "awaitly/persistence";
- *
- * const store = new LibSqlKeyValueStore({
- *   url: "file:./awaitly.db",
- * });
- *
- * const persistence = createStatePersistence(store, "custom:prefix:");
- * ```
- */
-export { LibSqlKeyValueStore, type LibSqlKeyValueStoreOptions };
-

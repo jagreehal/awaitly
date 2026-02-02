@@ -298,6 +298,7 @@ function getChildren(node: StaticFlowNode): StaticFlowNode[] {
     case "race":
       return node.children;
     case "conditional":
+    case "decision":
       return [...node.consequent, ...(node.alternate ?? [])];
     case "switch":
       return node.cases.flatMap((c) => c.body);

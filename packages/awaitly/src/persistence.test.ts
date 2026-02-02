@@ -1,259 +1,24 @@
 import { describe, it, expect, vi } from "vitest";
 import {
-  serializeCause,
-  deserializeCause,
-  serializeResult,
-  deserializeResult,
-  serializeMeta,
-  deserializeMeta,
-  serializeState,
-  deserializeState,
-  stringifyState,
-  parseState,
   createMemoryCache,
-  createFileCache,
-  createKVCache,
-  createStatePersistence,
-  createHydratingCache,
+  // Snapshot API
+  looksLikeWorkflowSnapshot,
+  validateSnapshot,
+  assertValidSnapshot,
+  mergeSnapshots,
+  serializeError,
+  serializeThrown,
+  deserializeCauseNew,
+  SnapshotFormatError,
+  SnapshotMismatchError,
+  SnapshotDecodeError,
+  type WorkflowSnapshot,
+  type StepResult,
+  type SerializedCause,
 } from "./persistence";
-import { ok, err } from "./core";
-import type { ResumeState } from "./workflow";
-import type { StepFailureMeta } from "./core";
+import { ok } from "./core";
 
 describe("Persistence", () => {
-  describe("serializeCause / deserializeCause", () => {
-    it("should serialize undefined cause", () => {
-      const serialized = serializeCause(undefined);
-      expect(serialized.type).toBe("undefined");
-
-      const deserialized = deserializeCause(serialized);
-      expect(deserialized).toBeUndefined();
-    });
-
-    it("should serialize Error objects", () => {
-      const error = new Error("Something went wrong");
-      error.name = "CustomError";
-
-      const serialized = serializeCause(error);
-      expect(serialized.type).toBe("error");
-      expect(serialized.errorName).toBe("CustomError");
-      expect(serialized.errorMessage).toBe("Something went wrong");
-      expect(serialized.errorStack).toBeDefined();
-
-      const deserialized = deserializeCause(serialized) as Error;
-      expect(deserialized).toBeInstanceOf(Error);
-      expect(deserialized.name).toBe("CustomError");
-      expect(deserialized.message).toBe("Something went wrong");
-    });
-
-    it("should serialize primitive values", () => {
-      const serialized = serializeCause("simple error");
-      expect(serialized.type).toBe("value");
-      expect(serialized.value).toBe("simple error");
-
-      const deserialized = deserializeCause(serialized);
-      expect(deserialized).toBe("simple error");
-    });
-
-    it("should serialize objects", () => {
-      const cause = { code: "NOT_FOUND", id: "123" };
-
-      const serialized = serializeCause(cause);
-      expect(serialized.type).toBe("value");
-      expect(serialized.value).toEqual(cause);
-
-      const deserialized = deserializeCause(serialized);
-      expect(deserialized).toEqual(cause);
-    });
-
-    it("should handle non-serializable values", () => {
-      const circular: Record<string, unknown> = {};
-      circular.self = circular;
-
-      const serialized = serializeCause(circular);
-      expect(serialized.type).toBe("value");
-      // Should convert to string representation
-      expect(typeof serialized.value).toBe("string");
-    });
-  });
-
-  describe("serializeResult / deserializeResult", () => {
-    it("should serialize ok result", () => {
-      const result = ok({ id: "1", name: "Alice" });
-
-      const serialized = serializeResult(result);
-      expect(serialized.ok).toBe(true);
-      expect(serialized.value).toEqual({ id: "1", name: "Alice" });
-      expect(serialized.error).toBeUndefined();
-
-      const deserialized = deserializeResult(serialized);
-      expect(deserialized.ok).toBe(true);
-      if (deserialized.ok) {
-        expect(deserialized.value).toEqual({ id: "1", name: "Alice" });
-      }
-    });
-
-    it("should serialize err result without cause", () => {
-      const result = err({ code: "NOT_FOUND", userId: "123" });
-
-      const serialized = serializeResult(result);
-      expect(serialized.ok).toBe(false);
-      expect(serialized.error).toEqual({ code: "NOT_FOUND", userId: "123" });
-      expect(serialized.cause).toBeUndefined();
-
-      const deserialized = deserializeResult(serialized);
-      expect(deserialized.ok).toBe(false);
-      if (!deserialized.ok) {
-        expect(deserialized.error).toEqual({ code: "NOT_FOUND", userId: "123" });
-      }
-    });
-
-    it("should serialize err result with cause", () => {
-      const cause = new Error("Database connection failed");
-      const result = err({ code: "DB_ERROR" }, { cause });
-
-      const serialized = serializeResult(result);
-      expect(serialized.ok).toBe(false);
-      expect(serialized.cause).toBeDefined();
-      expect(serialized.cause?.type).toBe("error");
-
-      const deserialized = deserializeResult(serialized);
-      expect(deserialized.ok).toBe(false);
-      if (!deserialized.ok) {
-        expect(deserialized.cause).toBeInstanceOf(Error);
-      }
-    });
-  });
-
-  describe("serializeMeta / deserializeMeta", () => {
-    it("should serialize result origin meta", () => {
-      const meta: StepFailureMeta = {
-        origin: "result",
-        resultCause: new Error("Original error"),
-      };
-
-      const serialized = serializeMeta(meta);
-      expect(serialized.origin).toBe("result");
-      expect(serialized.resultCause).toBeDefined();
-      expect(serialized.resultCause?.type).toBe("error");
-
-      const deserialized = deserializeMeta(serialized);
-      expect(deserialized.origin).toBe("result");
-      expect(deserialized.resultCause).toBeInstanceOf(Error);
-    });
-
-    it("should serialize throw origin meta", () => {
-      const meta: StepFailureMeta = {
-        origin: "throw",
-        thrown: new Error("Thrown error"),
-      };
-
-      const serialized = serializeMeta(meta);
-      expect(serialized.origin).toBe("throw");
-      expect(serialized.thrown).toBeDefined();
-      expect(serialized.thrown?.type).toBe("error");
-
-      const deserialized = deserializeMeta(serialized);
-      expect(deserialized.origin).toBe("throw");
-      expect(deserialized.thrown).toBeInstanceOf(Error);
-    });
-
-    it("should handle undefined result cause", () => {
-      const meta: StepFailureMeta = {
-        origin: "result",
-        resultCause: undefined,
-      };
-
-      const serialized = serializeMeta(meta);
-      expect(serialized.resultCause).toBeUndefined();
-
-      const deserialized = deserializeMeta(serialized);
-      expect(deserialized.resultCause).toBeUndefined();
-    });
-  });
-
-  describe("serializeState / deserializeState", () => {
-    it("should serialize ResumeState", () => {
-      const state: ResumeState = {
-        steps: new Map([
-          ["user:1", { result: ok({ id: "1", name: "Alice" }) }],
-          ["payment:1", { result: ok({ transactionId: "tx-123" }) }],
-        ]),
-      };
-
-      const serialized = serializeState(state, { workflowId: "wf-1" });
-      expect(serialized.version).toBe(1);
-      expect(serialized.metadata).toEqual({ workflowId: "wf-1" });
-      expect(serialized.entries["user:1"]).toBeDefined();
-      expect(serialized.entries["payment:1"]).toBeDefined();
-
-      const deserialized = deserializeState(serialized);
-      expect(deserialized.steps.size).toBe(2);
-      expect(deserialized.steps.get("user:1")?.result.ok).toBe(true);
-    });
-
-    it("should serialize state with error results", () => {
-      const state: ResumeState = {
-        steps: new Map([
-          ["user:1", { result: err({ code: "NOT_FOUND" }) }],
-        ]),
-      };
-
-      const serialized = serializeState(state);
-      const deserialized = deserializeState(serialized);
-
-      const entry = deserialized.steps.get("user:1");
-      expect(entry?.result.ok).toBe(false);
-      if (!entry?.result.ok) {
-        expect(entry.result.error).toEqual({ code: "NOT_FOUND" });
-      }
-    });
-
-    it("should serialize state with meta", () => {
-      const state: ResumeState = {
-        steps: new Map([
-          [
-            "user:1",
-            {
-              result: err({ code: "NOT_FOUND" }),
-              meta: { origin: "throw", thrown: new Error("User fetch failed") },
-            },
-          ],
-        ]),
-      };
-
-      const serialized = serializeState(state);
-      const deserialized = deserializeState(serialized);
-
-      const entry = deserialized.steps.get("user:1");
-      expect(entry?.meta?.origin).toBe("throw");
-      expect(entry?.meta?.thrown).toBeInstanceOf(Error);
-    });
-  });
-
-  describe("stringifyState / parseState", () => {
-    it("should round-trip state through JSON", () => {
-      const state: ResumeState = {
-        steps: new Map([
-          ["user:1", { result: ok({ id: "1", name: "Alice" }) }],
-          ["payment:1", { result: err({ code: "PAYMENT_FAILED" }) }],
-        ]),
-      };
-
-      const json = stringifyState(state, { workflowId: "wf-1" });
-      expect(typeof json).toBe("string");
-
-      const parsed = parseState(json);
-      expect(parsed.steps.size).toBe(2);
-
-      const userEntry = parsed.steps.get("user:1");
-      expect(userEntry?.result.ok).toBe(true);
-      if (userEntry?.result.ok) {
-        expect(userEntry.result.value).toEqual({ id: "1", name: "Alice" });
-      }
-    });
-  });
-
   describe("createMemoryCache", () => {
     it("should create a basic cache", () => {
       const cache = createMemoryCache();
@@ -431,362 +196,577 @@ describe("Persistence", () => {
     });
   });
 
-  describe("createFileCache", () => {
-    it("should require fs interface", () => {
-      expect(() => createFileCache({ directory: "/tmp/cache" })).toThrow(
-        "File system interface is required"
-      );
-    });
+  // =============================================================================
+  // Snapshot API Tests
+  // =============================================================================
 
-    it("should create a cache with fs interface", async () => {
-      const mockFs = {
-        readFile: vi.fn(),
-        writeFile: vi.fn(),
-        unlink: vi.fn(),
-        exists: vi.fn().mockResolvedValue(false),
-        readdir: vi.fn().mockResolvedValue([]),
-        mkdir: vi.fn().mockResolvedValue(undefined),
-      };
-
-      const cache = createFileCache({
-        directory: "/tmp/cache",
-        fs: mockFs,
+  describe("WorkflowSnapshot validation", () => {
+    describe("looksLikeWorkflowSnapshot", () => {
+      it("should return true for valid snapshots", () => {
+        const snapshot: WorkflowSnapshot = {
+          formatVersion: 1,
+          steps: {},
+          execution: {
+            status: "running",
+            lastUpdated: new Date().toISOString(),
+          },
+        };
+        expect(looksLikeWorkflowSnapshot(snapshot)).toBe(true);
       });
 
-      await cache.init();
-      expect(mockFs.mkdir).toHaveBeenCalledWith("/tmp/cache", { recursive: true });
-    });
-
-    it("should use memory cache for sync operations", () => {
-      const mockFs = {
-        readFile: vi.fn(),
-        writeFile: vi.fn(),
-        unlink: vi.fn(),
-        exists: vi.fn(),
-        readdir: vi.fn(),
-        mkdir: vi.fn(),
-      };
-
-      const cache = createFileCache({
-        directory: "/tmp/cache",
-        fs: mockFs,
+      it("should return false for null", () => {
+        expect(looksLikeWorkflowSnapshot(null)).toBe(false);
       });
 
-      // Sync operations use memory cache
-      cache.set("key1", ok("value1"));
-      expect(cache.has("key1")).toBe(true);
-
-      const result = cache.get("key1");
-      expect(result?.ok).toBe(true);
-    });
-
-    it("should support async operations", async () => {
-      const mockFs = {
-        readFile: vi.fn().mockResolvedValue(JSON.stringify({ ok: true, value: "stored" })),
-        writeFile: vi.fn().mockResolvedValue(undefined),
-        unlink: vi.fn().mockResolvedValue(undefined),
-        exists: vi.fn().mockResolvedValue(true),
-        readdir: vi.fn().mockResolvedValue(["key1.json"]),
-        mkdir: vi.fn().mockResolvedValue(undefined),
-      };
-
-      const cache = createFileCache({
-        directory: "/tmp/cache",
-        fs: mockFs,
+      it("should return false for undefined", () => {
+        expect(looksLikeWorkflowSnapshot(undefined)).toBe(false);
       });
 
-      // Async get
-      const result = await cache.getAsync("key1");
-      expect(result?.ok).toBe(true);
-      expect(mockFs.readFile).toHaveBeenCalled();
-
-      // Async set
-      await cache.setAsync("key2", ok("value2"));
-      expect(mockFs.writeFile).toHaveBeenCalled();
-
-      // Async delete
-      await cache.deleteAsync("key1");
-      expect(mockFs.unlink).toHaveBeenCalled();
-
-      // Async clear
-      await cache.clearAsync();
-      expect(mockFs.readdir).toHaveBeenCalled();
-    });
-
-    it("should sanitize keys for file paths", async () => {
-      const mockFs = {
-        readFile: vi.fn(),
-        writeFile: vi.fn().mockResolvedValue(undefined),
-        unlink: vi.fn(),
-        exists: vi.fn(),
-        readdir: vi.fn(),
-        mkdir: vi.fn(),
-      };
-
-      const cache = createFileCache({
-        directory: "/tmp/cache",
-        fs: mockFs,
+      it("should return false for non-objects", () => {
+        expect(looksLikeWorkflowSnapshot("string")).toBe(false);
+        expect(looksLikeWorkflowSnapshot(123)).toBe(false);
+        expect(looksLikeWorkflowSnapshot(true)).toBe(false);
       });
 
-      await cache.setAsync("user:1/special", ok("value"));
+      it("should return false for missing formatVersion", () => {
+        expect(looksLikeWorkflowSnapshot({ steps: {} })).toBe(false);
+      });
 
-      // The key should be sanitized
-      expect(mockFs.writeFile).toHaveBeenCalledWith(
-        expect.stringMatching(/user_1_special\.json$/),
-        expect.any(String)
-      );
+      it("should return false for wrong formatVersion", () => {
+        expect(looksLikeWorkflowSnapshot({ formatVersion: 2, steps: {} })).toBe(false);
+      });
+
+      it("should return false for missing steps", () => {
+        expect(looksLikeWorkflowSnapshot({ formatVersion: 1 })).toBe(false);
+      });
+    });
+
+    describe("validateSnapshot", () => {
+      it("should return valid for correct snapshot", () => {
+        const snapshot: WorkflowSnapshot = {
+          formatVersion: 1,
+          steps: {
+            "step-1": { ok: true, value: "result" },
+          },
+          execution: {
+            status: "completed",
+            lastUpdated: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+          },
+        };
+        const result = validateSnapshot(snapshot);
+        expect(result.valid).toBe(true);
+        if (result.valid) {
+          expect(result.snapshot).toEqual(snapshot);
+        }
+      });
+
+      it("should return errors for invalid structure", () => {
+        const result = validateSnapshot({ invalid: true });
+        expect(result.valid).toBe(false);
+        if (!result.valid) {
+          expect(result.errors.length).toBeGreaterThan(0);
+        }
+      });
+
+      it("should return errors for null", () => {
+        const result = validateSnapshot(null);
+        expect(result.valid).toBe(false);
+      });
+
+      it("should return errors for wrong formatVersion", () => {
+        const result = validateSnapshot({
+          formatVersion: 99,
+          steps: {},
+          execution: { status: "running", lastUpdated: new Date().toISOString() },
+        });
+        expect(result.valid).toBe(false);
+        if (!result.valid) {
+          expect(result.errors.some(e => e.includes("formatVersion"))).toBe(true);
+        }
+      });
+
+      it("should return errors for invalid step result", () => {
+        const result = validateSnapshot({
+          formatVersion: 1,
+          steps: {
+            "step-1": { invalid: true },
+          },
+          execution: { status: "running", lastUpdated: new Date().toISOString() },
+        });
+        expect(result.valid).toBe(false);
+        if (!result.valid) {
+          expect(result.errors.some(e => e.includes("step-1"))).toBe(true);
+        }
+      });
+    });
+
+    describe("assertValidSnapshot", () => {
+      it("should return snapshot for valid input", () => {
+        const snapshot: WorkflowSnapshot = {
+          formatVersion: 1,
+          steps: {},
+          execution: {
+            status: "running",
+            lastUpdated: new Date().toISOString(),
+          },
+        };
+        const result = assertValidSnapshot(snapshot);
+        expect(result).toEqual(snapshot);
+      });
+
+      it("should throw SnapshotFormatError for invalid input", () => {
+        expect(() => assertValidSnapshot({ invalid: true })).toThrow(SnapshotFormatError);
+      });
+
+      it("should throw SnapshotFormatError for null", () => {
+        expect(() => assertValidSnapshot(null)).toThrow(SnapshotFormatError);
+      });
     });
   });
 
-  describe("createKVCache", () => {
-    it("should create a cache with KV store", () => {
-      const mockStore = {
-        get: vi.fn(),
-        set: vi.fn(),
-        delete: vi.fn(),
-        exists: vi.fn(),
-        keys: vi.fn(),
-      };
+  describe("Error serialization", () => {
+    describe("serializeError", () => {
+      it("should serialize basic Error", () => {
+        const error = new Error("Something went wrong");
+        const serialized = serializeError(error);
 
-      const cache = createKVCache({
-        store: mockStore,
-        prefix: "myapp:",
+        expect(serialized.type).toBe("error");
+        expect(serialized.name).toBe("Error");
+        expect(serialized.message).toBe("Something went wrong");
+        expect(serialized.stack).toBeDefined();
       });
 
-      expect(cache).toBeDefined();
-    });
+      it("should serialize custom error name", () => {
+        const error = new TypeError("Invalid type");
+        const serialized = serializeError(error);
 
-    it("should use memory cache for sync operations", () => {
-      const mockStore = {
-        get: vi.fn(),
-        set: vi.fn(),
-        delete: vi.fn(),
-        exists: vi.fn(),
-        keys: vi.fn(),
-      };
-
-      const cache = createKVCache({ store: mockStore });
-
-      cache.set("key1", ok("value1"));
-      expect(cache.has("key1")).toBe(true);
-      expect(cache.get("key1")?.ok).toBe(true);
-    });
-
-    it("should support async operations with prefix", async () => {
-      const mockStore = {
-        get: vi.fn().mockResolvedValue(JSON.stringify({ ok: true, value: "stored" })),
-        set: vi.fn().mockResolvedValue(undefined),
-        delete: vi.fn().mockResolvedValue(true),
-        exists: vi.fn().mockResolvedValue(true),
-        keys: vi.fn().mockResolvedValue(["myapp:key1", "myapp:key2"]),
-      };
-
-      const cache = createKVCache({
-        store: mockStore,
-        prefix: "myapp:",
-        ttl: 3600,
+        expect(serialized.type).toBe("error");
+        expect(serialized.name).toBe("TypeError");
+        expect(serialized.message).toBe("Invalid type");
       });
 
-      // Async get with prefix
-      await cache.getAsync("key1");
-      expect(mockStore.get).toHaveBeenCalledWith("myapp:key1");
+      it("should serialize Error.cause recursively", () => {
+        const cause = new Error("Root cause");
+        const error = new Error("Outer error");
+        (error as Error & { cause: Error }).cause = cause;
 
-      // Async set with TTL
-      await cache.setAsync("key2", ok("value2"));
-      expect(mockStore.set).toHaveBeenCalledWith(
-        "myapp:key2",
-        expect.any(String),
-        { ttl: 3600 }
-      );
+        const serialized = serializeError(error);
 
-      // Async exists
-      const exists = await cache.hasAsync("key1");
-      expect(exists).toBe(true);
-      expect(mockStore.exists).toHaveBeenCalledWith("myapp:key1");
+        expect(serialized.type).toBe("error");
+        expect(serialized.cause).toBeDefined();
+        expect(serialized.cause?.type).toBe("error");
+        expect(serialized.cause?.message).toBe("Root cause");
+      });
 
-      // Async delete
-      await cache.deleteAsync("key1");
-      expect(mockStore.delete).toHaveBeenCalledWith("myapp:key1");
+      it("should handle nested cause chain", () => {
+        const root = new Error("Root");
+        const middle = new Error("Middle");
+        const outer = new Error("Outer");
+        (middle as Error & { cause: Error }).cause = root;
+        (outer as Error & { cause: Error }).cause = middle;
 
-      // Async clear
-      await cache.clearAsync();
-      expect(mockStore.keys).toHaveBeenCalledWith("myapp:*");
+        const serialized = serializeError(outer);
+
+        expect(serialized.message).toBe("Outer");
+        expect(serialized.cause?.message).toBe("Middle");
+        expect(serialized.cause?.cause?.message).toBe("Root");
+      });
+    });
+
+    describe("serializeThrown", () => {
+      it("should serialize string throws", () => {
+        const serialized = serializeThrown("simple error");
+
+        expect(serialized.type).toBe("thrown");
+        expect(serialized.originalType).toBe("string");
+        expect(serialized.value).toBe("simple error");
+        expect(serialized.stringRepresentation).toBe("simple error");
+      });
+
+      it("should serialize number throws", () => {
+        const serialized = serializeThrown(42);
+
+        expect(serialized.type).toBe("thrown");
+        expect(serialized.originalType).toBe("number");
+        expect(serialized.value).toBe(42);
+        expect(serialized.stringRepresentation).toBe("42");
+      });
+
+      it("should serialize boolean throws", () => {
+        const serialized = serializeThrown(false);
+
+        expect(serialized.type).toBe("thrown");
+        expect(serialized.originalType).toBe("boolean");
+        expect(serialized.value).toBe(false);
+      });
+
+      it("should serialize null throws", () => {
+        const serialized = serializeThrown(null);
+
+        expect(serialized.type).toBe("thrown");
+        expect(serialized.originalType).toBe("null");
+        expect(serialized.value).toBe(null);
+      });
+
+      it("should serialize object throws", () => {
+        const obj = { code: "NOT_FOUND", id: "123" };
+        const serialized = serializeThrown(obj);
+
+        expect(serialized.type).toBe("thrown");
+        expect(serialized.originalType).toBe("Object");
+        expect(serialized.value).toEqual(obj);
+      });
+
+      it("should handle non-JSON-serializable values", () => {
+        const circular: Record<string, unknown> = { name: "test" };
+        circular.self = circular;
+
+        const serialized = serializeThrown(circular);
+
+        expect(serialized.type).toBe("thrown");
+        expect(serialized.stringRepresentation).toBeDefined();
+        // value should be omitted for non-serializable
+        expect(serialized.value).toBeUndefined();
+      });
+
+      it("should handle symbols", () => {
+        const sym = Symbol("test");
+        const serialized = serializeThrown(sym);
+
+        expect(serialized.type).toBe("thrown");
+        expect(serialized.originalType).toBe("symbol");
+        expect(serialized.stringRepresentation).toContain("Symbol");
+      });
+
+      it("should handle functions", () => {
+        const fn = () => "test";
+        const serialized = serializeThrown(fn);
+
+        expect(serialized.type).toBe("thrown");
+        expect(serialized.originalType).toBe("function");
+      });
+    });
+
+    describe("deserializeCauseNew", () => {
+      it("should deserialize error type to Error instance", () => {
+        const serialized: SerializedCause = {
+          type: "error",
+          name: "TypeError",
+          message: "Invalid type",
+          stack: "Error: Invalid type\n    at test.ts:1:1",
+        };
+
+        const error = deserializeCauseNew(serialized);
+
+        expect(error).toBeInstanceOf(Error);
+        expect(error.name).toBe("TypeError");
+        expect(error.message).toBe("Invalid type");
+        expect(error.stack).toBe("Error: Invalid type\n    at test.ts:1:1");
+      });
+
+      it("should deserialize nested cause", () => {
+        const serialized: SerializedCause = {
+          type: "error",
+          name: "Error",
+          message: "Outer",
+          cause: {
+            type: "error",
+            name: "Error",
+            message: "Inner",
+          },
+        };
+
+        const error = deserializeCauseNew(serialized) as Error & { cause?: Error };
+
+        expect(error.message).toBe("Outer");
+        expect(error.cause).toBeInstanceOf(Error);
+        expect(error.cause?.message).toBe("Inner");
+      });
+
+      it("should deserialize thrown type with value", () => {
+        const serialized: SerializedCause = {
+          type: "thrown",
+          originalType: "object",
+          value: { code: "NOT_FOUND" },
+          stringRepresentation: '{"code":"NOT_FOUND"}',
+        };
+
+        const result = deserializeCauseNew(serialized);
+        expect(result).toEqual({ code: "NOT_FOUND" });
+      });
+
+      it("should deserialize thrown type without value using stringRepresentation", () => {
+        const serialized: SerializedCause = {
+          type: "thrown",
+          originalType: "object",
+          stringRepresentation: "[Circular object]",
+        };
+
+        const result = deserializeCauseNew(serialized);
+        expect(result).toBe("[Circular object]");
+      });
     });
   });
 
-  describe("createStatePersistence", () => {
-    it("should save and load state", async () => {
-      const storage = new Map<string, string>();
-      const mockStore = {
-        get: vi.fn((key: string) => Promise.resolve(storage.get(key) ?? null)),
-        set: vi.fn((key: string, value: string) => {
-          storage.set(key, value);
-          return Promise.resolve();
-        }),
-        delete: vi.fn((key: string) => {
-          const existed = storage.has(key);
-          storage.delete(key);
-          return Promise.resolve(existed);
-        }),
-        exists: vi.fn((key: string) => Promise.resolve(storage.has(key))),
-        keys: vi.fn((pattern: string) => {
-          const prefix = pattern.replace("*", "");
-          return Promise.resolve(
-            Array.from(storage.keys()).filter((k) => k.startsWith(prefix))
-          );
-        }),
+  describe("mergeSnapshots", () => {
+    it("should merge steps from delta into base", () => {
+      const base: WorkflowSnapshot = {
+        formatVersion: 1,
+        steps: {
+          "step-1": { ok: true, value: "a" },
+          "step-2": { ok: true, value: "b" },
+        },
+        execution: { status: "running", lastUpdated: "2024-01-01T00:00:00Z" },
       };
 
-      const persistence = createStatePersistence(mockStore, "workflow:state:");
-
-      const state: ResumeState = {
-        steps: new Map([
-          ["user:1", { result: ok({ id: "1" }) }],
-        ]),
+      const delta: WorkflowSnapshot = {
+        formatVersion: 1,
+        steps: {
+          "step-3": { ok: true, value: "c" },
+        },
+        execution: { status: "running", lastUpdated: "2024-01-01T00:01:00Z" },
       };
 
-      await persistence.save("run-1", state, { workflowId: "wf-1" });
+      const merged = mergeSnapshots(base, delta);
 
-      const loaded = await persistence.load("run-1");
-      expect(loaded).toBeDefined();
-      expect(loaded?.steps.size).toBe(1);
-      expect(loaded?.steps.get("user:1")?.result.ok).toBe(true);
+      expect(Object.keys(merged.steps)).toEqual(["step-1", "step-2", "step-3"]);
+      expect(merged.steps["step-1"]).toEqual({ ok: true, value: "a" });
+      expect(merged.steps["step-3"]).toEqual({ ok: true, value: "c" });
     });
 
-    it("should return undefined for non-existent state", async () => {
-      const mockStore = {
-        get: vi.fn().mockResolvedValue(null),
-        set: vi.fn(),
-        delete: vi.fn(),
-        exists: vi.fn(),
-        keys: vi.fn(),
+    it("should overwrite base steps with delta steps", () => {
+      const base: WorkflowSnapshot = {
+        formatVersion: 1,
+        steps: {
+          "step-1": { ok: true, value: "old" },
+        },
+        execution: { status: "running", lastUpdated: "2024-01-01T00:00:00Z" },
       };
 
-      const persistence = createStatePersistence(mockStore);
-      const loaded = await persistence.load("non-existent");
-      expect(loaded).toBeUndefined();
+      const delta: WorkflowSnapshot = {
+        formatVersion: 1,
+        steps: {
+          "step-1": { ok: true, value: "new" },
+        },
+        execution: { status: "running", lastUpdated: "2024-01-01T00:01:00Z" },
+      };
+
+      const merged = mergeSnapshots(base, delta);
+
+      expect(merged.steps["step-1"]).toEqual({ ok: true, value: "new" });
     });
 
-    it("should delete state", async () => {
-      const mockStore = {
-        get: vi.fn(),
-        set: vi.fn(),
-        delete: vi.fn().mockResolvedValue(true),
-        exists: vi.fn(),
-        keys: vi.fn(),
+    it("should use execution from delta", () => {
+      const base: WorkflowSnapshot = {
+        formatVersion: 1,
+        steps: {},
+        execution: {
+          status: "running",
+          lastUpdated: "2024-01-01T00:00:00Z",
+          currentStepId: "step-1",
+        },
       };
 
-      const persistence = createStatePersistence(mockStore);
-      const deleted = await persistence.delete("run-1");
-      expect(deleted).toBe(true);
+      const delta: WorkflowSnapshot = {
+        formatVersion: 1,
+        steps: {},
+        execution: {
+          status: "completed",
+          lastUpdated: "2024-01-01T00:01:00Z",
+          completedAt: "2024-01-01T00:01:00Z",
+        },
+      };
+
+      const merged = mergeSnapshots(base, delta);
+
+      expect(merged.execution.status).toBe("completed");
+      expect(merged.execution.completedAt).toBe("2024-01-01T00:01:00Z");
     });
 
-    it("should list saved workflow IDs", async () => {
-      const mockStore = {
-        get: vi.fn(),
-        set: vi.fn(),
-        delete: vi.fn(),
-        exists: vi.fn(),
-        keys: vi.fn().mockResolvedValue([
-          "workflow:state:run-1",
-          "workflow:state:run-2",
-        ]),
+    it("should shallow merge metadata", () => {
+      const base: WorkflowSnapshot = {
+        formatVersion: 1,
+        steps: {},
+        execution: { status: "running", lastUpdated: "2024-01-01T00:00:00Z" },
+        metadata: {
+          workflowId: "wf-1",
+          input: { userId: "123" },
+        },
       };
 
-      const persistence = createStatePersistence(mockStore);
-      const ids = await persistence.list();
-      expect(ids).toEqual(["run-1", "run-2"]);
+      const delta: WorkflowSnapshot = {
+        formatVersion: 1,
+        steps: {},
+        execution: { status: "running", lastUpdated: "2024-01-01T00:01:00Z" },
+        metadata: {
+          definitionHash: "abc123",
+        },
+      };
+
+      const merged = mergeSnapshots(base, delta);
+
+      expect(merged.metadata?.workflowId).toBe("wf-1");
+      expect(merged.metadata?.definitionHash).toBe("abc123");
+      expect(merged.metadata?.input).toEqual({ userId: "123" });
+    });
+
+    it("should merge warnings arrays", () => {
+      const base: WorkflowSnapshot = {
+        formatVersion: 1,
+        steps: {},
+        execution: { status: "running", lastUpdated: "2024-01-01T00:00:00Z" },
+        warnings: [
+          { type: "lossy_value", stepId: "step-1", path: ".date", reason: "non-json" },
+        ],
+      };
+
+      const delta: WorkflowSnapshot = {
+        formatVersion: 1,
+        steps: {},
+        execution: { status: "running", lastUpdated: "2024-01-01T00:01:00Z" },
+        warnings: [
+          { type: "lossy_value", stepId: "step-2", path: ".fn", reason: "non-json" },
+        ],
+      };
+
+      const merged = mergeSnapshots(base, delta);
+
+      expect(merged.warnings?.length).toBe(2);
     });
   });
 
-  describe("createHydratingCache", () => {
-    it("should hydrate from persistence on first access", async () => {
-      const memoryCache = createMemoryCache();
-
-      const state: ResumeState = {
-        steps: new Map([
-          ["user:1", { result: ok({ id: "1", name: "Alice" }) }],
-        ]),
-      };
-
-      const mockPersistence = {
-        save: vi.fn(),
-        load: vi.fn().mockResolvedValue(state),
-        delete: vi.fn(),
-        list: vi.fn(),
-      };
-
-      const cache = createHydratingCache(memoryCache, mockPersistence, "run-1");
-
-      // Before hydration
-      expect(cache.has("user:1")).toBe(false);
-
-      // Hydrate
-      await cache.hydrate();
-
-      // After hydration
-      expect(cache.has("user:1")).toBe(true);
-      const result = cache.get("user:1");
-      expect(result?.ok).toBe(true);
+  describe("StepResult type", () => {
+    it("should accept ok result", () => {
+      const result: StepResult = { ok: true, value: { id: "1" } };
+      expect(result.ok).toBe(true);
     });
 
-    it("should only hydrate once", async () => {
-      const memoryCache = createMemoryCache();
-
-      const mockPersistence = {
-        save: vi.fn(),
-        load: vi.fn().mockResolvedValue({ steps: new Map() }),
-        delete: vi.fn(),
-        list: vi.fn(),
+    it("should accept err result with cause", () => {
+      const result: StepResult = {
+        ok: false,
+        cause: {
+          type: "error",
+          name: "Error",
+          message: "Failed",
+        },
       };
-
-      const cache = createHydratingCache(memoryCache, mockPersistence, "run-1");
-
-      await cache.hydrate();
-      await cache.hydrate();
-
-      expect(mockPersistence.load).toHaveBeenCalledTimes(1);
+      expect(result.ok).toBe(false);
     });
 
-    it("should handle missing persisted state", async () => {
-      const memoryCache = createMemoryCache();
-
-      const mockPersistence = {
-        save: vi.fn(),
-        load: vi.fn().mockResolvedValue(undefined),
-        delete: vi.fn(),
-        list: vi.fn(),
+    it("should accept err result with meta", () => {
+      const result: StepResult = {
+        ok: false,
+        cause: {
+          type: "thrown",
+          originalType: "string",
+          stringRepresentation: "test",
+        },
+        meta: { origin: "throw" },
       };
+      expect(result.ok).toBe(false);
+      expect(result.meta?.origin).toBe("throw");
+    });
+  });
 
-      const cache = createHydratingCache(memoryCache, mockPersistence, "run-1");
-
-      await cache.hydrate();
-
-      // Should not throw, cache should be empty
-      expect(cache.has("user:1")).toBe(false);
+  describe("Error classes", () => {
+    it("SnapshotFormatError should be instanceof Error", () => {
+      const error = new SnapshotFormatError("Invalid format");
+      expect(error).toBeInstanceOf(Error);
+      expect(error).toBeInstanceOf(SnapshotFormatError);
+      expect(error.name).toBe("SnapshotFormatError");
+      expect(error.message).toBe("Invalid format");
     });
 
-    it("should delegate operations to memory cache", () => {
-      const memoryCache = createMemoryCache();
+    it("SnapshotMismatchError should be instanceof Error", () => {
+      const error = new SnapshotMismatchError("Unknown steps");
+      expect(error).toBeInstanceOf(Error);
+      expect(error).toBeInstanceOf(SnapshotMismatchError);
+      expect(error.name).toBe("SnapshotMismatchError");
+    });
 
-      const mockPersistence = {
-        save: vi.fn(),
-        load: vi.fn(),
-        delete: vi.fn(),
-        list: vi.fn(),
+    it("SnapshotDecodeError should be instanceof Error", () => {
+      const error = new SnapshotDecodeError("Decode failed");
+      expect(error).toBeInstanceOf(Error);
+      expect(error).toBeInstanceOf(SnapshotDecodeError);
+      expect(error.name).toBe("SnapshotDecodeError");
+    });
+  });
+
+  describe("JSON round-trip", () => {
+    it("WorkflowSnapshot should survive JSON.stringify/parse", () => {
+      const snapshot: WorkflowSnapshot = {
+        formatVersion: 1,
+        steps: {
+          "step-1": { ok: true, value: { id: "1", data: [1, 2, 3] } },
+          "step-2": {
+            ok: false,
+            error: "FAILED",
+            cause: {
+              type: "error",
+              name: "Error",
+              message: "Failed",
+              stack: "Error: Failed\n    at test.ts:1:1",
+            },
+          },
+        },
+        execution: {
+          status: "failed",
+          lastUpdated: "2024-01-01T12:00:00.000Z",
+        },
+        metadata: {
+          workflowId: "wf-123",
+          input: { userId: "u-456" },
+        },
       };
 
-      const cache = createHydratingCache(memoryCache, mockPersistence, "run-1");
+      const json = JSON.stringify(snapshot);
+      const parsed = JSON.parse(json) as WorkflowSnapshot;
 
-      cache.set("key1", ok("value1"));
-      expect(cache.get("key1")?.ok).toBe(true);
+      expect(parsed).toEqual(snapshot);
+      expect(looksLikeWorkflowSnapshot(parsed)).toBe(true);
+      expect(validateSnapshot(parsed).valid).toBe(true);
+    });
 
-      cache.delete("key1");
-      expect(cache.has("key1")).toBe(false);
+    it("should handle null values in steps", () => {
+      const snapshot: WorkflowSnapshot = {
+        formatVersion: 1,
+        steps: {
+          "step-1": { ok: true, value: null },
+        },
+        execution: { status: "running", lastUpdated: new Date().toISOString() },
+      };
 
-      cache.set("key2", ok("value2"));
-      cache.clear();
-      expect(cache.has("key2")).toBe(false);
+      const json = JSON.stringify(snapshot);
+      const parsed = JSON.parse(json) as WorkflowSnapshot;
+
+      expect(parsed.steps["step-1"]).toEqual({ ok: true, value: null });
+    });
+
+    it("should handle deeply nested values", () => {
+      const snapshot: WorkflowSnapshot = {
+        formatVersion: 1,
+        steps: {
+          "step-1": {
+            ok: true,
+            value: {
+              level1: {
+                level2: {
+                  level3: {
+                    data: [{ nested: true }],
+                  },
+                },
+              },
+            },
+          },
+        },
+        execution: { status: "running", lastUpdated: new Date().toISOString() },
+      };
+
+      const json = JSON.stringify(snapshot);
+      const parsed = JSON.parse(json) as WorkflowSnapshot;
+
+      expect(parsed.steps["step-1"]).toEqual(snapshot.steps["step-1"]);
     });
   });
 });

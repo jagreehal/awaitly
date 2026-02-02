@@ -7,6 +7,20 @@ Analyze workflow source code to extract structure, dependencies, and generate vi
 
 **Documentation fields:** `description` and `markdown` on workflows and steps are the canonical way to feed static analysis and doc generation. See [Documenting workflows](/docs/guides/documenting-workflows/) for how to set them. JSDoc above workflow and step declarations is also extracted and available as `jsdocDescription` on the root and step nodes.
 
+**Step names:** The analyzer resolves the step **display name** (for docs/diagrams) as:
+
+```mermaid
+flowchart LR
+  A[Explicit stepId] --> B[Infer callee from thunk]
+```
+
+- **Explicit stepId** — `step('name', fn, opts)` → use that string as name.
+- **Infer from thunk** — legacy form `step(fn, opts)` → parse the thunk and use the callee (e.g. `fetchUser`, `deps.fetchUser`) as name. The analyzer does not use `opts.key` as the display name (key is for caching only).
+
+**Runtime** uses the same order: explicit id → infer from thunk → fallback. Key is not used for the step id (key is for caching only).
+
+So `step('fetchUser', () => fetchUser('1'))` and `step(() => fetchUser('1'))` often show the same label in generated docs and in events. See [Steps: how step ID is determined](/docs/foundations/step/#basic-usage) for the full runtime flow diagram.
+
 ## CLI Tool
 
 The `awaitly-analyze` CLI analyzes TypeScript workflow files and outputs Mermaid diagrams or JSON:
@@ -204,8 +218,8 @@ Main static-analysis node types and when fields are populated:
 - **StaticWorkflowNode** (root): `workflowName`, `source`, `dependencies`, `children`, `description`, `markdown`, `jsdocDescription?`, `errorTypes`.
   `description` and `markdown` are set only for `createWorkflow` / `createSagaWorkflow` (from options or deps). They are undefined for `run()` / `runSaga()`. `jsdocDescription` is extracted from JSDoc above the workflow variable when present.
 
-- **StaticStepNode**: `callee`, `name`, `key`, `description`, `markdown`, `jsdocDescription?`, `retry`, `timeout`.
-  `description` and `markdown` come from step options. `jsdocDescription` is extracted from JSDoc above the step statement.
+- **StaticStepNode**: `stepId?`, `callee`, `name`, `key`, `description`, `markdown`, `jsdocDescription?`, `retry`, `timeout`, `errors?`, `out?`, `reads?`.
+  `stepId` is set when you use **`step('id', fn, opts)`** (string literal first argument); use this form for best results in generated docs and diagrams. `description` and `markdown` come from step options. `jsdocDescription` is extracted from JSDoc above the step statement.
 
 - **StaticSagaStepNode**: `callee`, `name`, `description`, `markdown`, `jsdocDescription?`, `hasCompensation`, `compensationCallee`, `isTryStep`.
   `description` and `markdown` come from saga step options.
@@ -304,7 +318,8 @@ for (const ir of workflows) {
 
   function listSteps(node) {
     if (isStaticStepNode(node)) {
-      console.log(`- **${node.name || node.key || 'step'}**${node.description ? ` — ${node.description}` : ''}`);
+      const name = node.stepId ?? node.name ?? node.key ?? 'step';
+      console.log(`- **${name}**${node.description ? ` — ${node.description}` : ''}`);
     }
     for (const child of getStaticChildren(node)) listSteps(child);
   }
@@ -394,7 +409,7 @@ The output of `renderStaticJSON(ir)` has this structure:
 
 - **Top level**: `{ root, metadata?, references? }`
 - **StaticWorkflowNode**: `type: "workflow"`, `id`, `workflowName`, `source?`, `dependencies[]`, `errorTypes[]`, `children[]`, `description?`, `markdown?`, `jsdocDescription?`
-- **Flow nodes** (discriminated by `type`): `"step"`, `"saga-step"`, `"sequence"`, `"parallel"`, `"race"`, `"conditional"`, `"switch"`, `"loop"`, `"stream"`, `"workflow-ref"`, `"unknown"`
+- **Flow nodes** (discriminated by `type`): `"step"` (includes `stepId?` when using `step('id', fn, opts)`), `"saga-step"`, `"sequence"`, `"parallel"`, `"race"`, `"conditional"`, `"switch"`, `"loop"`, `"stream"`, `"workflow-ref"`, `"unknown"`
 
 A JSON Schema for validation is available at `schema/static-workflow-ir.schema.json` in the awaitly-analyze package.
 
