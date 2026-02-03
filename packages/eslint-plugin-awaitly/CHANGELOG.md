@@ -1,5 +1,11 @@
 # eslint-plugin-awaitly
 
+## 0.7.0
+
+### Minor Changes
+
+- f5957ad: Persistence DX: improved snapshot store APIs, Postgres/Mongo/LibSQL adapter consistency, and updated persistence docs and API reference.
+
 ## 0.6.0
 
 ### Minor Changes
