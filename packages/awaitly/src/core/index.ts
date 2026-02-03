@@ -171,6 +171,8 @@ export type MaybeAsyncResult<T, E, C = unknown> = Result<T, E, C> | Promise<Resu
  * Creates a successful Result.
  * Use this when an operation completes successfully.
  *
+ * @remarks When to use: Wrap a successful value in a Result for consistent return types.
+ *
  * @param value - The success value to wrap
  * @returns An Ok object with `{ ok: true, value }`
  *
@@ -190,6 +192,8 @@ export const ok = <T>(value: T): Ok<T> => ({ ok: true, value });
 /**
  * Creates a failed Result.
  * Use this when an operation fails.
+ *
+ * @remarks When to use: Return a typed failure without throwing so callers can handle it explicitly.
  *
  * @param error - The error value describing what went wrong (e.g., error code, object)
  * @returns An Err object with `{ ok: false, error }`
@@ -223,6 +227,8 @@ export const err = <E, C = unknown>(
  * Checks if a Result is successful.
  * Use this to narrow the type of a Result to the success case.
  *
+ * @remarks When to use: Prefer functional-style checks or array filtering over `result.ok`.
+ *
  * @param r - The Result to check
  * @returns `true` if successful, allowing access to `r.value`
  *
@@ -244,6 +250,8 @@ export const isOk = <T, E, C>(r: Result<T, E, C>): r is Ok<T> => r.ok;
  * Checks if a Result is a failure.
  * Use this to narrow the type of a Result to the error case.
  *
+ * @remarks When to use: Prefer functional-style checks or array filtering over `result.ok`.
+ *
  * @param r - The Result to check
  * @returns `true` if failed, allowing access to `r.error` and `r.cause`
  *
@@ -262,6 +270,8 @@ export const isErr = <T, E, C>(r: Result<T, E, C>): r is Err<E, C> => !r.ok;
  * Checks if an error is an UnexpectedError.
  * Used internally by the framework but exported for advanced custom handling.
  * Indicates an error that wasn't typed/expected in the `run` signature.
+ *
+ * @remarks When to use: Distinguish unexpected failures from your typed error union.
  */
 export const isUnexpectedError = (e: unknown): e is UnexpectedError =>
   typeof e === "object" &&
@@ -3771,6 +3781,8 @@ export class UnwrapError<E = unknown, C = unknown> extends Error {
 /**
  * Unwraps a Result, throwing an error if it's a failure.
  *
+ * @remarks When to use: Only at boundaries or tests where a failure should be fatal.
+ *
  * ## When to Use
  *
  * Use `unwrap()` when:
@@ -3812,6 +3824,8 @@ export const unwrap = <T, E, C>(r: Result<T, E, C>): T => {
 /**
  * Unwraps a Result, returning a default value if it's a failure.
  *
+ * @remarks When to use: Provide a safe fallback without branching.
+ *
  * ## When to Use
  *
  * Use `unwrapOr()` when:
@@ -3846,6 +3860,8 @@ export const unwrapOr = <T, E, C>(r: Result<T, E, C>, defaultValue: T): T =>
 
 /**
  * Unwraps a Result, computing a default value from the error if it's a failure.
+ *
+ * @remarks When to use: Compute a fallback from the error (logging, metrics, or derived defaults).
  *
  * ## When to Use
  *
@@ -3897,6 +3913,8 @@ export const unwrapOrElse = <T, E, C>(
 
 /**
  * Wraps a synchronous throwing function in a Result.
+ *
+ * @remarks When to use: Wrap sync code that might throw so exceptions become Err values.
  *
  * ## When to Use
  *
@@ -3963,6 +3981,8 @@ export function from<T, E>(fn: () => T, onError?: (cause: unknown) => E) {
 
 /**
  * Wraps a Promise in a Result, converting rejections to errors.
+ *
+ * @remarks When to use: Wrap a Promise and keep the raw rejection as Err; use tryAsync to map errors.
  *
  * ## When to Use
  *
@@ -4038,6 +4058,8 @@ export async function fromPromise<T, E>(
 /**
  * Wraps an async function in a Result, catching both thrown exceptions and Promise rejections.
  *
+ * @remarks When to use: Wrap async work and map thrown/rejected values into your typed error union.
+ *
  * ## When to Use
  *
  * Use `tryAsync()` when:
@@ -4107,6 +4129,8 @@ export async function tryAsync<T, E>(
 /**
  * Converts a nullable value to a Result.
  *
+ * @remarks When to use: Turn null/undefined into a typed error before continuing.
+ *
  * ## When to Use
  *
  * Use `fromNullable()` when:
@@ -4161,6 +4185,8 @@ export function fromNullable<T, E>(
 /**
  * Transforms the success value of a Result.
  *
+ * @remarks When to use: Transform only the Ok value while leaving Err untouched.
+ *
  * ## When to Use
  *
  * Use `map()` when:
@@ -4206,6 +4232,8 @@ export function map(r: any, fn: any): any {
 
 /**
  * Transforms the error value of a Result.
+ *
+ * @remarks When to use: Retype or normalize errors while leaving Ok values unchanged.
  *
  * ## When to Use
  *
@@ -4254,6 +4282,8 @@ export function mapError<T, E, F, C>(
 
 /**
  * Pattern matches on a Result, calling the appropriate handler.
+ *
+ * @remarks When to use: Handle both Ok and Err in a single expression that returns a value.
  *
  * ## When to Use
  *
@@ -4307,6 +4337,8 @@ export function match(r: any, handlers: any): any {
 
 /**
  * Chains Results together (flatMap/monadic bind).
+ *
+ * @remarks When to use: Chain dependent operations that return Result without nested branching.
  *
  * ## When to Use
  *
@@ -4374,6 +4406,8 @@ export function andThen(r: any, fn: any): any {
 /**
  * Executes a side effect on a successful Result without changing it.
  *
+ * @remarks When to use: Add side effects (logging, metrics) on Ok without changing the Result.
+ *
  * ## When to Use
  *
  * Use `tap()` when:
@@ -4422,6 +4456,8 @@ export function tap<T, E, C>(
 
 /**
  * Executes a side effect on an error Result without changing it.
+ *
+ * @remarks When to use: Add side effects (logging, metrics) on Err without changing the Result.
  *
  * ## When to Use
  *
@@ -4472,6 +4508,8 @@ export function tapError<T, E, C>(
 
 /**
  * Transforms the success value of a Result, catching any errors thrown by the transform.
+ *
+ * @remarks When to use: Transform Ok values with a function that might throw and capture the failure.
  *
  * ## When to Use
  *
@@ -4534,6 +4572,8 @@ export function mapTry<T, U, E, F, C>(
 
 /**
  * Transforms the error value of a Result, catching any errors thrown by the transform.
+ *
+ * @remarks When to use: Transform errors when the mapping might throw and you want that captured.
  *
  * ## When to Use
  *
@@ -4644,6 +4684,8 @@ export function bimap<T, U, E, F, C>(
 /**
  * Recovers from an error by returning a new Result.
  * Similar to neverthrow's `.orElse()`.
+ *
+ * @remarks When to use: Recover from Err by returning a fallback Result or retyping the error.
  *
  * ## When to Use
  *

@@ -69,7 +69,13 @@ function createResult(results: StaticWorkflowIR[]): AnalyzeResult {
   return {
     single() {
       if (results.length !== 1) {
-        throw new Error(`Expected exactly 1 workflow, found ${results.length}`);
+        const names = results.map((r) => r.root.workflowName).join(", ");
+        throw new Error(
+          `Expected exactly 1 workflow, found ${results.length}.\n\n` +
+            (results.length > 1
+              ? `Available workflows: ${names}\n\nUse .named('workflowName') to select one.`
+              : `Ensure the file contains a createWorkflow() or run() call.`)
+        );
       }
       return results[0];
     },

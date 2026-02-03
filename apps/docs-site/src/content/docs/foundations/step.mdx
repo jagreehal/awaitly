@@ -327,6 +327,70 @@ const result = await run(async (step) => {
 You can use string durations like `"5s"`, `"100ms"`, `"2m"`, or Duration objects from `awaitly/workflow` like `seconds(5)`, `millis(100)`.
 </Aside>
 
+## step.forEach - process collections
+
+Process arrays with automatic indexing, resume support, and static analyzability:
+
+```typescript
+await step.forEach('process-payments', payments, {
+  stepIdPattern: 'payment-{i}',
+  run: async (payment) => {
+    const result = await step(() => processPayment(payment));
+    return result;
+  }
+});
+```
+
+### Basic usage
+
+```typescript
+// Process items with automatic indexing
+await step.forEach('send-emails', users, {
+  stepIdPattern: 'email-{i}',
+  run: async (user) => {
+    await step(() => sendEmail(user.email));
+  }
+});
+```
+
+### Collecting results
+
+```typescript
+// Collect all results into an array
+const results = await step.forEach('fetch-users', userIds, {
+  stepIdPattern: 'user-{i}',
+  collect: 'array',  // or 'last' for only the final result
+  run: async (userId) => {
+    return await step(() => fetchUser(userId));
+  }
+});
+// results is User[]
+```
+
+### Why step.forEach over manual loops?
+
+```typescript
+// ❌ AVOID - dynamic keys reduce static analyzability
+for (const payment of payments) {
+  await step(() => processPayment(payment), { key: `payment-${payment.id}` });
+}
+
+// ✅ PREFERRED - step.forEach() is statically analyzable
+await step.forEach('process-payments', payments, {
+  stepIdPattern: 'payment-{i}',
+  run: (payment) => step(() => processPayment(payment))
+});
+```
+
+Manual `for` loops with dynamic keys like `${item.id}`:
+- Cannot be enumerated by static analysis tools
+- Reduce path generation accuracy for [awaitly-analyze](/guides/static-analysis/)
+- Make test matrix generation incomplete
+
+<Aside type="tip" title="Static analysis support">
+`step.forEach()` enables [awaitly-analyze](/guides/static-analysis/) to enumerate all possible execution paths, generate accurate workflow diagrams, and create comprehensive test matrices.
+</Aside>
+
 ## Parallel steps
 
 Run multiple steps concurrently:
@@ -401,6 +465,7 @@ The string literal ID is extracted by [awaitly-analyze](/docs/guides/static-anal
 | `step.retry(fn, opts)` | Operation might fail transiently |
 | `step.withTimeout(fn, opts)` | Operation might hang |
 | `step.sleep(duration, opts)` | Need intentional delay (rate limiting, polling) |
+| `step.forEach(id, items, opts)` | Processing collections with static analyzability |
 
 ## Next
 

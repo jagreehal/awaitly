@@ -6,12 +6,13 @@
  * that could execute given certain conditions.
  */
 
-import type {
-  StaticWorkflowIR,
-  StaticFlowNode,
-  WorkflowPath,
-  PathStepRef,
-  PathCondition,
+import {
+  extractFunctionName,
+  type StaticWorkflowIR,
+  type StaticFlowNode,
+  type WorkflowPath,
+  type PathStepRef,
+  type PathCondition,
 } from "./types";
 
 // =============================================================================
@@ -210,7 +211,7 @@ function handleStepNode(
   const stepRef: PathStepRef = {
     nodeId: node.id,
     key: node.key,
-    name: node.name ?? node.callee,
+    name: node.name ?? (node.callee ? extractFunctionName(node.callee) : undefined),
     repeated: false,
   };
 
@@ -229,7 +230,7 @@ function handleSagaStepNode(
   const stepRef: PathStepRef = {
     nodeId: node.id,
     key: node.key,
-    name: node.name ?? node.callee,
+    name: node.name ?? (node.callee ? extractFunctionName(node.callee) : undefined),
     repeated: false,
   };
 

@@ -263,6 +263,36 @@ if (results.ok) {
 }
 ```
 
+### step.forEach for Static Analyzability
+
+For sequential processing where you need static analysis support (workflow diagrams, path enumeration), use `step.forEach()`:
+
+```typescript
+// ✅ Statically analyzable - awaitly-analyze can enumerate paths
+await step.forEach('process-payments', payments, {
+  stepIdPattern: 'payment-{i}',
+  run: async (payment) => {
+    await step(() => processPayment(payment));
+  }
+});
+
+// ❌ Dynamic keys - defeats static analysis
+for (const payment of payments) {
+  await step(() => processPayment(payment), { key: `payment-${payment.id}` });
+}
+```
+
+<Aside type="tip" title="When to use step.forEach">
+Use `step.forEach()` when you need:
+- Resume support (tracks which items completed)
+- Static analysis for workflow diagrams
+- Automatic indexing with `stepIdPattern`
+
+Use `allAsync` with array `.map()` when you need parallel execution.
+</Aside>
+
+See [step.forEach](/foundations/step/#stepforeach---process-collections) for full documentation.
+
 ## Error Handling in Parallel
 
 Errors from parallel operations preserve their types:

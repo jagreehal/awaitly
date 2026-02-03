@@ -10,33 +10,37 @@
  * - Extracting type information (input types, result types, error types)
  */
 
+import { existsSync } from "fs";
+import { extname } from "path";
+
 // Type-only imports - erased at compile time, no runtime dependency
 // These provide type checking without creating a runtime dependency on ts-morph
 import type { SourceFile, Project, Node } from "ts-morph";
 import { loadTsMorph } from "../ts-morph-loader";
 
-import type {
-  StaticWorkflowIR,
-  StaticWorkflowNode,
-  StaticFlowNode,
-  StaticStepNode,
-  StaticSequenceNode,
-  StaticParallelNode,
-  StaticRaceNode,
-  StaticConditionalNode,
-  StaticDecisionNode,
-  StaticLoopNode,
-  StaticWorkflowRefNode,
-  StaticStreamNode,
-  StaticSagaStepNode,
-  StaticSwitchNode,
-  StaticSwitchCase,
-  SourceLocation,
-  DependencyInfo,
-  AnalysisWarning,
-  AnalysisStats,
-  StaticRetryConfig,
-  StaticTimeoutConfig,
+import {
+  extractFunctionName,
+  type StaticWorkflowIR,
+  type StaticWorkflowNode,
+  type StaticFlowNode,
+  type StaticStepNode,
+  type StaticSequenceNode,
+  type StaticParallelNode,
+  type StaticRaceNode,
+  type StaticConditionalNode,
+  type StaticDecisionNode,
+  type StaticLoopNode,
+  type StaticWorkflowRefNode,
+  type StaticStreamNode,
+  type StaticSagaStepNode,
+  type StaticSwitchNode,
+  type StaticSwitchCase,
+  type SourceLocation,
+  type DependencyInfo,
+  type AnalysisWarning,
+  type AnalysisStats,
+  type StaticRetryConfig,
+  type StaticTimeoutConfig,
 } from "../types";
 
 /**
@@ -71,6 +75,49 @@ const DEFAULT_OPTIONS: Required<AnalyzerOptions> = {
 };
 
 // =============================================================================
+// Input Validation
+// =============================================================================
+
+/**
+ * Validate file path before analysis.
+ */
+function validateFilePath(filePath: string): void {
+  if (!existsSync(filePath)) {
+    throw new Error(
+      `File not found: ${filePath}\n\n` +
+        `Ensure the path is correct and the file exists.`
+    );
+  }
+
+  const ext = extname(filePath).toLowerCase();
+  if (ext !== ".ts" && ext !== ".tsx") {
+    throw new Error(
+      `Invalid file type: ${ext}\n\n` +
+        `awaitly-analyze only supports TypeScript files (.ts, .tsx).`
+    );
+  }
+}
+
+/**
+ * Validate analyzer options.
+ */
+function validateOptions(options: AnalyzerOptions): void {
+  if (options.maxReferenceDepth !== undefined && options.maxReferenceDepth < 1) {
+    throw new Error(
+      `Invalid maxReferenceDepth: ${options.maxReferenceDepth}\n\n` +
+        `maxReferenceDepth must be at least 1.`
+    );
+  }
+
+  if (options.tsConfigPath && !existsSync(options.tsConfigPath)) {
+    throw new Error(
+      `tsconfig not found: ${options.tsConfigPath}\n\n` +
+        `Check the path or omit tsConfigPath to use default.`
+    );
+  }
+}
+
+// =============================================================================
 // Main Analyzer
 // =============================================================================
 
@@ -87,6 +134,10 @@ export function analyzeWorkflow(
   workflowName?: string,
   options: AnalyzerOptions = {}
 ): StaticWorkflowIR {
+  // Validate inputs before processing
+  validateFilePath(filePath);
+  validateOptions(options);
+
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const { ts } = loadTsMorph();
 
@@ -150,6 +201,10 @@ export function analyzeWorkflowFile(
   filePath: string,
   options: AnalyzerOptions = {}
 ): StaticWorkflowIR[] {
+  // Validate inputs before processing
+  validateFilePath(filePath);
+  validateOptions(options);
+
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const { ts } = loadTsMorph();
 
@@ -2689,7 +2744,7 @@ function tryExtractImplicitStep(
         type: "step",
         location: opts.includeLocations ? getLocation(body) : undefined,
         callee,
-        name: extractImplicitStepName(callee),
+        name: extractFunctionName(callee),
       };
     }
   }
@@ -2709,7 +2764,7 @@ function tryExtractImplicitStep(
           type: "step",
           location: opts.includeLocations ? getLocation(expr) : undefined,
           callee,
-          name: extractImplicitStepName(callee),
+          name: extractFunctionName(callee),
         };
       }
     }
@@ -2768,7 +2823,7 @@ function analyzeAllAsyncCall(
           type: "step",
           location: opts.includeLocations ? getLocation(element) : undefined,
           callee,
-          name: extractImplicitStepName(callee),
+          name: extractFunctionName(callee),
         };
         parallelNode.children.push(implicitStep);
       }
@@ -2776,16 +2831,6 @@ function analyzeAllAsyncCall(
   }
 
   return parallelNode;
-}
-
-/**
- * Extract a human-readable name from a callee expression.
- * e.g., "deps.fetchPosts" -> "fetchPosts", "fetchUser" -> "fetchUser"
- */
-function extractImplicitStepName(callee: string): string {
-  // Get the last part after the last dot
-  const parts = callee.split(".");
-  return parts[parts.length - 1];
 }
 
 function analyzeRaceCall(

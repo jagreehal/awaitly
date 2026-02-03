@@ -7,6 +7,45 @@ import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 awaitly provides unified error handling: automatic type inference, structured error types, and resilience patterns like retries and timeouts.
 
+## Error Propagation
+
+Errors from `step()` propagate automatically to the workflow result. **Never wrap steps in try/catch** - this defeats typed error propagation:
+
+```typescript
+// ❌ WRONG - try/catch defeats typed error propagation
+const result = await workflow(async (step) => {
+  try {
+    const payment = await step(() => deps.makePayment());
+  } catch (error) {
+    await step(() => deps.handleFailed(error));
+  }
+});
+
+// ✅ CORRECT - errors propagate to workflow result
+const result = await workflow(async (step) => {
+  const payment = await step(() => deps.makePayment());
+  return payment;
+});
+
+// Handle errors at the boundary
+if (!result.ok) {
+  switch (result.error.type ?? result.error) {
+    case 'PAYMENT_FAILED':
+      await handleFailedPayment(result.error);
+      break;
+  }
+}
+```
+
+<Aside type="caution" title="Why not try/catch?">
+Using `try/catch` around `step()`:
+- Loses TypeScript's error type information
+- Breaks early-exit semantics
+- Makes error handling less predictable
+
+Handle errors at workflow boundaries (HTTP handlers, CLI entry points) where you map them to responses.
+</Aside>
+
 ## Automatic Error Inference
 
 When you create a workflow, TypeScript computes the error union from your dependencies:

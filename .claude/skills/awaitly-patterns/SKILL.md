@@ -101,6 +101,36 @@ const user = await deps.getUser(id);
 const response = await deps.fetchExternal(url);
 ```
 
+### R6: Never wrap step() in try/catch
+
+Errors from `step()` propagate automatically to the workflow result. Using `try/catch` around steps breaks this:
+
+```typescript
+// ❌ WRONG - try/catch defeats typed error propagation
+try {
+  const result = await step(() => deps.makePayment());
+} catch (error) {
+  await step(() => deps.handleFailed(error));
+}
+
+// ✅ CORRECT - errors propagate to workflow result
+const result = await workflow(async (step, deps) => {
+  const payment = await step(() => deps.makePayment());
+  return payment;
+});
+
+// Handle errors at the boundary
+if (!result.ok) {
+  switch (result.error.type ?? result.error) {
+    case 'PAYMENT_FAILED':
+      await handleFailedPayment(result.error);
+      break;
+  }
+}
+```
+
+If you need per-item error handling in a loop, use `step.forEach()` with error collection.
+
 ---
 
 ## Disallowed Inside Workflows
@@ -113,6 +143,7 @@ const response = await deps.fetchExternal(url);
 | `Promise.all()` | Disallowed even wrapped in step(); use `allAsync()` so errors are typed as Results |
 | `throw` in deps | Return `err()` instead, or wrap with `step.try()` |
 | `try/catch` | Use `step.try()` to convert throws to typed errors |
+| `try/catch` around step() | Errors propagate automatically; use workflow-level handling |
 
 Synchronous computation and pure logic are allowed inside workflows. Only async operations require `step()`.
 
@@ -234,6 +265,58 @@ const result = await processOrder(async (step, deps) => {
 **`step.try()` has the same control-flow as `step()`**: It returns the unwrapped value on success, or exits the workflow with the provided typed error on throw/rejection. Do not check `.ok` on its return value.
 
 **Timeout returns `STEP_TIMEOUT`**: When `step.withTimeout()` times out, it returns `{ type: 'STEP_TIMEOUT', timeoutMs, stepName }` directly (not wrapped in `UNEXPECTED_ERROR`).
+
+---
+
+## Loops with step.forEach()
+
+Use `step.forEach()` instead of manual `for` loops for static analyzability:
+
+### Basic Usage
+
+```typescript
+// Process items with automatic indexing
+await step.forEach('process-items', items, {
+  stepIdPattern: 'item-{i}',
+  run: async (item) => {
+    const processed = await step(() => deps.processItem(item));
+    return processed;
+  }
+});
+```
+
+### With Collected Results
+
+```typescript
+// Collect all results
+const results = await step.forEach('fetch-users', userIds, {
+  stepIdPattern: 'user-{i}',
+  collect: 'array',  // or 'last' for only final result
+  run: async (userId) => {
+    return await step(() => deps.getUser(userId));
+  }
+});
+```
+
+### Why Not Manual Loops?
+
+```typescript
+// ❌ AVOID - dynamic keys reduce static analyzability
+for (const item of items) {
+  await step(() => process(item), { key: `process-${item.id}` });
+}
+
+// ✅ PREFERRED - step.forEach() is statically analyzable
+await step.forEach('process', items, {
+  stepIdPattern: 'process-{i}',
+  run: (item) => step(() => process(item))
+});
+```
+
+Manual `for` loops with dynamic keys like `${item.id}`:
+- Cannot be enumerated by static analysis
+- Reduce path generation accuracy
+- Make test matrix generation incomplete
 
 ---
 

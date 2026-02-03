@@ -187,23 +187,22 @@ console.log(`Decision points: ${metrics.decisionPoints}`);
 console.log(`Path count: ${metrics.pathCount}`);
 ```
 
-#### `assessComplexity(ir, thresholds?)`
+#### `assessComplexity(metrics, thresholds?)`
 
 Get a complexity assessment with warnings.
 
 ```typescript
-import { assessComplexity, formatComplexitySummary } from 'awaitly-analyze';
+import {
+  analyze,
+  calculateComplexity,
+  assessComplexity,
+  formatComplexitySummary
+} from 'awaitly-analyze';
 
-const assessment = assessComplexity(ir);
-
-console.log(formatComplexitySummary(assessment));
-// Output:
-// Complexity: MODERATE
-// - Cyclomatic: 8
-// - Cognitive: 12
-// - Max Depth: 3
-// Warnings:
-// - Consider breaking down: cognitive complexity (12) exceeds threshold (10)
+const ir = analyze('./checkout.ts').single();
+const metrics = calculateComplexity(ir);
+const assessment = assessComplexity(metrics);
+console.log(formatComplexitySummary(metrics, assessment));
 ```
 
 ### Mermaid Diagrams

@@ -650,6 +650,54 @@ const user = await step(() => deps.fetchUser(id), { key: `user:${id}` });
 
 ---
 
+## Processing Collections
+
+Use `step.forEach()` for statically analyzable loops instead of manual `for` loops with dynamic keys:
+
+```typescript
+// ❌ Problematic - dynamic keys defeat static analysis
+for (const payment of payments) {
+  await step(() => processPayment(payment), { key: `payment-${payment.id}` });
+}
+
+// ✅ Better - step.forEach() is statically analyzable
+await step.forEach('process-payments', payments, {
+  stepIdPattern: 'payment-{i}',
+  run: async (payment) => {
+    await step(() => processPayment(payment));
+  }
+});
+```
+
+`step.forEach()` provides:
+- Static analysis support (awaitly-analyze can enumerate paths)
+- Automatic indexing with `stepIdPattern`
+- Resume support (tracks which items completed)
+
+---
+
+## Strict Mode (Closed Error Unions)
+
+By default, workflows include `UnexpectedError` in the error union. Use strict mode for closed error unions:
+
+```typescript
+// Default - open error union includes UnexpectedError
+const workflow = createWorkflow(deps);
+// Result error: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
+
+// Strict mode - closed error union
+const workflow = createWorkflow(deps, {
+  strict: true,
+  errors: ['NOT_FOUND', 'ORDER_FAILED'] as const,
+  catchUnexpected: (cause) => ({ type: 'UNEXPECTED' as const, cause })
+});
+// Result error: 'NOT_FOUND' | 'ORDER_FAILED' | { type: 'UNEXPECTED', cause }
+```
+
+With strict mode, TypeScript will error if a dep can produce an undeclared error.
+
+---
+
 ## When to use awaitly
 
 **Use it when:**

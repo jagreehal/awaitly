@@ -13,6 +13,8 @@ This page is generated from the awaitly package JSDoc and TypeScript types. For 
 
 Creates a failed Result.
 
+When to use: Return a typed failure without throwing so callers can handle it explicitly.
+
 ```typescript
 err(error: E, options?: unknown): Err<E, C>
 ```
@@ -20,6 +22,8 @@ err(error: E, options?: unknown): Err<E, C>
 ### ok
 
 Creates a successful Result.
+
+When to use: Wrap a successful value in a Result for consistent return types.
 
 ```typescript
 ok(value: T): Ok<T>
@@ -31,6 +35,8 @@ ok(value: T): Ok<T>
 
 Checks if a Result is a failure.
 
+When to use: Prefer functional-style checks or array filtering over .
+
 ```typescript
 isErr(r: Result<T, E, C>): (value: Err<E, C>) => boolean
 ```
@@ -39,6 +45,8 @@ isErr(r: Result<T, E, C>): (value: Err<E, C>) => boolean
 
 Checks if a Result is successful.
 
+When to use: Prefer functional-style checks or array filtering over .
+
 ```typescript
 isOk(r: Result<T, E, C>): (value: Ok<T>) => boolean
 ```
@@ -46,6 +54,8 @@ isOk(r: Result<T, E, C>): (value: Ok<T>) => boolean
 ### isUnexpectedError
 
 Checks if an error is an UnexpectedError.
+
+When to use: Distinguish unexpected failures from your typed error union.
 
 ```typescript
 isUnexpectedError(e: unknown): (value: UnexpectedError) => boolean
@@ -57,6 +67,8 @@ isUnexpectedError(e: unknown): (value: UnexpectedError) => boolean
 
 Extracts the value from an Ok result, or throws UnwrapError if it's an Err.
 
+When to use: Only at boundaries or tests where a failure should be fatal.
+
 ```typescript
 unwrap(r: Result<T, E, C>): T
 ```
@@ -65,6 +77,8 @@ unwrap(r: Result<T, E, C>): T
 
 Extracts the value from an Ok result, or returns a default value if it's an Err.
 
+When to use: Provide a safe fallback without branching.
+
 ```typescript
 unwrapOr(r: Result<T, E, C>, defaultValue: T): T
 ```
@@ -72,6 +86,8 @@ unwrapOr(r: Result<T, E, C>, defaultValue: T): T
 ### unwrapOrElse
 
 Extracts the value from an Ok result, or calls a function to get a default value if it's an Err.
+
+When to use: Compute a fallback from the error (logging, metrics, or derived defaults).
 
 ```typescript
 unwrapOrElse(r: Result<T, E, C>, fn: (error: E, cause?: C) => T): T
@@ -493,6 +509,8 @@ orElse(r: Result<T, E, C>, fn: (error: E, cause?: C) => Result<T, E2, C2>): Resu
 Exhaustively matches on a tagged error, requiring handlers for all variants.
 
 TypeScript will error if any variant in the error union is not handled.
+
+When to use: You want compile-time enforcement that every tagged variant is handled.
 
 ```typescript
 match(error: E, handlers: H): HandlersReturnType<H>

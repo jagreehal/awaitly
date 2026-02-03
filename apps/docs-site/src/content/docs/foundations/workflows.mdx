@@ -240,17 +240,44 @@ Failed: Send email EMAIL_FAILED
 
 ### strict
 
-Force explicit handling of unexpected errors:
+By default, workflows include `UnexpectedError` in the error union. Use strict mode for closed error unions where you explicitly declare all possible errors:
 
+<Tabs>
+  <TabItem label="Default (open union)">
 ```typescript
+// Default - open error union includes UnexpectedError
+const workflow = createWorkflow(deps);
+
+const result = await workflow(async (step) => { /* ... */ });
+// result.error: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
+```
+  </TabItem>
+  <TabItem label="Strict (closed union)">
+```typescript
+// Strict mode - closed error union
 const workflow = createWorkflow(deps, {
   strict: true,
-  catchUnexpected: (thrown) => ({
+  errors: ['NOT_FOUND', 'ORDER_FAILED'] as const,
+  catchUnexpected: (cause) => ({
     type: 'UNEXPECTED' as const,
-    message: String(thrown),
-  }),
+    cause
+  })
 });
+
+const result = await workflow(async (step) => { /* ... */ });
+// result.error: 'NOT_FOUND' | 'ORDER_FAILED' | { type: 'UNEXPECTED', cause }
 ```
+  </TabItem>
+</Tabs>
+
+With strict mode:
+- TypeScript will error if a dep can produce an undeclared error
+- `UnexpectedError` is replaced with your custom error shape
+- You have full control over the error union
+
+<Aside type="tip" title="When to use strict mode">
+Use strict mode when you need a closed error union for exhaustive switch statements, or when you want compile-time verification that all error types are declared.
+</Aside>
 
 ### signal (Cancellation)
 

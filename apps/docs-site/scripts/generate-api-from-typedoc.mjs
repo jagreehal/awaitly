@@ -75,6 +75,24 @@ function getCommentSummary(comment) {
   return comment.summary.map((s) => (s.kind === "text" ? s.text : "")).join("").trim();
 }
 
+function getCommentRemarks(comment) {
+  if (!comment?.blockTags?.length) return "";
+  const remarks = comment.blockTags.filter((t) => t.tag === "@remarks" || t.tag === "remarks");
+  if (!remarks.length) return "";
+  return remarks
+    .map((t) => (t.content || []).map((c) => (c.kind === "text" ? c.text : "")).join("").trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function getFullComment(comment) {
+  const summary = getCommentSummary(comment);
+  const remarks = getCommentRemarks(comment);
+  if (!summary && !remarks) return "";
+  if (!remarks) return summary;
+  return summary ? `${summary}\n\n${remarks}` : remarks;
+}
+
 function buildSignature(ref, sig) {
   if (!sig) return ref.name + "()";
   const params = (sig.parameters || []).map((p) => {
@@ -96,11 +114,12 @@ function collectReflections(node, path = [], out = [], refsById = new Map()) {
   if (isExport && (node.comment || node.signatures?.length)) {
     const section = SECTION_MAP[name] || SECTION_MAP[fullName];
     if (section) {
+      const comment = node.comment || node.signatures?.[0]?.comment;
       out.push({
         name: fullName,
         section: section[0],
         subsection: section[1],
-        comment: getCommentSummary(node.comment) || (node.signatures?.[0] && getCommentSummary(node.signatures[0].comment)),
+        comment: getFullComment(comment),
         signature: node.signatures?.[0] ? buildSignature(node, node.signatures[0]) : null,
       });
     }
