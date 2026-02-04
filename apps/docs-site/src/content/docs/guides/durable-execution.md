@@ -3,7 +3,34 @@ title: Durable Execution
 description: Automatic state persistence with crash recovery
 ---
 
+import { AnimatedWorkflowDiagram } from '~/components';
+
 Durable execution wraps workflows with automatic checkpointing. State is persisted after each keyed step, enabling crash recovery and resume from any point.
+
+<AnimatedWorkflowDiagram
+  steps={[
+    {
+      id: 'load',
+      label: 'load state',
+      description: 'Load snapshot by durable id.',
+      duration: '1.5s',
+    },
+    {
+      id: 'run',
+      label: 'run steps',
+      description: 'Execute keyed steps with checkpointing.',
+      duration: '2s',
+    },
+    {
+      id: 'persist',
+      label: 'persist after step',
+      description: 'After each keyed step, durable writes state to the store.',
+      duration: '2s',
+    },
+  ]}
+  autoPlay={true}
+  loop={true}
+/>
 
 ## Mental model (durable)
 
@@ -240,8 +267,8 @@ const result = await durable.run(
   }
 );
 
-if (!result.ok && isWorkflowCancelled(result.error)) {
-  console.log(`Cancelled at: ${result.error.lastStepKey}`);
+if (!result.ok && isWorkflowCancelled(result.cause)) {
+  console.log(`Cancelled at: ${result.cause.lastStepKey}`);
   // State is persisted, resume later with same ID
 }
 ```
@@ -448,7 +475,7 @@ async function processCheckout(orderId: string, userId: string, items: Item[]) {
 
   if (result.ok) {
     console.log('Order completed:', result.value.id);
-  } else if (isWorkflowCancelled(result.error)) {
+  } else if (isWorkflowCancelled(result.cause)) {
     console.log('Workflow paused, can resume later');
   } else {
     console.error('Workflow failed:', result.error);

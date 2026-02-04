@@ -1,0 +1,22 @@
+---
+title: Components
+description: Interactive widgets used throughout the docs
+---
+
+import { AnimatedWorkflowDiagram } from '~/components';
+
+This page is a living library of small interactive widgets we use to explain awaitly concepts.
+
+## Execution model
+
+### AnimatedWorkflowDiagram
+
+<AnimatedWorkflowDiagram
+  steps={[
+    { id: 'a', label: 'step A', description: 'A normal step', duration: '1.5s' },
+    { id: 'b', label: 'step B', description: 'Runs after A succeeds', duration: '1.5s' },
+    { id: 'c', label: 'step C', description: 'Keyed steps can be cached and resumed', duration: '1.5s' },
+  ]}
+  autoPlay={true}
+  loop={true}
+/>

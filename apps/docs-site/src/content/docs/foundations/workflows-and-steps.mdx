@@ -3,13 +3,38 @@ title: Workflows and Steps
 description: Compose Result-returning operations with run() and createWorkflow()
 ---
 
-import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem, AnimatedWorkflowDiagram } from '~/components';
 
 Workflows compose multiple Result-returning operations. The `step()` function unwraps Results automatically. If any step fails, the workflow exits early with that error.
 
 ## The step() Function
 
 `step()` is the core of workflow composition. It unwraps a Result, returning the value on success or exiting the workflow on error:
+
+<AnimatedWorkflowDiagram
+  steps={[
+    {
+      id: 'fetchUser',
+      label: 'fetchUser',
+      description: 'Run a step. If it returns err(...), the workflow exits early.',
+      duration: '1.5s',
+    },
+    {
+      id: 'fetchPosts',
+      label: 'fetchPosts',
+      description: 'Only runs if the previous step succeeded.',
+      duration: '1.5s',
+    },
+    {
+      id: 'return',
+      label: 'return value',
+      description: 'Workflows return raw values on success.',
+      duration: '1s',
+    },
+  ]}
+  autoPlay={true}
+  loop={true}
+/>
 
 ```typescript
 import { run } from 'awaitly/run';
@@ -163,6 +188,8 @@ const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 <Aside type="note">
 A thunk is a function with no arguments that returns the value. Using thunks lets awaitly control when (and whether) to execute the operation.
 </Aside>
+
+See [Why thunks?](/foundations/thunks/) for the mental model, plus why `step('id', somePromise)` can be misleading.
 
 ## step.try() - Wrap Throwing Code
 
@@ -550,18 +577,18 @@ Failed: Send email EMAIL_FAILED
 */
 ```
 
-### strict
+### catchUnexpected (custom unexpected type)
 
-Force explicit handling of unexpected errors:
+Workflow error unions are always closed; by default, thrown exceptions become `UnexpectedError`. To use a custom type for unexpected errors, pass `catchUnexpected`:
 
 ```typescript
 const workflow = createWorkflow(deps, {
-  strict: true,
   catchUnexpected: (thrown) => ({
     type: 'UNEXPECTED' as const,
     message: String(thrown),
   }),
 });
+// result.error is E | { type: 'UNEXPECTED', message: string }
 ```
 
 ### signal (Cancellation)
@@ -587,8 +614,8 @@ const resultPromise = workflow(async (step) => {
 setTimeout(() => controller.abort('timeout'), 5000);
 
 const result = await resultPromise;
-if (!result.ok && isWorkflowCancelled(result.error)) {
-  console.log('Cancelled:', result.error.reason);
+if (!result.ok && isWorkflowCancelled(result.cause)) {
+  console.log('Cancelled:', result.cause.reason);
 }
 /*
 Output (if cancelled):
@@ -602,7 +629,7 @@ Cancelled: timeout
 - A step throws `AbortError` (e.g., from `fetch` respecting the signal)
 - Abort fires during the last step but the step completes successfully
 
-**Typed errors are preserved:** If a step returns `err("KNOWN_ERROR")` even while abort is signaled, that typed error is returned, not masked as cancellation.
+**Typed errors are preserved:** If a step returns `err("KNOWN_ERROR")` even while abort is signaled, that typed error is returned, not masked as cancellation. With the default error mapper, check `result.cause` (not `result.error`) for `WorkflowCancelledError` when handling cancellation.
 </Aside>
 
 **Passing signal to operations:**
@@ -721,7 +748,7 @@ await workflow(fn);  // Uses handlerA, signalA
 | `streamStore` | Stream store for this run |
 
 <Aside type="note">
-Options like `cache` and `strict` are **creation-time only**. They define the workflow's fundamental behavior and cannot be changed per-run.
+Options like `cache` and `catchUnexpected` are **creation-time only**. They define the workflow's fundamental behavior and cannot be changed per-run.
 </Aside>
 
 ### Merging with `.with()`

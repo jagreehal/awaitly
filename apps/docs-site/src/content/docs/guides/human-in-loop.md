@@ -7,6 +7,33 @@ Pause workflows for human approval (large transfers, deployments, refunds) and r
 
 ## Create an approval step
 
+import { AnimatedWorkflowDiagram } from '~/components';
+
+<AnimatedWorkflowDiagram
+  steps={[
+    {
+      id: 'calculate',
+      label: 'calculate refund',
+      description: 'Compute the value, return err(...) on failure.',
+      duration: '2s',
+    },
+    {
+      id: 'approve',
+      label: 'await approval',
+      description: 'Pause until an approver resolves the request.',
+      duration: '3s',
+    },
+    {
+      id: 'process',
+      label: 'process refund',
+      description: 'Resume with the approved value and continue.',
+      duration: '2s',
+    },
+  ]}
+  autoPlay={true}
+  loop={true}
+/>
+
 ```typescript
 import { createApprovalStep, isPendingApproval } from 'awaitly/hitl';
 

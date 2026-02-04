@@ -3,8 +3,7 @@ title: Steps
 description: The step() function and its variants
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem, AnimatedWorkflowDiagram } from '~/components';
 
 `step()` executes an operation within a workflow. If the operation fails, the workflow exits early.
 
@@ -26,9 +25,40 @@ const result = await workflow(async (step) => {
 Unlike try/catch where you need explicit return statements, `step()` automatically exits the workflow on error. The error becomes the workflow's result.
 </Aside>
 
+## Why thunks?
+
+You’ll often see `step('id', () => fn())` (a thunk) instead of `step('id', fn())` (an already-started Promise). This is the same pattern used by TanStack React Query’s `queryFn`: the orchestrator needs to control **when** work starts so it can cache, dedupe, retry, and resume correctly.
+
+See [Why thunks?](/foundations/thunks/) for the mental model and the “why `step('id', somePromise)` may work” nuance.
+
 ## Using thunks for caching
 
 Pass a function (thunk) as the second argument so the step can be cached. The first argument is the required string ID:
+
+<AnimatedWorkflowDiagram
+  steps={[
+    {
+      id: 'cache',
+      label: 'cache check',
+      description: 'If a keyed result is cached, step can skip execution.',
+      duration: '1s',
+    },
+    {
+      id: 'fetchUser',
+      label: 'fetchUser',
+      description: 'Thunk delays start so caching and retries can work.',
+      duration: '2s',
+    },
+    {
+      id: 'checkpoint',
+      label: 'checkpoint',
+      description: 'Keyed steps can be saved for resume and replay.',
+      duration: '1.5s',
+    },
+  ]}
+  autoPlay={true}
+  loop={true}
+/>
 
 ```typescript
 const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });

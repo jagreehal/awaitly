@@ -1,0 +1,134 @@
+---
+title: Why thunks?
+description: Why awaitly uses thunks for step execution (and why promises can be misleading)
+---
+
+import { Aside, AnimatedWorkflowDiagram } from '~/components';
+
+A thunk is “work packaged as a function”, which lets libraries decide when (or whether) the work runs.
+
+```ts
+type Thunk<T> = () => T;
+type AsyncThunk<T> = () => Promise<T>;
+```
+
+Instead of running the work *now*, you pass a function that can run it *later*.
+
+## You already use thunks (React Query)
+
+If you’ve ever written `queryFn: () => fetch(...)`, you’ve used a thunk.
+
+TanStack React Query’s `queryFn` is an async thunk: you give it *how to fetch*, and React Query decides **when** to run it (based on cache, dedupe rules, refetching, focus, `enabled`, etc.).
+
+```ts
+import { useQuery } from "@tanstack/react-query";
+
+function Todos({ userId }: { userId?: string }) {
+  const query = useQuery({
+    queryKey: ["todos", userId],
+    // thunk: don't fetch during render; let react-query schedule it
+    queryFn: () => fetch(`/api/users/${userId}/todos`).then(r => r.json()),
+    enabled: !!userId,
+  });
+
+  // ...
+}
+```
+
+The key idea: **the library owns execution**, so it needs your work as a thunk.
+
+## Promises start immediately (often too early)
+
+Promises typically begin executing immediately when they’re created.
+A Promise represents a single, already-started execution, not a repeatable operation.
+
+```ts
+// Starts immediately
+const promise = fetch("/api/user");
+
+// By the time you pass it somewhere, you already lost control over start time
+await promise;
+```
+
+With a thunk, the caller decides when to start:
+
+```ts
+// Starts only when called
+const fetchUser = () => fetch("/api/user");
+
+await fetchUser();
+```
+
+## How this maps to awaitly `step()`
+
+In awaitly, the workflow runtime wants to wrap an operation with orchestration:
+
+- caching / dedupe (skip work on cache hits)
+- retries (re-run the operation)
+- timeouts and cancellation
+- observability (events, durations)
+- resume / replay (skip already-completed work)
+
+To do that reliably, `step()` needs “work I can start later” — a thunk:
+
+<AnimatedWorkflowDiagram
+  steps={[
+    {
+      id: 'defer',
+      label: 'defer work',
+      description: 'Pass a function so the runtime decides when to start.',
+      duration: '1.5s',
+    },
+    {
+      id: 'control',
+      label: 'orchestrate',
+      description: 'Enable caching, retries, timeouts, and cancellation.',
+      duration: '2s',
+    },
+    {
+      id: 'record',
+      label: 'record result',
+      description: 'Keyed steps can be checkpointed for resume and replay.',
+      duration: '1.5s',
+    },
+  ]}
+  autoPlay={true}
+  loop={true}
+/>
+
+```ts
+const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+```
+
+## Why `step('id', somePromise)` may “work”
+
+Sometimes you’ll see code like this:
+
+```ts
+// Looks like it should be fine...
+const user = await step('fetchUser', fetchUser('1'), { key: 'user:1' });
+```
+
+It **may “work”** in the narrow sense that:
+
+- you still get the value on success (or an error on failure)
+- you may still see results recorded (cache populated, `step_complete` emitted) depending on the call path
+
+But it breaks the reason `step()` exists: **execution control**.
+
+When you pass a Promise, the operation has already started *before* `step()` can do anything.
+That means the runtime can’t reliably:
+
+- **skip execution on cache hit** (the request already started)
+- **retry** by re-invoking the operation (you gave it a single already-running Promise)
+- **resume** by avoiding already-completed work (it already started)
+
+<Aside type="tip" title="The mental model">
+If you’re handing work to a library that schedules, caches, retries, dedupes, limits, or orchestrates… pass a thunk.
+</Aside>
+
+## A simple rule of thumb
+
+- If you want orchestration features (caching, retries, resume): use `step('id', () => op(), opts)`.
+- If you just want the value and don’t care about orchestration: start it yourself and `await` it,  don’t hand an already-started Promise to an orchestrator.
+

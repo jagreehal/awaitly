@@ -196,8 +196,8 @@ const resultPromise = workflow(async (step) => {
 setTimeout(() => controller.abort('timeout'), 5000);
 
 const result = await resultPromise;
-if (!result.ok && isWorkflowCancelled(result.error)) {
-  console.log('Cancelled:', result.error.reason);
+if (!result.ok && isWorkflowCancelled(result.cause)) {
+  console.log('Cancelled:', result.cause.reason);
 }
 ```
 

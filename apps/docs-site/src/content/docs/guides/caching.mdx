@@ -3,11 +3,38 @@ title: Caching
 description: Cache step results to avoid duplicate work
 ---
 
-:::caution[Options go to createWorkflow]
+import { AnimatedWorkflowDiagram } from '~/components';
+
+::::caution[Options go to createWorkflow]
 Cache options must be passed to `createWorkflow(deps, { cache })`, not when calling the workflow. Options passed to the executor are silently ignored.
-:::
+::::
 
 Cache step results so they don't re-execute if the workflow runs again.
+
+<AnimatedWorkflowDiagram
+  steps={[
+    {
+      id: 'key',
+      label: 'choose a key',
+      description: 'Stable, deterministic, unique per instance.',
+      duration: '1.5s',
+    },
+    {
+      id: 'cache',
+      label: 'cache or run',
+      description: 'On hit, step returns cached value without starting work.',
+      duration: '2s',
+    },
+    {
+      id: 'reuse',
+      label: 'reuse later',
+      description: 'Same key returns the same result across runs.',
+      duration: '1.5s',
+    },
+  ]}
+  autoPlay={true}
+  loop={true}
+/>
 
 ## Enable caching
 
@@ -165,3 +192,4 @@ To retry on error, clear the cache key first.
 ## Next
 
 [Learn about Persistence →](/guides/persistence/)
+

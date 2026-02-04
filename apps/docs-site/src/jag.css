@@ -1,0 +1,87 @@
+/* shadcn/ui tokens driven by Starlight Theme Next tokens */
+
+/* Default (Theme Next’s “dark” baseline) */
+:root {
+  --radius: 0.65rem;
+
+  --background: var(--sl-color-black);
+  --foreground: var(--sl-color-white);
+
+  --card: var(--sl-color-gray-6);
+  --card-foreground: var(--sl-color-white);
+
+  --popover: var(--sl-color-gray-6);
+  --popover-foreground: var(--sl-color-white);
+
+  --primary: var(--sl-color-accent);
+  --primary-foreground: var(--sl-color-white);
+
+  --secondary: var(--sl-color-gray-6);
+  --secondary-foreground: var(--sl-color-white);
+
+  --muted: var(--sl-color-gray-6);
+  --muted-foreground: var(--sl-color-gray-2);
+
+  --accent: var(--sl-color-accent-low);
+  --accent-foreground: var(--sl-color-white);
+
+  /* You can keep your destructive OKLCH if you like; here’s a simple neutral default */
+  --destructive: #ef4444;
+
+  --border: var(--sl-color-gray-5);
+  --input: var(--sl-color-gray-5);
+  --ring: var(--sl-color-accent-high);
+
+  /* Optional “sidebar” tokens if you use shadcn sidebar components */
+  --sidebar: var(--sl-color-bg-sidebar);
+  --sidebar-foreground: var(--sl-color-white);
+  --sidebar-primary: var(--sl-color-accent);
+  --sidebar-primary-foreground: var(--sl-color-white);
+  --sidebar-accent: var(--sl-color-gray-6);
+  --sidebar-accent-foreground: var(--sl-color-white);
+  --sidebar-border: var(--sl-color-gray-5);
+  --sidebar-ring: var(--sl-color-accent-high);
+
+  --chart-1: var(--sl-color-accent);
+  --chart-2: var(--sl-color-gray-4);
+  --chart-3: var(--sl-color-gray-3);
+  --chart-4: var(--sl-color-gray-5);
+  --chart-5: var(--sl-color-accent-low);
+}
+
+/* Light mode overrides (Starlight sets data-theme="light") */
+:root[data-theme="light"] {
+  --background: var(--sl-color-black);      /* in light mode, Theme Next flips sl-color-black to white */
+  --foreground: var(--sl-color-white);      /* and sl-color-white to near-black */
+
+  --card: var(--sl-color-gray-7);
+  --card-foreground: var(--sl-color-white);
+
+  --popover: var(--sl-color-gray-7);
+  --popover-foreground: var(--sl-color-white);
+
+  --primary: var(--sl-color-accent);
+  --primary-foreground: var(--sl-color-black);
+
+  --secondary: var(--sl-color-gray-6);
+  --secondary-foreground: var(--sl-color-white);
+
+  --muted: var(--sl-color-gray-6);
+  --muted-foreground: var(--sl-color-gray-3);
+
+  --accent: var(--sl-color-accent-low);
+  --accent-foreground: var(--sl-color-accent-high);
+
+  --border: var(--sl-color-gray-5);
+  --input: var(--sl-color-gray-5);
+  --ring: var(--sl-color-accent);
+
+  --sidebar: var(--sl-color-black);
+  --sidebar-foreground: var(--sl-color-white);
+
+  --chart-1: var(--sl-color-accent);
+  --chart-2: var(--sl-color-gray-4);
+  --chart-3: var(--sl-color-gray-3);
+  --chart-4: var(--sl-color-gray-5);
+  --chart-5: var(--sl-color-accent-low);
+}

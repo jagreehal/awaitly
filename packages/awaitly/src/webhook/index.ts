@@ -5,8 +5,8 @@
  * Framework-agnostic handlers that work with Express, Hono, Fastify, etc.
  */
 
-import { type Result, type AsyncResult, ok, err, isOk } from "../core";
-import { type Workflow, type WorkflowStrict, type UnexpectedError } from "../workflow";
+import { type Result, type AsyncResult, type RunStep, ok, err, isOk } from "../core";
+import { type Workflow, type UnexpectedError } from "../workflow";
 
 // =============================================================================
 // Request/Response Types
@@ -97,8 +97,15 @@ export function isValidationError(e: unknown): e is ValidationError {
  * @template TOutput - The workflow output type
  * @template TError - The workflow error type
  * @template TBody - The raw request body type
+ * @template TUnexpected - The workflow's unexpected error type (default UnexpectedError)
  */
-export interface WebhookHandlerConfig<TInput, TOutput, TError, TBody = unknown> {
+export interface WebhookHandlerConfig<
+  TInput,
+  TOutput,
+  TError,
+  TBody = unknown,
+  TUnexpected = UnexpectedError
+> {
   /**
    * Validate and transform the incoming request.
    * Return ok(input) to proceed, or err(validationError) to reject.
@@ -114,12 +121,12 @@ export interface WebhookHandlerConfig<TInput, TOutput, TError, TBody = unknown> 
    * Map workflow result to HTTP response.
    * Called for both success and error cases.
    *
-   * @param result - The workflow result
+   * @param result - The workflow result (error union is TError | TUnexpected)
    * @param req - The original request (for context)
    * @returns HTTP response
    */
   mapResult: (
-    result: Result<TOutput, TError | UnexpectedError>,
+    result: Result<TOutput, TError | TUnexpected>,
     req: WebhookRequest<TBody>
   ) => WebhookResponse;
 
@@ -292,15 +299,16 @@ export function createWebhookHandler<
   TOutput,
   TError,
   TBody = unknown,
-  TDeps = unknown
+  TDeps = unknown,
+  TUnexpected = UnexpectedError
 >(
-  workflow: Workflow<TError, TDeps> | WorkflowStrict<TError, unknown, TDeps>,
+  workflow: Workflow<TError, TUnexpected, TDeps>,
   workflowFn: (
-    step: Parameters<Parameters<Workflow<TError, TDeps>>[1]>[0],
+    step: RunStep<TError | TUnexpected>,
     deps: TDeps,
     input: TInput
   ) => TOutput | Promise<TOutput>,
-  config: WebhookHandlerConfig<TInput, TOutput, TError, TBody>
+  config: WebhookHandlerConfig<TInput, TOutput, TError, TBody, TUnexpected>
 ): WebhookHandler<TBody> {
   const {
     validateInput,
@@ -325,7 +333,7 @@ export function createWebhookHandler<
       }
 
       // Execute workflow with validated input
-      const workflowResult = await (workflow as Workflow<TError, TDeps>)(
+      const workflowResult = await workflow(
         validationResult.value,
         (step, deps) => workflowFn(step, deps, validationResult.value)
       );
@@ -751,7 +759,12 @@ export interface EventProcessingResult {
 /**
  * Configuration for event trigger handlers.
  */
-export interface EventTriggerConfig<TPayload, TOutput, TError> {
+export interface EventTriggerConfig<
+  TPayload,
+  TOutput,
+  TError,
+  TUnexpected = UnexpectedError
+> {
   /** Validate the event payload */
   validatePayload: (
     event: EventMessage<TPayload>
@@ -759,12 +772,12 @@ export interface EventTriggerConfig<TPayload, TOutput, TError> {
 
   /** Map workflow result to processing result */
   mapResult: (
-    result: Result<TOutput, TError | UnexpectedError>,
+    result: Result<TOutput, TError | TUnexpected>,
     event: EventMessage<TPayload>
   ) => EventProcessingResult;
 
   /** Optional: Determine if error is retryable */
-  isRetryable?: (error: TError | UnexpectedError) => boolean;
+  isRetryable?: (error: TError | TUnexpected) => boolean;
 }
 
 /**
@@ -812,15 +825,16 @@ export function createEventHandler<
   TPayload,
   TOutput,
   TError,
-  TDeps = unknown
+  TDeps = unknown,
+  TUnexpected = UnexpectedError
 >(
-  workflow: Workflow<TError, TDeps> | WorkflowStrict<TError, unknown, TDeps>,
+  workflow: Workflow<TError, TUnexpected, TDeps>,
   workflowFn: (
-    step: Parameters<Parameters<Workflow<TError, TDeps>>[1]>[0],
+    step: RunStep<TError | TUnexpected>,
     deps: TDeps,
     payload: TPayload
   ) => TOutput | Promise<TOutput>,
-  config: EventTriggerConfig<TPayload, TOutput, TError>
+  config: EventTriggerConfig<TPayload, TOutput, TError, TUnexpected>
 ): EventHandler<TPayload> {
   const { validatePayload, mapResult } = config;
 
@@ -840,7 +854,7 @@ export function createEventHandler<
         };
       }
 
-      const workflowResult = await (workflow as Workflow<TError, TDeps>)(
+      const workflowResult = await workflow(
         validationResult.value,
         (step, deps) => workflowFn(step, deps, validationResult.value)
       );
