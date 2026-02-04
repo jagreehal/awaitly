@@ -897,8 +897,8 @@ describe("ErrorOf and Errors utilities - auto-extract error types", () => {
       AppError
     >(
       async (step) => {
-        const user = await step(() => fetchUser("123"));
-        const posts = await step(() => fetchPosts(user.id));
+        const user = await step('fetchUser', () => fetchUser("123"));
+        const posts = await step('fetchPosts', () => fetchPosts(user.id));
         return { user, posts };
       },
       { catchUnexpected: () => "UNEXPECTED"  }
@@ -926,8 +926,8 @@ describe("ErrorOf and Errors utilities - auto-extract error types", () => {
       AppError
     >(
       async (step) => {
-        const user = await step(() => fetchUser("unknown")); // Will fail
-        const posts = await step(() => fetchPosts(user.id));
+        const user = await step('fetchUser', () => fetchUser("unknown")); // Will fail
+        const posts = await step('fetchPosts', () => fetchPosts(user.id));
         return { user, posts };
       },
       { catchUnexpected: () => "UNEXPECTED"  }
@@ -952,8 +952,8 @@ describe("ErrorOf and Errors utilities - auto-extract error types", () => {
       AppError
     >(
       async (step) => {
-        const input = await step(() => validateInput("hello"));
-        const user = await step(() => fetchUser(input));
+        const input = await step('validateInput', () => validateInput("hello"));
+        const user = await step('fetchUser', () => fetchUser(input));
         return { user };
       },
       { catchUnexpected: () => "UNEXPECTED"  }
@@ -1065,8 +1065,8 @@ describe("Real-world usage patterns", () => {
       AppError
     >(
       async (step) => {
-        const user = await step(() => fetchUser("123"));
-        const posts = await step(() => fetchPosts(user.id));
+        const user = await step('fetchUser', () => fetchUser("123"));
+        const posts = await step('fetchPosts', () => fetchPosts(user.id));
         return { user, posts };
       },
       { catchUnexpected: () => "UNEXPECTED"  }
@@ -1089,8 +1089,8 @@ describe("Real-world usage patterns", () => {
       AppError
     >(
       async (step) => {
-        const user = await step(() => fetchUser("unknown")); // Will fail
-        const posts = await step(() => fetchPosts(user.id));
+        const user = await step('fetchUser', () => fetchUser("unknown")); // Will fail
+        const posts = await step('fetchPosts', () => fetchPosts(user.id));
         return { user, posts };
       },
       { catchUnexpected: () => "UNEXPECTED"  }

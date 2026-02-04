@@ -5,20 +5,21 @@
  * Shows all possible paths, not just executed ones.
  */
 
-import type {
-  StaticWorkflowIR,
-  StaticFlowNode,
-  StaticStepNode,
-  StaticSequenceNode,
-  StaticParallelNode,
-  StaticRaceNode,
-  StaticConditionalNode,
-  StaticDecisionNode,
-  StaticSwitchNode,
-  StaticLoopNode,
-  StaticWorkflowRefNode,
-  StaticStreamNode,
-  StaticSagaStepNode,
+import {
+  extractFunctionName,
+  type StaticWorkflowIR,
+  type StaticFlowNode,
+  type StaticStepNode,
+  type StaticSequenceNode,
+  type StaticParallelNode,
+  type StaticRaceNode,
+  type StaticConditionalNode,
+  type StaticDecisionNode,
+  type StaticSwitchNode,
+  type StaticLoopNode,
+  type StaticWorkflowRefNode,
+  type StaticStreamNode,
+  type StaticSagaStepNode,
 } from "../types";
 
 // =============================================================================
@@ -295,7 +296,7 @@ function renderStepNode(
   lines: string[]
 ): RenderResult {
   const nodeId = `step_${++context.nodeCounter}`;
-  let label = node.name ?? node.callee ?? "step";
+  let label = node.name ?? (node.callee ? extractFunctionName(node.callee) : "step");
 
   if (context.opts.showKeys && node.key) {
     label = `${label}\\n[${node.key}]`;
@@ -324,7 +325,7 @@ function renderSagaStepNode(
   lines: string[]
 ): RenderResult {
   const nodeId = `saga_step_${++context.nodeCounter}`;
-  let label = node.name ?? node.callee ?? "saga-step";
+  let label = node.name ?? (node.callee ? extractFunctionName(node.callee) : "saga-step");
 
   if (context.opts.showKeys && node.key) {
     label = `${label}\\n[${node.key}]`;

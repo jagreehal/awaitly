@@ -80,7 +80,7 @@ const options = stepOptions()
   .retries(3)
   .build();
 
-const user = await step(() => fetchUser('123'), options);
+const user = await step('fetchUser', () => fetchUser('123'), options);
 ```
 
 ## Policy registry

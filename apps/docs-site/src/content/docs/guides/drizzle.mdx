@@ -42,7 +42,7 @@ const findUser = async (id: string): AsyncResult<typeof users.$inferSelect, DbEr
 const workflow = createWorkflow({ findUser });
 
 const result = await workflow(async (step) => {
-  const user = await step(() => deps.findUser('user-123'));
+  const user = await step('findUser', () => deps.findUser('user-123'));
   return user;
 });
 ```
@@ -224,8 +224,8 @@ const createUserWorkflow = createWorkflow(deps);
 
 const createUser = async (rawInput: unknown) => {
   return createUserWorkflow(async (step, d) => {
-    const input = await step(() => d.validateInput(rawInput));
-    const user = await step(() => d.createUser(input));
+    const input = await step('validateInput', () => d.validateInput(rawInput));
+    const user = await step('createUser', () => d.createUser(input));
     return user;
   });
 };
@@ -462,19 +462,19 @@ const signUpWorkflow = createWorkflow(deps);
 const signUp = async (rawInput: unknown) => {
   return signUpWorkflow(async (step, d) => {
     // Step 1: Validate input
-    const input = await step(() => d.validateInput(rawInput));
+    const input = await step('validateInput', () => d.validateInput(rawInput));
 
     // Step 2: Check if email is taken
-    const emailExists = await step(() => d.checkEmailExists(input.email));
+    const emailExists = await step('checkEmailExists', () => d.checkEmailExists(input.email));
     if (emailExists) {
-      return await step(err({ type: 'EMAIL_TAKEN' as const, email: input.email }));
+      return await step('createUser', err({ type: 'EMAIL_TAKEN' as const, email: input.email }));
     }
 
     // Step 3: Hash password
-    const passwordHash = await step(() => d.hashPassword(input.password));
+    const passwordHash = await step('hashPassword', () => d.hashPassword(input.password));
 
     // Step 4: Create user
-    const user = await step(() =>
+    const user = await step('createUser', () =>
       d.createUser({
         email: input.email,
         passwordHash,

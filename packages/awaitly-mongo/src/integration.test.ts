@@ -115,8 +115,8 @@ describe.skipIf(shouldSkip)("Integration with durable.run", () => {
       const result1 = await durable.run(
         { fetchUser, createOrder },
         async (step, { fetchUser, createOrder }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
-          const order = await step(() => createOrder(user), { key: "create-order" });
+          const user = await step("fetch-user", () => fetchUser("123"));
+          const order = await step("create-order", () => createOrder(user));
           return order;
         },
         {

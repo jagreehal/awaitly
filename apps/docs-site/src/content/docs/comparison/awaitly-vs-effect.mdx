@@ -116,8 +116,8 @@ const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* 
 const workflow = createWorkflow({ fetchUser, sendEmail });
 
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('1'));
-  await step(sendEmail(user.email));
+  const user = await step('fetchUser', () => fetchUser('1'));
+  await step('sendEmail', () => sendEmail(user.email));
   return user;
 });
 
@@ -160,7 +160,7 @@ const program = pipe(
   <TabItem label="awaitly">
 ```typescript
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('1'));
+  const user = await step('fetchUser', () => fetchUser('1'));
   return user;
 });
 
@@ -203,6 +203,7 @@ awaitly uses retry policies while Effect uses Schedule combinators. Both achieve
 ```typescript
 const result = await workflow(async (step) => {
   const data = await step.retry(
+    'fetchData',
     () => fetchData(),
     {
       attempts: 3,
@@ -255,7 +256,9 @@ awaitly Exponential Backoff (delayMs: 100)
 ```typescript
 const result = await workflow(async (step) => {
   const data = await step.retry(
+    'fetchData',
     () => step.withTimeout(
+      'fetchData',
       () => fetchData(),
       { ms: 5000 }
     ),
@@ -287,6 +290,7 @@ const program = fetchData.pipe(
   <TabItem label="awaitly">
 ```typescript
 const result = await step.retry(
+  'fetchData',
   () => fetchData(),
   {
     attempts: 5,
@@ -321,7 +325,7 @@ const limiter = createRateLimiter('api', {
 
 const result = await workflow(async (step) => {
   // Rate limit *when the step starts*
-  const data = await limiter.execute(() => step(() => fetchData()));
+  const data = await limiter.execute(() => step('fetchData', () => fetchData()));
   return data;
 });
 ```
@@ -364,10 +368,10 @@ const workflow = createWorkflow({
 });
 
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser(userId));
-  const order = await step(validateOrder(orderData));
-  const receipt = await step(chargeCard(order.total));
-  await step(sendConfirmation(user.email, receipt));
+  const user = await step('fetchUser', () => fetchUser(userId));
+  const order = await step('validateOrder', () => validateOrder(orderData));
+  const receipt = await step('chargeCard', () => chargeCard(order.total));
+  await step('sendConfirmation', () => sendConfirmation(user.email, receipt));
   return { user, order, receipt };
 });
 ```
@@ -416,7 +420,7 @@ const program = Effect.gen(function* () {
 import { allAsync } from 'awaitly';
 
 const result = await workflow(async (step) => {
-  const [user, posts, comments] = await step(() =>
+  const [user, posts, comments] = await step('fetchUserData', () =>
     allAsync([
       fetchUser('1'),
       fetchPosts('1'),
@@ -462,7 +466,7 @@ const workflow = createWorkflow(deps, {
 });
 
 const result = await workflow(async (step) => {
-  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
   return user;
 });
 await store.save('wf-1', workflow.getSnapshot());
@@ -586,9 +590,9 @@ import { createWorkflow } from 'awaitly/workflow';
 const workflow = createWorkflow({ openConnection, query });
 
 const result = await workflow(async (step) => {
-  const conn = await step(openConnection());
+  const conn = await step('openConnection', () => openConnection());
   try {
-    const data = await step(query(conn, 'SELECT * FROM users'));
+    const data = await step('query', () => query(conn, 'SELECT * FROM users'));
     return data;
   } finally {
     await conn.close(); // Standard cleanup
@@ -597,8 +601,8 @@ const result = await workflow(async (step) => {
 
 // Or use the using keyword (TC39 Explicit Resource Management)
 const result = await workflow(async (step) => {
-  using conn = await step(openConnection());
-  const data = await step(query(conn, 'SELECT * FROM users'));
+  using conn = await step('openConnection', () => openConnection());
+  const data = await step('query', () => query(conn, 'SELECT * FROM users'));
   return data;
 }); // conn.close() called automatically
 ```

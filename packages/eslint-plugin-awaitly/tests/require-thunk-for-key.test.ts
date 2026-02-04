@@ -17,55 +17,55 @@ const config = [
 
 describe('require-thunk-for-key', () => {
   describe('valid cases', () => {
-    it('allows thunk with key option', () => {
-      const code = `step(() => fetchUser('1'), { key: 'user:1' });`;
+    it('allows step with id, thunk and key option', () => {
+      const code = `step('fetchUser', () => fetchUser('1'), { key: 'user:1' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
 
-    it('allows function identifier as thunk with key option', () => {
-      const code = `step(fetchUser, { key: 'user:1' });`;
+    it('allows step with id and function identifier as thunk with key option', () => {
+      const code = `step('fetchUser', fetchUser, { key: 'user:1' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
 
-    it('allows member function identifier as thunk with key option', () => {
-      const code = `step(deps.fetchUser, { key: 'user:1' });`;
+    it('allows step with id and member function identifier as thunk with key option', () => {
+      const code = `step('fetchUser', deps.fetchUser, { key: 'user:1' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
 
-    it('allows member function identifier when base object is precomputed', () => {
+    it('allows step with id and member function when base object is precomputed', () => {
       const code = `
         const deps = getDeps();
-        step(deps.fetchUser, { key: 'user:1' });
+        step('fetchUser', deps.fetchUser, { key: 'user:1' });
       `;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
 
-    it('allows destructured function reference from precomputed object', () => {
+    it('allows step with id and destructured function reference from precomputed object', () => {
       const code = `
         const { fetchUser } = getDeps();
-        step(fetchUser, { key: 'user:1' });
+        step('fetchUser', fetchUser, { key: 'user:1' });
       `;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
 
-    it('allows member function identifier on precomputed object with non-utility name', () => {
+    it('allows step with id and member function on precomputed object with non-utility name', () => {
       const code = `
         const repo = createRepo();
-        step(repo.fetchUser, { key: 'user:1' });
+        step('fetchUser', repo.fetchUser, { key: 'user:1' });
       `;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
 
-    it('allows member function identifier on precomputed object with unusual name', () => {
+    it('allows step with id and member function on precomputed object with unusual name', () => {
       const code = `
         const userApi = createUserApi();
-        step(userApi.fetchUser, { key: 'user:1' });
+        step('fetchUser', userApi.fetchUser, { key: 'user:1' });
       `;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
@@ -75,7 +75,7 @@ describe('require-thunk-for-key', () => {
       const code = `
         const result = fetchUser('1');
         function run(result) {
-          step(result, { key: 'user:1' });
+          step('run', result, { key: 'user:1' });
         }
       `;
       const messages = linter.verify(code, config);
@@ -86,7 +86,7 @@ describe('require-thunk-for-key', () => {
       const code = `
         let result = fetchUser('1');
         result = fetchUser;
-        step(result, { key: 'user:1' });
+        step('fetchUser', result, { key: 'user:1' });
       `;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
@@ -98,13 +98,7 @@ describe('require-thunk-for-key', () => {
       expect(messages).toHaveLength(0);
     });
 
-    it('allows immediate execution WITHOUT key option (no caching)', () => {
-      const code = `step(fetchUser('1'));`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(0);
-    });
-
-    it('allows immediate execution with name but no key', () => {
+    it('allows immediate execution WITHOUT key option (no caching) - legacy form', () => {
       const code = `step('fetchUser', fetchUser('1'));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
@@ -252,22 +246,28 @@ describe('require-thunk-for-key', () => {
   });
 
   describe('autofix', () => {
-    it('wraps immediate execution in thunk when key is present', () => {
+    it('wraps immediate execution in thunk and adds step id when key is present', () => {
       const code = `step(fetchUser('1'), { key: 'user:1' });`;
       const result = linter.verifyAndFix(code, config);
-      expect(result.output).toBe(`step(() => fetchUser('1'), { key: 'user:1' });`);
+      expect(result.output).toBe(`step('fetchUser', () => fetchUser('1'), { key: 'user:1' });`);
     });
 
-    it('wraps deps call in thunk when key is present', () => {
+    it('wraps deps call in thunk and adds step id when key is present', () => {
       const code = `step(deps.fetchUser('1'), { key: 'user:1' });`;
       const result = linter.verifyAndFix(code, config);
-      expect(result.output).toBe(`step(() => deps.fetchUser('1'), { key: 'user:1' });`);
+      expect(result.output).toBe(`step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });`);
     });
 
-    it('wraps complex call in thunk when key is present', () => {
+    it('wraps complex call in thunk and adds step id when key is present', () => {
       const code = `step(api.users.fetch(id), { key: \`user:\${id}\` });`;
       const result = linter.verifyAndFix(code, config);
-      expect(result.output).toBe(`step(() => api.users.fetch(id), { key: \`user:\${id}\` });`);
+      expect(result.output).toBe(`step('fetch', () => api.users.fetch(id), { key: \`user:\${id}\` });`);
+    });
+
+    it('wraps executor in thunk when id already present', () => {
+      const code = `step('fetchUser', fetchUser('1'), { key: 'user:1' });`;
+      const result = linter.verifyAndFix(code, config);
+      expect(result.output).toBe(`step('fetchUser', () => fetchUser('1'), { key: 'user:1' });`);
     });
   });
 

@@ -45,9 +45,9 @@ import { durable } from 'awaitly/durable';
 const result = await durable.run(
   { fetchUser, createOrder, sendEmail },
   async (step, { fetchUser, createOrder, sendEmail }) => {
-    const user = await step(() => fetchUser('123'), { key: 'fetch-user' });
-    const order = await step(() => createOrder(user), { key: 'create-order' });
-    await step(() => sendEmail(order), { key: 'send-email' });
+    const user = await step('fetchUser', () => fetchUser('123'), { key: 'fetch-user' });
+    const order = await step('createOrder', () => createOrder(user), { key: 'create-order' });
+    await step('sendEmail', () => sendEmail(order), { key: 'send-email' });
     return order;
   },
   { id: 'checkout-123' }
@@ -69,9 +69,9 @@ const store = postgres('postgresql://localhost/mydb');
 const result = await durable.run(
   { fetchUser, createOrder, sendEmail },
   async (step, { fetchUser, createOrder, sendEmail }) => {
-    const user = await step(() => fetchUser('123'), { key: 'fetch-user' });
-    const order = await step(() => createOrder(user), { key: 'create-order' });
-    await step(() => sendEmail(order), { key: 'send-email' });
+    const user = await step('fetchUser', () => fetchUser('123'), { key: 'fetch-user' });
+    const order = await step('createOrder', () => createOrder(user), { key: 'create-order' });
+    await step('sendEmail', () => sendEmail(order), { key: 'send-email' });
     return order;
   },
   { id: 'checkout-123', store }
@@ -228,9 +228,9 @@ setTimeout(() => controller.abort(), 5000);
 const result = await durable.run(
   deps,
   async (step) => {
-    const user = await step(() => fetchUser(id), { key: 'fetch-user' });
-    const order = await step(() => createOrder(user), { key: 'create-order' });
-    await step(() => processPayment(order), { key: 'payment' }); // May get cancelled here
+    const user = await step('fetchUser', () => fetchUser(id), { key: 'fetch-user' });
+    const order = await step('createOrder', () => createOrder(user), { key: 'create-order' });
+    await step('processPayment', () => processPayment(order), { key: 'payment' }); // May get cancelled here
     return order;
   },
   {
@@ -377,13 +377,13 @@ Steps may be retried on resume. Ensure they are idempotent:
 
 ```typescript
 // Good: Idempotent - same result on retry
-const order = await step(() => createOrder({
+const order = await step('createOrder', () => createOrder({
   idempotencyKey: `order-${userId}-${timestamp}`,
   ...orderData,
 }), { key: 'create-order' });
 
 // Bad: Non-idempotent - may create duplicates
-const order = await step(() => createOrder(orderData), { key: 'create-order' });
+const order = await step('createOrder', () => createOrder(orderData), { key: 'create-order' });
 ```
 
 ## Serialization Caveats
@@ -397,10 +397,10 @@ State is JSON-serialized. Be aware of limitations:
 
 ```typescript
 // Good: Serializable result
-await step(() => ok({ userId: '123', createdAt: Date.now() }), { key: 'create' });
+await step('create', () => ok({ userId: '123', createdAt: Date.now() }), { key: 'create' });
 
 // Bad: Non-serializable
-await step(() => ok({ user, connection: dbConn }), { key: 'create' });
+await step('create', () => ok({ user, connection: dbConn }), { key: 'create' });
 ```
 
 ## Complete Example
@@ -434,9 +434,9 @@ async function processCheckout(orderId: string, userId: string, items: Item[]) {
   const result = await durable.run(
     { fetchUser, createOrder, sendConfirmation },
     async (step) => {
-      const user = await step(() => deps.fetchUser(userId), { key: 'fetch-user' });
-      const order = await step(() => deps.createOrder(user, items), { key: 'create-order' });
-      await step(() => deps.sendConfirmation(order), { key: 'send-email' });
+      const user = await step('fetchUser', () => deps.fetchUser(userId), { key: 'fetch-user' });
+      const order = await step('createOrder', () => deps.createOrder(user, items), { key: 'create-order' });
+      await step('sendConfirmation', () => deps.sendConfirmation(order), { key: 'send-email' });
       return order;
     },
     {

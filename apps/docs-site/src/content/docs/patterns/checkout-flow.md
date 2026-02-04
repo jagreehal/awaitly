@@ -90,15 +90,15 @@ const checkout = createWorkflow({
 ```typescript
 const result = await checkout(async (step) => {
   // Validate and check inventory
-  const validItems = await step(validateCart(cartItems));
-  const availableItems = await step(checkInventory(validItems));
+  const validItems = await step('validateCart', () => validateCart(cartItems));
+  const availableItems = await step('checkInventory', () => checkInventory(validItems));
 
   // Calculate and charge
-  const total = await step(calculateTotal(availableItems));
-  const payment = await step(processPayment(total, paymentMethodId));
+  const total = await step('calculateTotal', () => calculateTotal(availableItems));
+  const payment = await step('processPayment', () => processPayment(total, paymentMethodId));
 
   // Create order
-  const order = await step(createOrder(availableItems, payment));
+  const order = await step('createOrder', () => createOrder(availableItems, payment));
 
   return order;
 });
@@ -162,6 +162,7 @@ const result = await checkout(async (step) => {
 
   // Retry payment with exponential backoff
   const payment = await step.retry(
+    'processPayment',
     () => processPayment(total, paymentMethodId),
     {
       attempts: 3,

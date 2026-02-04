@@ -49,8 +49,8 @@ export interface SourceLocation {
  */
 export interface StaticStepNode extends StaticBaseNode {
   type: "step";
-  /** Step ID from first argument (new API: step('id', fn, opts)) */
-  stepId?: string;
+  /** Step ID from first argument: step('id', fn, opts) - required */
+  stepId: string;
   /** The function being called (e.g., "fetchUser", "deps.validateCart") */
   callee?: string;
   /** Short description for labels/tooltips (static analysis) */
@@ -676,4 +676,39 @@ export function getStaticChildren(node: StaticFlowNode): StaticFlowNode[] {
     default:
       return [];
   }
+}
+
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
+/**
+ * Extract function name from callee expression.
+ * - "wDeps.makePayment" → "makePayment"
+ * - "deps.fetchData" → "fetchData"
+ * - "this.someMethod" → "someMethod"
+ * - "makePayment" → "makePayment"
+ */
+export function extractFunctionName(callee: string): string {
+  if (!callee) return "";
+  const parts = callee.split(".");
+  return parts[parts.length - 1];
+}
+
+/**
+ * Type guard to validate IR structure at runtime.
+ * Useful for validating IR from external sources (e.g., JSON parsing, API responses).
+ */
+export function isValidStaticWorkflowIR(value: unknown): value is StaticWorkflowIR {
+  if (!value || typeof value !== "object") return false;
+  const ir = value as Record<string, unknown>;
+
+  if (!ir.root || typeof ir.root !== "object") return false;
+  const root = ir.root as Record<string, unknown>;
+
+  return (
+    root.type === "workflow" &&
+    typeof root.workflowName === "string" &&
+    Array.isArray(root.children)
+  );
 }

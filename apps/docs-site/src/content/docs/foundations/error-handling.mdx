@@ -7,6 +7,45 @@ import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 awaitly provides unified error handling: automatic type inference, structured error types, and resilience patterns like retries and timeouts.
 
+## Error Propagation
+
+Errors from `step()` propagate automatically to the workflow result. **Never wrap steps in try/catch** - this defeats typed error propagation:
+
+```typescript
+// ❌ WRONG - try/catch defeats typed error propagation
+const result = await workflow(async (step) => {
+  try {
+    const payment = await step('makePayment', () => deps.makePayment());
+  } catch (error) {
+    await step('handleFailed', () => deps.handleFailed(error));
+  }
+});
+
+// ✅ CORRECT - errors propagate to workflow result
+const result = await workflow(async (step) => {
+  const payment = await step('makePayment', () => deps.makePayment());
+  return payment;
+});
+
+// Handle errors at the boundary
+if (!result.ok) {
+  switch (result.error.type ?? result.error) {
+    case 'PAYMENT_FAILED':
+      await handleFailedPayment(result.error);
+      break;
+  }
+}
+```
+
+<Aside type="caution" title="Why not try/catch?">
+Using `try/catch` around `step()`:
+- Loses TypeScript's error type information
+- Breaks early-exit semantics
+- Makes error handling less predictable
+
+Handle errors at workflow boundaries (HTTP handlers, CLI entry points) where you map them to responses.
+</Aside>
+
 ## Automatic Error Inference
 
 When you create a workflow, TypeScript computes the error union from your dependencies:
@@ -35,7 +74,7 @@ const badOperation = async (): AsyncResult<string, 'KNOWN_ERROR'> => {
 
 const workflow = createWorkflow({ badOperation });
 const result = await workflow(async (step) => {
-  return await step(badOperation());
+  return await step('badOperation', () => badOperation());
 });
 
 if (!result.ok && result.error.type === 'UNEXPECTED') {
@@ -137,8 +176,9 @@ Limit how long a step can run:
 
 ```typescript
 const data = await step.withTimeout(
+  'slowOp',
   () => slowOperation(),
-  { ms: 5000, name: 'Slow operation' }
+  { ms: 5000 }
 );
 ```
 
@@ -149,6 +189,7 @@ const data = await step.withTimeout(
 ```typescript
 // Default - return timeout error
 const data = await step.withTimeout(
+  'slowOp',
   () => slowOperation(),
   { ms: 5000, onTimeout: 'error' }
 );
@@ -159,6 +200,7 @@ const data = await step.withTimeout(
 ```typescript
 // Treat timeout as optional - return undefined
 const data = await step.withTimeout(
+  'optionalEnrichment',
   () => optionalEnrichment(),
   { ms: 1000, onTimeout: 'option' }
 );
@@ -169,6 +211,7 @@ const data = await step.withTimeout(
 ```typescript
 // Custom error type
 const data = await step.withTimeout(
+  'apiCall',
   () => apiCall(),
   {
     ms: 5000,
@@ -200,6 +243,7 @@ Retry failed steps with configurable backoff:
 
 ```typescript
 const data = await step.retry(
+  'fetchData',
   () => fetchData(),
   {
     attempts: 3,
@@ -280,6 +324,7 @@ Only retry certain errors:
 
 ```typescript
 const user = await step.retry(
+  'fetchUser',
   () => fetchUser('1'),
   {
     attempts: 3,
@@ -305,7 +350,8 @@ Each attempt has its own timeout:
 
 ```typescript
 const data = await step.retry(
-  () => step.withTimeout(() => fetchData(), { ms: 2000 }),
+  'fetchData',
+  () => step.withTimeout('fetchData', () => fetchData(), { ms: 2000 }),
   { attempts: 3, backoff: 'exponential', delayMs: 100 }
 );
 ```
@@ -324,7 +370,7 @@ Timeline:
 Configure retry and timeout directly in step options:
 
 ```typescript
-const user = await step(() => fetchUser('1'), {
+const user = await step('fetchUser', () => fetchUser('1'), {
   name: 'Fetch user',
   retry: {
     attempts: 3,
@@ -390,9 +436,11 @@ const workflow = createWorkflow({ fetchUserFromApi });
 
 const result = await workflow(async (step) => {
   const user = await step.retry(
+    'fetchUser',
     () => step.withTimeout(
+      'fetchUser',
       () => fetchUserFromApi('123'),
-      { ms: 3000, name: 'Fetch user' }
+      { ms: 3000 }
     ),
     {
       attempts: 3,

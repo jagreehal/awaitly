@@ -72,9 +72,9 @@ const processOrder = createWorkflow({
 });
 
 const result = await processOrder(async (step) => {
-  const order = await step(findOrder(orderId));
-  await step(chargeOrder(order.total));
-  await step(sendConfirmation(order.email));
+  const order = await step('findOrder', () => findOrder(orderId));
+  await step('chargeOrder', () => chargeOrder(order.total));
+  await step('sendConfirmation', () => sendConfirmation(order.email));
   return order;
 });
 
@@ -102,6 +102,7 @@ async function riskyOperation(): Promise<Data> {
 // In workflow
 const result = await workflow(async (step) => {
   const data = await step.try(
+    'riskyOp',
     () => riskyOperation(),
     { error: 'OPERATION_FAILED' as const }
   );
@@ -206,8 +207,8 @@ const count = map(posts, (p) => p.length);
 
 // Or use workflows for complex chains
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser(id));
-  const posts = await step(fetchPosts(user.id));
+  const user = await step('fetchUser', () => fetchUser(id));
+  const posts = await step('fetchPosts', () => fetchPosts(user.id));
   return posts.length;
 });
 ```
@@ -329,7 +330,7 @@ const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
 const workflow = createWorkflow({ getUser });
 
 const result = await workflow(async (step) => {
-  const user = await step(() => deps.getUser('1'));
+  const user = await step('getUser', () => deps.getUser('1'));
   return user;
 });
 ```
@@ -343,11 +344,11 @@ const result = await workflow(async (step) => {
 | `Effect.succeed(x)` | `ok(x)` | Simpler |
 | `Effect.fail(e)` | `err(e)` | Simpler |
 | `Effect.gen(function* () { ... })` | `run(async (step) => { ... })` | Familiar async/await |
-| `yield* someEffect` | `await step(fn)` | Unwrap in workflow |
-| `Effect.tryPromise({ try, catch })` | `step.try(() => ..., { onError })` | Similar |
+| `yield* someEffect` | `await step('id', fn)` | Unwrap in workflow |
+| `Effect.tryPromise({ try, catch })` | `step.try('id', () => ..., { onError })` | Similar; id first |
 | `Effect.all([...])` | `step.parallel({ ... })` or `allAsync([...])` | Similar |
-| `Schedule.exponential()` | `step.retry({ backoff: 'exponential' })` | Built-in options |
-| `Effect.timeout(duration)` | `step.try(..., { timeout: '5s' })` | String durations |
+| `Schedule.exponential()` | `step.retry('id', fn, { backoff: 'exponential' })` | Built-in options; id first |
+| `Effect.timeout(duration)` | `step.withTimeout('id', fn, { ms: 5000 })` | Timeout is its own helper |
 | `Layer.provide()` | Pass deps to workflow | Direct injection |
 
 ### Interop utilities
@@ -426,7 +427,7 @@ import { createWorkflow } from 'awaitly/workflow';
 
 // Option 1: Inline conversion
 const result = await workflow(async (step) => {
-  const user = await step(fromEffect(legacyEffectService.getUser('1')));
+  const user = await step('getUser', fromEffect(legacyEffectService.getUser('1')));
   return user;
 });
 
@@ -437,8 +438,8 @@ const getPosts = wrapEffect(legacyEffectService.getPosts);
 const workflow = createWorkflow({ getUser, getPosts });
 
 const result = await workflow(async (step) => {
-  const user = await step(() => deps.getUser('1'));
-  const posts = await step(() => deps.getPosts(user.id));
+  const user = await step('getUser', () => deps.getUser('1'));
+  const posts = await step('getPosts', () => deps.getPosts(user.id));
   return { user, posts };
 });
 ```
@@ -635,16 +636,16 @@ const createPaymentWorkflow = (db: Db, provider: Provider, raw: unknown, actorEm
   const workflow = createWorkflow(deps);
 
   return workflow(async (step, d) => {
-    const input = await step(() => d.validateInput(raw), { key: 'validate' });
+    const input = await step('validateInput', () => d.validateInput(raw), { key: 'validate' });
 
-    const existing = await step(() => d.findExisting(db, input.idemKey), { key: 'existing' });
+    const existing = await step('findExisting', () => d.findExisting(db, input.idemKey), { key: 'existing' });
     if (existing) {
       return { paymentId: existing.id };
     }
 
-    await step(() => d.acquireLock(db, input.idemKey), { key: 'lock' });
-    const response = await step(() => d.callProvider(provider, input), { key: 'provider' });
-    return await step(() => d.persistSuccess(db, input, response, actorEmail), { key: 'persist' });
+    await step('acquireLock', () => d.acquireLock(db, input.idemKey), { key: 'lock' });
+    const response = await step('callProvider', () => d.callProvider(provider, input), { key: 'provider' });
+    return await step('persistSuccess', () => d.persistSuccess(db, input, response, actorEmail), { key: 'persist' });
   });
 };
 

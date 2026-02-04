@@ -27,12 +27,12 @@ const requireApproval = createApprovalStep({
 const refundWorkflow = createWorkflow({ calculateRefund, processRefund, requireApproval });
 
 const result = await refundWorkflow(async (step) => {
-  const refund = await step(calculateRefund(orderId));
+  const refund = await step('calculateRefund', () => calculateRefund(orderId));
 
   // Workflow pauses here until approved
-  const approval = await step(requireApproval, { key: 'approve:refund' });
+  const approval = await step('requireApproval', requireApproval, { key: 'approve:refund' });
 
-  return await step(processRefund(refund, approval));
+  return await step('processRefund', () => processRefund(refund, approval));
 });
 ```
 
@@ -65,9 +65,9 @@ const workflow = createWorkflow(
 );
 
 const result = await workflow(async (step) => {
-  const refund = await step(calculateRefund(orderId));
-  const approval = await step(requireApproval, { key: 'approve:refund' });
-  return await step(processRefund(refund, approval));
+  const refund = await step('calculateRefund', () => calculateRefund(orderId));
+  const approval = await step('requireApproval', requireApproval, { key: 'approve:refund' });
+  return await step('processRefund', () => processRefund(refund, approval));
 });
 // checkApproval reads from DB and returns { status: 'approved', value }
 ```
@@ -115,8 +115,8 @@ const orchestrator = createHITLOrchestrator({
 // Start workflow
 const { runId, result } = await orchestrator.start(
   async (step) => {
-    const data = await step(fetchData());
-    await step(requireApproval, { key: 'approve:data' });
+    const data = await step('fetchData', () => fetchData());
+    await step('requireApproval', requireApproval, { key: 'approve:data' });
     return data;
   },
   { workflowId: 'wf-1' }
@@ -187,9 +187,9 @@ const expenseWorkflow = createWorkflow({
 const workflow = createWorkflow(deps);
 
 const result = await workflow(async (step) => {
-  const expense = await step(validateExpense(data));
-  const approval = await step(requireManagerApproval, { key: 'manager-approval' });
-  return await step(processPayment(expense, approval));
+  const expense = await step('validateExpense', () => validateExpense(data));
+  const approval = await step('requireManagerApproval', requireManagerApproval, { key: 'manager-approval' });
+  return await step('processPayment', () => processPayment(expense, approval));
 });
 
 if (!result.ok && isPendingApproval(result.error)) {
@@ -284,6 +284,7 @@ const gatedSendEmail = gatedStep(
 const result = await workflow(async (step) => {
   // This shows the email args before sending
   await step(
+    'gatedSendEmail',
     () => gatedSendEmail({ to: 'external@other.com', subject: 'Hello', body: '...' }),
     { key: 'send-email' }
   );
@@ -366,22 +367,22 @@ const expenseWorkflow = createWorkflow({
 });
 
 const result = await expenseWorkflow(async (step) => {
-  const expense = await step(() => validateExpense(data));
+  const expense = await step('validateExpense', () => validateExpense(data));
 
   // Always needs manager approval
-  await step(managerApproval, { key: 'approval:manager' });
+  await step('approval:manager', managerApproval, { key: 'approval:manager' });
 
   // Finance approval for amounts over $1000
   if (expense.amount > 1000) {
-    await step(financeApproval, { key: 'approval:finance' });
+    await step('approval:finance', financeApproval, { key: 'approval:finance' });
   }
 
   // CEO approval for amounts over $10000
   if (expense.amount > 10000) {
-    await step(ceoApproval, { key: 'approval:ceo' });
+    await step('approval:ceo', ceoApproval, { key: 'approval:ceo' });
   }
 
-  return await step(() => processExpense(expense));
+  return await step('processExpense', () => processExpense(expense));
 });
 ```
 
@@ -579,16 +580,16 @@ When a workflow fails after some approvals:
 
 ```typescript
 const result = await expenseWorkflow(async (step) => {
-  const expense = await step(() => validateExpense(data), { key: 'validate' });
+  const expense = await step('validateExpense', () => validateExpense(data), { key: 'validate' });
 
   // First approval passed
-  await step(managerApproval, { key: 'approval:manager' });
+  await step('approval:manager', managerApproval, { key: 'approval:manager' });
 
   // Second approval passed
-  await step(financeApproval, { key: 'approval:finance' });
+  await step('approval:finance', financeApproval, { key: 'approval:finance' });
 
   // This step fails after approvals
-  return await step(() => processExpense(expense), { key: 'process' });
+  return await step('processExpense', () => processExpense(expense), { key: 'process' });
 });
 
 if (!result.ok && !isPendingApproval(result.error)) {

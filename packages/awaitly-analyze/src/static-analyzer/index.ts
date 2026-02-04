@@ -10,33 +10,37 @@
  * - Extracting type information (input types, result types, error types)
  */
 
+import { existsSync } from "fs";
+import { extname } from "path";
+
 // Type-only imports - erased at compile time, no runtime dependency
 // These provide type checking without creating a runtime dependency on ts-morph
 import type { SourceFile, Project, Node } from "ts-morph";
 import { loadTsMorph } from "../ts-morph-loader";
 
-import type {
-  StaticWorkflowIR,
-  StaticWorkflowNode,
-  StaticFlowNode,
-  StaticStepNode,
-  StaticSequenceNode,
-  StaticParallelNode,
-  StaticRaceNode,
-  StaticConditionalNode,
-  StaticDecisionNode,
-  StaticLoopNode,
-  StaticWorkflowRefNode,
-  StaticStreamNode,
-  StaticSagaStepNode,
-  StaticSwitchNode,
-  StaticSwitchCase,
-  SourceLocation,
-  DependencyInfo,
-  AnalysisWarning,
-  AnalysisStats,
-  StaticRetryConfig,
-  StaticTimeoutConfig,
+import {
+  extractFunctionName,
+  type StaticWorkflowIR,
+  type StaticWorkflowNode,
+  type StaticFlowNode,
+  type StaticStepNode,
+  type StaticSequenceNode,
+  type StaticParallelNode,
+  type StaticRaceNode,
+  type StaticConditionalNode,
+  type StaticDecisionNode,
+  type StaticLoopNode,
+  type StaticWorkflowRefNode,
+  type StaticStreamNode,
+  type StaticSagaStepNode,
+  type StaticSwitchNode,
+  type StaticSwitchCase,
+  type SourceLocation,
+  type DependencyInfo,
+  type AnalysisWarning,
+  type AnalysisStats,
+  type StaticRetryConfig,
+  type StaticTimeoutConfig,
 } from "../types";
 
 /**
@@ -71,6 +75,49 @@ const DEFAULT_OPTIONS: Required<AnalyzerOptions> = {
 };
 
 // =============================================================================
+// Input Validation
+// =============================================================================
+
+/**
+ * Validate file path before analysis.
+ */
+function validateFilePath(filePath: string): void {
+  if (!existsSync(filePath)) {
+    throw new Error(
+      `File not found: ${filePath}\n\n` +
+        `Ensure the path is correct and the file exists.`
+    );
+  }
+
+  const ext = extname(filePath).toLowerCase();
+  if (ext !== ".ts" && ext !== ".tsx") {
+    throw new Error(
+      `Invalid file type: ${ext}\n\n` +
+        `awaitly-analyze only supports TypeScript files (.ts, .tsx).`
+    );
+  }
+}
+
+/**
+ * Validate analyzer options.
+ */
+function validateOptions(options: AnalyzerOptions): void {
+  if (options.maxReferenceDepth !== undefined && options.maxReferenceDepth < 1) {
+    throw new Error(
+      `Invalid maxReferenceDepth: ${options.maxReferenceDepth}\n\n` +
+        `maxReferenceDepth must be at least 1.`
+    );
+  }
+
+  if (options.tsConfigPath && !existsSync(options.tsConfigPath)) {
+    throw new Error(
+      `tsconfig not found: ${options.tsConfigPath}\n\n` +
+        `Check the path or omit tsConfigPath to use default.`
+    );
+  }
+}
+
+// =============================================================================
 // Main Analyzer
 // =============================================================================
 
@@ -87,6 +134,10 @@ export function analyzeWorkflow(
   workflowName?: string,
   options: AnalyzerOptions = {}
 ): StaticWorkflowIR {
+  // Validate inputs before processing
+  validateFilePath(filePath);
+  validateOptions(options);
+
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const { ts } = loadTsMorph();
 
@@ -150,6 +201,10 @@ export function analyzeWorkflowFile(
   filePath: string,
   options: AnalyzerOptions = {}
 ): StaticWorkflowIR[] {
+  // Validate inputs before processing
+  validateFilePath(filePath);
+  validateOptions(options);
+
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const { ts } = loadTsMorph();
 
@@ -1670,6 +1725,16 @@ function analyzeCallExpression(
     return analyzeStepTimeoutCall(node, args, opts, warnings, stats);
   }
 
+  // step.try() call
+  if (isStepMethodCall(callee, "try", context)) {
+    return analyzeStepTryCall(node, args, opts, warnings, stats);
+  }
+
+  // step.fromResult() call
+  if (isStepMethodCall(callee, "fromResult", context)) {
+    return analyzeStepFromResultCall(node, args, opts, warnings, stats);
+  }
+
   // step.parallel() call
   if (isStepMethodCall(callee, "parallel", context)) {
     return analyzeParallelCall(node, args, "all", opts, warnings, stats, sagaContext, context);
@@ -1796,6 +1861,7 @@ function isStepMethodCall(callee: string, method: string, context: AnalysisConte
 
 /**
  * Analyze step.sleep() call.
+ * New signature: step.sleep(id, duration, options?)
  */
 function analyzeStepSleepCall(
   node: Node,
@@ -1806,34 +1872,38 @@ function analyzeStepSleepCall(
   const { Node } = loadTsMorph();
   stats.totalSteps++;
 
+  // New signature: step.sleep(id, duration, options?)
+  // First argument is the step ID
+  let stepId = "<missing>";
+  if (args[0]) {
+    if (Node.isStringLiteral(args[0])) {
+      stepId = args[0].getLiteralValue();
+    } else if (Node.isNoSubstitutionTemplateLiteral(args[0])) {
+      stepId = args[0].getLiteralValue();
+    } else {
+      stepId = "<dynamic>";
+    }
+  }
+
   const stepNode: StaticStepNode = {
     id: generateId(),
     type: "step",
+    stepId,
     callee: "step.sleep",
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
 
-  // Extract duration from first argument
-  let durationText = "";
-  if (args[0]) {
-    if (Node.isStringLiteral(args[0])) {
-      durationText = args[0].getLiteralValue();
-    } else {
-      durationText = args[0].getText();
-    }
-  }
-
-  // Extract options from second argument
-  if (args[1] && Node.isObjectLiteralExpression(args[1])) {
-    const options = extractStepOptions(args[1]);
+  // Extract options from third argument
+  if (args[2] && Node.isObjectLiteralExpression(args[2])) {
+    const options = extractStepOptions(args[2]);
     if (options.key) stepNode.key = options.key;
     if (options.description) stepNode.description = options.description;
     if (options.markdown) stepNode.markdown = options.markdown;
   }
 
-  // Set default name if not provided
+  // Use first argument (step ID) as name; duration is not used for ID/name (runtime requires explicit ID)
   if (!stepNode.name) {
-    stepNode.name = durationText ? `sleep ${durationText}` : "sleep";
+    stepNode.name = stepId;
   }
 
   const statement = getContainingStatement(node);
@@ -1902,67 +1972,51 @@ function analyzeStepCall(
   node: Node,
   args: Node[],
   opts: Required<AnalyzerOptions>,
-  _warnings: AnalysisWarning[],
+  warnings: AnalysisWarning[],
   stats: AnalysisStats
 ): StaticStepNode {
   const { Node } = loadTsMorph();
   stats.totalSteps++;
 
+  const firstArg = args[0];
+
+  // step() now requires explicit string ID as first argument: step('id', fn, opts)
+  const isStringLiteralId = firstArg && Node.isStringLiteral(firstArg);
+  const isNoSubstitutionTemplateLiteral = firstArg && Node.isNoSubstitutionTemplateLiteral(firstArg);
+  const isTemplateLiteralId = firstArg && Node.isTemplateExpression(firstArg);
+  const firstArgIsIdentifier = firstArg && Node.isIdentifier(firstArg);
+
+  let stepId: string;
+
+  if (isStringLiteralId && Node.isStringLiteral(firstArg)) {
+    stepId = firstArg.getLiteralValue();
+  } else if (isNoSubstitutionTemplateLiteral && Node.isNoSubstitutionTemplateLiteral(firstArg)) {
+    stepId = firstArg.getLiteralValue();
+  } else if (isTemplateLiteralId || firstArgIsIdentifier) {
+    // Dynamic stepId (template literal or identifier)
+    stepId = "<dynamic>";
+  } else {
+    // Legacy step(fn, opts) or invalid - first arg is not a string ID
+    stepId = "<missing>";
+    warnings.push({
+      code: "STEP_MISSING_ID",
+      message: `step() requires an explicit string ID as the first argument. Example: step("fetchUser", () => fetchUser(id))`,
+      location: opts.includeLocations ? getLocation(node) : undefined,
+    });
+  }
+
   const stepNode: StaticStepNode = {
     id: generateId(),
     type: "step",
+    stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
 
-  // Detect which form is being used:
-  // New form: step('id', fn, opts) or step(dynamicId, fn, opts)
-  // Legacy form: step(fn, opts?) or step(result, opts?)
-  //
-  // Detection heuristics:
-  // 1. Three arguments → new form (legacy never has 3 args)
-  // 2. First arg is string literal → new form
-  // 3. First arg is template literal → new form (dynamic stepId)
-  // 4. First arg is identifier AND second arg is function-like → new form (dynamic stepId)
-  const firstArg = args[0];
-  const secondArg = args[1];
-
-  const isStringLiteralId = firstArg && Node.isStringLiteral(firstArg);
-  const isTemplateLiteralId = firstArg && Node.isTemplateExpression(firstArg);
-  const isNoSubstitutionTemplateLiteral = firstArg && Node.isNoSubstitutionTemplateLiteral(firstArg);
-  const hasThreeArgs = args.length >= 3;
-  const secondArgIsFunctionLike = secondArg && (
-    Node.isArrowFunction(secondArg) ||
-    Node.isFunctionExpression(secondArg) ||
-    Node.isCallExpression(secondArg)
-  );
-  const firstArgIsIdentifier = firstArg && Node.isIdentifier(firstArg);
-
-  const isNewForm = isStringLiteralId ||
-                    isTemplateLiteralId ||
-                    isNoSubstitutionTemplateLiteral ||
-                    hasThreeArgs ||
-                    (firstArgIsIdentifier && secondArgIsFunctionLike);
-
-  let operationArg: Node | undefined;
-  let optionsArg: Node | undefined;
-
-  if (isNewForm) {
-    // New form: step('id', fn, opts) or step(dynamicId, fn, opts)
-    if (isStringLiteralId && Node.isStringLiteral(firstArg)) {
-      stepNode.stepId = firstArg.getLiteralValue();
-    } else if (isNoSubstitutionTemplateLiteral && Node.isNoSubstitutionTemplateLiteral(firstArg)) {
-      stepNode.stepId = firstArg.getLiteralValue();
-    } else {
-      // Dynamic stepId (template literal, identifier, or other expression)
-      stepNode.stepId = "<dynamic>";
-    }
-    operationArg = args[1];
-    optionsArg = args[2];
-  } else {
-    // Legacy form: step(fn, opts?) or step(result, opts?)
-    operationArg = args[0];
-    optionsArg = args[1];
-  }
+  // step('id', fn, opts) -> operation is args[1], options is args[2]
+  // Legacy step(fn, opts) -> operation is args[0], options is args[1]
+  const isNewSignature = stepId !== "<missing>";
+  let operationArg: Node | undefined = isNewSignature ? args[1] : args[0];
+  const optionsArg = isNewSignature ? args[2] : args[1];
 
   // Extract the operation being called and detect ctx.ref() reads
   if (operationArg) {
@@ -2055,14 +2109,9 @@ function analyzeStepCall(
     }
   }
 
-  // Use stepId as name if no name specified (new API)
-  if (!stepNode.name && stepNode.stepId) {
+  // Use stepId as name (stepId is always set now)
+  if (!stepNode.name) {
     stepNode.name = stepNode.stepId;
-  }
-
-  // Use callee as name if still no name specified (legacy fallback)
-  if (!stepNode.name && stepNode.callee) {
-    stepNode.name = stepNode.callee;
   }
 
   const statement = getContainingStatement(node);
@@ -2103,6 +2152,10 @@ function extractCtxRefReads(fnNode: Node): string[] | undefined {
   return reads.length > 0 ? reads : undefined;
 }
 
+/**
+ * Analyze step.retry() call.
+ * New signature: step.retry(id, operation, options)
+ */
 function analyzeStepRetryCall(
   node: Node,
   args: Node[],
@@ -2113,21 +2166,36 @@ function analyzeStepRetryCall(
   const { Node } = loadTsMorph();
   stats.totalSteps++;
 
+  // New signature: step.retry(id, operation, options)
+  // First argument is the step ID
+  let stepId = "<missing>";
+  if (args[0]) {
+    if (Node.isStringLiteral(args[0])) {
+      stepId = args[0].getLiteralValue();
+    } else if (Node.isNoSubstitutionTemplateLiteral(args[0])) {
+      stepId = args[0].getLiteralValue();
+    } else {
+      stepId = "<dynamic>";
+    }
+  }
+
+  // Extract the operation callee from second argument for additional context
+  const operationCallee = args[1] ? extractCallee(args[1]) : undefined;
+
   const stepNode: StaticStepNode = {
     id: generateId(),
     type: "step",
+    stepId,
+    callee: operationCallee,
+    name: stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
 
-  // Extract the operation
-  if (args[0]) {
-    stepNode.callee = extractCallee(args[0]);
-    stepNode.name = stepNode.callee;
-  }
-
-  // Extract retry options
-  if (args[1] && Node.isObjectLiteralExpression(args[1])) {
-    stepNode.retry = extractRetryConfig(args[1]);
+  // Extract retry options from third argument
+  if (args[2] && Node.isObjectLiteralExpression(args[2])) {
+    stepNode.retry = extractRetryConfig(args[2]);
+    const options = extractStepOptions(args[2]);
+    if (options.key) stepNode.key = options.key;
   }
 
   const statement = getContainingStatement(node);
@@ -2139,6 +2207,10 @@ function analyzeStepRetryCall(
   return stepNode;
 }
 
+/**
+ * Analyze step.withTimeout() call.
+ * New signature: step.withTimeout(id, operation, options)
+ */
 function analyzeStepTimeoutCall(
   node: Node,
   args: Node[],
@@ -2149,21 +2221,144 @@ function analyzeStepTimeoutCall(
   const { Node } = loadTsMorph();
   stats.totalSteps++;
 
+  // New signature: step.withTimeout(id, operation, options)
+  // First argument is the step ID
+  let stepId = "<missing>";
+  if (args[0]) {
+    if (Node.isStringLiteral(args[0])) {
+      stepId = args[0].getLiteralValue();
+    } else if (Node.isNoSubstitutionTemplateLiteral(args[0])) {
+      stepId = args[0].getLiteralValue();
+    } else {
+      stepId = "<dynamic>";
+    }
+  }
+
+  // Extract the operation callee from second argument for additional context
+  const operationCallee = args[1] ? extractCallee(args[1]) : undefined;
+
   const stepNode: StaticStepNode = {
     id: generateId(),
     type: "step",
+    stepId,
+    callee: operationCallee,
+    name: stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
 
-  // Extract the operation
-  if (args[0]) {
-    stepNode.callee = extractCallee(args[0]);
-    stepNode.name = stepNode.callee;
+  // Extract timeout options from third argument
+  if (args[2] && Node.isObjectLiteralExpression(args[2])) {
+    stepNode.timeout = extractTimeoutConfig(args[2]);
+    const options = extractStepOptions(args[2]);
+    if (options.key) stepNode.key = options.key;
   }
 
-  // Extract timeout options
-  if (args[1] && Node.isObjectLiteralExpression(args[1])) {
-    stepNode.timeout = extractTimeoutConfig(args[1]);
+  const statement = getContainingStatement(node);
+  if (statement) {
+    const jsdoc = getJSDocDescriptionFromNode(statement);
+    if (jsdoc) stepNode.jsdocDescription = jsdoc;
+  }
+
+  return stepNode;
+}
+
+/**
+ * Analyze step.try() call.
+ * Signature: step.try(id, operation, options)
+ */
+function analyzeStepTryCall(
+  node: Node,
+  args: Node[],
+  opts: Required<AnalyzerOptions>,
+  _warnings: AnalysisWarning[],
+  stats: AnalysisStats
+): StaticStepNode {
+  const { Node } = loadTsMorph();
+  stats.totalSteps++;
+
+  // Signature: step.try(id, operation, options)
+  // First argument is the step ID
+  let stepId = "<missing>";
+  if (args[0]) {
+    if (Node.isStringLiteral(args[0])) {
+      stepId = args[0].getLiteralValue();
+    } else if (Node.isNoSubstitutionTemplateLiteral(args[0])) {
+      stepId = args[0].getLiteralValue();
+    } else {
+      stepId = "<dynamic>";
+    }
+  }
+
+  // Extract the operation callee from second argument for additional context
+  const operationCallee = args[1] ? extractCallee(args[1]) : undefined;
+
+  const stepNode: StaticStepNode = {
+    id: generateId(),
+    type: "step",
+    stepId,
+    callee: operationCallee ?? "step.try",
+    name: stepId,
+    location: opts.includeLocations ? getLocation(node) : undefined,
+  };
+
+  // Extract options from third argument
+  if (args[2] && Node.isObjectLiteralExpression(args[2])) {
+    const options = extractStepOptions(args[2]);
+    if (options.key) stepNode.key = options.key;
+  }
+
+  const statement = getContainingStatement(node);
+  if (statement) {
+    const jsdoc = getJSDocDescriptionFromNode(statement);
+    if (jsdoc) stepNode.jsdocDescription = jsdoc;
+  }
+
+  return stepNode;
+}
+
+/**
+ * Analyze step.fromResult() call.
+ * Signature: step.fromResult(id, operation, options)
+ */
+function analyzeStepFromResultCall(
+  node: Node,
+  args: Node[],
+  opts: Required<AnalyzerOptions>,
+  _warnings: AnalysisWarning[],
+  stats: AnalysisStats
+): StaticStepNode {
+  const { Node } = loadTsMorph();
+  stats.totalSteps++;
+
+  // Signature: step.fromResult(id, operation, options)
+  // First argument is the step ID
+  let stepId = "<missing>";
+  if (args[0]) {
+    if (Node.isStringLiteral(args[0])) {
+      stepId = args[0].getLiteralValue();
+    } else if (Node.isNoSubstitutionTemplateLiteral(args[0])) {
+      stepId = args[0].getLiteralValue();
+    } else {
+      stepId = "<dynamic>";
+    }
+  }
+
+  // Extract the operation callee from second argument for additional context
+  const operationCallee = args[1] ? extractCallee(args[1]) : undefined;
+
+  const stepNode: StaticStepNode = {
+    id: generateId(),
+    type: "step",
+    stepId,
+    callee: operationCallee ?? "step.fromResult",
+    name: stepId,
+    location: opts.includeLocations ? getLocation(node) : undefined,
+  };
+
+  // Extract options from third argument
+  if (args[2] && Node.isObjectLiteralExpression(args[2])) {
+    const options = extractStepOptions(args[2]);
+    if (options.key) stepNode.key = options.key;
   }
 
   const statement = getContainingStatement(node);
@@ -2643,27 +2838,35 @@ function wrapInStepNode(
 
   stats.totalSteps++;
 
+  // Extract callee first for naming
+  let callee: string;
+  let name: string;
+  let depSource: string | undefined;
+
+  if (Node.isCallExpression(node)) {
+    callee = node.getExpression().getText();
+    // Try to detect dep source from callee pattern: deps.xxx() or ctx.deps.xxx()
+    const depMatch = callee.match(/^(?:deps|ctx\.deps)\.([a-zA-Z_$][a-zA-Z0-9_$]*)/);
+    if (depMatch) {
+      depSource = depMatch[1];
+      name = depMatch[1];
+    } else {
+      name = callee;
+    }
+  } else {
+    callee = node.getText();
+    name = callee;
+  }
+
   const stepNode: StaticStepNode = {
     id: generateId(),
     type: "step",
+    stepId: `implicit:${name}`,
+    callee,
+    name,
+    depSource,
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
-
-  // Extract callee for naming
-  if (Node.isCallExpression(node)) {
-    stepNode.callee = node.getExpression().getText();
-    // Try to detect dep source from callee pattern: deps.xxx() or ctx.deps.xxx()
-    const depMatch = stepNode.callee.match(/^(?:deps|ctx\.deps)\.([a-zA-Z_$][a-zA-Z0-9_$]*)/);
-    if (depMatch) {
-      stepNode.depSource = depMatch[1];
-      stepNode.name = depMatch[1];
-    } else {
-      stepNode.name = stepNode.callee;
-    }
-  } else {
-    stepNode.callee = node.getText();
-    stepNode.name = stepNode.callee;
-  }
 
   return [stepNode];
 }
@@ -2683,13 +2886,15 @@ function tryExtractImplicitStep(
     const body = node.getBody();
     if (Node.isCallExpression(body)) {
       const callee = body.getExpression().getText();
+      const name = extractFunctionName(callee);
       stats.totalSteps++;
       return {
         id: generateId(),
         type: "step",
+        stepId: `implicit:${name}`,
         location: opts.includeLocations ? getLocation(body) : undefined,
         callee,
-        name: extractImplicitStepName(callee),
+        name,
       };
     }
   }
@@ -2703,13 +2908,15 @@ function tryExtractImplicitStep(
       const expr = statements[0].getExpression();
       if (expr && Node.isCallExpression(expr)) {
         const callee = expr.getExpression().getText();
+        const name = extractFunctionName(callee);
         stats.totalSteps++;
         return {
           id: generateId(),
           type: "step",
+          stepId: `implicit:${name}`,
           location: opts.includeLocations ? getLocation(expr) : undefined,
           callee,
-          name: extractImplicitStepName(callee),
+          name,
         };
       }
     }
@@ -2762,13 +2969,15 @@ function analyzeAllAsyncCall(
         // Treat direct call expressions as implicit steps
         // e.g., allAsync([deps.fetchPosts(id), deps.fetchFriends(id)])
         const callee = element.getExpression().getText();
+        const name = extractFunctionName(callee);
         stats.totalSteps++;
         const implicitStep: StaticStepNode = {
           id: generateId(),
           type: "step",
+          stepId: `implicit:${name}`,
           location: opts.includeLocations ? getLocation(element) : undefined,
           callee,
-          name: extractImplicitStepName(callee),
+          name,
         };
         parallelNode.children.push(implicitStep);
       }
@@ -2776,16 +2985,6 @@ function analyzeAllAsyncCall(
   }
 
   return parallelNode;
-}
-
-/**
- * Extract a human-readable name from a callee expression.
- * e.g., "deps.fetchPosts" -> "fetchPosts", "fetchUser" -> "fetchUser"
- */
-function extractImplicitStepName(callee: string): string {
-  // Get the last part after the last dot
-  const parts = callee.split(".");
-  return parts[parts.length - 1];
 }
 
 function analyzeRaceCall(

@@ -109,9 +109,9 @@ describe("Workflows Documentation - Your First Workflow", () => {
 
     const result = await checkout(async (step, deps) => {
       // deps contains { chargePayment, reserveInventory, createOrder }
-      const payment = await step(() => deps.chargePayment({ amount: 99, method: "card_xxx" }));
-      const reservation = await step(() => deps.reserveInventory({ items: cartItems }));
-      const order = await step(() => deps.createOrder({ userId, payment, reservation }));
+      const payment = await step('chargePayment', () => deps.chargePayment({ amount: 99, method: "card_xxx" }));
+      const reservation = await step('reserveInventory', () => deps.reserveInventory({ items: cartItems }));
+      const order = await step('createOrder', () => deps.createOrder({ userId, payment, reservation }));
       return order;
     });
 
@@ -134,10 +134,10 @@ describe("Workflows Documentation - Your First Workflow", () => {
     const checkout = createWorkflow({ chargePayment, reserveInventory, createOrder });
 
     const result = await checkout(async (step, deps) => {
-      const payment = await step(() => deps.chargePayment());
+      const payment = await step('chargePayment', () => deps.chargePayment());
       // These should never be called because of early exit
-      await step(() => deps.reserveInventory({ items: [] }));
-      await step(() => deps.createOrder({ userId: "1", payment, reservation: { id: "", items: [] } }));
+      await step('reserveInventory', () => deps.reserveInventory({ items: [] }));
+      await step('createOrder', () => deps.createOrder({ userId: "1", payment, reservation: { id: "", items: [] } }));
       return payment;
     });
 
@@ -160,7 +160,7 @@ describe("Workflows Documentation - Your First Workflow", () => {
     const workflow = createWorkflow({ fetchData });
 
     const result = await workflow(async (step, deps) => {
-      return await step(() => deps.fetchData());
+      return await step('fetchData', () => deps.fetchData());
     });
 
     expect(result.ok).toBe(false);
@@ -282,7 +282,7 @@ describe("Workflows Documentation - Saga Pattern", () => {
         }
       );
 
-      await ctx.step(() => deps.reserveInventory());
+      await ctx.step('reserveInventory', () => deps.reserveInventory());
 
       return payment;
     });
@@ -365,15 +365,14 @@ describe("Workflows Documentation - Parallel Operations", () => {
 
       // Run all three in parallel - fail fast if any fails
       const [profile, orders, recs] = await step.fromResult(
+        "fetchDashboardData",
         () =>
           allAsync([
             deps.fetchProfile({ userId }),
             deps.fetchOrders(),
             deps.fetchRecommendations(),
           ]),
-        {
-          onError: (): "PROFILE_ERROR" => "PROFILE_ERROR",
-        }
+        { onError: (): "PROFILE_ERROR" => "PROFILE_ERROR" }
       );
 
       return { profile, orders, recommendations: recs };
@@ -491,19 +490,18 @@ describe("Workflows Documentation - Parallel Operations", () => {
 
     const result = await userDashboard(async (step, deps) => {
       // Fetch user first (sequential dependency)
-      const user = await step(() => deps.fetchUser({ userId: "user_1" }));
+      const user = await step('fetchUser', () => deps.fetchUser({ userId: "user_1" }));
 
       // Then fetch user's data in parallel (independent calls)
       const [posts, friends, settings] = await step.fromResult(
+        "fetchUserData",
         () =>
           allAsync([
             deps.fetchPosts({ userId: user.id }),
             deps.fetchFriends(),
             deps.fetchSettings(),
           ]),
-        {
-          onError: (): "POSTS_ERROR" => "POSTS_ERROR",
-        }
+        { onError: (): "POSTS_ERROR" => "POSTS_ERROR" }
       );
 
       return { user, posts, friends, settings };
@@ -655,11 +653,11 @@ describe("Workflows Documentation - Approval Workflows", () => {
 
     const result = await refundWorkflow(
       async (step, deps) => {
-        const refund = await step(() => deps.calculateRefund());
+        const refund = await step('calculateRefund', () => deps.calculateRefund());
 
         // Workflow pauses here until approved
         if (refund.amount > 1000) {
-          const approval = await step(requireApproval, { key: "refund-approval:refund_123" });
+          const approval = await step('requireApproval', requireApproval, { key: "refund-approval:refund_123" });
           return { refund, approval };
         }
 
@@ -706,11 +704,11 @@ describe("Workflows Documentation - Approval Workflows", () => {
     });
 
     const result = await refundWorkflow(async (step, deps) => {
-      const refund = await step(() => deps.calculateRefund());
+      const refund = await step('calculateRefund', () => deps.calculateRefund());
       // The approval step uses cache from resumeState (key must match)
       // step() returns the unwrapped value directly, not a Result
-      const approval = await step(requireApproval, { key: "refund-approval:test-refund-123" });
-      const processed = await step(() => deps.processRefund());
+      const approval = await step('requireApproval', requireApproval, { key: "refund-approval:test-refund-123" });
+      const processed = await step('processRefund', () => deps.processRefund());
       return { refund, approval, processed };
     });
 
@@ -869,7 +867,7 @@ describe("Workflows Documentation - API Verification", () => {
       expect(ctx).toBeDefined();
       expect(typeof ctx.workflowId).toBe("string");
 
-      return await step(() => deps.fetchData());
+      return await step('fetchData', () => deps.fetchData());
     });
 
     expect(result.ok).toBe(true);
@@ -888,24 +886,24 @@ describe("Workflows Documentation - API Verification", () => {
       // deps contains the passed functions
       expect(deps.fetchData).toBe(fetchData);
 
-      return await ctx.step(() => deps.fetchData());
+      return await ctx.step('fetchData', () => deps.fetchData());
     });
 
     expect(result.ok).toBe(true);
   });
 
-  it("verifies step() accepts both function wrapper and direct Result", async () => {
+  it("verifies step() requires function wrapper (thunk)", async () => {
     const fetchData = async (): AsyncResult<number, "ERROR"> => ok(42);
 
     const workflow = createWorkflow({ fetchData });
 
-    // Both forms should work
+    // step() requires a thunk (function wrapper)
     const result = await workflow(async (step, deps) => {
-      // Form 1: Function wrapper (as shown in docs)
-      const val1 = await step(() => deps.fetchData());
+      // Form 1: Function wrapper (required form)
+      const val1 = await step('fetchData1', () => deps.fetchData());
 
-      // Form 2: Direct Result (also supported)
-      const val2 = await step(deps.fetchData());
+      // Form 2: Also function wrapper
+      const val2 = await step('fetchData2', () => deps.fetchData());
 
       return val1 + val2;
     });

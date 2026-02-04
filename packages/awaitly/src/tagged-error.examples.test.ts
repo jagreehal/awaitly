@@ -146,9 +146,9 @@ async function testWorkflow() {
   const result = await transferMoney(
     { fromId: "alice", toId: "bob", amount: 100 },
     async (step, { fetchUser, fetchBalance, executeTransfer }, args) => {
-      const sender = await step(fetchUser(args.fromId));
-      const recipient = await step(fetchUser(args.toId));
-      const balance = await step(fetchBalance(args.fromId));
+      const sender = await step('fetchSender', () => fetchUser(args.fromId));
+      const recipient = await step('fetchRecipient', () => fetchUser(args.toId));
+      const balance = await step('fetchBalance', () => fetchBalance(args.fromId));
 
       if (balance.available < args.amount) {
         return err(
@@ -159,7 +159,7 @@ async function testWorkflow() {
         );
       }
 
-      const txId = await step(
+      const txId = await step('executeTransfer', () =>
         executeTransfer(sender, recipient, args.amount)
       );
       return ok({ txId, amount: args.amount });
@@ -339,9 +339,9 @@ describe("tagged-error examples", () => {
     const result = await transferMoney(
       { fromId: "alice", toId: "bob", amount: 100 },
       async (step, { fetchUser, fetchBalance, executeTransfer }, args) => {
-        const sender = await step(fetchUser(args.fromId));
-        const recipient = await step(fetchUser(args.toId));
-        const balance = await step(fetchBalance(args.fromId));
+        const sender = await step('fetchSender', () => fetchUser(args.fromId));
+        const recipient = await step('fetchRecipient', () => fetchUser(args.toId));
+        const balance = await step('fetchBalance', () => fetchBalance(args.fromId));
 
         if (balance.available < args.amount) {
           return err(
@@ -352,7 +352,7 @@ describe("tagged-error examples", () => {
           );
         }
 
-        const txId = await step(
+        const txId = await step('executeTransfer', () =>
           executeTransfer(sender, recipient, args.amount)
         );
         return ok({ txId, amount: args.amount });
@@ -384,7 +384,7 @@ describe("tagged-error examples", () => {
     const result = await transferMoney(
       { fromId: "404", toId: "bob", amount: 100 },
       async (step, { fetchUser }) => {
-        const sender = await step(fetchUser("404"));
+        const sender = await step('fetchUser', () => fetchUser("404"));
         return ok({ sender });
       }
     );

@@ -139,9 +139,9 @@ import { createWorkflow } from 'awaitly/workflow';
 const workflow = createWorkflow({ fetchUser, validateOrder, chargeCard });
 
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('123'));
-  const order = await step(validateOrder(orderData));
-  const receipt = await step(chargeCard(user.id, order.total));
+  const user = await step('fetchUser', () => fetchUser('123'));
+  const order = await step('validateOrder', () => validateOrder(orderData));
+  const receipt = await step('chargeCard', () => chargeCard(user.id, order.total));
   return { user, order, receipt };
 });
 
@@ -276,6 +276,7 @@ const workflow = createWorkflow({ fetchData });
 const result = await workflow(async (step) => {
   // Built-in retry with exponential backoff
   const data = await step.retry(
+    'fetchData',
     () => fetchData(),
     {
       attempts: 3,
@@ -286,6 +287,7 @@ const result = await workflow(async (step) => {
 
   // Built-in timeout
   const slow = await step.withTimeout(
+    'slowOp',
     () => slowOperation(),
     { ms: 5000 }
   );

@@ -120,11 +120,15 @@ export type MaybeAsyncResult<T, E, C = unknown> = Result<T, E, C> | Promise<Resu
 
 /**
  * Creates a successful Result.
+ *
+ * @remarks When to use: Wrap a successful value in a Result for consistent return types.
  */
 export const ok = <T>(value: T): Ok<T> => ({ ok: true, value });
 
 /**
  * Creates a failed Result.
+ *
+ * @remarks When to use: Return a typed failure without throwing so callers can handle it explicitly.
  */
 export const err = <E, C = unknown>(
   error: E,
@@ -142,16 +146,22 @@ export const err = <E, C = unknown>(
 
 /**
  * Checks if a Result is successful.
+ *
+ * @remarks When to use: Prefer functional-style checks or array filtering over `result.ok`.
  */
 export const isOk = <T, E, C>(r: Result<T, E, C>): r is Ok<T> => r.ok;
 
 /**
  * Checks if a Result is a failure.
+ *
+ * @remarks When to use: Prefer functional-style checks or array filtering over `result.ok`.
  */
 export const isErr = <T, E, C>(r: Result<T, E, C>): r is Err<E, C> => !r.ok;
 
 /**
  * Checks if an error is an UnexpectedError.
+ *
+ * @remarks When to use: Distinguish unexpected failures from your typed error union.
  */
 export const isUnexpectedError = (e: unknown): e is UnexpectedError =>
   typeof e === "object" &&
@@ -287,6 +297,8 @@ export class UnwrapError extends Error {
 
 /**
  * Extracts the value from an Ok result, or throws UnwrapError if it's an Err.
+ *
+ * @remarks When to use: Only at boundaries or tests where a failure should be fatal.
  */
 export const unwrap = <T, E, C>(r: Result<T, E, C>): T => {
   if (r.ok) return r.value;
@@ -295,12 +307,16 @@ export const unwrap = <T, E, C>(r: Result<T, E, C>): T => {
 
 /**
  * Extracts the value from an Ok result, or returns a default value if it's an Err.
+ *
+ * @remarks When to use: Provide a safe fallback without branching.
  */
 export const unwrapOr = <T, E, C>(r: Result<T, E, C>, defaultValue: T): T =>
   r.ok ? r.value : defaultValue;
 
 /**
  * Extracts the value from an Ok result, or calls a function to get a default value if it's an Err.
+ *
+ * @remarks When to use: Compute a fallback from the error (logging, metrics, or derived defaults).
  */
 export const unwrapOrElse = <T, E, C>(
   r: Result<T, E, C>,
@@ -313,6 +329,8 @@ export const unwrapOrElse = <T, E, C>(
 
 /**
  * Wraps a synchronous function that might throw into a Result.
+ *
+ * @remarks When to use: Wrap sync code that might throw so exceptions become Err values.
  */
 export function from<T>(fn: () => T): Ok<T> | Err<unknown, unknown>;
 export function from<T, E>(fn: () => T, onError: (cause: unknown) => E): Ok<T> | Err<E, unknown>;
@@ -326,6 +344,8 @@ export function from<T, E>(fn: () => T, onError?: (cause: unknown) => E) {
 
 /**
  * Wraps a Promise into a Result.
+ *
+ * @remarks When to use: Wrap a Promise and keep the raw rejection as Err; use tryAsync to map errors.
  */
 export function fromPromise<T>(promise: Promise<T>): Promise<Ok<T> | Err<unknown, unknown>>;
 export function fromPromise<T, E>(
@@ -345,6 +365,8 @@ export async function fromPromise<T, E>(
 
 /**
  * Wraps an async function that might throw into an AsyncResult.
+ *
+ * @remarks When to use: Wrap async work and map thrown/rejected values into your typed error union.
  */
 export function tryAsync<T>(fn: () => Promise<T>): AsyncResult<T, unknown>;
 export function tryAsync<T, E>(
@@ -364,6 +386,8 @@ export async function tryAsync<T, E>(
 
 /**
  * Converts a nullable value into a Result.
+ *
+ * @remarks When to use: Turn null/undefined into a typed error before continuing.
  */
 export function fromNullable<T, E>(
   value: T | null | undefined,
@@ -378,6 +402,8 @@ export function fromNullable<T, E>(
 
 /**
  * Transforms the value inside an Ok result.
+ *
+ * @remarks When to use: Transform only the Ok value while leaving Err untouched.
  */
 export function map<T, U>(r: Ok<T>, fn: (value: T) => U): Ok<U>;
 export function map<T, U, E, C>(r: Err<E, C>, fn: (value: T) => U): Err<E, C>;
@@ -389,6 +415,8 @@ export function map(r: any, fn: any): any {
 
 /**
  * Transforms the error inside an Err result.
+ *
+ * @remarks When to use: Retype or normalize errors while leaving Ok values unchanged.
  */
 export function mapError<T, E, F, C>(
   r: Result<T, E, C>,
@@ -399,6 +427,8 @@ export function mapError<T, E, F, C>(
 
 /**
  * Pattern match on a Result.
+ *
+ * @remarks When to use: Handle both Ok and Err in a single expression that returns a value.
  */
 export function match<T, E, C, R>(r: Ok<T>, handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): R;
 export function match<T, E, C, R>(r: Err<E, C>, handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): R;
@@ -410,6 +440,8 @@ export function match(r: any, handlers: any): any {
 
 /**
  * Chain Result-returning functions.
+ *
+ * @remarks When to use: Chain dependent operations that return Result without nested branching.
  */
 export function andThen<T, U>(r: Ok<T>, fn: (value: T) => Ok<U>): Ok<U>;
 export function andThen<T, F, C2>(r: Ok<T>, fn: (value: T) => Err<F, C2>): Err<F, C2>;
@@ -423,6 +455,8 @@ export function andThen(r: any, fn: any): any {
 
 /**
  * Execute a side effect on Ok values.
+ *
+ * @remarks When to use: Add side effects (logging, metrics) on Ok without changing the Result.
  */
 export function tap<T, E, C>(
   r: Result<T, E, C>,
@@ -434,6 +468,8 @@ export function tap<T, E, C>(
 
 /**
  * Execute a side effect on Err values.
+ *
+ * @remarks When to use: Add side effects (logging, metrics) on Err without changing the Result.
  */
 export function tapError<T, E, C>(
   r: Result<T, E, C>,
@@ -445,6 +481,8 @@ export function tapError<T, E, C>(
 
 /**
  * Transform value with a function that might throw.
+ *
+ * @remarks When to use: Transform Ok values with a function that might throw and capture the failure.
  */
 export function mapTry<T, U, E, F, C>(
   r: Result<T, E, C>,
@@ -461,6 +499,8 @@ export function mapTry<T, U, E, F, C>(
 
 /**
  * Transform error with a function that might throw.
+ *
+ * @remarks When to use: Transform errors when the mapping might throw and you want that captured.
  */
 export function mapErrorTry<T, E, F, G, C>(
   r: Result<T, E, C>,
@@ -488,6 +528,8 @@ export function bimap<T, U, E, F, C>(
 
 /**
  * Provide an alternative Result if the first is an Err.
+ *
+ * @remarks When to use: Recover from Err by returning a fallback Result or retyping the error.
  */
 export function orElse<T, E, E2, C, C2>(
   r: Result<T, E, C>,

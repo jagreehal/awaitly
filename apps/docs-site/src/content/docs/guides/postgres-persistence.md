@@ -29,8 +29,8 @@ const store = postgres('postgresql://localhost/mydb');
 // Execute + persist
 const workflow = createWorkflow({ fetchUser, createOrder });
 await workflow(async (step, deps) => {
-  const user = await step(() => deps.fetchUser('123'), { key: 'fetch-user' });
-  const order = await step(() => deps.createOrder(user), { key: 'create-order' });
+  const user = await step('fetchUser', () => deps.fetchUser('123'), { key: 'fetch-user' });
+  const order = await step('createOrder', () => deps.createOrder(user), { key: 'create-order' });
   return order;
 });
 
@@ -140,8 +140,8 @@ const store = postgres(process.env.DATABASE_URL!);
 const result = await durable.run(
   { fetchUser, createOrder },
   async (step, { fetchUser, createOrder }) => {
-    const user = await step(() => fetchUser('123'), { key: 'fetch-user' });
-    const order = await step(() => createOrder(user), { key: 'create-order' });
+    const user = await step('fetchUser', () => fetchUser('123'), { key: 'fetch-user' });
+    const order = await step('createOrder', () => createOrder(user), { key: 'create-order' });
     return order;
   },
   { id: 'checkout-123', store }

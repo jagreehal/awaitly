@@ -102,10 +102,10 @@ flowchart LR
 |---------|-------------|
 | `ok(value)` | Create a success Result |
 | `err(error)` | Create a failure Result |
-| `step(fn)` | Execute operation, exit early on error |
+| `step('id', fn)` | Execute operation, exit early on error |
 | `createWorkflow(deps)` | Create reusable workflow with error inference |
 | `allAsync([...])` | Run operations in parallel (fail-fast) |
-| `step.retry(fn, opts)` | Retry with backoff on failure |
+| `step.retry(id, fn, opts)` | Retry with backoff on failure |
 | `resumeState` | Continue from saved checkpoint |
 
 ## Next Steps

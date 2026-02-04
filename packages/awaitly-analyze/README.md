@@ -129,7 +129,7 @@ const ir = analyze.source(`
 
   async function run(id: string) {
     return await workflow(async (step, deps) => {
-      const user = await step(() => deps.fetchUser(id), { key: 'user' });
+      const user = await step('fetchUser', () => deps.fetchUser(id), { key: 'user' });
       return user;
     });
   }
@@ -187,23 +187,22 @@ console.log(`Decision points: ${metrics.decisionPoints}`);
 console.log(`Path count: ${metrics.pathCount}`);
 ```
 
-#### `assessComplexity(ir, thresholds?)`
+#### `assessComplexity(metrics, thresholds?)`
 
 Get a complexity assessment with warnings.
 
 ```typescript
-import { assessComplexity, formatComplexitySummary } from 'awaitly-analyze';
+import {
+  analyze,
+  calculateComplexity,
+  assessComplexity,
+  formatComplexitySummary
+} from 'awaitly-analyze';
 
-const assessment = assessComplexity(ir);
-
-console.log(formatComplexitySummary(assessment));
-// Output:
-// Complexity: MODERATE
-// - Cyclomatic: 8
-// - Cognitive: 12
-// - Max Depth: 3
-// Warnings:
-// - Consider breaking down: cognitive complexity (12) exceeds threshold (10)
+const ir = analyze('./checkout.ts').single();
+const metrics = calculateComplexity(ir);
+const assessment = assessComplexity(metrics);
+console.log(formatComplexitySummary(metrics, assessment));
 ```
 
 ### Mermaid Diagrams
@@ -309,11 +308,14 @@ The analyzer detects the following awaitly patterns:
 
 Within workflows, it detects:
 
-- `step()` - Single steps with retry/timeout options
+- `step('id', fn, opts?)` - Single steps (string ID required) with retry/timeout options
 - `step.parallel()` / `allAsync()` / `allSettledAsync()` - Parallel execution
 - `step.race()` / `anyAsync()` - Race execution
-- `step.sleep()` - Sleep steps
-- `step.retry()` - Retry wrappers
+- `step.sleep(id, duration, opts?)` - Sleep steps (ID required as first argument)
+- `step.retry(id, operation, opts)` - Retry wrappers (ID required as first argument)
+- `step.withTimeout(id, operation, opts)` - Timeout wrappers (ID required as first argument)
+- `step.try(id, operation, opts)` - Try/catch steps (ID required as first argument)
+- `step.fromResult(id, operation, opts)` - FromResult steps (ID required as first argument)
 - `step.getWritable()` / `step.getReadable()` / `step.streamForEach()` - Streaming
 - `when()` / `unless()` / `whenOr()` / `unlessOr()` - Conditional helpers
 - `if/else`, `switch` - Control flow
@@ -378,8 +380,8 @@ Main static-analysis node types and when fields are populated:
 - **StaticWorkflowNode** (root): `workflowName`, `source`, `dependencies`, `children`, `description`, `markdown`, `jsdocDescription?`, `errorTypes`.  
   `description` and `markdown` are set only for `createWorkflow` / `createSagaWorkflow` (from options or deps). They are undefined for `run()` / `runSaga()` (no options object). `jsdocDescription` is extracted from JSDoc above the workflow variable when present.
 
-- **StaticStepNode**: `callee`, `name`, `key`, `description`, `markdown`, `jsdocDescription?`, `retry`, `timeout`.  
-  `description` and `markdown` come from step options (e.g. `step(fn, { description, markdown })`, `step.sleep(duration, { description, markdown })`). `jsdocDescription` is extracted from JSDoc above the step statement when present.
+- **StaticStepNode**: `stepId`, `callee`, `name`, `key`, `description`, `markdown`, `jsdocDescription?`, `retry`, `timeout`.  
+  `stepId` is the required first argument for all step types: `step('id', fn, opts)`, `step.sleep('id', duration, opts?)`, `step.retry('id', operation, opts)`, `step.withTimeout('id', operation, opts)`, `step.try('id', operation, opts)`, `step.fromResult('id', operation, opts)`. Legacy `step(fn, opts)` is still parsed but yields `stepId: "<missing>"` and a warning. `description` and `markdown` come from step options; `jsdocDescription` is extracted from JSDoc above the step statement when present.
 
 - **StaticSagaStepNode**: `callee`, `name`, `description`, `markdown`, `jsdocDescription?`, `hasCompensation`, `compensationCallee`, `isTryStep`.  
   `description` and `markdown` come from saga step options (e.g. `saga.step(fn, { description, markdown })`). `jsdocDescription` is extracted from JSDoc above the saga step statement when present.
@@ -405,7 +407,7 @@ The output of `renderStaticJSON(ir)` has this structure. Agents and doc generato
 - **DependencyInfo** (each entry in `dependencies`): `name`, `typeSignature?`, `errorTypes[]`
 
 - **Flow nodes** (`children` and nested): discriminated by `type`:
-  - `"step"`: `id`, `name?`, `key?`, `callee?`, `description?`, `markdown?`, `jsdocDescription?`, `retry?`, `timeout?`, `location?`
+  - `"step"`: `id`, `stepId`, `name?`, `key?`, `callee?`, `description?`, `markdown?`, `jsdocDescription?`, `retry?`, `timeout?`, `location?`
   - `"saga-step"`: `id`, `name?`, `callee?`, `description?`, `markdown?`, `jsdocDescription?`, `hasCompensation`, `compensationCallee?`, `isTryStep?`, `location?`
   - `"sequence"`: `id`, `children[]`
   - `"parallel"`: `id`, `children[]`, `mode` ("all" | "allSettled"), `callee?`

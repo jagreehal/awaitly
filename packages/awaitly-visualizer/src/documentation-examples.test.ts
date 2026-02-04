@@ -110,7 +110,7 @@ describe("visualization", () => {
       );
 
       await workflow(async (step, { fetchUser }) => {
-        await step(fetchUser("123"), { name: "Fetch user" });
+        await step("Fetch user", () => fetchUser("123"));
         return DONE;
       });
 
@@ -127,7 +127,7 @@ describe("visualization", () => {
       );
 
       await workflow(async (step, { fetchUser }) => {
-        await step(fetchUser("123"), { name: "Fetch user" });
+        await step("Fetch user", () => fetchUser("123"));
         return DONE;
       });
 
@@ -172,7 +172,7 @@ describe("visualization", () => {
       );
 
       await workflow(async (step, { fetchUser }) => {
-        await step(fetchUser("123"));
+        await step("Fetch user", () => fetchUser("123"));
         return DONE;
       });
 
@@ -208,7 +208,7 @@ describe("visualization", () => {
       );
 
       await workflow(async (step, { fetchUser, applyDiscount }) => {
-        const user = await step(fetchUser("123"), { name: "Fetch user" });
+        const user = await step("Fetch user", () => fetchUser("123"));
 
         const isPremium = trackIf("premium-check", user.tier === "premium", {
           emit: collector.handleDecisionEvent,
@@ -216,10 +216,10 @@ describe("visualization", () => {
 
         if (user.tier === "premium") {
           isPremium.takeBranch("premium");
-          await step(applyDiscount(20), { name: "Apply premium discount" });
+          await step("Apply premium discount", () => applyDiscount(20));
         } else {
           isPremium.takeBranch("standard");
-          await step(applyDiscount(5), { name: "Apply standard discount" });
+          await step("Apply standard discount", () => applyDiscount(5));
         }
         isPremium.end();
 
@@ -239,7 +239,7 @@ describe("visualization", () => {
       );
 
       await workflow(async (step, { fetchUser, calculateTax }) => {
-        const user = await step(fetchUser("123"), { name: "Fetch user" });
+        const user = await step("Fetch user", () => fetchUser("123"));
 
         const regionSwitch = trackSwitch("region", user.region, {
           emit: collector.handleDecisionEvent,
@@ -248,11 +248,11 @@ describe("visualization", () => {
         switch (user.region) {
           case "US":
             regionSwitch.takeBranch("US");
-            await step(calculateTax("US"), { name: "Calculate US tax" });
+            await step("Calculate US tax", () => calculateTax("US"));
             break;
           case "EU":
             regionSwitch.takeBranch("EU");
-            await step(calculateTax("EU"), { name: "Calculate EU tax" });
+            await step("Calculate EU tax", () => calculateTax("EU"));
             break;
           default:
             regionSwitch.takeBranch("other");
@@ -278,8 +278,8 @@ describe("visualization", () => {
       );
 
       await workflow(async (step, { fetchUser, fetchOrders }) => {
-        await step(fetchUser("123"), { name: "Fetch user" });
-        await step(fetchOrders("123"), { name: "Fetch orders" });
+        await step("Fetch user", () => fetchUser("123"));
+        await step("Fetch orders", () => fetchOrders("123"));
         return DONE;
       });
 
@@ -312,7 +312,7 @@ describe("visualization", () => {
       );
 
       await workflow(async (step, { fetchUser }) => {
-        await step(fetchUser("123"), { name: "Fetch user" });
+        await step("Fetch user", () => fetchUser("123"));
         return DONE;
       });
 
@@ -337,8 +337,8 @@ describe("visualization", () => {
 
         const startTime = Date.now();
         await workflow(async (step, { fetchUser, fetchOrders }) => {
-          await step(() => fetchUser("123"), { name: "Fetch user" });
-          await step(() => fetchOrders("123"), { name: "Fetch orders" });
+          await step("Fetch user", () => fetchUser("123"));
+          await step("Fetch orders", () => fetchOrders("123"));
           return DONE;
         });
 
@@ -365,7 +365,7 @@ describe("visualization", () => {
         { onEvent: collector.handleEvent }
       );
       await workflow(async (step, { fetchUser }) => {
-        await step(() => fetchUser("123"), { name: "Fetch user" });
+        await step("Fetch user", () => fetchUser("123"));
         return DONE;
       });
 
@@ -454,7 +454,7 @@ describe("visualization", () => {
       );
 
       await workflow(async (step, { fetchUser }) => {
-        await step(fetchUser("123"));
+        await step("Fetch user", () => fetchUser("123"));
         return DONE;
       });
 
@@ -483,7 +483,7 @@ describe("visualization", () => {
       );
 
       await workflow(async (step, { fetchUser }) => {
-        await step(fetchUser("123"), { name: "Fetch user" });
+        await step("Fetch user", () => fetchUser("123"));
         return DONE;
       });
 
@@ -502,8 +502,8 @@ describe("visualization", () => {
       );
 
       await workflow(async (step, { fetchUser, fetchOrders }) => {
-        await step(() => fetchUser("123"), { name: "Fetch user" });
-        await step(() => fetchOrders("123"), { name: "Fetch orders" });
+        await step("Fetch user", () => fetchUser("123"));
+        await step("Fetch orders", () => fetchOrders("123"));
         return DONE;
       });
 
@@ -611,7 +611,7 @@ describe("visualization", () => {
       );
 
       await workflow(async (step, { fetchUser, applyDiscount }) => {
-        const user = await step(() => fetchUser("123"), { name: "Fetch user" });
+        const user = await step("Fetch user", () => fetchUser("123"));
 
         // Decisions show WHY a path was taken
         const decision = trackIf(
@@ -624,10 +624,10 @@ describe("visualization", () => {
 
         if (user.tier === "premium") {
           decision.takeBranch("premium");
-          await step(() => applyDiscount(20), { name: "Apply premium" });
+          await step("Apply premium", () => applyDiscount(20));
         } else {
           decision.takeBranch("standard");
-          await step(() => applyDiscount(5), { name: "Apply standard" });
+          await step("Apply standard", () => applyDiscount(5));
         }
         decision.end();
 

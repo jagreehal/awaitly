@@ -108,22 +108,22 @@ async function processOrder(orderId: string) {
 import { run } from "awaitly/run";
 
 const result = await run(async (step) => {
-  const order = await step(() => getOrder(orderId)); // unwraps ok, exits on err
-  const user = await step(() => getUser(order.userId)); // same
-  const payment = await step(() => charge(order.total)); // same
+  const order = await step('getOrder', () => getOrder(orderId)); // unwraps ok, exits on err
+  const user = await step('getUser', () => getUser(order.userId)); // same
+  const payment = await step('charge', () => charge(order.total)); // same
   return payment;
 });
 ```
 
 **The happy path reads linearly.** No if-checks.
 
-### Why thunks? `step(() => fn())` not `step(fn())`
+### Why thunks? `step('id', () => fn())` not `step('id', fn())`
 
-Always wrap in a function:
+`step()` requires a string ID as the first argument. Always wrap the operation in a function (thunk):
 
 ```typescript
-step(() => getUser(id)); // ✅ Correct - step controls when it runs
-step(getUser(id)); // ❌ Wrong - executes immediately
+step('getUser', () => getUser(id)); // ✅ Correct - step controls when it runs
+step('getUser', getUser(id)); // ❌ Wrong - executes immediately
 ```
 
 Thunks enable:
@@ -170,8 +170,8 @@ const deps = {
 const workflow = createWorkflow(deps);
 
 const result = await workflow(async (step, deps) => {
-  const user = await step(() => deps.getUser(userId));
-  const order = await step(() => deps.getOrder(orderId));
+  const user = await step('getUser', () => deps.getUser(userId));
+  const order = await step('getOrder', () => deps.getOrder(orderId));
   return { user, order };
 });
 // TypeScript KNOWS: result.error is UserNotFound | OrderNotFound | UnexpectedError
@@ -191,9 +191,9 @@ const result = await workflow(async (step, deps) => {
 
 ```mermaid
 flowchart TD
-    subgraph "step() unwraps Results, exits early on error"
-        S1["step(() => deps.fetchUser(...))"] -->|ok| S2["step(() => deps.fetchPosts(...))"]
-        S2 -->|ok| S3["step(() => deps.sendEmail(...))"]
+    subgraph "step('id', fn) unwraps Results, exits early on error"
+        S1["step('fetchUser', () => deps.fetchUser(...))"] -->|ok| S2["step('fetchPosts', () => deps.fetchPosts(...))"]
+        S2 -->|ok| S3["step('sendEmail', () => deps.sendEmail(...))"]
         S3 -->|ok| S4["✓ Success"]
 
         S1 -.->|error| EXIT["Return error"]
@@ -212,9 +212,8 @@ Each `step()` unwraps a `Result`. If it's `ok`, you get the value and continue. 
 | ------------------- | ---------------------------------------------------------------------------------------- |
 | **Result**          | `ok(value)` or `err(error)` — typed success/failure, no exceptions                       |
 | **Workflow**        | Wraps your dependencies and tracks their error types automatically                       |
-| **step()**          | Unwraps a Result, short-circuits on failure, enables caching/retries                     |
-| **step.try**        | Catches throws and converts them to typed errors                                         |
-| **step.fromResult** | Preserves rich error objects from other Result-returning code                            |
+| **step()**          | `step('id', fn, opts?)` — unwraps a Result, short-circuits on failure, enables caching/retries |
+| **step.try / retry / sleep / withTimeout / fromResult** | Same: **id first** (e.g. `step.retry('id', fn, opts)`, `step.sleep('id', duration, opts?)`) |
 | **Events**          | `onEvent` streams everything — timing, retries, failures — for visualization or logging  |
 | **Resume**          | Save completed steps, pick up later (great for approvals or crashes)                     |
 | **UnexpectedError** | Safety net for throws outside your declared errors; map it to HTTP 500 at the boundary   |
@@ -244,7 +243,7 @@ const deps = {
 const workflow = createWorkflow(deps);
 
 const result = await workflow(async (step, deps) => {
-  return await step(() => deps.loadTask("t-1"));
+  return await step('loadTask', () => deps.loadTask("t-1"));
 });
 
 // 3. Handle the result
@@ -255,7 +254,7 @@ console.log(result.ok ? result.value : result.error);
 
 - `deps.loadTask` returns a Result (`ok` or `err`)
 - `createWorkflow(deps)` groups dependencies and infers all possible errors
-- `step(() => ...)` runs the operation and unwraps the success value
+- `step('id', () => ...)` runs the operation and unwraps the success value
 - if a step returns `err`, the workflow exits early
 
 ---
@@ -356,10 +355,10 @@ const transfer = createWorkflow(deps);
 // In an HTTP handler
 async function handler(fromUserId: string, toUserId: string, amount: number) {
   const result = await transfer(async (step, deps) => {
-    const fromUser = await step(() => deps.getUser(fromUserId));
-    const toUser = await step(() => deps.getUser(toUserId));
-    await step(() => deps.validateBalance(fromUser, amount));
-    return await step(() => deps.executeTransfer());
+    const fromUser = await step('getUser', () => deps.getUser(fromUserId));
+    const toUser = await step('getUser', () => deps.getUser(toUserId));
+    await step('validateBalance', () => deps.validateBalance(fromUser, amount));
+    return await step('executeTransfer', () => deps.executeTransfer());
   });
 
   // TypeScript knows ALL possible errors - map them to HTTP responses
@@ -437,10 +436,11 @@ Add resilience exactly where you need it - no nested try/catch or custom retry l
 ```typescript
 const result = await workflow(async (step, deps) => {
   // Retry 3 times with exponential backoff, timeout after 5 seconds
-  const task = await step.retry(
-    () => deps.loadTask("t-1"),
-    { attempts: 3, backoff: "exponential", timeout: { ms: 5000 } }
-  );
+  const task = await step.retry("loadTask", () => deps.loadTask("t-1"), {
+    attempts: 3,
+    backoff: "exponential",
+    timeout: { ms: 5000 },
+  });
   return task;
 });
 ```
@@ -453,11 +453,11 @@ Use stable keys to ensure a step only runs once, even if the workflow crashes an
 const result = await processPayment(async (step) => {
   // If the workflow crashes after charging but before saving,
   // the next run skips the charge - it's already cached.
-  const charge = await step(() => chargeCard(amount), {
+  const charge = await step('chargeCard', () => chargeCard(amount), {
     key: `charge:${order.idempotencyKey}`,
   });
 
-  await step(() => saveToDatabase(charge), {
+  await step('saveToDatabase', () => saveToDatabase(charge), {
     key: `save:${charge.id}`,
   });
 
@@ -483,8 +483,8 @@ const workflow = createWorkflow({ fetchUser, fetchPosts }, {
 
 await workflow(async (step, deps) => {
   // Only steps with keys are saved
-  const user = await step(() => deps.fetchUser("1"), { key: "user:1" });
-  const posts = await step(() => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
+  const user = await step('fetchUser', () => deps.fetchUser("1"), { key: "user:1" });
+  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
 
@@ -523,8 +523,8 @@ const workflow = createWorkflow({ fetchUser, fetchPosts }, {
 });
 
 await workflow(async (step, deps) => {
-  const user = await step(() => deps.fetchUser("1"), { key: "user:1" }); // ✅ Cache hit
-  const posts = await step(() => deps.fetchPosts(user.id), { key: `posts:${user.id}` }); // ✅ Cache hit
+  const user = await step('fetchUser', () => deps.fetchUser("1"), { key: "user:1" }); // ✅ Cache hit
+  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` }); // ✅ Cache hit
   return { user, posts };
 });
 ```
@@ -577,12 +577,12 @@ const requireApproval = createApprovalStep({
 });
 
 const result = await refundWorkflow(async (step, deps) => {
-  const refund = await step(() => deps.calculateRefund(orderId));
+  const refund = await step('calculateRefund', () => deps.calculateRefund(orderId));
 
   // Workflow pauses here until someone approves
-  const approval = await step(() => requireApproval(), { key: "approve:refund" });
+  const approval = await step('approve', () => requireApproval(), { key: "approve:refund" });
 
-  return await step(() => deps.processRefund(refund, approval));
+  return await step('processRefund', () => deps.processRefund(refund, approval));
 });
 
 if (!result.ok && isPendingApproval(result.error)) {
@@ -604,8 +604,8 @@ const workflow = createWorkflow({ fetchOrder, chargeCard }, {
 });
 
 await workflow(async (step, deps) => {
-  const order = await step(() => deps.fetchOrder('order_456'), { name: 'Fetch order' });
-  const payment = await step(() => deps.chargeCard(order.total), { name: 'Charge card' });
+  const order = await step("fetchOrder", () => deps.fetchOrder("order_456"));
+  const payment = await step("chargeCard", () => deps.chargeCard(order.total));
   return { order, payment };
 });
 
@@ -635,18 +635,66 @@ You have the foundation. Pick one:
 ## Common Patterns (quick reference)
 
 ```typescript
-// Wrap throwing code
-const data = await step.try(() => fetch(url).then(r => r.json()), { error: "HTTP_FAILED" as const });
+// Wrap throwing code — id first, then operation, then options
+const data = await step.try("fetch", () => fetch(url).then((r) => r.json()), { error: "HTTP_FAILED" as const });
 
-// Retries with backoff
-const user = await step.retry(() => deps.fetchUser(id), { attempts: 3, backoff: "exponential" });
+// Retries with backoff — id first
+const user = await step.retry("fetchUser", () => deps.fetchUser(id), { attempts: 3, backoff: "exponential" });
 
-// Timeout protection
-const result = await step.withTimeout(() => deps.slowOperation(), { ms: 5000 });
+// Timeout protection — id first
+const result = await step.withTimeout("slowOp", () => deps.slowOperation(), { ms: 5000 });
 
 // Caching (use thunk + key)
-const user = await step(() => deps.fetchUser(id), { key: `user:${id}` });
+const user = await step("fetchUser", () => deps.fetchUser(id), { key: `user:${id}` });
 ```
+
+---
+
+## Processing Collections
+
+Use `step.forEach()` for statically analyzable loops instead of manual `for` loops with dynamic keys:
+
+```typescript
+// ❌ Problematic - dynamic keys defeat static analysis
+for (const payment of payments) {
+  await step('processPayment', () => processPayment(payment), { key: `payment-${payment.id}` });
+}
+
+// ✅ Better - step.forEach() is statically analyzable
+await step.forEach('process-payments', payments, {
+  stepIdPattern: 'payment-{i}',
+  run: async (payment) => {
+    await step('processPayment', () => processPayment(payment));
+  },
+});
+```
+
+`step.forEach()` provides:
+- Static analysis support (awaitly-analyze can enumerate paths)
+- Automatic indexing with `stepIdPattern`
+- Resume support (tracks which items completed)
+
+---
+
+## Strict Mode (Closed Error Unions)
+
+By default, workflows include `UnexpectedError` in the error union. Use strict mode for closed error unions:
+
+```typescript
+// Default - open error union includes UnexpectedError
+const workflow = createWorkflow(deps);
+// Result error: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
+
+// Strict mode - closed error union
+const workflow = createWorkflow(deps, {
+  strict: true,
+  errors: ['NOT_FOUND', 'ORDER_FAILED'] as const,
+  catchUnexpected: (cause) => ({ type: 'UNEXPECTED' as const, cause })
+});
+// Result error: 'NOT_FOUND' | 'ORDER_FAILED' | { type: 'UNEXPECTED', cause }
+```
+
+With strict mode, TypeScript will error if a dep can produce an undeclared error.
 
 ---
 
@@ -664,7 +712,7 @@ const user = await step(() => deps.fetchUser(id), { key: `user:${id}` });
 
 | awaitly | neverthrow |
 |---------|-----------|
-| async/await with `step()` | `.andThen()` method chains |
+| async/await with `step('id', fn)` | `.andThen()` method chains |
 | Automatic error inference | Manual error unions |
 | Built-in retries, timeouts, caching | DIY |
 
@@ -676,12 +724,14 @@ const user = await step(() => deps.fetchUser(id), { key: `user:${id}` });
 | API | Description |
 |-----|-------------|
 | `createWorkflow(deps)` | Recommended. Auto-infers errors from deps. |
-| `step(() => deps.fn())` | Run a step, unwrap result. |
-| `step.retry(fn, opts)` | Retry with backoff. |
-| `step.withTimeout(fn, { ms })` | Timeout protection. |
+| `step('id', () => deps.fn())` | Run a step, unwrap result. ID required. |
+| `step.retry(id, fn, opts)` | Retry with backoff. ID required. |
+| `step.withTimeout(id, fn, { ms })` | Timeout protection. ID required. |
+| `step.try(id, fn, opts)` | Wrap throwing code; map to typed error. ID required. |
+| `step.sleep(id, duration, opts?)` | Pause execution. ID required. |
 | `ok(value)` / `err(error)` | Construct Results. |
 
-See [full API reference](https://jagreehal.github.io/awaitly/reference/api/) for `run()`, `step.try`, `step.fromResult`, combinators, circuit breakers, and more.
+See [full API reference](https://jagreehal.github.io/awaitly/reference/api/) for `run()`, `step.fromResult`, combinators, circuit breakers, and more.
 
 ### run()
 
@@ -697,7 +747,7 @@ import { run } from "awaitly/run";
 
 const result = await run<Output, "NOT_FOUND" | "FETCH_ERROR">(
   async (step) => {
-    const user = await step(() => fetchUser(userId)); // thunk for consistency
+    const user = await step('fetchUser', () => fetchUser(userId)); // thunk for consistency
     return user;
   },
   { onError: (e) => console.log("Failed:", e) }
@@ -719,7 +769,7 @@ Everything else is optional and documented in the [guides](https://jagreehal.git
 
 ## Common Pitfalls
 
-**Use thunks for caching.** `step(deps.fetchUser('1'))` executes immediately. Use `step(() => deps.fetchUser('1'), { key })` for caching to work.
+**Use thunks for caching.** `step('fetchUser', deps.fetchUser('1'))` executes immediately. Use `step('fetchUser', () => deps.fetchUser('1'), { key })` for caching to work.
 
 **Keys must be stable.** Use `user:${id}`, not `user:${Date.now()}`.
 

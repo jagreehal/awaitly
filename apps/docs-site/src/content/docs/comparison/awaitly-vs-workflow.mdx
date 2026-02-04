@@ -49,7 +49,7 @@ Choose awaitly when you want typed error handling, platform flexibility, and exp
 | Step Metadata | `getStepMetadata()` with `attempt` | `onEvent` callback with retry events |
 | Hooks/Webhooks | `createHook()` with suspension | Custom implementation via `onEvent` |
 | AI Agents | `DurableAgent` class | Any AI library e.g. AI SDK, Tanstack AI, Langchain etc  |
-| Sleep | `sleep("5s")` built-in | step.sleep("5s") |
+| Sleep | `sleep("5s")` built-in | step.sleep("delay", "5s") |
 
 ## Core Patterns
 
@@ -102,7 +102,7 @@ export const userWorkflow = createWorkflow(
 export async function runWorkflow(id: string) {
   return await userWorkflow(async (step, { fetchUser }) => {
     // Use function wrapper for proper caching/resume
-    const user = await step(() => fetchUser(id), { key: "fetch-user" });
+    const user = await step('fetchUser', () => fetchUser(id), { key: "fetch-user" });
     return user;
   });
 }
@@ -120,7 +120,7 @@ export async function workflow() {
 </Tabs>
 
 <Aside type="tip" title="ESLint Plugin">
-Use `eslint-plugin-awaitly` to catch common mistakes. The `no-immediate-execution` and `require-thunk-for-key` rules detect when you forget the function wrapper (`step(fn())` instead of `step(() => fn())`) and autofix it for you.
+Use `eslint-plugin-awaitly` to catch common mistakes. The `no-immediate-execution` and `require-thunk-for-key` rules detect when you forget the function wrapper (`step('id', fn())` instead of `step('id', () => fn())`) and autofix it for you.
 </Aside>
 
 ## Error Handling
@@ -146,7 +146,7 @@ async function processPayment(
 }
 
 // Configure retry for specific errors
-const payment = await step(() => processPayment(amount), {
+const payment = await step('processPayment', () => processPayment(amount), {
   key: "process-payment",
   retry: {
     attempts: 3,
@@ -281,7 +281,7 @@ export async function runWorkflow() {
       return err("CANCELLED");
     }
 
-    const result = await step(() => deps.myStep(), { key: "my-step" });
+    const result = await step('myStep', () => deps.myStep(), { key: "my-step" });
     return result;
   });
 }
@@ -438,7 +438,7 @@ export async function runAIWorkflow(prompt: string) {
   return await aiWorkflow(async (step) => {
     const writer = step.getWritable<string>({ namespace: "ai-tokens" });
 
-    await step(() => streamText({
+    await step('streamText', () => streamText({
       model: openai("gpt-4"),
       prompt,
       onChunk: async ({ chunk }) => {
@@ -554,8 +554,8 @@ export const simpleWorkflow = createWorkflow(
 
 export async function simple(i: number) {
   return await simpleWorkflow(async (step, { add }) => {
-    const a = await step(() => add(i, 7), { key: "add-1" });
-    const b = await step(() => add(a, 8), { key: "add-2" });
+    const a = await step('add', () => add(i, 7), { key: "add-1" });
+    const b = await step('add', () => add(a, 8), { key: "add-2" });
     return b;
   });
 }
@@ -592,7 +592,7 @@ export const batchWorkflow = createWorkflow(
 
 export async function runBatchWorkflow(items: string[]) {
   return await batchWorkflow(async (step, { processItem }) => {
-    const result = await step(() => processInBatches(
+    const result = await step('processInBatches', () => processInBatches(
       items,
       processItem,
       {

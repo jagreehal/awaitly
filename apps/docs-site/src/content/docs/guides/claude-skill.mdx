@@ -61,24 +61,26 @@ Or Claude will use it contextually when you ask about:
 
 ## Key rules Claude learns
 
-### R1: step() accepts both forms
+### R1: step() requires a string ID; supports direct and thunk forms
+
+`step()` requires a string ID as the first argument: `step('id', fnOrResult, opts?)`.
 
 ```typescript
-// Direct form - already started, can't retry/cache
-await step(deps.getUser(id));
+// Thunk form - deferred, enables retry/caching (preferred when using cache/retry)
+await step('getUser', () => deps.getUser(id));
 
-// Thunk form - deferred, enables retry/caching
-await step(() => deps.getUser(id));
+// Direct form - already started, can't retry/cache-before-run
+await step('getUser', deps.getUser(id));
 ```
 
-**Rule**: If an operation must be re-executed (retry) or conditionally executed (cache), use the thunk form.
+**Rule**: If an operation must be re-executed (retry) or conditionally executed (cache), use the thunk form. **Every step type takes an ID as the first argument**: `step(id, fn, opts)`, `step.retry(id, operation, options)`, `step.withTimeout(id, operation, options)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, opts?)`.
 
 ### R2: step() handles early exit
 
 ```typescript
 // Correct - step handles errors automatically
-const user = await step(() => deps.getUser(id));
-const order = await step(() => deps.createOrder(user));
+const user = await step('getUser', () => deps.getUser(id));
+const order = await step('createOrder', () => deps.createOrder(user));
 
 // Wrong - never check result.ok inside workflows
 const userResult = await deps.getUser(id);
@@ -89,8 +91,8 @@ if (!userResult.ok) return userResult;  // Don't do this!
 
 ```typescript
 // Correct
-const user = await step(() => deps.getUser(id));
-const data = await step.try(() => fetch(url), { error: 'FETCH_ERROR' });
+const user = await step('getUser', () => deps.getUser(id));
+const data = await step.try('fetch', () => fetch(url), { error: 'FETCH_ERROR' });
 
 // Wrong - bare await bypasses error handling
 const user = await deps.getUser(id);  // Don't do this!
@@ -100,7 +102,7 @@ const user = await deps.getUser(id);  // Don't do this!
 
 ```typescript
 // Correct - allAsync preserves Result types
-const [user, posts] = await step(() => allAsync([
+const [user, posts] = await step('fetchUserData', () => allAsync([
   deps.getUser(id),
   deps.getPosts(id),
 ]));
@@ -143,8 +145,8 @@ async function createOrder(user: User): AsyncResult<Order, 'ORDER_FAILED'> {
 // 2. Use run() with step()
 async function getOrder(id: string) {
   return run(async (step) => {
-    const user = await step(fetchUser(id));
-    const order = await step(createOrder(user));
+    const user = await step('fetchUser', () => fetchUser(id));
+    const order = await step('createOrder', () => createOrder(user));
     return order;
   });
 }

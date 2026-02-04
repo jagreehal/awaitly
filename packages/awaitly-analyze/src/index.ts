@@ -278,7 +278,7 @@ export type {
   TestMatrixSummary,
 } from "./types";
 
-// Type guards
+// Type guards and utilities
 export {
   isStaticStepNode,
   isStaticSequenceNode,
@@ -293,4 +293,6 @@ export {
   isStaticSagaStepNode,
   hasStaticChildren,
   getStaticChildren,
+  extractFunctionName,
+  isValidStaticWorkflowIR,
 } from "./types";

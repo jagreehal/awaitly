@@ -17,7 +17,7 @@ AI streams are typically **single-use AsyncIterables**. You must accumulate cont
 ```typescript
 const result = await workflow(async (step) => {
   // Stream the AI response
-  const stream = await step(() => generateStream(prompt));
+  const stream = await step('generateStream', () => generateStream(prompt));
 
   // Accumulate while iterating (streams are single-use!)
   let text = '';
@@ -34,7 +34,7 @@ const result = await workflow(async (step) => {
   <TabItem label="Common Mistake">
 ```typescript
 // WRONG: Can't iterate a stream twice
-const stream = await step(() => generateStream(prompt));
+const stream = await step('generateStream', () => generateStream(prompt));
 
 // First iteration consumes the stream
 for await (const chunk of stream) {
@@ -68,7 +68,7 @@ const result = await workflow(async (step) => {
   let messages = [{ role: 'user', content: prompt }];
 
   while (true) {
-    const response = await step(() => chat(messages), {
+    const response = await step('chat', () => chat(messages), {
       key: `chat:${messages.length}`
     });
 
@@ -113,6 +113,7 @@ async function executeTools(step, toolCalls) {
   return Promise.all(
     toolCalls.map(async (call) => {
       const result = await step(
+        `tool:${call.name}`,
         () => runTool(call.name, call.arguments),
         {
           key: `tool:${call.name}:${call.id}`,  // SDK's unique ID
@@ -141,6 +142,7 @@ async function executeTools(step, toolCalls) {
   return Promise.all(
     toolCalls.map(async (call) => {
       const result = await step(
+        `tool:${call.name}`,
         () => runTool(call.name, call.arguments),
         {
           key: `tool:${call.name}:${hashArgs(call.arguments)}`,
@@ -173,6 +175,7 @@ function createToolExecutors(step: RunStep<AppError>) {
         : `search:${hashArgs({ query })}`;
 
       return step(
+        'search',
         () => searchDocuments(query),
         { key, name: 'Search documents' }
       );
@@ -184,6 +187,7 @@ function createToolExecutors(step: RunStep<AppError>) {
         : `weather:${hashArgs({ location })}`;
 
       return step(
+        'weather',
         () => fetchWeather(location),
         { key, name: 'Get weather' }
       );
@@ -241,6 +245,7 @@ const result = await chatWorkflow(async (step) => {
 
   while (iterations++ < maxIterations) {
     const response = await step(
+      'chat',
       () => deps.chat(messages),
       { key: `chat:${iterations}`, name: `Chat iteration ${iterations}` }
     );
@@ -261,6 +266,7 @@ const result = await chatWorkflow(async (step) => {
           }
 
           const result = await step(
+            `tool:${call.name}`,
             () => impl(call.arguments),
             {
               key: `tool:${call.name}:${call.id}`,
@@ -319,6 +325,7 @@ const aiWorkflow = createWorkflow({
 
 const result = await aiWorkflow(async (step, { generateText }) => {
   const response = await step(
+    'explain',
     () => generateText('Explain awaitly in one sentence'),
     { key: 'explain', name: 'Generate explanation' }
   );
@@ -340,14 +347,12 @@ AI APIs can fail in various ways. Use `step.try` for SDK calls that throw:
 const result = await workflow(async (step) => {
   // For SDK calls that throw on error
   const response = await step.try(
+    'openaiChat',
     () => openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [{ role: 'user', content: prompt }],
     }),
-    {
-      error: 'AI_ERROR' as const,
-      name: 'OpenAI chat completion',
-    }
+    { error: 'AI_ERROR' as const }
   );
 
   return response.choices[0].message.content;

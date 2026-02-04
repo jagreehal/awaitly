@@ -31,7 +31,7 @@ const badOperation = async (): AsyncResult<string, 'KNOWN_ERROR'> => {
 
 const workflow = createWorkflow({ badOperation });
 const result = await workflow(async (step) => {
-  return await step(badOperation());
+  return await step('badOperation', () => badOperation());
 });
 
 if (!result.ok && result.error.type === 'UNEXPECTED') {
@@ -46,6 +46,7 @@ Use `step.try` to convert thrown exceptions into typed errors:
 ```typescript
 const result = await workflow(async (step) => {
   const data = await step.try(
+    'fetchData',
     async () => {
       const res = await fetch('/api/data');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -72,6 +73,7 @@ const callApi = async (): AsyncResult<Data, ApiError> => {
 
 const result = await workflow(async (step) => {
   const data = await step.fromResult(
+    'callApi',
     () => callApi(),
     {
       onError: (apiError) => ({

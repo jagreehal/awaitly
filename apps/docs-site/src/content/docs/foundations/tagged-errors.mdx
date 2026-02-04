@@ -204,8 +204,8 @@ const fetchUser = async (id: string): AsyncResult<User, NotFoundError | Unauthor
 const workflow = createWorkflow({ fetchUser, updateProfile });
 
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('123'));
-  return await step(updateProfile(user.id, data));
+  const user = await step('fetchUser', () => fetchUser('123'));
+  return await step('updateProfile', () => updateProfile(user.id, data));
 });
 
 if (!result.ok) {

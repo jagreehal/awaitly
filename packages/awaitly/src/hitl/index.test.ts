@@ -301,10 +301,9 @@ describe("HITL - Human-in-the-Loop Support", () => {
       );
 
       const result1 = await workflow1(async (step) => {
-        const data = await step(() => fetchData("123"), { key: "data:123" });
-        const approval = await step(requireApproval, {
-          key: "manager-approval",
-        });
+        const data = await step('fetchData', () => fetchData("123"));
+        // Use step key matching the approval key for proper resume
+        const approval = await step('manager-approval', () => requireApproval());
         return { data, approval };
       });
 
@@ -329,10 +328,9 @@ describe("HITL - Human-in-the-Loop Support", () => {
       );
 
       const result2 = await workflow2(async (step) => {
-        const data = await step(() => fetchData("123"), { key: "data:123" });
-        const approval = await step(requireApproval, {
-          key: "manager-approval",
-        });
+        const data = await step('fetchData', () => fetchData("123"));
+        // Use step key matching the approval key for proper resume
+        const approval = await step('manager-approval', () => requireApproval());
         return { data, approval };
       });
 
@@ -356,7 +354,7 @@ describe("HITL - Human-in-the-Loop Support", () => {
       const workflow = createWorkflow({ requireApproval });
 
       const result = await workflow(async (step) => {
-        return await step(requireApproval, { key: "manager-approval" });
+        return await step('requireApproval', () => requireApproval());
       });
 
       expect(result.ok).toBe(false);
@@ -571,8 +569,9 @@ describe("HITL Orchestrator", () => {
         ({ resumeState, onEvent }) =>
           createWorkflow({ fetchData, requireApproval }, { resumeState, onEvent }),
         async (step, deps) => {
-          await step(() => fetchData(), { key: "fetch" });
-          return await step(requireApproval, { key: "test-approval" });
+          await step('fetchData', () => fetchData());
+          // Use step ID matching the approval key for proper orchestration
+          return await step('test-approval', () => requireApproval());
         },
         {}
       );
@@ -688,11 +687,8 @@ describe("HITL Orchestrator", () => {
         "test-workflow",
         ({ resumeState, onEvent }) =>
           createWorkflow({ requireApproval }, { resumeState, onEvent }),
-        async (step: unknown) => {
-          return await (step as (fn: unknown, opts: { key: string }) => Promise<unknown>)(
-            requireApproval,
-            { key: "test-approval" }
-          );
+        async (step) => {
+          return await step('requireApproval', () => requireApproval());
         },
         {}
       );
@@ -897,11 +893,8 @@ describe("HITL Orchestrator", () => {
         "real-workflow-name",
         ({ resumeState, onEvent }) =>
           createWorkflow({ maliciousApproval }, { resumeState, onEvent }),
-        async (step: unknown) => {
-          return await (step as (fn: unknown, opts: { key: string }) => Promise<unknown>)(
-            maliciousApproval,
-            { key: "test-approval" }
-          );
+        async (step) => {
+          return await step('maliciousApproval', () => maliciousApproval());
         },
         {},
         { runId: "real-run-id" }
@@ -1131,8 +1124,8 @@ describe("gatedStep - Pre-execution gating", () => {
 
       const result = await workflow(async (step) => {
         return await step(
-          () => gatedSendEmail({ to: "external@other.com", body: "Hello" }),
-          { key: "send-email" }
+          'gatedSendEmail',
+          () => gatedSendEmail({ to: "external@other.com", body: "Hello" })
         );
       });
 
@@ -1162,8 +1155,8 @@ describe("gatedStep - Pre-execution gating", () => {
 
       const result = await workflow(async (step) => {
         return await step(
-          () => gatedSendEmail({ to: "alice@internal.com" }),
-          { key: "send-email" }
+          'gatedSendEmail',
+          () => gatedSendEmail({ to: "alice@internal.com" })
         );
       });
 

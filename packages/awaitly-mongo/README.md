@@ -25,8 +25,8 @@ const store = await createMongoPersistence({
 const result = await durable.run(
   { fetchUser, createOrder },
   async (step, { fetchUser, createOrder }) => {
-    const user = await step(() => fetchUser('123'), { key: 'fetch-user' });
-    const order = await step(() => createOrder(user), { key: 'create-order' });
+    const user = await step('fetchUser', () => fetchUser('123'), { key: 'fetch-user' });
+    const order = await step('createOrder', () => createOrder(user), { key: 'create-order' });
     return order;
   },
   {

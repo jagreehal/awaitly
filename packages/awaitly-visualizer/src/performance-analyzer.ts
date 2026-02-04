@@ -160,9 +160,10 @@ export function createPerformanceAnalyzer(): PerformanceAnalyzer {
   let currentRunEvents: WorkflowEvent<unknown>[] = [];
 
   /**
-   * Get node ID from event.
-   * Prioritizes stepKey, then stepId, then name so distinct steps (same name, no key)
-   * are not merged.
+   * Get node ID from event (for grouping and metrics).
+   * Prioritizes stepKey (cache/instance identity), then stepId (step label), then name
+   * so distinct steps (e.g. same id in a loop, different key) are not merged.
+   * With the current awaitly API, stepId is always set; stepKey is set when key option is used.
    */
   function getNodeId(event: {
     stepId?: string;

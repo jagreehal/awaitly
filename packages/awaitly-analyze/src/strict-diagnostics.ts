@@ -206,8 +206,8 @@ function validateStep(
   opts: Required<StrictValidationOptions>,
   diagnostics: StrictDiagnostic[]
 ): void {
-  // Check for missing step ID (new API)
-  if (opts.requireStepId && !node.stepId) {
+  // Check for missing step ID (new API): no stepId, or analyzer set "<missing>" for legacy step(fn, opts)
+  if (opts.requireStepId && (!node.stepId || node.stepId === "<missing>")) {
     diagnostics.push({
       rule: "missing-step-id",
       severity: "warning",

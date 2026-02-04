@@ -165,6 +165,7 @@ describe('Advanced Examples', () => {
 
       const result = await workflow(async (step) => {
         const data = await step.try(
+          "fetch-api",
           () => fetch('/api/data'),
           { onError: (e) => ({ type: 'API_ERROR' as const, message: String(e) }) }
         );
@@ -194,6 +195,7 @@ describe('Advanced Examples', () => {
 
       const result = await workflow(async (step) => {
         const parsed = await step.try(
+          "validate-schema",
           () => schema.parse(null),
           { onError: (e) => ({ type: 'VALIDATION_ERROR' as const, issues: (e as { issues: string[] }).issues }) }
         );
@@ -411,8 +413,8 @@ describe('Advanced Examples', () => {
       );
 
       const result = await workflow(async (step) => {
-        const data = await step(() => fetchData('123'), { key: 'data' });
-        const approval = await step(requireManagerApproval, { key: 'manager-approval' });
+        const data = await step('fetchData', () => fetchData('123'), { key: 'data' });
+        const approval = await step('requireManagerApproval', () => requireManagerApproval(), { key: 'manager-approval' });
         return { data, approvedBy: approval.approvedBy };
       });
 
@@ -446,8 +448,8 @@ describe('Advanced Examples', () => {
       );
 
       const result1 = await workflow1(async (step) => {
-        const data = await step(() => fetchData('123'), { key: 'data' });
-        const approval = await step(requireManagerApproval, { key: 'manager-approval' });
+        const data = await step('fetchData', () => fetchData('123'), { key: 'data' });
+        const approval = await step('requireManagerApproval', () => requireManagerApproval(), { key: 'manager-approval' });
         return { data, approvedBy: approval.approvedBy };
       });
 
@@ -469,8 +471,8 @@ describe('Advanced Examples', () => {
       );
 
       const result2 = await workflow2(async (step) => {
-        const data = await step(() => fetchData('123'), { key: 'data' });
-        const approval = await step(requireManagerApproval, { key: 'manager-approval' });
+        const data = await step('fetchData', () => fetchData('123'), { key: 'data' });
+        const approval = await step('requireManagerApproval', () => requireManagerApproval(), { key: 'manager-approval' });
         return { data, approvedBy: approval.approvedBy };
       });
 
@@ -519,7 +521,7 @@ describe('Advanced Examples', () => {
       const workflow = createWorkflow({});
 
       const result = await workflow(async (step) => {
-        const validated = await step(fromNeverthrow(ntResult));
+        const validated = await step('fromNeverthrow', () => fromNeverthrow(ntResult));
         return validated;
       });
 
@@ -536,7 +538,7 @@ describe('Advanced Examples', () => {
         id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND');
 
       const result = await run(async (step) => {
-        const user = await step(fetchUser('1'));
+        const user = await step('fetchUser', () => fetchUser('1'));
         return user;
       });
 
@@ -554,7 +556,7 @@ describe('Advanced Examples', () => {
 
       const result = await run.strict<User, AppError>(
         async (step) => {
-          return await step(fetchUser('1'));
+          return await step('fetchUser', () => fetchUser('1'));
         },
         { catchUnexpected: () => 'UNEXPECTED' as const }
       );

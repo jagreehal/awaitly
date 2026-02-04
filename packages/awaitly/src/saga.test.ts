@@ -16,8 +16,8 @@ describe("Saga / Compensation Pattern", () => {
       const saga = createSagaWorkflow({ step1, step2 });
 
       const result = await saga(async (ctx) => {
-        const r1 = await ctx.step(() => step1());
-        const r2 = await ctx.step(() => step2());
+        const r1 = await ctx.step('step1', () => step1());
+        const r2 = await ctx.step('step2', () => step2());
         return { r1, r2 };
       });
 
@@ -50,15 +50,15 @@ describe("Saga / Compensation Pattern", () => {
       const saga = createSagaWorkflow({ reserveInventory, chargeCard, sendEmail });
 
       const result = await saga(async (ctx) => {
-        const reservation = await ctx.step(() => reserveInventory(), {
+        const reservation = await ctx.step('reserveInventory', () => reserveInventory(), {
           compensate: compensate1,
         });
 
-        const payment = await ctx.step(() => chargeCard(), {
+        const payment = await ctx.step('chargeCard', () => chargeCard(), {
           compensate: compensate2,
         });
 
-        await ctx.step(() => sendEmail());
+        await ctx.step('sendEmail', () => sendEmail());
 
         return { reservation, payment };
       });

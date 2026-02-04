@@ -259,6 +259,8 @@ namespace TaggedError {
    *
    * TypeScript will error if any variant in the error union is not handled.
    *
+   * @remarks When to use: You want compile-time enforcement that every tagged variant is handled.
+   *
    * @param error - The tagged error to match
    * @param handlers - Object mapping _tag values to handler functions
    * @returns The return value of the matched handler

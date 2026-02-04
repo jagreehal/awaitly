@@ -10,7 +10,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 ## Basic usage
 
-You can call `step` in two ways. The **recommended form** is `step('id', fn, opts)` — a string literal step ID as the first argument:
+`step()` requires an explicit string ID as the first argument: `step('id', fn, opts)` or `step('id', result, opts)`. The string literal is the step ID used in events, diagrams, and caching.
 
 ```typescript
 const workflow = createWorkflow({ fetchUser, fetchPosts });
@@ -22,48 +22,15 @@ const result = await workflow(async (step) => {
 });
 ```
 
-The legacy form `step(fn)` or `step(fn, opts)` also works. Awaitly uses the **same resolution order** at runtime and in static analysis. How the step id is determined:
-
-```mermaid
-flowchart TD
-  subgraph resolve [How step ID is determined]
-    A["step(...) called"]
-    A --> B{First arg a string?}
-    B -->|Yes| C["id = that string"]
-    B -->|No| D{First arg a function?}
-    D -->|Yes: step(fn, opts)| G["Infer from thunk"]
-    G --> H{Match callee in fn.toString()?}
-    H -->|Yes| I["id = inferred name"]
-    H -->|No| J["id = step_1, step_2, ..."]
-    D -->|No: step(result, opts)| K["id = 'directStep'"]
-  end
-```
-
-Same order as the analyzer: **key is not used for the step id** (key is for caching only).
-
-1. **Explicit id** — `step('id', fn, opts)` → use the string.
-2. **Infer from thunk** — `step(() => fn())` or `step(() => deps.fn())` → parse the thunk and use the callee name when possible.
-3. **Fallback** — when inference fails (minified code, complex body) → `step_1`, `step_2`, …
-
-So **at runtime and in static docs**, `step('fetchUser', () => fetchUser('1'))` and `step(() => fetchUser('1'))` often yield the same step id/name in events, diagrams, and caching.
-
-<Aside type="tip" title="When to use step('id', fn)">
-Use **`step('id', fn, opts)`** when you want a **stable** step id that survives minification or when the thunk body is complex (inference can fail). Use `step(() => fn())` when the thunk clearly calls a single function — awaitly will infer the name at runtime and in generated docs.
-</Aside>
-
 <Aside type="tip" title="Early exit">
 Unlike try/catch where you need explicit return statements, `step()` automatically exits the workflow on error. The error becomes the workflow's result.
 </Aside>
 
 ## Using thunks for caching
 
-Pass a function (thunk) instead of calling directly to enable caching:
+Pass a function (thunk) as the second argument so the step can be cached. The first argument is the required string ID:
 
 ```typescript
-// Without thunk - always executes (legacy form)
-const user = await step(fetchUser('1'));
-
-// With thunk - can be cached (prefer named form for static docs)
 const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 ```
 
@@ -73,7 +40,7 @@ A thunk is just a function with no arguments that returns the value. Using thunk
 
 ## Step options
 
-Use the named form and pass options as the third argument:
+Pass options as the third argument to `step('id', fn, opts)`:
 
 ```typescript
 const user = await step('fetchUser', () => fetchUser('1'), {
@@ -84,7 +51,13 @@ const user = await step('fetchUser', () => fetchUser('1'), {
 });
 ```
 
-With the legacy form `step(fn, opts)`, you can set `name` in options for visualization; with `step('id', fn, opts)` the first argument is the step ID used by tooling.
+## Step ID and key: label vs instance
+
+The **first argument** is the step **label** (what kind of step: `'fetchUser'`, `'sendEmail'`). It must be a string literal and is used in diagrams, events, and static docs.
+
+The **`key`** option (optional) is the **instance** identity (which iteration or entity: `user:${id}`, `payment-${payment.id}`). When present, the runtime uses it for cache, snapshots, and events—so per-iteration identity comes from `key`, not from the first argument.
+
+In loops, use one literal step ID (label) and a per-iteration `key` (instance) so events and snapshots still get distinct identities per iteration.
 
 ## step.try - wrap throwing code
 
@@ -92,6 +65,7 @@ Convert exceptions into typed errors:
 
 ```typescript
 const data = await step.try(
+  'fetchData',
   async () => {
     const res = await fetch('/api/data');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -126,6 +100,7 @@ const callApi = async (): AsyncResult<Data, ApiError> => {
 };
 
 const data = await step.fromResult(
+  'callApi',
   () => callApi(),
   {
     onError: (apiError) => ({
@@ -142,8 +117,11 @@ Output (on rate limit):
 
 ## step.retry - retry with backoff
 
+`step.retry` requires an ID as the first argument: `step.retry(id, operation, options)`. Use optional `key` for per-iteration identity (e.g. in loops).
+
 ```typescript
 const user = await step.retry(
+  'fetchUser',
   () => fetchUser('1'),
   {
     attempts: 3,
@@ -182,13 +160,13 @@ Exponential backoff is recommended for network calls. It reduces load on struggl
 
 ## step.withTimeout - add timeout
 
+`step.withTimeout` requires an ID as the first argument: `step.withTimeout(id, operation, options)`. Use optional `key` for per-iteration identity (e.g. in loops).
+
 ```typescript
 const data = await step.withTimeout(
+  'slowOp',
   () => slowOperation(),
-  {
-    ms: 5000,
-    name: 'Slow operation', // For error messages
-  }
+  { ms: 5000 }
 );
 /*
 Output (completes in time):
@@ -205,7 +183,8 @@ If the timeout is reached, the workflow gets a `StepTimeoutError`.
 
 ```typescript
 const data = await step.retry(
-  () => step.withTimeout(() => fetchData(), { ms: 2000 }),
+  'fetchData',
+  () => step.withTimeout('fetchData', () => fetchData(), { ms: 2000 }),
   { attempts: 3, backoff: 'exponential' }
 );
 ```
@@ -225,27 +204,28 @@ Timeline:
 
 Pause execution for a specified duration. Use for intentional delays between operations (rate limiting, polling intervals, debouncing). Respects workflow cancellation.
 
+`step.sleep` requires an ID as the first argument: `step.sleep(id, duration, options?)`. Use optional `key` for per-iteration identity (e.g. in loops).
+
 ### Basic usage
 
 ```typescript
 // String duration
-await step.sleep("5s", { name: "rate-limit-delay" });
+await step.sleep("rate-limit-delay", "5s");
 
 // Duration object
 import { seconds, millis } from 'awaitly/workflow';
-await step.sleep(seconds(5), { key: "my-sleep" });
-await step.sleep(millis(100));
+await step.sleep("my-sleep", seconds(5));
+await step.sleep("short-delay", millis(100));
 ```
 
 ### With options
 
 ```typescript
-await step.sleep("2s", {
-  name: "Polling delay",      // For visualization/logging
-  key: "poll-delay",          // For caching/deduplication
-  ttl: 5000,                  // Cache TTL in milliseconds
+await step.sleep("poll-delay", "2s", {
+  key: "poll-delay",          // For caching/deduplication (optional)
+  ttl: 5000,                   // Cache TTL in milliseconds
   description: "Wait before next poll attempt",
-  signal: controller.signal   // Optional AbortSignal for cancellation
+  signal: controller.signal    // Optional AbortSignal for cancellation
 });
 ```
 
@@ -253,12 +233,12 @@ await step.sleep("2s", {
 
 ```typescript
 const result = await workflow(async (step) => {
-  const data = await step(() => fetchData());
+  const data = await step('fetchData', () => fetchData());
   
   // Respect rate limits - wait 1 second between requests
-  await step.sleep("1s", { name: "Rate limit delay" });
+  await step.sleep("rate-limit-delay", "1s");
   
-  const moreData = await step(() => fetchMoreData());
+  const moreData = await step('fetchMoreData', () => fetchMoreData());
   return { data, moreData };
 });
 ```
@@ -267,12 +247,12 @@ const result = await workflow(async (step) => {
 
 ```typescript
 const result = await workflow(async (step) => {
-  let status = await step(() => checkStatus());
+  let status = await step('checkStatus', () => checkStatus());
   
   // Poll every 2 seconds until complete
   while (status !== "complete") {
-    await step.sleep("2s", { name: "Poll interval" });
-    status = await step(() => checkStatus());
+    await step.sleep("poll-interval", "2s");
+    status = await step('checkStatus', () => checkStatus());
   }
   
   return status;
@@ -290,7 +270,7 @@ const controller = new AbortController();
 const workflow = createWorkflow({}, { signal: controller.signal });
 
 const resultPromise = workflow(async (step) => {
-  await step.sleep("10s", { name: "Long sleep" });
+  await step.sleep("long-sleep", "10s");
   return "completed";
 });
 
@@ -311,8 +291,7 @@ const result = await run(async (step) => {
   setTimeout(() => sleepController.abort(), 1000);
 
   try {
-    await step.sleep("10s", {
-      name: "Long sleep",
+    await step.sleep("long-sleep", "10s", {
       signal: sleepController.signal
     });
     return "completed normally";
@@ -327,6 +306,72 @@ const result = await run(async (step) => {
 You can use string durations like `"5s"`, `"100ms"`, `"2m"`, or Duration objects from `awaitly/workflow` like `seconds(5)`, `millis(100)`.
 </Aside>
 
+## step.forEach - process collections
+
+Process arrays with automatic indexing, resume support, and static analyzability:
+
+```typescript
+await step.forEach('process-payments', payments, {
+  stepIdPattern: 'payment-{i}',
+  run: async (payment) => {
+    const result = await step('processPayment', () => processPayment(payment));
+    return result;
+  }
+});
+```
+
+### Basic usage
+
+```typescript
+// Process items with automatic indexing
+await step.forEach('send-emails', users, {
+  stepIdPattern: 'email-{i}',
+  run: async (user) => {
+    await step('sendEmail', () => sendEmail(user.email));
+  }
+});
+```
+
+### Collecting results
+
+```typescript
+// Collect all results into an array
+const results = await step.forEach('fetch-users', userIds, {
+  stepIdPattern: 'user-{i}',
+  collect: 'array',  // or 'last' for only the final result
+  run: async (userId) => {
+    return await step('fetchUser', () => fetchUser(userId));
+  }
+});
+// results is User[]
+```
+
+### Why step.forEach over manual loops?
+
+When you use a manual `for` loop, use **one literal step ID** (label) and a **per-iteration `key`** (instance). Prefer `step.forEach()` when you need full static analyzability.
+
+```typescript
+// Option A: manual loop — one literal ID + key per iteration
+for (const payment of payments) {
+  await step('processPayment', () => processPayment(payment), { key: `payment-${payment.id}` });
+}
+
+// Preferred when static analysis matters: step.forEach() is enumerable
+await step.forEach('process-payments', payments, {
+  stepIdPattern: 'payment-{i}',
+  run: (payment) => step('processPayment', () => processPayment(payment))
+});
+```
+
+Manual `for` loops with dynamic keys like `${item.id}`:
+- Cannot be enumerated by static analysis tools
+- Reduce path generation accuracy for [awaitly-analyze](/guides/static-analysis/)
+- Make test matrix generation incomplete
+
+<Aside type="tip" title="Static analysis support">
+`step.forEach()` enables [awaitly-analyze](/guides/static-analysis/) to enumerate all possible execution paths, generate accurate workflow diagrams, and create comprehensive test matrices.
+</Aside>
+
 ## Parallel steps
 
 Run multiple steps concurrently:
@@ -337,7 +382,7 @@ Run multiple steps concurrently:
 import { allAsync } from 'awaitly';
 
 const result = await workflow(async (step) => {
-  const [user, posts, comments] = await step(() =>
+  const [user, posts, comments] = await step('fetchUserData', () =>
     allAsync([
       fetchUser('1'),
       fetchPosts('1'),
@@ -360,7 +405,7 @@ Output (any fails):
 import { allSettled } from 'awaitly';
 
 const result = await workflow(async (step) => {
-  const results = await step(() =>
+  const results = await step('fetchAllSettled', () =>
     Promise.all([
       fetchUser('1'),
       fetchPosts('1'),
@@ -376,7 +421,7 @@ const result = await workflow(async (step) => {
 
 ## Named steps for visualization and static docs
 
-Use **`step('id', fn, opts)`** so step names appear in workflow diagrams and in **statically generated documentation**:
+The required string ID (first argument) is what appears in workflow diagrams and in **statically generated documentation**. [awaitly-analyze](/docs/guides/static-analysis/) extracts it and uses it in Mermaid diagrams, step tables, and doc generators. You can set `description` or `markdown` in options for richer docs. See [Documenting workflows](/docs/guides/documenting-workflows/) and [Visualization](/docs/guides/visualization/) for details.
 
 ```typescript
 const user = await step('fetchUser', () => fetchUser('1'));
@@ -389,18 +434,17 @@ Workflow diagram and generated docs show:
 */
 ```
 
-The string literal ID is extracted by [awaitly-analyze](/docs/guides/static-analysis/) and used in Mermaid diagrams, step tables, and doc generators. With the thunk form `step(() => fetchUser('1'))`, both the analyzer and the runtime infer the label from the callee (`fetchUser`) when possible; when inference fails (e.g. complex body or minified code), the runtime uses `step_1`, `step_2`, etc. You can still set `description` or `markdown` in options for richer docs. See [Documenting workflows](/docs/guides/documenting-workflows/) and [Visualization](/docs/guides/visualization/) for details.
-
 ## Step variants at a glance
 
 | Variant | Use when |
 |---------|----------|
-| `step(fn)` | Operation returns a Result |
-| `step.try(fn, opts)` | Operation throws exceptions |
-| `step.fromResult(fn, opts)` | Need to transform Result errors |
-| `step.retry(fn, opts)` | Operation might fail transiently |
-| `step.withTimeout(fn, opts)` | Operation might hang |
-| `step.sleep(duration, opts)` | Need intentional delay (rate limiting, polling) |
+| `step('id', fn)` | Operation returns a Result |
+| `step.try(id, fn, opts)` | Operation throws exceptions |
+| `step.fromResult(id, fn, opts)` | Need to transform Result errors |
+| `step.retry(id, fn, opts)` | Operation might fail transiently |
+| `step.withTimeout(id, fn, opts)` | Operation might hang |
+| `step.sleep(id, duration, opts)` | Need intentional delay (rate limiting, polling) |
+| `step.forEach(id, items, opts)` | Processing collections with static analyzability |
 
 ## Next
 

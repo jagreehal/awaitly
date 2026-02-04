@@ -225,7 +225,7 @@ describe("createVisualizer", () => {
     );
 
     await workflow(async (step) => {
-      const user = await step(() => fetchUser("1"), "Fetch user");
+      const user = await step("Fetch user", () => fetchUser("1"));
       return user;
     });
 
@@ -244,7 +244,7 @@ describe("createVisualizer", () => {
     );
 
     const result = await workflow(async (step) => {
-      const user = await step(() => fetchUser("missing"), "Fetch user");
+      const user = await step("Fetch user", () => fetchUser("missing"));
       return user;
     });
 
@@ -262,7 +262,7 @@ describe("createVisualizer", () => {
     );
 
     await workflow(async (step) => {
-      return await step(() => fetchUser("1"), "Fetch user");
+      return await step("Fetch user", () => fetchUser("1"));
     });
 
     // ASCII format
@@ -293,7 +293,7 @@ describe("createVisualizer", () => {
     );
 
     await workflow(async (step) => {
-      return await step(() => fetchUser("1"), "Fetch");
+      return await step("Fetch", () => fetchUser("1"));
     });
 
     expect(updates.length).toBeGreaterThan(0);
@@ -324,8 +324,8 @@ describe("createEventCollector", () => {
     );
 
     await workflow(async (step) => {
-      const user = await step(() => fetchUser("1"), "Fetch user");
-      const posts = await step(() => fetchPosts(user.id), "Fetch posts");
+      const user = await step("Fetch user", () => fetchUser("1"));
+      const posts = await step("Fetch posts", () => fetchPosts(user.id));
       return { user, posts };
     });
 
@@ -344,7 +344,7 @@ describe("createEventCollector", () => {
     );
 
     await workflow(async (step) => {
-      return await step(() => fetchUser("1"), "Fetch");
+      return await step("Fetch", () => fetchUser("1"));
     });
 
     const output = collector.visualize();
@@ -359,7 +359,7 @@ describe("createEventCollector", () => {
     );
 
     await workflow(async (step) => {
-      return await step(() => fetchUser("1"), "Fetch");
+      return await step("Fetch", () => fetchUser("1"));
     });
 
     expect(collector.getEvents().length).toBeGreaterThan(0);
@@ -387,8 +387,8 @@ describe("Mermaid renderer", () => {
     );
 
     await workflow(async (step) => {
-      const user = await step(() => fetchUser("1"), "Fetch user");
-      const posts = await step(() => fetchPosts(user.id), "Fetch posts");
+      const user = await step("Fetch user", () => fetchUser("1"));
+      const posts = await step("Fetch posts", () => fetchPosts(user.id));
       return { user, posts };
     });
 
@@ -418,8 +418,8 @@ describe("Mermaid renderer", () => {
 
     await workflow(async (step) => {
       // Sequential steps that may be detected as parallel due to timing
-      const user = await step(() => fetchUser("1"), "Get user");
-      const posts = await step(() => fetchPosts(user.id), "Get posts");
+      const user = await step("Get user", () => fetchUser("1"));
+      const posts = await step("Get posts", () => fetchPosts(user.id));
       return { user, posts };
     });
 
@@ -557,8 +557,8 @@ describe("parallel detection", () => {
 
     // These steps are fast enough that they may be detected as parallel
     await workflow(async (step) => {
-      const user = await step(() => fetchUser("1"), "Fetch user");
-      const posts = await step(() => fetchPosts(user.id), "Fetch posts");
+      const user = await step("Fetch user", () => fetchUser("1"));
+      const posts = await step("Fetch posts", () => fetchPosts(user.id));
       return { user, posts };
     });
 
@@ -581,8 +581,8 @@ describe("parallel detection", () => {
     );
 
     await workflow(async (step) => {
-      const user = await step(() => fetchUser("1"), "Fetch user");
-      const posts = await step(() => fetchPosts(user.id), "Fetch posts");
+      const user = await step("Fetch user", () => fetchUser("1"));
+      const posts = await step("Fetch posts", () => fetchPosts(user.id));
       return { user, posts };
     });
 
@@ -619,7 +619,7 @@ describe("createLiveVisualizer", () => {
     );
 
     await workflow(async (step) => {
-      return await step(() => fetchUser("1"), "Fetch user");
+      return await step("Fetch user", () => fetchUser("1"));
     });
 
     const ir = live.getIR();
@@ -640,7 +640,7 @@ describe("createLiveVisualizer", () => {
     );
 
     await workflow(async (step) => {
-      return await step(() => fetchUser("1"), "Fetch");
+      return await step("Fetch", () => fetchUser("1"));
     });
 
     const output = live.render();
@@ -657,7 +657,7 @@ describe("createLiveVisualizer", () => {
     );
 
     await workflow(async (step) => {
-      return await step(() => fetchUser("1"), "Step");
+      return await step("Step", () => fetchUser("1"));
     });
 
     expect(live.getIR().root.children.length).toBeGreaterThan(0);
@@ -682,8 +682,8 @@ describe("integration", () => {
     );
 
     await workflow(async (step) => {
-      const user = await step(() => fetchUser("1"), "Fetch user");
-      const posts = await step(() => fetchPosts(user.id), "Fetch posts");
+      const user = await step("Fetch user", () => fetchUser("1"));
+      const posts = await step("Fetch posts", () => fetchPosts(user.id));
       return { user, posts };
     });
 
@@ -718,7 +718,7 @@ describe("combineEventHandlers", () => {
     );
 
     await workflow(async (step) => {
-      return await step(() => fetchUser("1"), "Fetch");
+      return await step("Fetch", () => fetchUser("1"));
     });
 
     // Each event type triggers all handlers
@@ -742,7 +742,7 @@ describe("combineEventHandlers", () => {
     );
 
     await workflow(async (step) => {
-      return await step(() => fetchUser("1"), "Fetch");
+      return await step("Fetch", () => fetchUser("1"));
     });
 
     expect(events1.length).toBe(events2.length);
@@ -769,7 +769,7 @@ describe("combineEventHandlers", () => {
     );
 
     await workflow(async (step) => {
-      return await step(() => fetchUser("1"), "Fetch user");
+      return await step("Fetch user", () => fetchUser("1"));
     });
 
     // Visualizer should have processed events

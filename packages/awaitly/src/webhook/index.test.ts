@@ -303,7 +303,7 @@ describe("createWebhookHandler", () => {
     const handler = createWebhookHandler<Input, { id: string; name: string }, WorkflowError, Body, TestDeps>(
       testWorkflow,
       async (step, deps, input) => {
-        return await step(() => deps.fetchUser(input.userId));
+        return await step('fetchUser', () => deps.fetchUser(input.userId));
       },
       {
         validateInput: (req) => {
@@ -366,7 +366,7 @@ describe("createWebhookHandler", () => {
     const handler = createWebhookHandler<Input, { id: string; name: string }, WorkflowError, Body, TestDeps>(
       testWorkflow,
       async (step, deps, input) => {
-        return await step(() => deps.fetchUser(input.userId));
+        return await step('fetchUser', () => deps.fetchUser(input.userId));
       },
       {
         validateInput: (req) => ok({ userId: req.body.userId }),
@@ -584,7 +584,7 @@ describe("createEventHandler", () => {
     const handler = createEventHandler<Payload, { id: string; name: string }, WorkflowError, TestDeps>(
       testWorkflow,
       async (step, deps, payload) => {
-        return await step(() => deps.fetchUser(payload.userId));
+        return await step('fetchUser', () => deps.fetchUser(payload.userId));
       },
       {
         validatePayload: (event) => {
@@ -652,7 +652,7 @@ describe("createEventHandler", () => {
     const handler = createEventHandler<Payload, { id: string; name: string }, WorkflowError, TestDeps>(
       testWorkflow,
       async (step, deps, payload) => {
-        return await step(() => deps.fetchUser(payload.userId));
+        return await step('fetchUser', () => deps.fetchUser(payload.userId));
       },
       {
         validatePayload: (event) => ok(event.payload),

@@ -200,13 +200,13 @@ import { createWorkflow } from 'awaitly/workflow';
 const workflow = createWorkflow({ fetchUser, validateAge, createAccount });
 
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('123'));
+  const user = await step('fetchUser', () => fetchUser('123'));
   // If fetchUser fails, we stop here and return the error
 
-  const validated = await step(validateAge(user));
+  const validated = await step('validateAge', () => validateAge(user));
   // If validateAge fails, we stop here
 
-  const account = await step(createAccount(validated));
+  const account = await step('createAccount', () => createAccount(validated));
   // If createAccount fails, we stop here
 
   return account;

@@ -84,7 +84,7 @@ const result = await workflow(async (step) => {
 const result = await workflow(async (step) => {
   const writer = step.getWritable<string>({ namespace: 'ai-tokens' });
 
-  await step(() => generateAI({
+  await step('generateAI', () => generateAI({
     prompt: 'Explain TypeScript',
     onToken: async (token) => {
       await writer.write(token);

@@ -625,9 +625,9 @@ import { createWorkflow } from 'awaitly/workflow';
 const workflow = createWorkflow({ parseId, fetchUser, sendEmail });
 
 const result = await workflow(async (step) => {
-  const id = await step(parseId('42'));
-  const user = await step(fetchUser(id));
-  await step(sendEmail(user.email));
+  const id = await step('parseId', () => parseId('42'));
+  const user = await step('fetchUser', () => fetchUser(id));
+  await step('sendEmail', () => sendEmail(user.email));
   return user;
 });
 
@@ -679,9 +679,9 @@ const chargeCard = async (amount: number): AsyncResult<Receipt, 'PAYMENT_DECLINE
 const workflow = createWorkflow({ fetchUser, sendEmail, chargeCard });
 
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('123'));
-  await step(chargeCard(99.99));
-  await step(sendEmail(user.email));
+  const user = await step('fetchUser', () => fetchUser('123'));
+  await step('chargeCard', () => chargeCard(99.99));
+  await step('sendEmail', () => sendEmail(user.email));
   return user;
 });
 
@@ -695,12 +695,14 @@ const result = await workflow(async (step) => {
 const result = await workflow(async (step) => {
   // Retry with exponential backoff
   const user = await step.retry(
+    'fetchUser',
     () => fetchUser('123'),
     { attempts: 3, backoff: 'exponential', delayMs: 100 }
   );
 
   // Timeout protection
   const data = await step.withTimeout(
+    'slowOp',
     () => slowOperation(),
     { ms: 5000 }
   );
@@ -729,7 +731,7 @@ const workflow = createWorkflow(deps, {
 });
 
 const result = await workflow(async (step) => {
-  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
   return user;
 });
 await store.save('wf-1', workflow.getSnapshot());

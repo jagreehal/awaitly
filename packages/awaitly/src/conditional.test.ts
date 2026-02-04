@@ -250,11 +250,11 @@ describe("Conditional Helpers", () => {
         const ctx: ConditionalContext<RequestContext> = { workflowId, onEvent, context: requestContext };
         const { when } = createConditionalHelpers(ctx);
 
-        const user = await step(() => ok({ id: "1", isPremium: false }));
-        
+        const user = await step('fetchUser', () => ok({ id: "1", isPremium: false }));
+
         const premium = await when(
           user.isPremium,
-          () => step(() => ok({ features: ["feature1"] })),
+          () => step('fetchPremiumFeatures', () => ok({ features: ["feature1"] })),
           { name: "premium-data", reason: "User is not premium" }
         );
 
@@ -303,12 +303,12 @@ describe("Conditional Helpers", () => {
       });
 
       await workflow(async (step) => {
-        const user = await step(fetchUser());
-        
+        const user = await step('fetchUser', () => fetchUser());
+
         // Use conditional helper without ctx - no step_skipped events
         const premium = await when(
           user.isPremium,
-          () => step(() => ok({ features: [] })),
+          () => step('fetchPremiumFeatures', () => ok({ features: [] })),
           { name: "premium-data" }
         );
 
@@ -332,14 +332,14 @@ describe("Conditional Helpers", () => {
       });
 
       await workflow(async (step, deps, ctx) => {
-        const user = await step(fetchUser());
-        
+        const user = await step('fetchUser', () => fetchUser());
+
         // ctx can be passed directly to createConditionalHelpers (same shape)
         const { when } = createConditionalHelpers(ctx);
-        
+
         const premium = await when(
           user.isPremium,
-          () => step(() => ok({ features: [] })),
+          () => step('fetchPremiumFeatures', () => ok({ features: [] })),
           { name: "premium-data", reason: "User is not premium" }
         );
 
@@ -359,7 +359,7 @@ describe("Conditional Helpers", () => {
 
       // Code that doesn't use ctx parameter still works (TypeScript allows unused parameters)
       const result = await workflow(async (step) => {
-        const user = await step(fetchUser());
+        const user = await step('fetchUser', () => fetchUser());
         return user;
       });
 
