@@ -1,6 +1,6 @@
 {
   "name": "awaitly-analyze",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "Static workflow analysis for awaitly. Analyze workflow source code to extract structure, types, and generate visualizations.",
