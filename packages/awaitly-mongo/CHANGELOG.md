@@ -1,5 +1,12 @@
 # awaitly-mongo
 
+## 6.0.0
+
+### Patch Changes
+
+- Updated dependencies [d4cd1ac]
+  - awaitly@1.16.0
+
 ## 5.0.0
 
 ### Minor Changes
