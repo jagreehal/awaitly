@@ -42,7 +42,7 @@ const findUser = async (id: string): AsyncResult<User, DbError> => {
 const workflow = createWorkflow({ findUser });
 
 const result = await workflow(async (step) => {
-  const user = await step(() => deps.findUser('user-123'));
+  const user = await step('findUser', () => deps.findUser('user-123'));
   return user;
 });
 ```
@@ -192,8 +192,8 @@ const workflow = createWorkflow({
 
 const createUser = async (rawInput: unknown) => {
   return workflow(async (step) => {
-    const input = await step(() => deps.validateInput(rawInput));
-    const user = await step(() => deps.createUser(input));
+    const input = await step('validateInput', () => deps.validateInput(rawInput));
+    const user = await step('createUser', () => deps.createUser(input));
     return user;
   });
 };
@@ -366,9 +366,9 @@ const signUpWorkflow = createWorkflow(deps);
 
 const signUp = async (rawInput: unknown) => {
   return signUpWorkflow(async (step, d) => {
-    const input = await step(() => d.validateInput(rawInput));
-    const passwordHash = await step(() => d.hashPassword(input.password));
-    const user = await step(() => d.createUser({
+    const input = await step('validateInput', () => d.validateInput(rawInput));
+    const passwordHash = await step('hashPassword', () => d.hashPassword(input.password));
+    const user = await step('createUser', () => d.createUser({
       email: input.email,
       passwordHash,
       name: input.name,

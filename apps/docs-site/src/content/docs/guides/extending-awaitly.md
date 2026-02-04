@@ -26,7 +26,7 @@ return res.json();
 You can use a utility that returns a Result:
 
 ```typescript
-const result = await step(fetchJson('/api/users'));
+const result = await step('fetchJson', () => fetchJson('/api/users'));
 // TypeScript knows: result.ok ? result.value : result.error
 ```
 

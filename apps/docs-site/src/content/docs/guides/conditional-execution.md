@@ -22,12 +22,12 @@ const sendEmail = async (to: string): AsyncResult<void, 'SEND_FAILED'> => {
 const workflow = createWorkflow({ fetchUser, sendEmail });
 
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('123'));
+  const user = await step('fetchUser', () => fetchUser('123'));
 
   // Only send email if user is not verified
   await when(
     !user.isVerified,
-    () => step(sendEmail(user.email)),
+    () => step('sendEmail', () => sendEmail(user.email)),
     { name: 'send-verification', reason: 'User is already verified' }
   );
 
@@ -41,12 +41,12 @@ Run a step only when a condition is true. Returns `undefined` if skipped.
 
 ```typescript
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('123'));
+  const user = await step('fetchUser', () => fetchUser('123'));
 
   // Only fetch premium data if user is premium
   const premium = await when(
     user.isPremium,
-    () => step(fetchPremiumData(user.id)),
+    () => step('fetchPremiumData', () => fetchPremiumData(user.id)),
     { name: 'premium-data', reason: 'User is not premium' }
   );
 
@@ -60,12 +60,12 @@ Run a step only when a condition is false. Returns `undefined` if skipped.
 
 ```typescript
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('123'));
+  const user = await step('fetchUser', () => fetchUser('123'));
 
   // Only send verification email if user is NOT verified
   const email = await unless(
     user.isVerified,
-    () => step(sendVerificationEmail(user.email)),
+    () => step('sendVerificationEmail', () => sendVerificationEmail(user.email)),
     { name: 'send-verification', reason: 'User is already verified' }
   );
 
@@ -79,12 +79,12 @@ Run a step if condition is true, otherwise return a default value.
 
 ```typescript
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('123'));
+  const user = await step('fetchUser', () => fetchUser('123'));
 
   // Get premium limits or use default for non-premium users
   const limits = await whenOr(
     user.isPremium,
-    () => step(fetchPremiumLimits(user.id)),
+    () => step('fetchPremiumLimits', () => fetchPremiumLimits(user.id)),
     { maxRequests: 100, maxStorage: 1000 }, // default
     { name: 'premium-limits', reason: 'Using default limits' }
   );
@@ -99,12 +99,12 @@ Run a step if condition is false, otherwise return a default value.
 
 ```typescript
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('123'));
+  const user = await step('fetchUser', () => fetchUser('123'));
 
   // Generate new token if NOT authenticated, else use existing
   const token = await unlessOr(
     user.isAuthenticated,
-    () => step(generateNewToken(user.id)),
+    () => step('generateNewToken', () => generateNewToken(user.id)),
     user.existingToken, // default
     { name: 'token-generation', reason: 'Using existing token' }
   );
@@ -151,12 +151,12 @@ const result = await workflow(async (step, deps, args, ctx) => {
     context: ctx
   });
 
-  const user = await step(fetchUser('123'));
+  const user = await step('fetchUser', () => fetchUser('123'));
 
   // Helpers automatically emit events with context
   const premium = await when(
     user.isPremium,
-    () => step(fetchPremiumData(user.id)),
+    () => step('fetchPremiumData', () => fetchPremiumData(user.id)),
     { name: 'premium-data' }
   );
 
@@ -183,11 +183,11 @@ const result = await run(async (step) => {
 
   const { when } = createConditionalHelpers(ctx);
 
-  const user = await step(fetchUser('123'));
+  const user = await step('fetchUser', () => fetchUser('123'));
 
   const premium = await when(
     user.isPremium,
-    () => step(fetchPremiumData(user.id)),
+    () => step('fetchPremiumData', () => fetchPremiumData(user.id)),
     { name: 'premium-data' }
   );
 
@@ -222,11 +222,11 @@ const viz = createVisualizer();
 const workflow = createWorkflow(deps, { onEvent: viz.handleEvent });
 
 await workflow(async (step) => {
-  const user = await step(fetchUser('123'));
+  const user = await step('fetchUser', () => fetchUser('123'));
 
   await when(
     user.isPremium,
-    () => step(fetchPremiumData(user.id)),
+    () => step('fetchPremiumData', () => fetchPremiumData(user.id)),
     { name: 'premium-data', reason: 'Not premium' }
   );
 
@@ -243,23 +243,23 @@ console.log(viz.render());
 const processOrder = createWorkflow({ fetchOrder, chargeCard, sendEmail, applyDiscount });
 
 const result = await processOrder(async (step) => {
-  const order = await step(fetchOrder(orderId));
+  const order = await step('fetchOrder', () => fetchOrder(orderId));
 
   // Apply discount only if order is large enough
   const discount = await whenOr(
     order.total > 100,
-    () => step(applyDiscount(order.id, 'BULK_10')),
+    () => step('applyDiscount', () => applyDiscount(order.id, 'BULK_10')),
     0, // no discount
     { name: 'apply-discount', reason: 'Order too small for discount' }
   );
 
   // Charge card
-  const payment = await step(chargeCard(order.total - discount));
+  const payment = await step('chargeCard', () => chargeCard(order.total - discount));
 
   // Send confirmation email only if payment succeeded
   await when(
     payment.status === 'succeeded',
-    () => step(sendEmail(order.email, 'Order confirmed')),
+    () => step('sendEmail', () => sendEmail(order.email, 'Order confirmed')),
     { name: 'send-confirmation', reason: 'Payment failed' }
   );
 

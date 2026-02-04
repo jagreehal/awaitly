@@ -51,8 +51,8 @@ const getOrders = async (userId: string): AsyncResult<Order[], 'FETCH_ERROR'> =>
 
 // Compose them with run()
 const result = await run(async (step) => {
-  const user = await step(getUser('123'));
-  const orders = await step(getOrders(user.id));
+  const user = await step('getUser', () => getUser('123'));
+  const orders = await step('getOrders', () => getOrders(user.id));
   return { user, orders };
 });
 ```
@@ -64,10 +64,10 @@ The `step()` function unwraps Results automatically. If any step returns an erro
 ```typescript
 const result = await run(async (step) => {
   // If getUser returns err('NOT_FOUND'), we exit here
-  const user = await step(getUser('unknown'));
+  const user = await step('getUser', () => getUser('unknown'));
 
   // This line never runs if getUser failed
-  const orders = await step(getOrders(user.id));
+  const orders = await step('getOrders', () => getOrders(user.id));
 
   return { user, orders };
 });
@@ -112,8 +112,8 @@ const getOrders = async (userId: string): AsyncResult<Order[], 'FETCH_ERROR'> =>
   ok([{ id: 1, total: 99.99 }]);
 
 const result = await run(async (step) => {
-  const user = await step(getUser('1'));
-  const orders = await step(getOrders(user.id));
+  const user = await step('getUser', () => getUser('1'));
+  const orders = await step('getOrders', () => getOrders(user.id));
   return { user, orders };
 });
 

@@ -16,7 +16,7 @@ import { createWorkflow } from 'awaitly/workflow';
 const workflow = createWorkflow({ fetchUser, fetchPosts, fetchComments });
 
 const result = await workflow(async (step) => {
-  const [user, posts, comments] = await step(() =>
+  const [user, posts, comments] = await step('fetchUserData', () =>
     allAsync([
       fetchUser('1'),
       fetchPosts('1'),
@@ -95,6 +95,7 @@ Give parallel groups a name for visualization:
 ```typescript
 const result = await workflow(async (step) => {
   const [user, posts] = await step(
+    'fetchUserData',
     () => allAsync([fetchUser('1'), fetchPosts('1')]),
     { name: 'Fetch user data' }
   );
@@ -146,10 +147,10 @@ Some operations depend on others:
 ```typescript
 const result = await workflow(async (step) => {
   // Fetch user first
-  const user = await step(fetchUser('1'));
+  const user = await step('fetchUser', () => fetchUser('1'));
 
   // Then fetch user's data in parallel
-  const [posts, friends, settings] = await step(() =>
+  const [posts, friends, settings] = await step('fetchUserData', () =>
     allAsync([
       fetchPosts(user.id),
       fetchFriends(user.id),
@@ -197,8 +198,9 @@ Add a timeout to parallel operations:
 ```typescript
 const result = await workflow(async (step) => {
   const data = await step.withTimeout(
+    'fetchUserData',
     () => allAsync([fetchUser('1'), fetchPosts('1')]),
-    { ms: 5000, name: 'Fetch user data' }
+    { ms: 5000 }
   );
 
   return data;
@@ -243,12 +245,12 @@ const result = await notifyUsers(async (step) => {
   const userIds = ['1', '2', '3', '4', '5'];
 
   // Fetch all users in parallel
-  const usersResult = await step(() =>
+  const usersResult = await step('fetchUsers', () =>
     allAsync(userIds.map((id) => fetchUser(id)))
   );
 
   // Send notifications in parallel
-  const notifications = await step(() =>
+  const notifications = await step('sendNotifications', () =>
     allAsync(
       usersResult.map((user) =>
         sendNotification(user.id, 'Hello!')

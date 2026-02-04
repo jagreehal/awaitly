@@ -1,5 +1,6 @@
 import type { ESLint, Linter } from 'eslint';
 import noImmediateExecution from './rules/no-immediate-execution.js';
+import requireStepId from './rules/require-step-id.js';
 import requireThunkForKey from './rules/require-thunk-for-key.js';
 import stableCacheKeys from './rules/stable-cache-keys.js';
 import noFloatingWorkflow from './rules/no-floating-workflow.js';
@@ -10,6 +11,7 @@ import noDoubleWrapResult from './rules/no-double-wrap-result.js';
 
 const rules = {
   'no-immediate-execution': noImmediateExecution,
+  'require-step-id': requireStepId,
   'require-thunk-for-key': requireThunkForKey,
   'stable-cache-keys': stableCacheKeys,
   'no-floating-workflow': noFloatingWorkflow,
@@ -26,6 +28,7 @@ const configs: Record<string, Linter.Config[]> = {
         awaitly: { rules },
       },
       rules: {
+        'awaitly/require-step-id': 'error',
         'awaitly/no-immediate-execution': 'error',
         'awaitly/require-thunk-for-key': 'error',
         'awaitly/stable-cache-keys': 'error',

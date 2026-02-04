@@ -224,7 +224,7 @@ const store = postgres(process.env.DATABASE_URL!);
 
 const workflow = createWorkflow(deps);
 await workflow(async (step) => {
-  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
   return user;
 });
 
@@ -505,9 +505,9 @@ const workflow = createWorkflow({
 app.post('/checkout', async (req, res) => {
   const result = await workflow(async (step) => {
     // All state is local to this request
-    const user = await step(() => fetchUser(req.body.userId));
-    const payment = await step(() => processPayment(user, req.body.amount));
-    await step(() => sendNotification(user.email, payment));
+    const user = await step('fetchUser', () => fetchUser(req.body.userId));
+    const payment = await step('processPayment', () => processPayment(user, req.body.amount));
+    await step('sendNotification', () => sendNotification(user.email, payment));
     return payment;
   });
 
@@ -532,13 +532,13 @@ async function startDistributedWorkflow(workflowId: string, input: WorkflowInput
 
   try {
     const result = await workflow(async (step) => {
-      const data = await step(() => fetchData(input.dataId), { key: 'fetch-data' });
-      const processed = await step(() => processData(data), { key: 'process' });
+      const data = await step('fetchData', () => fetchData(input.dataId), { key: 'fetch-data' });
+      const processed = await step('processData', () => processData(data), { key: 'process' });
 
       // Save state after expensive operations
       await persistence.save(workflowId, collector.getResumeState());
 
-      const result = await step(() => saveResult(processed), { key: 'save' });
+      const result = await step('saveResult', () => saveResult(processed), { key: 'save' });
       return result;
     });
 
@@ -576,7 +576,7 @@ const emailLimit = createRateLimiter('email', {
 const workflow = createWorkflow(deps);
 
 const result = await workflow(async (step) => {
-  const user = await step(() => fetchUser('1'));
+  const user = await step('fetchUser', () => fetchUser('1'));
 
   // Rate-limited payment
   const payment = await step(
@@ -609,7 +609,7 @@ const paymentBreaker = createCircuitBreaker('payment-service', {
 const workflow = createWorkflow(deps);
 
 const result = await workflow(async (step) => {
-  const order = await step(() => fetchOrder(orderId));
+  const order = await step('fetchOrder', () => fetchOrder(orderId));
 
   // Circuit breaker protects this step
   const payment = await step(
@@ -676,14 +676,14 @@ const workflow = createWorkflow(deps, {
 });
 
 const result = await workflow(async (step) => {
-  const order = await step(() => fetchOrder(orderId));
+  const order = await step('fetchOrder', () => fetchOrder(orderId));
 
   if (featureFlags.useNewPaymentFlow) {
     // New payment flow with retries
-    return await step.retry(() => newPaymentService(order), { attempts: 3 });
+    return await step.retry('newPayment', () => newPaymentService(order), { attempts: 3 });
   } else {
     // Legacy payment
-    return await step(() => legacyPayment(order));
+    return await step('legacyPayment', () => legacyPayment(order));
   }
 });
 ```

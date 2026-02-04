@@ -96,10 +96,11 @@
     },
     "StaticStepNode": {
       "type": "object",
-      "required": ["type", "id"],
+      "required": ["type", "id", "stepId"],
       "properties": {
         "type": { "const": "step" },
         "id": { "type": "string" },
+        "stepId": { "type": "string" },
         "name": { "type": "string" },
         "key": { "type": "string" },
         "callee": { "type": "string" },

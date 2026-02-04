@@ -14,8 +14,8 @@ import { createWorkflow } from 'awaitly/workflow';
 const workflow = createWorkflow({ fetchUser, fetchPosts });
 
 await workflow(async (step, deps) => {
-  const user = await step(() => deps.fetchUser('1'), { key: 'user:1' });
-  const posts = await step(() => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
+  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
 
@@ -33,8 +33,8 @@ const workflow2 = createWorkflow({ fetchUser, fetchPosts }, {
 
 await workflow2(async (step, deps) => {
   // These steps return cached values - no actual fetch
-  const user = await step(() => deps.fetchUser('1'), { key: 'user:1' });
-  const posts = await step(() => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
+  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
 ```

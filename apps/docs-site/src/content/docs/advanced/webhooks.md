@@ -22,8 +22,8 @@ import {
 const handler = createWebhookHandler(
   checkoutWorkflow,
   async (step, deps, input: CheckoutInput) => {
-    const charge = await step(() => deps.chargeCard(input.amount));
-    await step(() => deps.sendEmail(input.email, charge.receiptUrl));
+    const charge = await step('chargeCard', () => deps.chargeCard(input.amount));
+    await step('sendEmail', () => deps.sendEmail(input.email, charge.receiptUrl));
     return { chargeId: charge.id };
   },
   {
@@ -119,7 +119,7 @@ import { createEventHandler } from 'awaitly/webhook';
 const handler = createEventHandler(
   checkoutWorkflow,
   async (step, deps, payload: CheckoutPayload) => {
-    const charge = await step(() => deps.chargeCard(payload.amount));
+    const charge = await step('chargeCard', () => deps.chargeCard(payload.amount));
     return { chargeId: charge.id };
   },
   {
@@ -253,7 +253,7 @@ const fastify = Fastify();
 const handler = createWebhookHandler(
   checkoutWorkflow,
   async (step, deps, input: CheckoutInput) => {
-    const charge = await step(() => deps.chargeCard(input.amount));
+    const charge = await step('chargeCard', () => deps.chargeCard(input.amount));
     return { chargeId: charge.id };
   },
   {
@@ -310,7 +310,7 @@ const app = new Hono();
 const handler = createWebhookHandler(
   orderWorkflow,
   async (step, deps, input: OrderInput) => {
-    const order = await step(() => deps.createOrder(input));
+    const order = await step('createOrder', () => deps.createOrder(input));
     return { orderId: order.id };
   },
   {
@@ -374,7 +374,7 @@ import { createWebhookHandler, createResultMapper } from 'awaitly/webhook';
 const handler = createWebhookHandler(
   checkoutWorkflow,
   async (step, deps, input: CheckoutInput) => {
-    const charge = await step(() => deps.chargeCard(input.amount));
+    const charge = await step('chargeCard', () => deps.chargeCard(input.amount));
     return { chargeId: charge.id };
   },
   {
@@ -433,7 +433,7 @@ const handler = createWebhookHandler(
   orderWorkflow,
   async (step, deps, input: OrderInput) => {
     // input now includes authenticated client
-    const order = await step(() => deps.createOrder(input.order, input.client));
+    const order = await step('createOrder', () => deps.createOrder(input.order, input.client));
     return { orderId: order.id };
   },
   {
@@ -489,7 +489,7 @@ const handler = createWebhookHandler(
   profileWorkflow,
   async (step, deps, input) => {
     // Access user from validated input
-    const profile = await step(() => deps.getProfile(input.user.userId));
+    const profile = await step('getProfile', () => deps.getProfile(input.user.userId));
     return profile;
   },
   {
@@ -539,10 +539,10 @@ const stripeWebhookHandler = createWebhookHandler(
   async (step, deps, event: Stripe.Event) => {
     switch (event.type) {
       case 'payment_intent.succeeded':
-        await step(() => deps.fulfillOrder(event.data.object.id));
+        await step('fulfillOrder', () => deps.fulfillOrder(event.data.object.id));
         break;
       case 'payment_intent.payment_failed':
-        await step(() => deps.notifyPaymentFailed(event.data.object.id));
+        await step('notifyPaymentFailed', () => deps.notifyPaymentFailed(event.data.object.id));
         break;
     }
     return { received: true };
@@ -591,7 +591,7 @@ const validateWithZod = <T>(schema: z.ZodSchema<T>) => {
 const handler = createWebhookHandler(
   checkoutWorkflow,
   async (step, deps, input) => {
-    const charge = await step(() => deps.chargeCard(input));
+    const charge = await step('chargeCard', () => deps.chargeCard(input));
     return { chargeId: charge.id };
   },
   {
@@ -649,7 +649,7 @@ const handler = createWebhookHandler(
   workflow,
   async (step, deps, input) => {
     // input has type { userId: string; amount: number }
-    return await step(() => deps.process(input));
+    return await step('process', () => deps.process(input));
   },
   { validateInput: validateRequest }
 );
@@ -686,7 +686,7 @@ const withRateLimit = <T>(
 const handler = createWebhookHandler(
   workflow,
   async (step, deps, input) => {
-    return await step(() => deps.process(input));
+    return await step('process', () => deps.process(input));
   },
   {
     validateInput: withRateLimit(

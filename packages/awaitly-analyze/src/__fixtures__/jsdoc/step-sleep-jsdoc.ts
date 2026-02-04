@@ -7,7 +7,7 @@ async function run() {
     /**
      * Wait for processing to complete before continuing.
      */
-    await step.sleep("5s");
+    await step.sleep("wait", "5s");
     return "done";
   });
 }

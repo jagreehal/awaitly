@@ -38,8 +38,8 @@ const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* 
 const workflow = createWorkflow({ fetchUser, sendEmail });
 
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('1'));
-  await step(sendEmail(user.email));
+  const user = await step('fetchUser', () => fetchUser('1'));
+  await step('sendEmail', () => sendEmail(user.email));
   return user;
 });
 /*
@@ -97,8 +97,8 @@ import { run } from 'awaitly/run';
 
 const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED'>(
   async (step) => {
-    const user = await step(fetchUser('1'));
-    await step(sendEmail(user.email));
+    const user = await step('fetchUser', () => fetchUser('1'));
+    await step('sendEmail', () => sendEmail(user.email));
     return user;
   }
 );
@@ -137,7 +137,7 @@ await checkout(async (step) => { /* different flow */ });
 const mockFetch = async () => ok({ id: '1', name: 'Test' });
 
 const result = await run<User, 'NOT_FOUND'>(async (step) => {
-  return await step(mockFetch());
+  return await step('mockFetch', () => mockFetch());
 });
 ```
   </TabItem>
@@ -156,7 +156,7 @@ const workflow = createWorkflow(deps, {
 
 const result = await workflow(async (step) => {
   // This step runs once, even if workflow is called multiple times
-  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
   return user;
 });
 /*
@@ -180,7 +180,7 @@ const workflow = createWorkflow(deps, {
 
 const result = await workflow(async (step) => {
   // Cached steps return their saved values
-  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
   return user;
 });
 ```
@@ -293,8 +293,8 @@ const workflow = createWorkflow(deps, {
 
 // Start workflow
 const resultPromise = workflow(async (step) => {
-  const user = await step(() => fetchUser('1'), { key: 'fetch-user' });
-  await step(() => sendEmail(user.email), { key: 'send-email' });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'fetch-user' });
+  await step('sendEmail', () => sendEmail(user.email), { key: 'send-email' });
   return user;
 });
 
@@ -328,6 +328,7 @@ Steps using `step.withTimeout` can receive the workflow signal:
 const result = await workflow(async (step) => {
   // Signal fires on EITHER timeout OR workflow cancellation
   const data = await step.withTimeout(
+    'fetchUrl',
     (signal) => fetch(url, { signal }),
     { ms: 3000, signal: true }
   );
@@ -366,7 +367,7 @@ await workflow(async (step) => { /* ... */ });
 
 // Per-run options override creation-time
 await workflow.run(async (step) => {
-  const user = await step(() => fetchUser('1'));
+  const user = await step('fetchUser', () => fetchUser('1'));
   return user;
 }, {
   onEvent: vizualizer.handleEvent,  // Override for this run only
@@ -466,10 +467,10 @@ const checkout = createWorkflow({
 
 const result = await checkout(async (step) => {
   // Use steps from all dependencies
-  await step(validateEmail(input.email));
-  await step(validatePassword(input.password));
-  await step(chargeCard(input.amount));
-  await step(saveReceipt(input.orderId));
+  await step('validateEmail', () => validateEmail(input.email));
+  await step('validatePassword', () => validatePassword(input.password));
+  await step('chargeCard', () => chargeCard(input.amount));
+  await step('saveReceipt', () => saveReceipt(input.orderId));
 });
 ```
 
@@ -483,7 +484,7 @@ const workflow = createWorkflow(deps);
 const result = await workflow(
   async (step, context) => {
     console.log('User ID:', context.userId);
-    const user = await step(fetchUser(context.userId));
+    const user = await step('fetchUser', () => fetchUser(context.userId));
     return user;
   },
   { context: { userId: '123', requestId: 'abc' } }

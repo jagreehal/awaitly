@@ -21,8 +21,9 @@ This usually happens when error types don't match what the workflow expects.
 const workflow = createWorkflow({ fetchUser, sendEmail });
 
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('1'));
+  const user = await step('fetchUser', () => fetchUser('1'));
   await step.try(
+    'riskyOp',
     () => riskyOperation(),
     { error: 'UNKNOWN' }  // Not in dependencies!
   );
@@ -84,7 +85,7 @@ const workflow = createWorkflow({});
 
 const result = await workflow(async (step) => {
   // Error: fetch returns Promise<Response>, not Result
-  const response = await step(() => fetch('/api'));
+  const response = await step('fetch', () => fetch('/api'));
   return response;
 });
 ```
@@ -94,6 +95,7 @@ const result = await workflow(async (step) => {
 // Option 1: Use step.try for throwing code
 const result = await workflow(async (step) => {
   const response = await step.try(
+    'fetchApi',
     () => fetch('/api').then(r => r.json()),
     { error: 'FETCH_FAILED' as const }
   );
@@ -189,8 +191,9 @@ Usually caused by an unresolved promise or missing await.
 // Add timeouts to operations
 const result = await workflow(async (step) => {
   const data = await step.withTimeout(
+    'slowOp',
     () => potentiallySlowOp(),
-    { ms: 30000, name: 'slow-op' }
+    { ms: 30000 }
   );
   return data;
 });
@@ -280,9 +283,9 @@ const workflow = createWorkflow(deps, {
 Sequential steps that could run in parallel:
 ```typescript
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('1'));
-  const posts = await step(fetchPosts('1'));  // Waits for user
-  const comments = await step(fetchComments('1'));  // Waits for posts
+  const user = await step('fetchUser', () => fetchUser('1'));
+  const posts = await step('fetchPosts', () => fetchPosts('1'));  // Waits for user
+  const comments = await step('fetchComments', () => fetchComments('1'));  // Waits for posts
   return { user, posts, comments };
 });
 ```
@@ -293,7 +296,7 @@ Run independent operations in parallel:
 import { allAsync } from 'awaitly';
 
 const result = await workflow(async (step) => {
-  const [user, posts, comments] = await step(() =>
+  const [user, posts, comments] = await step('fetchUserData', () =>
     allAsync([
       fetchUser('1'),
       fetchPosts('1'),
@@ -359,11 +362,11 @@ async function fn(): AsyncResult<User, 'NOT_FOUND'> {
 
 ```typescript
 // Error: step is only available inside workflow callback
-const user = await step(fetchUser('1'));  // step is undefined!
+const user = await step('fetchUser', () => fetchUser('1'));  // step is undefined!
 
 // Correct: use inside workflow
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('1'));
+  const user = await step('fetchUser', () => fetchUser('1'));
   return user;
 });
 ```
@@ -416,7 +419,7 @@ A common mistake: workflow executors should return **raw values**, not `ok()`.
   <TabItem label="Problem">
 ```typescript
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('1'));
+  const user = await step('fetchUser', () => fetchUser('1'));
   return ok({ user });  // Wrong! Causes double-wrapping
 });
 // result.value is { ok: true, value: { user: ... } }
@@ -426,7 +429,7 @@ const result = await workflow(async (step) => {
   <TabItem label="Solution">
 ```typescript
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('1'));
+  const user = await step('fetchUser', () => fetchUser('1'));
   return { user };  // Correct: return raw value
 });
 // result.value is { user: ... }

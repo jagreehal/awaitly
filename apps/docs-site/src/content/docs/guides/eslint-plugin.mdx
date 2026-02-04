@@ -52,30 +52,30 @@ export default [
 
 **Severity**: error | **Autofix**: Yes
 
-Prevents `step(fn())` patterns where the function executes immediately instead of being wrapped in a thunk.
+Prevents `step('id', fn())` patterns where the function executes immediately instead of being wrapped in a thunk.
 
 ```typescript
 // Bad - executes immediately, defeats caching/retries
-step(fetchUser('1'));
-step(deps.fetchUser('1'), { key: 'user:1' });
+step('fetchUser', fetchUser('1'));
+step('fetchUser', deps.fetchUser('1'), { key: 'user:1' });
 
 // Good - thunk lets step control execution
-step(() => fetchUser('1'));
-step(() => deps.fetchUser('1'), { key: 'user:1' });
+step('fetchUser', () => fetchUser('1'));
+step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 ```
 
 ### `awaitly/require-thunk-for-key`
 
 **Severity**: error | **Autofix**: Yes
 
-When using `step()` with a `key` option, the first argument must be a thunk. Without a thunk, the cache is never checked.
+When using `step()` with a `key` option, the second argument must be a thunk. Without a thunk, the cache is never checked.
 
 ```typescript
 // Bad - key option is useless without thunk
-step(fetchUser('1'), { key: 'user:1' });
+step('fetchUser', fetchUser('1'), { key: 'user:1' });
 
 // Good - thunk enables caching with key
-step(() => fetchUser('1'), { key: 'user:1' });
+step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 ```
 
 ### `awaitly/stable-cache-keys`
@@ -86,11 +86,11 @@ Prevents non-deterministic values like `Date.now()`, `Math.random()`, or `uuid()
 
 ```typescript
 // Bad - new key every time, cache never hits
-step(() => fetch(id), { key: `user:${Date.now()}` });
-step(() => fetch(id), { key: `user:${Math.random()}` });
+step('fetchUser', () => fetch(id), { key: `user:${Date.now()}` });
+step('fetchUser', () => fetch(id), { key: `user:${Math.random()}` });
 
 // Good - stable key enables caching
-step(() => fetch(id), { key: `user:${userId}` });
+step('fetchUser', () => fetch(id), { key: `user:${userId}` });
 ```
 
 ### `awaitly/no-floating-workflow`
@@ -117,12 +117,12 @@ Detects `step()` calls whose Result is discarded without handling. Results shoul
 
 ```typescript
 // Bad - Result ignored
-step(() => fetchUser());
-await step(() => fetchUser());
+step('fetchUser', () => fetchUser());
+await step('fetchUser', () => fetchUser());
 
 // Good - Result captured
-const result = await step(() => fetchUser());
-return step(() => fetchUser());
+const result = await step('fetchUser', () => fetchUser());
+return step('fetchUser', () => fetchUser());
 ```
 
 ### `awaitly/require-result-handling`
@@ -171,7 +171,7 @@ The #1 mistake with awaitly is forgetting the thunk:
 
 ```typescript
 // This looks correct but is wrong:
-const user = await step(fetchUser('1'), { key: 'user:1' });
+const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 ```
 
 The function `fetchUser('1')` executes **immediately** when JavaScript evaluates this line. The `step()` function receives the Promise (already started), not a function it can call. This defeats:
@@ -183,7 +183,7 @@ The function `fetchUser('1')` executes **immediately** when JavaScript evaluates
 The correct pattern:
 
 ```typescript
-const user = await step(() => fetchUser('1'), { key: 'user:1' });
+const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 ```
 
 Now `step()` receives a function it can call **after** checking the cache.

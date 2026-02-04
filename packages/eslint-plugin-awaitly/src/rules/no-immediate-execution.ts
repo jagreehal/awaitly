@@ -4,24 +4,27 @@ import type { CallExpression, MemberExpression } from 'estree';
 /**
  * Rule: no-immediate-execution
  *
- * Detects `step(fn())` patterns where the function is executed immediately
- * instead of being wrapped in a thunk `step(() => fn())`.
+ * Detects `step('id', fn())` patterns where the function is executed immediately
+ * instead of being wrapped in a thunk `step('id', () => fn())`.
  *
- * BAD:  step(fetchUser('1'))           - executes immediately
- * BAD:  step(deps.fetchUser('1'))      - executes immediately
- * GOOD: step(() => fetchUser('1'))     - thunk, step controls execution
- * GOOD: step(() => deps.fetchUser('1')) - thunk, step controls execution
+ * step() requires a string ID as first argument; the executor is the second.
+ *
+ * BAD:  step('fetchUser', fetchUser('1'))  - executes immediately
+ * BAD:  step('fetchUser', deps.fetchUser('1')) - executes immediately
+ * GOOD: step('fetchUser', () => fetchUser('1')) - thunk, step controls execution
  */
 
 const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult']);
 
+function isDirectStepCall(node: CallExpression): boolean {
+  const { callee } = node;
+  return callee.type === 'Identifier' && callee.name === 'step';
+}
+
 function isStepCall(node: CallExpression): boolean {
   const { callee } = node;
 
-  // Direct step() call
-  if (callee.type === 'Identifier' && callee.name === 'step') {
-    return true;
-  }
+  if (isDirectStepCall(node)) return true;
 
   // step.try(), step.retry(), step.withTimeout(), step.fromResult()
   if (callee.type === 'MemberExpression') {
@@ -37,6 +40,12 @@ function isStepCall(node: CallExpression): boolean {
   }
 
   return false;
+}
+
+function isStringLiteral(node: unknown): boolean {
+  if (!node || typeof node !== 'object') return false;
+  const typed = node as { type?: string; value?: unknown };
+  return typed.type === 'Literal' && typeof typed.value === 'string';
 }
 
 function isThunk(node: unknown): boolean {
@@ -86,7 +95,7 @@ const rule: Rule.RuleModule = {
     schema: [],
     messages: {
       immediateExecution:
-        "Avoid immediate execution in step(). Use a thunk: step(() => {{functionName}}(...)) instead of step({{functionName}}(...)). Immediate execution defeats caching, retries, and resume capabilities.",
+        "Avoid immediate execution in step(). Use a thunk: step('id', () => {{functionName}}(...)) instead of step('id', {{functionName}}(...)). Immediate execution defeats caching, retries, and resume capabilities.",
     },
   },
 
@@ -95,27 +104,44 @@ const rule: Rule.RuleModule = {
       CallExpression(node: CallExpression) {
         if (!isStepCall(node)) return;
 
-        const firstArg = node.arguments[0];
-        if (!firstArg) return;
+        const args = node.arguments;
+        let executorArg: typeof args[0];
 
-        // If first argument is already a thunk (arrow function or function expression), it's fine
-        if (isThunk(firstArg)) return;
-
-        // If first argument is a call expression, it's being executed immediately - BAD
-        if (isCallExpression(firstArg)) {
-          const functionName = getCalleeName(firstArg);
-
-          context.report({
-            node: firstArg,
-            messageId: 'immediateExecution',
-            data: { functionName },
-            fix(fixer) {
-              const sourceCode = context.sourceCode;
-              const argText = sourceCode.getText(firstArg);
-              return fixer.replaceText(firstArg, `() => ${argText}`);
-            },
-          });
+        if (isDirectStepCall(node)) {
+          // step() requires step('id', executor, options?). Executor is second arg when first is string.
+          if (isStringLiteral(args[0])) {
+            executorArg = args[1];
+          } else {
+            // Legacy or missing ID: treat first arg as executor for backward compat
+            executorArg = args[0];
+          }
+        } else {
+          // step.retry(), step.withTimeout(), etc.: executor is first arg
+          executorArg = args[0];
         }
+
+        if (!executorArg) return;
+        if (isThunk(executorArg)) return;
+        if (!isCallExpression(executorArg)) return;
+
+        const functionName = getCalleeName(executorArg);
+
+        context.report({
+          node: executorArg,
+          messageId: 'immediateExecution',
+          data: { functionName },
+          fix(fixer) {
+            const sourceCode = context.sourceCode;
+            const executorText = sourceCode.getText(executorArg!);
+            if (isDirectStepCall(node) && isStringLiteral(args[0])) {
+              return fixer.replaceText(executorArg!, `() => ${executorText}`);
+            }
+            // Legacy step(fn()) or step(fn(), opts): fix to step('id', () => fn()[, opts])
+            const suggestedId = functionName !== 'function' ? functionName : 'step';
+            const restArgs = args.length > 1 ? `, ${args.slice(1).map((a) => sourceCode.getText(a)).join(', ')}` : '';
+            return fixer.replaceText(node, `step('${suggestedId}', () => ${executorText}${restArgs})`);
+          },
+        });
       },
     };
   },

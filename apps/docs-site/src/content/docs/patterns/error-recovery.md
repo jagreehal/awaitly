@@ -25,12 +25,13 @@ import { createWorkflow } from 'awaitly/workflow';
 const workflow = createWorkflow(deps);
 const result = await workflow(async (step) => {
   const data = await step.retry(
+    'fetchFromAPI',
     () => fetchFromAPI(),
     {
-      maxAttempts: 3,
+      attempts: 3,
       backoff: 'exponential',
-      baseDelay: 100,
-      shouldRetry: (error) => error === 'TIMEOUT' || error === 'CONNECTION_ERROR',
+      delayMs: 100,
+      retryOn: (error) => error === 'TIMEOUT' || error === 'CONNECTION_ERROR',
     }
   );
   return data;

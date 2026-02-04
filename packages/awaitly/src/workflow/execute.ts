@@ -1230,17 +1230,6 @@ export function createWorkflow<
       }
     };
 
-    // Infer step id from thunk body (same order as analyzer: explicit id > infer from thunk > fallback)
-    const inferStepIdFromThunk = (fn: () => unknown): string => {
-      const fnStr = fn.toString();
-      const directCallMatch = fnStr.match(/(?:async\s*)?\(\)\s*=>\s*(?:await\s+)?([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/);
-      if (directCallMatch) return directCallMatch[1];
-      // deps.fn(), this.fn(), ctx.fn(), or any single identifier . methodName(
-      const memberCallMatch = fnStr.match(/(?:async\s*)?\(\)\s*=>\s*(?:await\s+)?[a-zA-Z_$][a-zA-Z0-9_$]*\.([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/);
-      if (memberCallMatch) return memberCallMatch[1];
-      return '';
-    };
-
     // Create a cached step wrapper
     const createCachedStep = (realStep: RunStep<E>): RunStep<E> => {
       // NOTE: We always create the wrapper because streaming methods (streamForEach, getWritable,
@@ -1254,46 +1243,24 @@ export function createWorkflow<
         operationOrOptions?: (() => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>) | StepOptions | string,
         stepOptions?: StepOptions
       ): Promise<StepT> => {
-        // Parse arguments to extract id and opts (mirroring core/index.ts stepFn)
-        // Note: operation is parsed but unused - we pass original args to realStep instead
-        let id: string;
-        let opts: StepOptions;
-        let passInferredIdToRealStep = false;
-        if (typeof idOrOperationOrResult === 'string') {
-          // New form: step('id', fn, opts)
-          id = idOrOperationOrResult;
-          opts = stepOptions ?? {};
-        } else if (typeof idOrOperationOrResult === 'function') {
-          // Legacy function form: step(fn, opts?) — same order as analyzer: explicit id → infer from thunk → fallback (key not used for id)
-          if (typeof operationOrOptions === 'string') {
-            id = operationOrOptions;
-            opts = {};
-          } else if (operationOrOptions && typeof operationOrOptions === 'object' && !('ok' in operationOrOptions)) {
-            opts = operationOrOptions as StepOptions;
-            id = inferStepIdFromThunk(idOrOperationOrResult) || 'step';
-            if (id !== 'step') passInferredIdToRealStep = true;
-          } else {
-            opts = {};
-            id = inferStepIdFromThunk(idOrOperationOrResult) || 'step';
-            if (id !== 'step') passInferredIdToRealStep = true;
-          }
-        } else {
-          // Legacy direct form: step(result, opts?) — key not used for id
-          if (typeof operationOrOptions === 'string') {
-            id = operationOrOptions;
-            opts = {};
-          } else if (operationOrOptions && typeof operationOrOptions === 'object' && !('ok' in operationOrOptions)) {
-            opts = operationOrOptions as StepOptions;
-            id = 'directStep';
-          } else {
-            opts = {};
-            id = 'directStep';
-          }
+        // Validate required string ID as first argument
+        if (typeof idOrOperationOrResult !== 'string') {
+          throw new Error(
+            '[awaitly] step() requires a string ID as the first argument. ' +
+            'Example: step("fetchUser", () => fetchUser(id))'
+          );
         }
+
+        // Parse arguments: step('id', fn, opts)
+        const id = idOrOperationOrResult;
+        const opts = stepOptions ?? {};
 
         // Name is always derived from ID
         const name = id;
-        const key = opts.key; // Don't fallback to id - only explicit keys trigger caching
+        // Use cache by id when key is omitted; when key is explicitly set (including undefined) use that (undefined = don't cache)
+        const key = Object.prototype.hasOwnProperty.call(opts, "key")
+          ? opts.key
+          : id;
         const { ttl, out } = opts;
 
         // Check for cancellation before starting step
@@ -1341,12 +1308,11 @@ export function createWorkflow<
         }
 
         try {
-          // Pass through original arguments so realStep can determine legacy vs new form correctly.
-          // When we inferred id from thunk, pass (id, fn, opts) so core uses that id for events and still gets opts (e.g. key).
+          // Pass arguments to realStep: step('id', fn, opts)
           const value = await (realStep as CallableFunction)(
-            passInferredIdToRealStep ? id : idOrOperationOrResult,
-            passInferredIdToRealStep ? idOrOperationOrResult : operationOrOptions,
-            passInferredIdToRealStep ? opts : stepOptions
+            id,
+            operationOrOptions,
+            opts
           );
           // Store result in workflow data if 'out' is specified
           if (out) {
@@ -1385,16 +1351,17 @@ export function createWorkflow<
 
       // Wrap step.try
       cachedStepFn.try = async <StepT, Err extends E>(
+        id: string,
         operation: () => StepT | Promise<StepT>,
         opts:
           | { error: Err; key?: string; ttl?: number }
           | { onError: (cause: unknown) => Err; key?: string; ttl?: number }
       ): Promise<StepT> => {
-        const { key, ttl } = opts;
-        const name = key; // Name is derived from key
+        const { ttl } = opts;
+        const key = opts.key ?? id; // step.try caches by id when key omitted (for resume)
+        const name = id;
 
-        // Only use cache if key is provided and cache exists
-        if (key && cache && cache.has(key)) {
+        if (cache && cache.has(key)) {
           emitEvent({
             type: "step_cache_hit",
             workflowId,
@@ -1407,14 +1374,11 @@ export function createWorkflow<
           if (cached.ok) {
             return cached.value as StepT;
           }
-          // Cached error - throw early exit with preserved metadata (origin + thrown)
-          // This bypasses realStep.try to avoid replaying instrumentation
           const meta = decodeCachedMeta(cached.cause);
           throw createEarlyExit(cached.error as Err, meta);
         }
 
-        // Cache miss - emit event only if caching is enabled
-        if (key && cache) {
+        if (cache) {
           emitEvent({
             type: "step_cache_miss",
             workflowId,
@@ -1424,23 +1388,16 @@ export function createWorkflow<
           });
         }
 
-        // Execute the real step.try
         try {
-          const value = await realStep.try(operation, opts);
-          // Cache successful result if key provided
-          if (key) {
-            if (cache) {
-              cache.set(key, ok(value), ttl ? { ttl } : undefined);
-            }
-            // Call onAfterStep hook for checkpointing (even without cache)
-            await callOnAfterStepHook(key, ok(value));
+          const value = await realStep.try(id, operation, { ...opts, key });
+          if (cache) {
+            cache.set(key, ok(value), ttl ? { ttl } : undefined);
           }
+          await callOnAfterStepHook(key, ok(value));
           return value;
         } catch (thrown) {
-          // Cache error results with full metadata if key provided and this is an early exit
-          if (key && isEarlyExit(thrown)) {
+          if (isEarlyExit(thrown)) {
             const exit = thrown as EarlyExit<Err>;
-            // Extract original cause from metadata for preservation
             const originalCause =
               exit.meta.origin === "result"
                 ? exit.meta.resultCause
@@ -1449,7 +1406,6 @@ export function createWorkflow<
             if (cache) {
               cache.set(key, errorResult, ttl ? { ttl } : undefined);
             }
-            // Call onAfterStep hook for checkpointing (even on error, even without cache)
             await callOnAfterStepHook(key, errorResult, exit.meta);
           }
           throw thrown;
@@ -1458,16 +1414,17 @@ export function createWorkflow<
 
       // Wrap step.fromResult - delegate to real step (caching handled by key in opts)
       cachedStepFn.fromResult = async <StepT, ResultE, Err extends E>(
+        id: string,
         operation: () => Result<StepT, ResultE, unknown> | AsyncResult<StepT, ResultE, unknown>,
         opts:
           | { error: Err; key?: string; ttl?: number }
           | { onError: (resultError: ResultE) => Err; key?: string; ttl?: number }
       ): Promise<StepT> => {
-        const { key, ttl } = opts;
-        const name = key; // Name is derived from key
+        const { ttl } = opts;
+        const key = opts.key ?? id; // step.fromResult caches by id when key omitted (for resume)
+        const name = id;
 
-        // Only use cache if key is provided and cache exists
-        if (key && cache && cache.has(key)) {
+        if (cache && cache.has(key)) {
           emitEvent({
             type: "step_cache_hit",
             workflowId,
@@ -1480,13 +1437,11 @@ export function createWorkflow<
           if (cached.ok) {
             return cached.value as StepT;
           }
-          // Cached error - throw early exit with preserved metadata
           const meta = decodeCachedMeta(cached.cause);
           throw createEarlyExit(cached.error as Err, meta);
         }
 
-        // Cache miss - emit event only if caching is enabled
-        if (key && cache) {
+        if (cache) {
           emitEvent({
             type: "step_cache_miss",
             workflowId,
@@ -1496,21 +1451,15 @@ export function createWorkflow<
           });
         }
 
-        // Execute the real step.fromResult
         try {
-          const value = await realStep.fromResult(operation, opts);
-          // Cache successful result if key provided
-          if (key) {
-            if (cache) {
-              cache.set(key, ok(value), ttl ? { ttl } : undefined);
-            }
-            // Call onAfterStep hook for checkpointing (even without cache)
-            await callOnAfterStepHook(key, ok(value));
+          const value = await realStep.fromResult(id, operation, { ...opts, key });
+          if (cache) {
+            cache.set(key, ok(value), ttl ? { ttl } : undefined);
           }
+          await callOnAfterStepHook(key, ok(value));
           return value;
         } catch (thrown) {
-          // Cache error results with full metadata if key provided and this is an early exit
-          if (key && isEarlyExit(thrown)) {
+          if (isEarlyExit(thrown)) {
             const exit = thrown as EarlyExit<Err>;
             const originalCause =
               exit.meta.origin === "result"
@@ -1520,7 +1469,6 @@ export function createWorkflow<
             if (cache) {
               cache.set(key, errorResult, ttl ? { ttl } : undefined);
             }
-            // Call onAfterStep hook for checkpointing (even on error, even without cache)
             await callOnAfterStepHook(key, errorResult, exit.meta);
           }
           throw thrown;
@@ -1536,16 +1484,14 @@ export function createWorkflow<
       // Wrap step.allSettled - delegate to real step (no caching for scope wrappers)
       cachedStepFn.allSettled = realStep.allSettled;
 
-      // Wrap step.retry - use cachedStepFn to ensure caching/resume works with keyed steps
+      // Wrap step.retry - pass key explicitly so "no key" means don't cache (cachedStepFn treats key: undefined as no cache)
       cachedStepFn.retry = <StepT, StepE extends E, StepC = unknown>(
+        id: string,
         operation: () => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>,
         options: RetryOptions & { name?: string; key?: string; timeout?: TimeoutOptions; ttl?: number }
       ): Promise<StepT> => {
-        // Delegate to cachedStepFn with retry options merged into StepOptions
-        // This ensures the cache layer is consulted for keyed steps
-        const stepId = options.key ?? 'retry';
-        return cachedStepFn(stepId, operation, {
-          key: options.key,
+        const stepOptions = {
+          key: options.key, // explicitly pass so undefined = don't cache
           retry: {
             attempts: options.attempts,
             backoff: options.backoff,
@@ -1557,36 +1503,44 @@ export function createWorkflow<
           },
           timeout: options.timeout,
           ttl: options.ttl,
-        });
+        };
+
+        return cachedStepFn(id, operation, stepOptions);
       };
 
-      // Wrap step.withTimeout - use cachedStepFn to ensure caching/resume works with keyed steps
+      // Wrap step.withTimeout - pass key explicitly so "no key" means don't cache
       cachedStepFn.withTimeout = <StepT, StepE extends E, StepC = unknown>(
+        id: string,
         operation:
           | (() => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>)
           | ((signal: AbortSignal) => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>),
         options: TimeoutOptions & { key?: string; ttl?: number }
       ): Promise<StepT> => {
-        // Delegate to cachedStepFn with timeout options
-        // This ensures the cache layer is consulted for keyed steps
-        const stepId = options.key ?? 'timeout';
+        const stepOptions = {
+          key: options.key,
+          timeout: options,
+          ttl: options.ttl,
+        };
+
         return cachedStepFn(
-          stepId,
+          id,
           operation as () => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>,
-          {
-            key: options.key,
-            timeout: options,
-            ttl: options.ttl,
-          }
+          stepOptions
         );
       };
 
-      // Wrap step.sleep - implement caching directly to ensure cache layer is consulted
+      // Wrap step.sleep - only use cache when explicit key is provided
       cachedStepFn.sleep = (
+        id: string,
         duration: string | DurationType,
         options?: { key?: string; ttl?: number; description?: string; signal?: AbortSignal }
       ): Promise<void> => {
-        // Parse duration
+        if (typeof id !== "string" || id.length === 0) {
+          throw new Error(
+            "[awaitly] step.sleep() requires an explicit string ID as the first argument. " +
+              'Example: step.sleep("delay", "5s")'
+          );
+        }
         const d = typeof duration === "string" ? parseDuration(duration) : duration;
         if (!d) {
           throw new Error(`step.sleep: invalid duration '${duration}'`);
@@ -1594,47 +1548,43 @@ export function createWorkflow<
         const ms = toMillis(d);
 
         const userSignal = options?.signal;
-        const stepId = options?.key ?? 'sleep';
 
-        // Delegate to cachedStepFn (not realStep) to ensure caching works
-        return cachedStepFn(
-          stepId,
-          async (): AsyncResult<void, never> => {
-            // Check if already aborted (workflow or user signal)
-            if (workflowSignal?.aborted || userSignal?.aborted) {
+        const sleepOperation = async (): AsyncResult<void, never> => {
+          // Check if already aborted (workflow or user signal)
+          if (workflowSignal?.aborted || userSignal?.aborted) {
+            const e = new Error("Sleep aborted");
+            e.name = "AbortError";
+            throw e;
+          }
+
+          return new Promise<Result<void, never>>((resolve, reject) => {
+            const state = {
+              timeoutId: undefined as ReturnType<typeof setTimeout> | undefined,
+            };
+
+            const onAbort = () => {
+              if (state.timeoutId) clearTimeout(state.timeoutId);
               const e = new Error("Sleep aborted");
               e.name = "AbortError";
-              throw e;
-            }
+              reject(e);
+            };
 
-            return new Promise<Result<void, never>>((resolve, reject) => {
-              const state = {
-                timeoutId: undefined as ReturnType<typeof setTimeout> | undefined,
-              };
+            workflowSignal?.addEventListener("abort", onAbort, { once: true });
+            userSignal?.addEventListener("abort", onAbort, { once: true });
 
-              const onAbort = () => {
-                if (state.timeoutId) clearTimeout(state.timeoutId);
-                const e = new Error("Sleep aborted");
-                e.name = "AbortError";
-                reject(e);
-              };
+            state.timeoutId = setTimeout(() => {
+              workflowSignal?.removeEventListener("abort", onAbort);
+              userSignal?.removeEventListener("abort", onAbort);
+              resolve(ok(undefined));
+            }, ms);
+          });
+        };
 
-              workflowSignal?.addEventListener("abort", onAbort, { once: true });
-              userSignal?.addEventListener("abort", onAbort, { once: true });
-
-              state.timeoutId = setTimeout(() => {
-                workflowSignal?.removeEventListener("abort", onAbort);
-                userSignal?.removeEventListener("abort", onAbort);
-                resolve(ok(undefined));
-              }, ms);
-            });
-          },
-          {
-            key: options?.key,
-            ttl: options?.ttl,
-            description: options?.description,
-          }
-        );
+        return cachedStepFn(id, sleepOperation, {
+          key: options?.key,
+          ttl: options?.ttl,
+          description: options?.description,
+        });
       };
 
       // ===========================================================================

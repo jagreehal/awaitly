@@ -138,8 +138,8 @@ const ir = viz.renderAs('json');
 Give steps descriptive names for better diagrams:
 
 ```typescript
-const user = await step(() => fetchUser('1'), { name: 'Fetch user' });
-const posts = await step(() => fetchPosts(user.id), { name: 'Fetch posts' });
+const user = await step('fetchUser', () => fetchUser('1'), { name: 'Fetch user' });
+const posts = await step('fetchPosts', () => fetchPosts(user.id), { name: 'Fetch posts' });
 ```
 
 Without names, steps show as "unnamed step".
@@ -153,6 +153,7 @@ import { allAsync } from 'awaitly';
 
 const result = await workflow(async (step) => {
   const [user, posts] = await step(
+    'fetchUserData',
     () => allAsync([
       fetchUser('1'),
       fetchPosts('1'),
@@ -178,7 +179,7 @@ const workflow = createWorkflow(deps, {
 });
 
 await workflow(async (step) => {
-  const user = await step(() => fetchUser('1'), { name: 'Fetch user' });
+  const user = await step('fetchUser', () => fetchUser('1'), { name: 'Fetch user' });
 
   // Track a decision point
   const decision = trackDecision('check-role', {
@@ -189,10 +190,10 @@ await workflow(async (step) => {
 
   if (user.role === 'admin') {
     decision.takeBranch('admin', true);
-    await step(() => adminDashboard(user), { name: 'Admin dashboard' });
+    await step('adminDashboard', () => adminDashboard(user), { name: 'Admin dashboard' });
   } else {
     decision.takeBranch('user', true);
-    await step(() => userDashboard(user), { name: 'User dashboard' });
+    await step('userDashboard', () => userDashboard(user), { name: 'User dashboard' });
   }
 
   decision.end();
@@ -211,10 +212,10 @@ const decision = trackIf('check-premium', user.isPremium, {
 
 if (decision.condition) {
   decision.then();
-  await step(() => fetchPremiumData(user.id));
+  await step('fetchPremiumData', () => fetchPremiumData(user.id));
 } else {
   decision.else();
-  await step(() => fetchBasicData(user.id));
+  await step('fetchBasicData', () => fetchBasicData(user.id));
 }
 
 decision.end();
@@ -233,15 +234,15 @@ const decision = trackSwitch('process-by-role', user.role, {
 switch (user.role) {
   case 'admin':
     decision.case('admin', true);
-    await step(() => processAdmin(user));
+    await step('processAdmin', () => processAdmin(user));
     break;
   case 'moderator':
     decision.case('moderator', true);
-    await step(() => processModerator(user));
+    await step('processModerator', () => processModerator(user));
     break;
   default:
     decision.default(true);
-    await step(() => processUser(user));
+    await step('processUser', () => processUser(user));
 }
 
 decision.end();
@@ -258,7 +259,7 @@ const workflow = createWorkflow(deps, {
 });
 
 await workflow(async (step) => {
-  const user = await step(() => fetchUser('1'), { name: 'Fetch user' });
+  const user = await step('fetchUser', () => fetchUser('1'), { name: 'Fetch user' });
 
   const decision = trackIf('check-role', user.role === 'admin', {
     condition: "user.role === 'admin'",
@@ -268,10 +269,10 @@ await workflow(async (step) => {
 
   if (decision.condition) {
     decision.then();
-    await step(() => processAdmin(user));
+    await step('processAdmin', () => processAdmin(user));
   } else {
     decision.else();
-    await step(() => processUser(user));
+    await step('processUser', () => processUser(user));
   }
   decision.end();
 
@@ -416,8 +417,8 @@ app.post('/checkout', async (req, res) => {
   });
 
   const result = await workflow(async (step) => {
-    const order = await step(() => deps.fetchOrder(req.body.orderId), { name: 'Fetch order' });
-    const payment = await step(() => deps.chargeCard(order.total), { name: 'Charge card' });
+    const order = await step('fetchOrder', () => deps.fetchOrder(req.body.orderId), { name: 'Fetch order' });
+    const payment = await step('chargeCard', () => deps.chargeCard(order.total), { name: 'Charge card' });
     return { order, payment };
   });
 
@@ -471,9 +472,9 @@ const workflow = createWorkflow(deps, {
 });
 
 await workflow(async (step) => {
-  await step(() => deps.runTests(), { name: 'Run tests' });
-  await step(() => deps.buildApp(), { name: 'Build app' });
-  await step(() => deps.deploy(), { name: 'Deploy' });
+  await step('runTests', () => deps.runTests(), { name: 'Run tests' });
+  await step('buildApp', () => deps.buildApp(), { name: 'Build app' });
+  await step('deploy', () => deps.deploy(), { name: 'Deploy' });
 });
 
 // Write Mermaid diagram to artifacts
@@ -502,8 +503,8 @@ const workflow = createWorkflow(deps, {
 });
 
 await workflow(async (step) => {
-  const user = await step(() => deps.fetchUser('1'), { name: 'Fetch user' });
-  const posts = await step(() => deps.fetchPosts(user.id), { name: 'Fetch posts' });
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { name: 'Fetch user' });
+  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { name: 'Fetch posts' });
   return { user, posts };
 });
 
@@ -593,9 +594,9 @@ const workflow = createWorkflow(deps, {
 });
 
 await workflow(async (step) => {
-  await step(() => deps.lint(), { name: 'Lint' });
-  await step(() => deps.test(), { name: 'Test' });
-  await step(() => deps.build(), { name: 'Build' });
+  await step('lint', () => deps.lint(), { name: 'Lint' });
+  await step('test', () => deps.test(), { name: 'Test' });
+  await step('build', () => deps.build(), { name: 'Build' });
 });
 
 const ir = viz.getIR();
@@ -636,8 +637,8 @@ const workflow = createWorkflow(deps, {
 });
 
 await workflow(async (step) => {
-  await step(() => deps.fetchOrder('123'), { name: 'Fetch order' });
-  await step(() => deps.chargeCard(99.99), { name: 'Charge card' });
+  await step('fetchOrder', () => deps.fetchOrder('123'), { name: 'Fetch order' });
+  await step('chargeCard', () => deps.chargeCard(99.99), { name: 'Charge card' });
 });
 
 // Timeline (ordered steps with timing)
@@ -663,8 +664,8 @@ const workflow = createWorkflow(deps, {
 });
 
 await workflow(async (step) => {
-  await step(() => deps.fetchOrder('123'), { name: 'Fetch order' });
-  await step(() => deps.chargeCard(99.99), { name: 'Charge card' });
+  await step('fetchOrder', () => deps.fetchOrder('123'), { name: 'Fetch order' });
+  await step('chargeCard', () => deps.chargeCard(99.99), { name: 'Charge card' });
 });
 
 // Output:
@@ -944,7 +945,7 @@ function WorkflowDashboard() {
     });
 
     workflow(async (step) => {
-      await step(() => fetchData(), { name: 'Fetch data' });
+      await step('fetchData', () => fetchData(), { name: 'Fetch data' });
     }).then(() => {
       setOutput(viz.renderAs('mermaid'));
     });

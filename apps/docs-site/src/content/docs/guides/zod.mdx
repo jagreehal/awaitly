@@ -46,7 +46,7 @@ const workflow = createWorkflow({
 });
 
 const result = await workflow(async (step) => {
-  const user = await step(() => deps.validate({ email: 'test@example.com', age: 25 }));
+  const user = await step('validate', () => deps.validate({ email: 'test@example.com', age: 25 }));
   return user; // User type, not unknown
 });
 ```
@@ -111,12 +111,12 @@ const createUserWorkflow = createWorkflow(deps);
 const createUser = async (rawInput: unknown) => {
   return createUserWorkflow(async (step, d) => {
     // Validate input first — exits early if invalid
-    const input = await step(() => d.validateInput(rawInput));
+    const input = await step('validateInput', () => d.validateInput(rawInput));
 
     // Now input is typed as CreateUserInput
-    const user = await step(() => d.saveToDatabase(input));
+    const user = await step('saveToDatabase', () => d.saveToDatabase(input));
 
-    await step(() => d.sendWelcomeEmail(user.email));
+    await step('sendWelcomeEmail', () => d.sendWelcomeEmail(user.email));
 
     return user;
   });
@@ -196,8 +196,8 @@ export const POST = async (request: Request) => {
   const body = await request.json();
 
   const result = await workflow(async (step, d) => {
-    const input = await step(() => d.validatePost(body));
-    const post = await step(() => d.createPost(input));
+    const input = await step('validatePost', () => d.validatePost(body));
+    const post = await step('createPost', () => d.createPost(input));
     return post;
   });
 
@@ -307,16 +307,16 @@ const registerWorkflow = createWorkflow(deps);
 const register = async (rawInput: unknown) => {
   return registerWorkflow(async (step, d) => {
     // Step 1: Validate input
-    const input = await step(() => d.validateInput(rawInput));
+    const input = await step('validateInput', () => d.validateInput(rawInput));
 
     // Step 2: Check if email is taken
-    const emailExists = await step(() => d.checkEmailExists(input.email));
+    const emailExists = await step('checkEmailExists', () => d.checkEmailExists(input.email));
     if (emailExists) {
-      return await step(err({ type: 'EMAIL_TAKEN' as const, email: input.email }));
+      return await step('createUser', err({ type: 'EMAIL_TAKEN' as const, email: input.email }));
     }
 
     // Step 3: Create user
-    const user = await step(() => d.createUser(input));
+    const user = await step('createUser', () => d.createUser(input));
 
     return user;
   });

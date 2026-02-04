@@ -171,8 +171,8 @@ export function createIRBuilder(options: IRBuilderOptions = {}) {
 
   /**
    * Get the step ID from an event.
-   * Uses stepId if available (new events), then falls back to stepKey or name,
-   * and finally generates a random ID for backwards compatibility.
+   * With the current awaitly API (ID-first for all step types), stepId is always set.
+   * Falls back to stepKey, then name, then a generated ID for backwards compatibility.
    */
   function getStepId(event: { stepId?: string; stepKey?: string; name?: string }): string {
     return event.stepId ?? event.stepKey ?? event.name ?? generateId();

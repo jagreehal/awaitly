@@ -61,8 +61,8 @@ async function _test1() {
 
   const result = await run<{ user: User; posts: Post[] }, AppError>(
     async (step) => {
-      const user = await step(() => fetchUser("123"));
-      const posts = await step(() => fetchPosts(user.id));
+      const user = await step("fetchUser", () => fetchUser("123"));
+      const posts = await step("fetchPosts", () => fetchPosts(user.id));
       return { user, posts };
     },
     {
@@ -144,7 +144,7 @@ async function _test2() {
 
   const result = await run<User, AppError>(
     async (step) => {
-      const user = await step(() => fetchUser("123"));
+      const user = await step("fetchUser", () => fetchUser("123"));
       return user;
     },
     {
@@ -192,11 +192,11 @@ async function _test4() {
 
   const result = await run<{ user: User; posts: Post[] }, AppError>(
     async (step) => {
-      const user = await step(() => fetchUser("123"));
+      const user = await step("fetchUser", () => fetchUser("123"));
       // user should be User, not Result<User, ...>
       expectType<User>(user);
 
-      const posts = await step(() => fetchPosts(user.id));
+      const posts = await step("fetchPosts", () => fetchPosts(user.id));
       expectType<Post[]>(posts);
 
       return { user, posts };
@@ -219,7 +219,7 @@ async function _test5() {
 
   const result = await run<Response, AppError>(
     async (step) => {
-      const response = await step.try(() => fetch("/api"), {
+      const response = await step.try("fetch", () => fetch("/api"), {
         error: "NETWORK" as const,
       });
       // response should be Response, not wrapped
@@ -281,7 +281,7 @@ async function _test6a() {
     expectType<string>(ctx.workflowId);
     expectType<AbortSignal | undefined>(ctx.signal);
     expectType<((event: WorkflowEvent<unknown, { traceId: string }>) => void) | undefined>(ctx.onEvent);
-    return step(() => fetchUser("123"));
+    return step("fetchUser", () => fetchUser("123"));
   });
 
   if (result.ok) {
@@ -306,7 +306,7 @@ async function _test6aa() {
     async (step, { fetchUser }, args, ctx) => {
       expectType<{ userId: string }>(args);
       expectType<{ traceId: string } | undefined>(ctx.context);
-      return step(() => fetchUser(args.userId));
+      return step("fetchUser", () => fetchUser(args.userId));
     }
   );
 
@@ -332,7 +332,7 @@ async function _test6ab() {
   );
 
   await workflow(async (step, { fetchUser }) => {
-    return step(() => fetchUser("123"));
+    return step("fetchUser", () => fetchUser("123"));
   });
 }
 
@@ -352,7 +352,7 @@ async function _test6ac() {
   );
 
   await workflow(async (step, { fetchUser }) => {
-    return step(() => fetchUser("unknown"));
+    return step("fetchUser", () => fetchUser("unknown"));
   });
 }
 
@@ -447,8 +447,8 @@ async function _test8() {
 
   const result = await run.strict<{ user: User; posts: Post[] }, AppError>(
     async (step) => {
-      const user = await step(() => fetchUser("123"));
-      const posts = await step(() => fetchPosts(user.id));
+      const user = await step("fetchUser", () => fetchUser("123"));
+      const posts = await step("fetchPosts", () => fetchPosts(user.id));
       return { user, posts };
     },
     {
@@ -479,8 +479,8 @@ async function _test9() {
   const getPosts = createWorkflow({ fetchUser, fetchPosts });
 
   const result = await getPosts(async (step) => {
-    const user = await step(fetchUser("123"));
-    const posts = await step(fetchPosts(user.id));
+    const user = await step("fetchUser", () => fetchUser("123"));
+    const posts = await step("fetchPosts", () => fetchPosts(user.id));
     return { user, posts };
   });
 
@@ -503,8 +503,8 @@ async function _test10() {
 
   // Uses object is passed as second argument for destructuring
   const result = await getPosts(async (step, { fetchUser: fu, fetchPosts: fp }) => {
-    const user = await step(fu("123"));
-    const posts = await step(fp(user.id));
+    const user = await step("fetchUser", () => fu("123"));
+    const posts = await step("fetchPosts", () => fp(user.id));
     return { user, posts };
   });
 
@@ -527,8 +527,8 @@ async function _test11() {
   );
 
   const result = await getPosts(async (step) => {
-    const user = await step(fetchUser("123"));
-    const posts = await step(fetchPosts(user.id));
+    const user = await step("fetchUser", () => fetchUser("123"));
+    const posts = await step("fetchPosts", () => fetchPosts(user.id));
     return { user, posts };
   });
 
@@ -587,8 +587,8 @@ async function _test12b() {
   const beneficiaryWorkflow = createWorkflow(beneficiaryDeps);
 
   const result = await beneficiaryWorkflow(async (step, deps) => {
-    const valid = await step(deps.validatePayload({ id: "123" }));
-    const executed = await step(deps.executeTransaction(valid));
+    const valid = await step("validatePayload", () => deps.validatePayload({ id: "123" }));
+    const executed = await step("executeTransaction", () => deps.executeTransaction(valid));
     expectType<{ id: string }>(valid);
     expectType<boolean>(executed);
     return executed;
@@ -618,7 +618,7 @@ async function _test13() {
   );
 
   await getPosts(async (step) => {
-    const user = await step(fetchUser("123"));
+    const user = await step("fetchUser", () => fetchUser("123"));
     return user;
   });
 }
@@ -804,7 +804,7 @@ async function _test23WorkflowWithArgs() {
   const result = await workflow({ id: "123", limit: 10 }, async (step, deps, args) => {
     // args type is inferred from the first argument
     expectType<{ id: string; limit: number }>(args);
-    const user = await step(fetchUser(args.id));
+    const user = await step("fetchUser", () => fetchUser(args.id));
     return { user, limit: args.limit };
   });
 
@@ -822,7 +822,7 @@ async function _test24WorkflowBackwardsCompatible() {
 
   // Original API still works - no args
   const result = await workflow(async (step, deps) => {
-    const user = await step(fetchUser("123"));
+    const user = await step("fetchUser", () => fetchUser("123"));
     return user;
   });
 
@@ -851,8 +851,8 @@ async function _test25WorkflowStrictWithArgs() {
 
   const result = await workflow({ userId: "123" }, async (step, deps, args) => {
     expectType<{ userId: string }>(args);
-    const user = await step(fetchUser(args.userId));
-    const posts = await step(fetchPosts(user.id));
+    const user = await step("fetchUser", () => fetchUser(args.userId));
+    const posts = await step("fetchPosts", () => fetchPosts(user.id));
     return { user, posts };
   });
 
@@ -872,7 +872,7 @@ async function _test26WorkflowPrimitiveArgs() {
   // Primitive arg type (string)
   const result = await workflow("user-123", async (step, deps, id) => {
     expectType<string>(id);
-    return await step(fetchUser(id));
+    return await step("fetchUser", () => fetchUser(id));
   });
 
   if (result.ok) {
@@ -898,7 +898,7 @@ async function _test27WorkflowCauseIsUnknown() {
   const workflow = createWorkflow({ fetchWithTypedCause });
 
   const result = await workflow(async (step) => {
-    return await step(fetchWithTypedCause("1"));
+    return await step("fetchUser", () => fetchWithTypedCause("1"));
   });
 
   if (!result.ok) {
@@ -953,7 +953,7 @@ async function _test29RunCauseIsUnknown() {
 
   const result = await run<User, AppError>(
     async (step) => {
-      const user = await step(() => fetchUser("123"));
+      const user = await step("fetchUser", () => fetchUser("123"));
       return user;
     },
     { onError: () => {} }
@@ -977,7 +977,7 @@ async function _test30RunStrictCauseIsUnknown() {
 
   const result = await run.strict<User, AppError>(
     async (step) => {
-      const user = await step(() => fetchUser("123"));
+      const user = await step("fetchUser", () => fetchUser("123"));
       return user;
     },
     { catchUnexpected: () => "UNEXPECTED" as const }
@@ -1137,7 +1137,7 @@ async function _testContextTypeSafety() {
   );
 
   await workflow(async (step) => {
-    return await step(fetchUser("123"));
+    return await step("fetchUser", () => fetchUser("123"));
   });
 }
 
@@ -1158,7 +1158,7 @@ async function _testContextDefaultsToUnknown() {
   });
 
   await workflow(async (step) => {
-    return await step(fetchUser("123"));
+    return await step("fetchUser", () => fetchUser("123"));
   });
   
   // Test with explicit unknown context type
@@ -1171,7 +1171,7 @@ async function _testContextDefaultsToUnknown() {
   });
 
   await workflowWithUnknown(async (step) => {
-    return await step(fetchUser("123"));
+    return await step("fetchUser", () => fetchUser("123"));
   });
 }
 
@@ -1184,7 +1184,7 @@ async function _testRunContextTypeSafety() {
 
   await run<User, "NOT_FOUND", RequestContext>(
     async (step) => {
-      return await step(fetchUser("123"));
+      return await step("fetchUser", () => fetchUser("123"));
     },
     {
       context: { requestId: "req-123" },
@@ -1217,7 +1217,7 @@ async function _testRunStrictContextTypeSafety() {
 
   await run.strict<User, AppError, RequestContext>(
     async (step) => {
-      return await step(fetchUser("123"));
+      return await step("fetchUser", () => fetchUser("123"));
     },
     {
       context: { requestId: "req-123" },

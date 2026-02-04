@@ -13,9 +13,9 @@ By default, steps execute sequentially. Each step waits for the previous one to 
 
 ```typescript
 const result = await workflow(async (step) => {
-  const user = await step(fetchUser('1'));        // First
-  const posts = await step(fetchPosts(user.id));  // Second (after user)
-  const comments = await step(fetchComments(posts[0].id)); // Third (after posts)
+  const user = await step('fetchUser', () => fetchUser('1'));        // First
+  const posts = await step('fetchPosts', () => fetchPosts(user.id));  // Second (after user)
+  const comments = await step('fetchComments', () => fetchComments(posts[0].id)); // Third (after posts)
 
   return { user, posts, comments };
 });
@@ -40,7 +40,7 @@ Use `allAsync` to run independent operations concurrently:
 import { allAsync } from 'awaitly';
 
 const result = await workflow(async (step) => {
-  const [user, notifications, settings] = await step(() =>
+  const [user, notifications, settings] = await step('fetchUserData', () =>
     allAsync([
       fetchUser('1'),
       fetchNotifications('1'),
@@ -187,10 +187,10 @@ Some operations depend on others. Combine sequential and parallel:
 ```typescript
 const result = await workflow(async (step) => {
   // First: fetch user
-  const user = await step(fetchUser('1'));
+  const user = await step('fetchUser', () => fetchUser('1'));
 
   // Then: fetch user's data in parallel
-  const [posts, friends, settings] = await step(() =>
+  const [posts, friends, settings] = await step('fetchPostsData', () =>
     allAsync([
       fetchPosts(user.id),
       fetchFriends(user.id),
@@ -238,8 +238,9 @@ Add a timeout to parallel operations:
 ```typescript
 const result = await workflow(async (step) => {
   const data = await step.withTimeout(
+    'fetchUserData',
     () => allAsync([fetchUser('1'), fetchPosts('1')]),
-    { ms: 5000, name: 'Fetch user data' }
+    { ms: 5000 }
   );
 
   return data;
@@ -272,13 +273,13 @@ For sequential processing where you need static analysis support (workflow diagr
 await step.forEach('process-payments', payments, {
   stepIdPattern: 'payment-{i}',
   run: async (payment) => {
-    await step(() => processPayment(payment));
+    await step('processPayment', () => processPayment(payment));
   }
 });
 
 // ❌ Dynamic keys - defeats static analysis
 for (const payment of payments) {
-  await step(() => processPayment(payment), { key: `payment-${payment.id}` });
+  await step('processPayment', () => processPayment(payment), { key: `payment-${payment.id}` });
 }
 ```
 
@@ -366,12 +367,12 @@ const result = await notifyUsers(async (step) => {
   const userIds = ['1', '2', '3', '4', '5'];
 
   // Fetch all users in parallel
-  const usersResult = await step(() =>
+  const usersResult = await step('fetchUsers', () =>
     allAsync(userIds.map((id) => fetchUser(id)))
   );
 
   // Send notifications in parallel
-  const notifications = await step(() =>
+  const notifications = await step('fetchNotifications', () =>
     allAsync(
       usersResult.map((user) =>
         sendNotification(user.id, 'Hello!')

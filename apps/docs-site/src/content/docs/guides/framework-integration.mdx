@@ -56,9 +56,9 @@ function CheckoutButton({ cartId }: { cartId: string }) {
   const { status, data, error, run } = useWorkflow(
     { validateCart, processPayment, sendConfirmation },
     async (step) => {
-      const cart = await step(validateCart(cartId));
-      const payment = await step(processPayment(cart.total));
-      await step(sendConfirmation(cart.email, payment.id));
+      const cart = await step('validateCart', () => validateCart(cartId));
+      const payment = await step('processPayment', () => processPayment(cart.total));
+      await step('sendConfirmation', () => sendConfirmation(cart.email, payment.id));
       return { orderId: payment.id };
     }
   );
@@ -151,9 +151,9 @@ export async function checkout(
   });
 
   return await workflow(async (step) => {
-    const cart = await step(validateCart(cartId));
-    const payment = await step(processPayment(cart.total));
-    await step(sendEmail(cart.email, payment.receiptUrl));
+    const cart = await step('validateCart', () => validateCart(cartId));
+    const payment = await step('processPayment', () => processPayment(cart.total));
+    await step('sendEmail', () => sendEmail(cart.email, payment.receiptUrl));
     return { orderId: payment.id };
   });
 }
@@ -214,9 +214,9 @@ export async function POST(request: Request) {
 
   const workflow = createWorkflow({ validateOrder, chargeCard, createOrder });
   const result = await workflow(async (step) => {
-    const validated = await step(validateOrder(body));
-    const charge = await step(chargeCard(validated.amount));
-    const order = await step(createOrder(validated, charge.id));
+    const validated = await step('validateOrder', () => validateOrder(body));
+    const charge = await step('chargeCard', () => chargeCard(validated.amount));
+    const order = await step('createOrder', () => createOrder(validated, charge.id));
     return order;
   });
 
@@ -277,8 +277,8 @@ const app = express();
 app.post('/api/orders', resultHandler(async (req) => {
   const workflow = createWorkflow({ validateOrder, processPayment });
   return await workflow(async (step) => {
-    const order = await step(validateOrder(req.body));
-    const payment = await step(processPayment(order.total));
+    const order = await step('validateOrder', () => validateOrder(req.body));
+    const payment = await step('processPayment', () => processPayment(order.total));
     return { orderId: payment.id };
   });
 }));
@@ -297,9 +297,9 @@ router.post('/users', async (req, res) => {
   const workflow = createWorkflow({ validateUser, createUser, sendWelcome });
 
   const result = await workflow(async (step) => {
-    const validated = await step(validateUser(req.body));
-    const user = await step(createUser(validated));
-    await step(sendWelcome(user.email));
+    const validated = await step('validateUser', () => validateUser(req.body));
+    const user = await step('createUser', () => createUser(validated));
+    await step('sendWelcome', () => sendWelcome(user.email));
     return user;
   });
 
@@ -355,8 +355,8 @@ fastify.post('/orders', async (request, reply) => {
   const result = await request.workflow(
     { validateOrder, processPayment },
     async (step) => {
-      const order = await step(validateOrder(request.body));
-      const payment = await step(processPayment(order.total));
+      const order = await step('validateOrder', () => validateOrder(request.body));
+      const payment = await step('processPayment', () => processPayment(order.total));
       return { orderId: payment.id };
     }
   );
@@ -389,7 +389,7 @@ fastify.post('/orders', {
 }, async (request, reply) => {
   // Body is already validated by Fastify
   const result = await createWorkflow({ processOrder })(async (step) => {
-    return await step(processOrder(request.body));
+    return await step('processOrder', () => processOrder(request.body));
   });
 
   if (result.ok) {
@@ -448,8 +448,8 @@ const workflow = createWorkflow({ fetchUser, logAction });
 
 const result = await workflow(
   async (step, deps, ctx) => {
-    const user = await step(fetchUser(ctx.userId));
-    await step(logAction(ctx.requestId, 'user_fetched'));
+    const user = await step('fetchUser', () => fetchUser(ctx.userId));
+    await step('logAction', () => logAction(ctx.requestId, 'user_fetched'));
     return user;
   },
   {

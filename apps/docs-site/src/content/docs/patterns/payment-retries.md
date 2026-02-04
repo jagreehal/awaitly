@@ -37,18 +37,21 @@ const workflow = createWorkflow({
 const result = await workflow(async (step) => {
   // Validate - can retry safely
   const card = await step(
+    'validateCard',
     () => validateCard(input),
     { key: `validate:${orderId}` }
   );
 
   // CRITICAL: This step must not repeat
   const charge = await step(
+    'chargeProvider',
     () => chargeProvider(card, amount),
     { key: `charge:${idempotencyKey}` }
   );
 
   // Persist - if this fails, we can resume
   await step(
+    'persistResult',
     () => persistResult(charge),
     { key: `persist:${charge.id}` }
   );
@@ -77,16 +80,19 @@ if (snapshot) {
 
   const result = await workflow(async (step) => {
     const card = await step(
+      'validateCard',
       () => validateCard(input),
       { key: `validate:${orderId}` }
     ); // Cache hit
 
     const charge = await step(
+      'chargeProvider',
       () => chargeProvider(card, amount),
       { key: `charge:${idempotencyKey}` }
     ); // Cache hit - returns previous charge
 
     await step(
+      'persistResult',
       () => persistResult(charge),
       { key: `persist:${charge.id}` }
     ); // Runs fresh
@@ -170,15 +176,15 @@ async function handlePayment(orderId: string, cardToken: string, amount: number)
   );
 
   const result = await workflow(async (step) => {
-    const card = await step(() => validateCard(cardToken), {
+    const card = await step('validateCard', () => validateCard(cardToken), {
       key: `validate:${orderId}`,
     });
 
-    const charge = await step(() => chargeProvider(card, amount), {
+    const charge = await step('chargeProvider', () => chargeProvider(card, amount), {
       key: `charge:${idempotencyKey}`,
     });
 
-    await step(() => persistResult(charge), {
+    await step('persistResult', () => persistResult(charge), {
       key: `persist:${charge.id}`,
     });
 

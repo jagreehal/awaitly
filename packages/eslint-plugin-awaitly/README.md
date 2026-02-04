@@ -22,37 +22,53 @@ export default [
 
 ## Rules
 
+### `awaitly/require-step-id` (error)
+
+Requires a string literal as the first argument to `step()`. Use `step('id', fn, options?)` or `step('id', result, options?)`.
+
+```typescript
+// BAD - missing step ID
+step(() => fetchUser('1'));
+step(fetchUser('1'), { key: 'user:1' });
+
+// GOOD - string ID as first argument
+step('fetchUser', () => fetchUser('1'));
+step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
+```
+
+**Note**: All step types take an ID as the first argument: `step.retry(id, operation, options)`, `step.withTimeout(id, operation, options)`, `step.try(id, operation, opts)`, `step.sleep(id, duration, opts?)`, `step.fromResult(id, operation, opts)`.
+
 ### `awaitly/no-immediate-execution` (error)
 
-Prevents `step(fn())` patterns where the function executes immediately instead of being wrapped in a thunk.
+Prevents `step('id', fn())` patterns where the function executes immediately instead of being wrapped in a thunk. The executor is the second argument (after the ID).
 
 ```typescript
 // BAD - executes immediately, defeats caching/retries
-step(fetchUser('1'));
-step(deps.fetchUser('1'), { key: 'user:1' });
+step('fetchUser', fetchUser('1'));
+step('fetchUser', deps.fetchUser('1'), { key: 'user:1' });
 
 // GOOD - thunk lets step control execution
-step(() => fetchUser('1'));
-step(() => deps.fetchUser('1'), { key: 'user:1' });
+step('fetchUser', () => fetchUser('1'));
+step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 ```
 
-**Autofix**: Wraps the call in an arrow function.
+**Autofix**: Wraps the executor in an arrow function (and inserts a suggested ID if missing).
 
 ### `awaitly/require-thunk-for-key` (error)
 
-When using `step()` with a `key` option, the first argument must be a thunk. Without a thunk, the function executes immediately *before* the cache can be checked.
+When using `step()` with a `key` option, the executor (second argument, after the ID) must be a thunk. Without a thunk, the function executes immediately *before* the cache can be checked.
 
 **Important clarification**: The cache IS populated and `step_complete` events ARE emitted with the direct pattern. However, the operation runs regardless of cache state, defeating the purpose of caching.
 
 ```typescript
 // BAD - fetchUser() runs immediately, even if cache has value
-step(fetchUser('1'), { key: 'user:1' });
+step('fetchUser', fetchUser('1'), { key: 'user:1' });
 
 // GOOD - fetchUser() only runs on cache miss
-step(() => fetchUser('1'), { key: 'user:1' });
+step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 ```
 
-**Autofix**: Wraps the call in an arrow function.
+**Autofix**: Wraps the executor in an arrow function (and inserts a suggested ID if missing).
 
 ### `awaitly/stable-cache-keys` (error)
 
@@ -60,11 +76,11 @@ Prevents non-deterministic values like `Date.now()`, `Math.random()`, or `uuid()
 
 ```typescript
 // BAD - new key every time, cache never hits
-step(() => fetch(id), { key: `user:${Date.now()}` });
-step(() => fetch(id), { key: `user:${Math.random()}` });
+step('fetch', () => fetch(id), { key: `user:${Date.now()}` });
+step('fetch', () => fetch(id), { key: `user:${Math.random()}` });
 
 // GOOD - stable key enables caching
-step(() => fetch(id), { key: `user:${userId}` });
+step('fetch', () => fetch(id), { key: `user:${userId}` });
 ```
 
 ### `awaitly/no-options-on-executor` (error)
@@ -89,7 +105,7 @@ The #1 mistake with awaitly is forgetting the thunk:
 
 ```typescript
 // This looks correct but is wrong:
-const user = await step(fetchUser('1'), { key: 'user:1' });
+const user = await step('fetchUser', fetchUser('1'), { key: 'user:1' });
 ```
 
 The function `fetchUser('1')` executes **immediately** when JavaScript evaluates this line. The `step()` function receives the Promise (already started), not a function it can call.
@@ -103,7 +119,7 @@ The function `fetchUser('1')` executes **immediately** when JavaScript evaluates
 The correct pattern:
 
 ```typescript
-const user = await step(() => fetchUser('1'), { key: 'user:1' });
+const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 ```
 
 Now `step()` receives a function it can call **after** checking the cache, and can skip execution entirely on cache hit.

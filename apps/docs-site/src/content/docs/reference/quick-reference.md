@@ -27,6 +27,7 @@ const result = await workflow(async (step) => {
   const charge = await step('chargeCard', () => chargeCard(user.id, 100));
   return { user, charge };
 });
+// First arg = label (literal); optional key = instance (cache/identity)
 // result.error is: 'NOT_FOUND' | 'CARD_DECLINED' | UnexpectedError
 ```
 
@@ -104,8 +105,8 @@ const approvalStep = createApprovalStep({
 
 // Workflow pauses at approval step
 const result = await workflow(async (step) => {
-  const data = await step(() => fetchData());
-  const approval = await step(approvalStep);
+  const data = await step('fetchData', () => fetchData());
+  const approval = await step('approval', approvalStep);
   return finalize(data);
 });
 
@@ -139,8 +140,9 @@ const workflow = createWorkflow(deps);
 const result = await workflow(async (step) => {
   // Retry up to 3 times with exponential backoff
   const data = await step.retry(
+    'fetchApi',
     () => fetchUnreliableAPI(),
-    { maxAttempts: 3, backoff: 'exponential', baseDelay: 100 }
+    { attempts: 3, backoff: 'exponential', delayMs: 100 }
   );
   return data;
 });
@@ -152,8 +154,9 @@ const result = await workflow(async (step) => {
 const result = await workflow(async (step) => {
   // Timeout after 5 seconds
   const data = await step.withTimeout(
+    'slowOp',
     () => slowOperation(),
-    { ms: 5000, name: 'slow-op' }
+    { ms: 5000 }
   );
   return data;
 });
@@ -184,8 +187,8 @@ const controller = new AbortController();
 const workflow = createWorkflow(deps, { signal: controller.signal });
 
 const resultPromise = workflow(async (step) => {
-  const user = await step(() => fetchUser('1'), { key: 'user' });
-  await step(() => sendEmail(user.email), { key: 'email' });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user' });
+  await step('sendEmail', () => sendEmail(user.email), { key: 'email' });
   return user;
 });
 
@@ -256,8 +259,8 @@ harness.script([
 ]);
 
 const result = await harness.run(async (step) => {
-  const user = await step(() => fetchUser('1'));
-  const charge = await step(() => chargeCard(100));
+  const user = await step('fetchUser', () => fetchUser('1'));
+  const charge = await step('chargeCard', () => chargeCard(100));
   return { user, charge };
 });
 

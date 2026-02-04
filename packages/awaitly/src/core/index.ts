@@ -781,59 +781,12 @@ export interface RunStep<E = unknown> {
   ): Promise<T>;
 
   /**
-   * Execute a Result-returning operation (legacy form, ID inferred).
-   *
-   * The step ID is inferred from the function call when possible.
-   * For better static analysis, prefer the explicit ID form: `step('id', () => fn())`.
-   *
-   * @param operation - A function that returns a Result or AsyncResult
-   * @param options - Step options or step name string
-   * @returns The success value (unwrapped)
-   * @throws {EarlyExit} If the result is an error (stops execution safely)
-   *
-   * @example
-   * ```typescript
-   * // ID inferred as "fetchUser" from function call
-   * const user = await step(() => fetchUser(id));
-   *
-   * // Explicit name via options
-   * const user = await step(() => fetchUser(id), { name: 'getUser' });
-   * ```
-   */
-  <T, StepE extends E, StepC = unknown>(
-    operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
-    options?: StepOptions | string
-  ): Promise<T>;
-
-  /**
-   * Execute a Result directly (legacy form, for already-started promises).
-   *
-   * This form is for backward compatibility when passing an already-started Promise.
-   * Note: This form cannot be retried or cached before execution.
-   * For better static analysis, prefer: `step('id', () => fn())`.
-   *
-   * @param result - A Result or Promise<Result> (already started)
-   * @param options - Step options or step name string
-   * @returns The success value (unwrapped)
-   * @throws {EarlyExit} If the result is an error (stops execution safely)
-   *
-   * @example
-   * ```typescript
-   * // Direct form - promise already started
-   * const user = await step(fetchUser(id));
-   * ```
-   */
-  <T, StepE extends E, StepC = unknown>(
-    result: Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
-    options?: StepOptions | string
-  ): Promise<T>;
-
-  /**
    * Execute a standard throwing operation safely.
    * Catches exceptions and maps them to a typed error, or wraps them if no mapper is provided.
    *
    * Use this when integrating with libraries that throw exceptions.
    *
+   * @param id - Unique identifier for this step (required for analysis and caching)
    * @param operation - A function that returns a value or Promise (may throw)
    * @param options - Configuration including error mapping
    * @returns The success value
@@ -842,15 +795,14 @@ export interface RunStep<E = unknown> {
    * @example
    * ```typescript
    * const data = await step.try(
+   *   "db-query",
    *   () => db.query(),
-   *   {
-   *     name: "db-query",
-   *     onError: (e) => ({ type: "DB_ERROR", cause: e })
-   *   }
+   *   { onError: (e) => ({ type: "DB_ERROR", cause: e }) }
    * );
    * ```
    */
   try: <T, const Err extends E>(
+    id: string,
     operation: () => T | Promise<T>,
     options:
       | { error: Err; key?: string; ttl?: number }
@@ -864,6 +816,7 @@ export interface RunStep<E = unknown> {
    * map their typed errors to your workflow's error type. Unlike step.try(),
    * the error passed to onError is typed (not unknown).
    *
+   * @param id - Unique identifier for this step (required for analysis and caching)
    * @param operation - A function that returns a Result or AsyncResult
    * @param options - Configuration including error mapping
    * @returns The success value (unwrapped)
@@ -872,9 +825,9 @@ export interface RunStep<E = unknown> {
    * @example
    * ```typescript
    * const response = await step.fromResult(
+   *   "call-provider",
    *   () => callProvider(input),
    *   {
-   *     key: "call-provider",
    *     onError: (providerError) => ({
    *       type: "PROVIDER_FAILED",
    *       provider: providerError.provider,
@@ -885,6 +838,7 @@ export interface RunStep<E = unknown> {
    * ```
    */
   fromResult: <T, ResultE, const Err extends E>(
+    id: string,
     operation: () => Result<T, ResultE, unknown> | AsyncResult<T, ResultE, unknown>,
     options:
       | { error: Err; key?: string; ttl?: number }
@@ -1020,6 +974,7 @@ export interface RunStep<E = unknown> {
    * Use this for operations that may fail transiently (network issues, rate limits)
    * and benefit from automatic retry with backoff.
    *
+   * @param id - Unique identifier for this step (required for analysis and caching)
    * @param operation - A function that returns a Result or AsyncResult
    * @param options - Retry configuration and optional timeout
    * @returns The success value (unwrapped)
@@ -1028,9 +983,9 @@ export interface RunStep<E = unknown> {
    * @example
    * ```typescript
    * const data = await step.retry(
+   *   "fetch-external",
    *   () => fetchFromExternalApi(id),
    *   {
-   *     name: 'fetch-external',
    *     attempts: 3,
    *     backoff: 'exponential',
    *     initialDelay: 200,
@@ -1043,6 +998,7 @@ export interface RunStep<E = unknown> {
    * ```
    */
   retry: <T, StepE extends E, StepC = unknown>(
+    id: string,
     operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
     options: RetryOptions & { key?: string; timeout?: TimeoutOptions }
   ) => Promise<T>;
@@ -1056,6 +1012,7 @@ export interface RunStep<E = unknown> {
    * When `signal: true` is set, an AbortSignal is passed to your operation,
    * which you can use with APIs like fetch() for proper cancellation.
    *
+   * @param id - Unique identifier for this step (required for analysis and caching)
    * @param operation - A function that returns a Result (may receive AbortSignal)
    * @param options - Timeout configuration
    * @returns The success value (unwrapped)
@@ -1065,18 +1022,21 @@ export interface RunStep<E = unknown> {
    * ```typescript
    * // Without AbortSignal
    * const data = await step.withTimeout(
+   *   "fetch-data",
    *   () => fetchData(id),
-   *   { ms: 5000, key: 'fetch-data' }
+   *   { ms: 5000 }
    * );
    *
    * // With AbortSignal for fetch()
    * const data = await step.withTimeout(
+   *   "fetch-url",
    *   (signal) => fetch(url, { signal }).then(r => ok(r.json())),
-   *   { ms: 5000, signal: true, key: 'fetch-url' }
+   *   { ms: 5000, signal: true }
    * );
    * ```
    */
   withTimeout: <T, StepE extends E, StepC = unknown>(
+    id: string,
     operation:
       | (() => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>)
       | ((signal: AbortSignal) => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>),
@@ -1089,21 +1049,23 @@ export interface RunStep<E = unknown> {
    * Use this for intentional delays between operations (rate limiting,
    * polling intervals, debouncing). Respects workflow cancellation.
    *
+   * @param id - Unique identifier for this step (required for analysis and caching)
    * @param duration - Duration as string ("5s", "100ms") or Duration object
-   * @param options - Optional name, key for caching, ttl, description
+   * @param options - Optional key for per-iteration identity, ttl, description
    * @returns Promise that resolves after the duration
    * @throws {AbortError} If the workflow is cancelled during sleep
    *
    * @example
    * ```typescript
    * // String duration
-   * await step.sleep("5s", { key: "rate-limit-delay" });
+   * await step.sleep("rate-limit-delay", "5s");
    *
    * // Duration object
-   * await step.sleep(seconds(5), { key: "my-sleep" });
+   * await step.sleep("my-sleep", seconds(5));
    * ```
    */
   sleep(
+    id: string,
     duration: DurationInput,
     options?: { key?: string; ttl?: number; description?: string }
   ): Promise<void>;
@@ -2415,85 +2377,47 @@ export async function run<T, E, C = void>(
           },
   });
 
+  // Helper to check if a value is a Result (has ok property) vs a function
+  const isResultLike = (value: unknown): value is Result<unknown, unknown, unknown> | Promise<Result<unknown, unknown, unknown>> => {
+    if (typeof value === 'function') return false;
+    if (value && typeof value === 'object' && 'ok' in value) return true;
+    // Check for Promise<Result> - it will have a then method
+    if (value && typeof value === 'object' && 'then' in value && typeof (value as Promise<unknown>).then === 'function') return true;
+    return false;
+  };
+
   try {
-    // Helper to try to infer step ID from function
-    const inferStepId = (fn: () => unknown): string => {
-      // Try to extract function name from toString()
-      // Patterns like: () => fetchUser(...), async () => fetchUser(...), () => deps.fetchUser(...)
-      const fnStr = fn.toString();
-
-      // Match: () => functionName( or async () => functionName(
-      const directCallMatch = fnStr.match(/(?:async\s*)?\(\)\s*=>\s*(?:await\s+)?([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/);
-      if (directCallMatch) {
-        return directCallMatch[1];
-      }
-
-      // Match: () => deps.functionName( or () => this.functionName(
-      const memberCallMatch = fnStr.match(/(?:async\s*)?\(\)\s*=>\s*(?:await\s+)?(?:deps|this|ctx)\.([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/);
-      if (memberCallMatch) {
-        return memberCallMatch[1];
-      }
-
-      // Fallback to auto-generated sequential ID (step_1, step_2, etc.)
-      return generateStepId();
-    };
-
-    // Step function: supports step('id', fn, opts), step(fn, opts?), and step(result, opts?)
+    // Step function: requires step('id', fn, opts) or step('id', result, opts)
     const stepFn = <T, StepE, StepC = unknown>(
-      idOrOperationOrResult: string | (() => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>) | Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
-      operationOrOptions?: (() => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>) | StepOptions | string,
+      id: string,
+      operationOrResult: (() => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>) | Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
       stepOptions?: StepOptions
     ): Promise<T> => {
       return (async () => {
-        // Detect which form is being used
-        let id: string;
-        let operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>;
-        let parsedOptions: StepOptions;
-
-        if (typeof idOrOperationOrResult === 'string') {
-          // New form: step('id', fn, opts)
-          id = idOrOperationOrResult;
-          operation = operationOrOptions as () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>;
-          parsedOptions = stepOptions ?? {};
-        } else if (typeof idOrOperationOrResult === 'function') {
-          // Legacy function form: step(fn, opts?) — same order as analyzer: explicit id → infer from thunk → fallback (key not used for id)
-          operation = idOrOperationOrResult;
-          // Handle options as string (id) or object
-          if (typeof operationOrOptions === 'string') {
-            id = operationOrOptions;
-            parsedOptions = {};
-          } else if (operationOrOptions && typeof operationOrOptions === 'object' && !('ok' in operationOrOptions)) {
-            parsedOptions = operationOrOptions as StepOptions;
-            id = inferStepId(operation);
-          } else {
-            parsedOptions = {};
-            id = inferStepId(operation);
-          }
-        } else {
-          // Legacy direct form: step(result, opts?) - result is a Promise or Result — key not used for id
-          const directResult = idOrOperationOrResult;
-          operation = () => directResult as Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>;
-          // Handle options as string (id) or object
-          if (typeof operationOrOptions === 'string') {
-            id = operationOrOptions;
-            parsedOptions = {};
-          } else if (operationOrOptions && typeof operationOrOptions === 'object' && !('ok' in operationOrOptions)) {
-            parsedOptions = operationOrOptions as StepOptions;
-            id = 'directStep';
-          } else {
-            parsedOptions = {};
-            id = 'directStep';
-          }
+        // Validate required string ID
+        if (typeof id !== 'string' || id.length === 0) {
+          throw new Error(
+            '[awaitly] step() requires an explicit string ID as the first argument. ' +
+            'Example: step("fetchUser", () => fetchUser(id))'
+          );
         }
+
+        const parsedOptions: StepOptions = stepOptions ?? {};
 
         // Name is always derived from ID
         const stepName = id;
         const stepKey = parsedOptions.key ?? id;  // For general events (step_start, step_success, etc.)
-        const explicitKey = parsedOptions.key;    // For step_complete and caching (only when explicitly keyed)
+        const explicitKey = parsedOptions.key ?? id;  // For step_complete and caching (ID is used when no key)
         const { description: stepDescription, retry: retryConfig, timeout: timeoutConfig } = parsedOptions;
         const stepId = generateStepId(stepKey);
         const hasEventListeners = onEvent;
         const overallStartTime = hasEventListeners ? performance.now() : 0;
+
+        // Determine if this is a direct Result or a function
+        const isDirectResult = isResultLike(operationOrResult);
+        const operation = isDirectResult
+          ? () => operationOrResult as Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>
+          : operationOrResult as () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>;
 
         // Build effective retry config with defaults
         // Ensure at least 1 attempt (0 would skip the loop entirely and crash)
@@ -2904,14 +2828,23 @@ export async function run<T, E, C = void>(
     };
 
     stepFn.try = <T, Err>(
+      id: string,
       operation: () => T | Promise<T>,
       opts:
         | { error: Err; key?: string }
         | { onError: (cause: unknown) => Err; key?: string }
     ): Promise<T> => {
-      const stepKey = opts.key;
-      const stepName = stepKey; // Name is derived from key
-      const stepId = generateStepId(stepKey);
+      // Validate required string ID
+      if (typeof id !== 'string' || id.length === 0) {
+        throw new Error(
+          '[awaitly] step.try() requires an explicit string ID as the first argument. ' +
+          'Example: step.try("parse", () => JSON.parse(str), { error: "PARSE_ERROR" })'
+        );
+      }
+
+      const stepKey = opts.key ?? id; // Use id as key if not provided
+      const stepName = id; // Name is always the id
+      const stepId = id;
       const mapToError = "error" in opts ? () => opts.error : opts.onError;
       const hasEventListeners = onEvent;
 
@@ -2990,14 +2923,23 @@ export async function run<T, E, C = void>(
 
     // step.fromResult: Execute a Result-returning function and map its typed error
     stepFn.fromResult = <T, ResultE, Err>(
+      id: string,
       operation: () => Result<T, ResultE, unknown> | AsyncResult<T, ResultE, unknown>,
       opts:
         | { error: Err; key?: string }
         | { onError: (resultError: ResultE) => Err; key?: string }
     ): Promise<T> => {
-      const stepKey = opts.key;
-      const stepName = stepKey; // Name is derived from key
-      const stepId = generateStepId(stepKey);
+      // Validate required string ID
+      if (typeof id !== 'string' || id.length === 0) {
+        throw new Error(
+          '[awaitly] step.fromResult() requires an explicit string ID as the first argument. ' +
+          'Example: step.fromResult("callProvider", () => callProvider(input), { onError: (e) => ({ type: "FAILED" }) })'
+        );
+      }
+
+      const stepKey = opts.key ?? id; // Use id as key if not provided
+      const stepName = id; // Name is always the id
+      const stepId = id;
       const mapToError = "error" in opts ? () => opts.error : opts.onError;
       const hasEventListeners = onEvent;
 
@@ -3084,14 +3026,22 @@ export async function run<T, E, C = void>(
 
     // step.retry: Execute an operation with retry and optional timeout
     stepFn.retry = <T, StepE, StepC = unknown>(
+      id: string,
       operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
       options: RetryOptions & { key?: string; timeout?: TimeoutOptions }
     ): Promise<T> => {
+      // Validate required string ID
+      if (typeof id !== 'string' || id.length === 0) {
+        throw new Error(
+          '[awaitly] step.retry() requires an explicit string ID as the first argument. ' +
+          'Example: step.retry("fetchData", () => fetchData(), { attempts: 3 })'
+        );
+      }
+
       // Delegate to stepFn with retry options merged into StepOptions
-      // Use key as the step ID
-      const stepId = options.key ?? 'retry';
-      return stepFn(stepId, operation, {
-        key: options.key,
+      // Use key for caching if provided, otherwise use id
+      return stepFn(id, operation, {
+        key: options.key ?? id,
         retry: {
           attempts: options.attempts,
           backoff: options.backoff,
@@ -3107,20 +3057,28 @@ export async function run<T, E, C = void>(
 
     // step.withTimeout: Execute an operation with a timeout
     stepFn.withTimeout = <T, StepE, StepC = unknown>(
+      id: string,
       operation:
         | (() => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>)
         | ((signal: AbortSignal) => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>),
       options: TimeoutOptions & { key?: string }
     ): Promise<T> => {
+      // Validate required string ID
+      if (typeof id !== 'string' || id.length === 0) {
+        throw new Error(
+          '[awaitly] step.withTimeout() requires an explicit string ID as the first argument. ' +
+          'Example: step.withTimeout("slowOp", () => slowOp(), { ms: 5000 })'
+        );
+      }
+
       // Delegate to stepFn with timeout options
       // The signal handling happens in executeWithTimeout when timeout.signal is true
-      // Use key as the step ID
-      const stepId = options.key ?? 'timeout';
+      // Use key for caching if provided, otherwise use id
       return stepFn(
-        stepId,
+        id,
         operation as () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
         {
-          key: options.key,
+          key: options.key ?? id,
           timeout: options,
         }
       );
@@ -3128,9 +3086,18 @@ export async function run<T, E, C = void>(
 
     // step.sleep: Pause execution for a specified duration
     stepFn.sleep = (
+      id: string,
       duration: DurationInput,
       options?: { key?: string; ttl?: number; description?: string; signal?: AbortSignal }
     ): Promise<void> => {
+      // Validate required string ID
+      if (typeof id !== 'string' || id.length === 0) {
+        throw new Error(
+          '[awaitly] step.sleep() requires an explicit string ID as the first argument. ' +
+          'Example: step.sleep("delay", "5s")'
+        );
+      }
+
       // Parse duration - inline to avoid importing duration module
       const d = typeof duration === "string" ? parseDurationString(duration) : duration;
       if (!d) {
@@ -3140,10 +3107,9 @@ export async function run<T, E, C = void>(
       const userSignal = options?.signal;
 
       // Delegate to stepFn with a cancellation-aware sleep operation
-      // Use key as the step ID, fallback to 'sleep'
-      const stepId = options?.key ?? 'sleep';
+      // Use key for caching if provided, otherwise use id
       return stepFn(
-        stepId,
+        id,
         async (): AsyncResult<void, never> => {
           // Check if already aborted (workflow or user signal)
           if (_workflowSignal?.aborted || userSignal?.aborted) {
@@ -3175,7 +3141,7 @@ export async function run<T, E, C = void>(
           });
         },
         {
-          key: options?.key,
+          key: options?.key ?? id,
           description: options?.description,
         }
       );

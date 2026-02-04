@@ -118,11 +118,14 @@ console.log(formatErrorSummary(errorFlow));
 ```typescript
 import { validateStrict, formatDiagnostics } from 'awaitly-analyze';
 
-const result = validateStrict(ir, { treatWarningsAsErrors: true });
+const result = validateStrict(ir, { warningsAsErrors: true });
 if (!result.valid) {
   console.log(formatDiagnostics(result));
 }
 ```
+
+Strict validation checks include:
+- **missing-step-id**: All step types must use an ID as the first argument: `step('id', fn, opts)`, `step.sleep('id', duration, opts?)`, `step.retry('id', operation, opts)`, `step.withTimeout('id', operation, opts)`, `step.try('id', operation, opts)`, `step.fromResult('id', operation, opts)`. Legacy `step(fn, opts)` is parsed (with `stepId: "<missing>"`) but triggers this warning. For `step.sleep`, both id and duration are required; single-argument `step.sleep(duration)` is the old API and is invalid at runtime.
 
 ## Cross-Workflow Analysis
 
@@ -150,7 +153,7 @@ npx awaitly-analyze ./workflow.ts -o
 
 The analysis produces these node types:
 - `workflow` - Root workflow node
-- `step` - Single step execution
+- `step` - Single step execution. Every step type takes an ID as the first argument: `step('id', fn, opts)`, `step.sleep('id', duration, opts?)`, `step.retry('id', operation, opts)`, `step.withTimeout('id', operation, opts)`, `step.try('id', operation, opts)`, `step.fromResult('id', operation, opts)`. Legacy `step(fn, opts)` yields `stepId: "<missing>"` and a warning.
 - `saga-step` - Saga step with compensation
 - `sequence` - Sequential execution
 - `parallel` - Concurrent execution (allAsync)

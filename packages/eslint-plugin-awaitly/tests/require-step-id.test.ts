@@ -1,0 +1,215 @@
+import { describe, it, expect } from 'vitest';
+import { Linter } from 'eslint';
+import plugin from '../src/index.js';
+
+const linter = new Linter({ configType: 'flat' });
+
+const config = [
+  {
+    plugins: {
+      awaitly: plugin,
+    },
+    rules: {
+      'awaitly/require-step-id': 'error',
+    },
+  },
+];
+
+describe('require-step-id', () => {
+  describe('valid cases - step()', () => {
+    it('allows step with string literal id and thunk', () => {
+      const code = `step('fetchUser', () => fetchUser('1'));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows step with string id and options', () => {
+      const code = `step('fetchUser', () => fetchUser('1'), { key: 'user:1' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows step with string id and direct result', () => {
+      const code = `step('create', ok({ id: '1' }));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
+  describe('valid cases - step.sleep()', () => {
+    it('allows step.sleep with string literal id', () => {
+      const code = `step.sleep('delay', '5s');`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows step.sleep with string id and options', () => {
+      const code = `step.sleep('rate-limit', '1s', { key: 'user:123' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
+  describe('valid cases - step.retry()', () => {
+    it('allows step.retry with string literal id', () => {
+      const code = `step.retry('fetchData', () => fetchData(), { attempts: 3 });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
+  describe('valid cases - step.withTimeout()', () => {
+    it('allows step.withTimeout with string literal id', () => {
+      const code = `step.withTimeout('slowOp', () => slowOp(), { ms: 5000 });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
+  describe('valid cases - step.try()', () => {
+    it('allows step.try with string literal id', () => {
+      const code = `step.try('parse', () => JSON.parse(str), { error: 'PARSE_ERROR' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
+  describe('valid cases - step.fromResult()', () => {
+    it('allows step.fromResult with string literal id', () => {
+      const code = `step.fromResult('callProvider', () => callProvider(), { onError: e => ({ type: 'FAILED' }) });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
+  describe('invalid cases - step()', () => {
+    it('reports when step has no arguments', () => {
+      const code = `step();`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+    });
+
+    it('reports when first argument is thunk (missing id)', () => {
+      const code = `step(() => fetchUser('1'));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+    });
+
+    it('reports when first argument is call expression', () => {
+      const code = `step(fetchUser('1'));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+    });
+
+    it('reports when first argument is identifier', () => {
+      const code = `step(myThunk);`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+    });
+
+    it('reports when first argument is template literal with expressions', () => {
+      const code = `step(\`step-\${i}\`, () => fetchUser(i));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+    });
+  });
+
+  describe('invalid cases - step.sleep()', () => {
+    it('reports when step.sleep has no arguments', () => {
+      const code = `step.sleep();`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('step.sleep()');
+    });
+
+    it('reports when step.sleep is missing duration (old API)', () => {
+      const code = `step.sleep('5s');`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('step.sleep()');
+    });
+
+    it('reports when step.sleep first argument is identifier', () => {
+      const code = `step.sleep(delayId, '5s');`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+    });
+  });
+
+  describe('invalid cases - step.retry()', () => {
+    it('reports when step.retry first argument is function (old API)', () => {
+      const code = `step.retry(() => fetchData(), { attempts: 3 });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('step.retry()');
+    });
+
+    it('reports when step.retry first argument is identifier', () => {
+      const code = `step.retry(myId, () => fetchData(), { attempts: 3 });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+    });
+  });
+
+  describe('invalid cases - step.withTimeout()', () => {
+    it('reports when step.withTimeout first argument is function (old API)', () => {
+      const code = `step.withTimeout(() => slowOp(), { ms: 5000 });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('step.withTimeout()');
+    });
+  });
+
+  describe('invalid cases - step.try()', () => {
+    it('reports when step.try first argument is function (old API)', () => {
+      const code = `step.try(() => JSON.parse(str), { error: 'PARSE_ERROR' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('step.try()');
+    });
+  });
+
+  describe('invalid cases - step.fromResult()', () => {
+    it('reports when step.fromResult first argument is function (old API)', () => {
+      const code = `step.fromResult(() => callProvider(), { onError: e => ({ type: 'FAILED' }) });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('step.fromResult()');
+    });
+  });
+
+  describe('supports step aliases', () => {
+    it('works with s alias for step.sleep', () => {
+      const code = `s.sleep(delayId, '5s');`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+    });
+
+    it('allows s alias with valid string literal', () => {
+      const code = `s.sleep('delay', '5s');`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('works with runStep alias', () => {
+      const code = `runStep.retry(() => fetchData(), { attempts: 3 });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+    });
+  });
+});

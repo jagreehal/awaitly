@@ -495,7 +495,7 @@ describe("resource-management", () => {
       const workflow = createWorkflow(deps);
 
       const result = await workflow(async (step, { processWithResources }) => {
-        const data = await step(processWithResources("123"));
+        const data = await step('processWithResources', () => processWithResources("123"));
         return ok(data);
       });
 

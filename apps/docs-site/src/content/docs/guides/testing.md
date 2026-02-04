@@ -89,8 +89,8 @@ describe('checkout workflow', () => {
     });
 
     const result = await harness.run(async (step) => {
-      const order = await step(fetchOrder('123'));
-      const payment = await step(chargeCard(order.total));
+      const order = await step('fetchOrder', () => fetchOrder('123'));
+      const payment = await step('chargeCard', () => chargeCard(order.total));
       return { order, payment };
     });
 
@@ -105,8 +105,8 @@ describe('checkout workflow', () => {
     });
 
     const result = await harness.run(async (step) => {
-      const order = await step(fetchOrder('123'));
-      const payment = await step(chargeCard(order.total));
+      const order = await step('fetchOrder', () => fetchOrder('123'));
+      const payment = await step('chargeCard', () => chargeCard(order.total));
       return { order, payment };
     });
 
@@ -171,8 +171,8 @@ const harness = createWorkflowHarness({
 });
 
 await harness.run(async (step) => {
-  await step(fetchUser('1'));
-  await step(fetchUser('2'));
+  await step('fetchUser', () => fetchUser('1'));
+  await step('fetchUser', () => fetchUser('2'));
 });
 
 // Check calls
@@ -197,7 +197,7 @@ mockFetch
 const harness = createWorkflowHarness({ fetchData: mockFetch });
 
 const result = await harness.run(async (step) => {
-  return await step.retry(() => fetchData(), { attempts: 3 });
+  return await step.retry('fetchData', () => fetchData(), { attempts: 3 });
 });
 
 const value = unwrapOk(result);
@@ -241,7 +241,7 @@ const clock = createTestClock();
 const harness = createWorkflowHarness(mocks, { clock });
 
 await harness.run(async (step) => {
-  const data = await step.withTimeout(() => fetchData(), { ms: 1000 });
+  const data = await step.withTimeout('fetchData', () => fetchData(), { ms: 1000 });
   return data;
 });
 
@@ -298,8 +298,8 @@ describe('refund workflow', () => {
 
   it('calculates and processes refund', async () => {
     const result = await harness.run(async (step) => {
-      const refund = await step(calculateRefund('order-1'));
-      return await step(processRefund(refund));
+      const refund = await step('calculateRefund', () => calculateRefund('order-1'));
+      return await step('processRefund', () => processRefund(refund));
     });
 
     const value = unwrapOk(result);
@@ -312,8 +312,8 @@ describe('refund workflow', () => {
     mockCalculateRefund.returns(errOutcome('ORDER_NOT_FOUND'));
 
     const result = await harness.run(async (step) => {
-      const refund = await step(calculateRefund('order-1'));
-      return await step(processRefund(refund));
+      const refund = await step('calculateRefund', () => calculateRefund('order-1'));
+      return await step('processRefund', () => processRefund(refund));
     });
 
     const error = unwrapErr(result);
@@ -400,8 +400,8 @@ describe('event assertions', () => {
     });
 
     await workflow(async (step) => {
-      const user = await step(() => fetchUser('1'), { name: 'fetch-user' });
-      const posts = await step(() => fetchPosts(user.id), { name: 'fetch-posts' });
+      const user = await step('fetchUser', () => fetchUser('1'), { name: 'fetch-user' });
+      const posts = await step('fetchPosts', () => fetchPosts(user.id), { name: 'fetch-posts' });
       return { user, posts };
     });
 
@@ -426,7 +426,7 @@ describe('event assertions', () => {
     });
 
     await workflow(async (step) => {
-      await step(() => fetchUser('unknown'), { name: 'fetch-user' });
+      await step('fetchUser', () => fetchUser('unknown'), { name: 'fetch-user' });
     });
 
     // Assert error event was emitted
@@ -446,7 +446,7 @@ describe('event assertions', () => {
     });
 
     await workflow(async (step) => {
-      const user = await step(() => fetchUser('1'), { name: 'fetch-user' });
+      const user = await step('fetchUser', () => fetchUser('1'), { name: 'fetch-user' });
       return user;
     });
 
@@ -512,7 +512,7 @@ it('debugs failing workflow', async () => {
   const workflow = createWorkflow(deps, { onEvent: (e) => events.push(e) });
 
   const result = await workflow(async (step) => {
-    const user = await step(() => fetchUser('1'));
+    const user = await step('fetchUser', () => fetchUser('1'));
     return user;
   });
 

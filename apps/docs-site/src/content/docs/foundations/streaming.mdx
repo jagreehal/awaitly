@@ -86,7 +86,7 @@ const result = await workflow(async (step) => {
 const result = await workflow(async (step) => {
   const writer = step.getWritable<string>({ namespace: 'ai-tokens' });
 
-  await step(() => generateAI({
+  await step('generateAI', () => generateAI({
     prompt: 'Explain TypeScript',
     onToken: async (token) => {
       await writer.write(token);
@@ -449,7 +449,7 @@ const producerResult = await workflow(async (step) => {
     namespace: 'ai-output',
   });
 
-  await step(() => generateTokens({
+  await step('generateTokens', () => generateTokens({
     prompt: 'Explain streaming',
     onToken: async (token, score) => {
       await writer.write({ token, score });

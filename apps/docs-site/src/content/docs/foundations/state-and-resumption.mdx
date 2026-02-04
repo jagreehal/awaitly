@@ -22,7 +22,7 @@ const workflow = createWorkflow(deps, {
 
 const result = await workflow(async (step) => {
   // Cached with key 'user:1'
-  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
   return user;
 });
 ```
@@ -50,11 +50,8 @@ Keys must be:
 Pass a function, not the result of calling:
 
 ```typescript
-// Without thunk - executes immediately, caching ignored
-const user = await step(fetchUser('1'), { key: 'user:1' });
-
-// With thunk - can be cached
-const user = await step(() => fetchUser('1'), { key: 'user:1' });
+// With thunk - can be cached (ID required as first argument)
+const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 ```
 
 ### Cache Scope
@@ -67,13 +64,13 @@ const workflow = createWorkflow(deps, { cache });
 
 // First run - fetches user
 await workflow(async (step) => {
-  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
   return user;
 });
 
 // Second run - uses cached value (no fetch)
 await workflow(async (step) => {
-  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
   return user;
 });
 ```
@@ -93,8 +90,8 @@ const workflow = createWorkflow(
 );
 
 await workflow(async (step) => {
-  const user = await step(() => fetchUser('1'), { key: 'user:1' });
-  const posts = await step(() => fetchPosts(user.id), { key: `posts:${user.id}` });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+  const posts = await step('fetchPosts', () => fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
 
@@ -103,7 +100,7 @@ const state = collector.getResumeState();
 ```
 
 <Aside type="note">
-Only steps with `key` are saved. Steps without keys always execute.
+Only steps with `key` are saved. Steps without keys always execute. When you need per-iteration or per-entity identity (e.g. in a loop), use one literal step ID and set `key` to the instance identity; the snapshot and events will key by that.
 </Aside>
 
 ## Saving and Loading Snapshots
@@ -113,7 +110,7 @@ Workflow state is captured as a **WorkflowSnapshot** (JSON-serializable). Use `w
 ```typescript
 const workflow = createWorkflow(deps);
 await workflow(async (step) => {
-  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
   return user;
 });
 
@@ -133,8 +130,8 @@ const workflow = createWorkflow(
 );
 
 await workflow(async (step) => {
-  const user = await step(() => fetchUser('1'), { key: 'user:1' });
-  const posts = await step(() => fetchPosts(user.id), { key: `posts:${user.id}` });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+  const posts = await step('fetchPosts', () => fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
 ```
@@ -159,11 +156,11 @@ const snapshot = await store.load('wf-123');
 const workflow = createWorkflow(deps, { snapshot });
 
 const result = await workflow(async (step) => {
-  const user = await step(() => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 
   await store.save('wf-123', workflow.getSnapshot());
 
-  const posts = await step(() => fetchPosts(user.id), { key: `posts:${user.id}` });
+  const posts = await step('fetchPosts', () => fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
 
@@ -178,8 +175,8 @@ const snapshot = await store.load('wf-123');
 const workflow = createWorkflow(deps, { snapshot });
 
 await workflow(async (step) => {
-  const user = await step(() => fetchUser('1'), { key: 'user:1' });
-  const posts = await step(() => fetchPosts(user.id), { key: `posts:${user.id}` });
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+  const posts = await step('fetchPosts', () => fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
 ```
@@ -238,6 +235,7 @@ Use step keys for idempotent operations:
 const result = await workflow(async (step) => {
   // Payment only processes once, even on retry
   const payment = await step(
+    'processPayment',
     () => processPayment(orderId, amount),
     { key: `payment:${orderId}` }
   );
@@ -260,14 +258,14 @@ Errors are cached by default. If a step fails, subsequent runs return the same e
 ```typescript
 // First run - fetchUser returns err('NOT_FOUND')
 await workflow(async (step) => {
-  const user = await step(() => fetchUser('999'), { key: 'user:999' });
+  const user = await step('fetchUser', () => fetchUser('999'), { key: 'user:999' });
   return user;
 });
 // result.error === 'NOT_FOUND'
 
 // Second run - returns cached error (no fetch)
 await workflow(async (step) => {
-  const user = await step(() => fetchUser('999'), { key: 'user:999' });
+  const user = await step('fetchUser', () => fetchUser('999'), { key: 'user:999' });
   return user;
 });
 // result.error === 'NOT_FOUND' (from cache)

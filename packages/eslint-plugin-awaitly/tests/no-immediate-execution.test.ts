@@ -17,26 +17,26 @@ const config = [
 
 describe('no-immediate-execution', () => {
   describe('valid cases', () => {
-    it('allows thunk with arrow function', () => {
-      const code = `step(() => fetchUser('1'));`;
+    it('allows step with id and thunk (arrow function)', () => {
+      const code = `step('fetchUser', () => fetchUser('1'));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
 
-    it('allows thunk with regular function', () => {
-      const code = `step(function() { return fetchUser('1'); });`;
+    it('allows step with id and regular function', () => {
+      const code = `step('fetchUser', function() { return fetchUser('1'); });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
 
-    it('allows thunk with deps', () => {
-      const code = `step(() => deps.fetchUser('1'));`;
+    it('allows step with id and deps thunk', () => {
+      const code = `step('fetchUser', () => deps.fetchUser('1'));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
 
-    it('allows thunk with key option', () => {
-      const code = `step(() => fetchUser('1'), { key: 'user:1' });`;
+    it('allows step with id, thunk and key option', () => {
+      const code = `step('fetchUser', () => fetchUser('1'), { key: 'user:1' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
@@ -61,7 +61,7 @@ describe('no-immediate-execution', () => {
   });
 
   describe('invalid cases', () => {
-    it('reports immediate execution', () => {
+    it('reports immediate execution (legacy step(fn()))', () => {
       const code = `step(fetchUser('1'));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
@@ -76,8 +76,15 @@ describe('no-immediate-execution', () => {
       expect(messages[0].message).toContain('fetchUser');
     });
 
-    it('reports immediate execution with key option', () => {
-      const code = `step(fetchUser('1'), { key: 'user:1' });`;
+    it('reports immediate execution with id but no thunk', () => {
+      const code = `step('fetchUser', fetchUser('1'));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/no-immediate-execution');
+    });
+
+    it('reports immediate execution with id and key option', () => {
+      const code = `step('fetchUser', fetchUser('1'), { key: 'user:1' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
     });
@@ -96,22 +103,28 @@ describe('no-immediate-execution', () => {
   });
 
   describe('autofix', () => {
-    it('wraps immediate execution in thunk', () => {
+    it('wraps legacy immediate execution in thunk and adds id', () => {
       const code = `step(fetchUser('1'));`;
       const result = linter.verifyAndFix(code, config);
-      expect(result.output).toBe(`step(() => fetchUser('1'));`);
+      expect(result.output).toBe(`step('fetchUser', () => fetchUser('1'));`);
     });
 
-    it('wraps deps call in thunk', () => {
+    it('wraps legacy deps call in thunk and adds id', () => {
       const code = `step(deps.fetchUser('1'));`;
       const result = linter.verifyAndFix(code, config);
-      expect(result.output).toBe(`step(() => deps.fetchUser('1'));`);
+      expect(result.output).toBe(`step('fetchUser', () => deps.fetchUser('1'));`);
     });
 
-    it('wraps call with key option in thunk', () => {
+    it('wraps immediate execution when id present', () => {
+      const code = `step('fetchUser', fetchUser('1'));`;
+      const result = linter.verifyAndFix(code, config);
+      expect(result.output).toBe(`step('fetchUser', () => fetchUser('1'));`);
+    });
+
+    it('wraps call with key option in thunk and adds id', () => {
       const code = `step(fetchUser('1'), { key: 'user:1' });`;
       const result = linter.verifyAndFix(code, config);
-      expect(result.output).toBe(`step(() => fetchUser('1'), { key: 'user:1' });`);
+      expect(result.output).toBe(`step('fetchUser', () => fetchUser('1'), { key: 'user:1' });`);
     });
   });
 });

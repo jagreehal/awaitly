@@ -15,15 +15,15 @@ Errors from `step()` propagate automatically to the workflow result. **Never wra
 // ❌ WRONG - try/catch defeats typed error propagation
 const result = await workflow(async (step) => {
   try {
-    const payment = await step(() => deps.makePayment());
+    const payment = await step('makePayment', () => deps.makePayment());
   } catch (error) {
-    await step(() => deps.handleFailed(error));
+    await step('handleFailed', () => deps.handleFailed(error));
   }
 });
 
 // ✅ CORRECT - errors propagate to workflow result
 const result = await workflow(async (step) => {
-  const payment = await step(() => deps.makePayment());
+  const payment = await step('makePayment', () => deps.makePayment());
   return payment;
 });
 
@@ -74,7 +74,7 @@ const badOperation = async (): AsyncResult<string, 'KNOWN_ERROR'> => {
 
 const workflow = createWorkflow({ badOperation });
 const result = await workflow(async (step) => {
-  return await step(badOperation());
+  return await step('badOperation', () => badOperation());
 });
 
 if (!result.ok && result.error.type === 'UNEXPECTED') {
@@ -176,8 +176,9 @@ Limit how long a step can run:
 
 ```typescript
 const data = await step.withTimeout(
+  'slowOp',
   () => slowOperation(),
-  { ms: 5000, name: 'Slow operation' }
+  { ms: 5000 }
 );
 ```
 
@@ -188,6 +189,7 @@ const data = await step.withTimeout(
 ```typescript
 // Default - return timeout error
 const data = await step.withTimeout(
+  'slowOp',
   () => slowOperation(),
   { ms: 5000, onTimeout: 'error' }
 );
@@ -198,6 +200,7 @@ const data = await step.withTimeout(
 ```typescript
 // Treat timeout as optional - return undefined
 const data = await step.withTimeout(
+  'optionalEnrichment',
   () => optionalEnrichment(),
   { ms: 1000, onTimeout: 'option' }
 );
@@ -208,6 +211,7 @@ const data = await step.withTimeout(
 ```typescript
 // Custom error type
 const data = await step.withTimeout(
+  'apiCall',
   () => apiCall(),
   {
     ms: 5000,
@@ -239,6 +243,7 @@ Retry failed steps with configurable backoff:
 
 ```typescript
 const data = await step.retry(
+  'fetchData',
   () => fetchData(),
   {
     attempts: 3,
@@ -319,6 +324,7 @@ Only retry certain errors:
 
 ```typescript
 const user = await step.retry(
+  'fetchUser',
   () => fetchUser('1'),
   {
     attempts: 3,
@@ -344,7 +350,8 @@ Each attempt has its own timeout:
 
 ```typescript
 const data = await step.retry(
-  () => step.withTimeout(() => fetchData(), { ms: 2000 }),
+  'fetchData',
+  () => step.withTimeout('fetchData', () => fetchData(), { ms: 2000 }),
   { attempts: 3, backoff: 'exponential', delayMs: 100 }
 );
 ```
@@ -363,7 +370,7 @@ Timeline:
 Configure retry and timeout directly in step options:
 
 ```typescript
-const user = await step(() => fetchUser('1'), {
+const user = await step('fetchUser', () => fetchUser('1'), {
   name: 'Fetch user',
   retry: {
     attempts: 3,
@@ -429,9 +436,11 @@ const workflow = createWorkflow({ fetchUserFromApi });
 
 const result = await workflow(async (step) => {
   const user = await step.retry(
+    'fetchUser',
     () => step.withTimeout(
+      'fetchUser',
       () => fetchUserFromApi('123'),
-      { ms: 3000, name: 'Fetch user' }
+      { ms: 3000 }
     ),
     {
       attempts: 3,

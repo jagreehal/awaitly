@@ -46,6 +46,22 @@ function isThunk(node: unknown): boolean {
   return typed.type === 'ArrowFunctionExpression' || typed.type === 'FunctionExpression';
 }
 
+function isStringLiteral(node: unknown): boolean {
+  if (!node || typeof node !== 'object') return false;
+  const typed = node as { type?: string; value?: unknown };
+  return typed.type === 'Literal' && typeof typed.value === 'string';
+}
+
+function getCalleeName(node: CallExpression): string {
+  const { callee } = node;
+  if (callee.type === 'Identifier') return callee.name;
+  if (callee.type === 'MemberExpression') {
+    const { property } = callee;
+    if (property.type === 'Identifier') return property.name;
+  }
+  return 'step';
+}
+
 function getRootIdentifier(node: MemberExpression): Identifier | null {
   let current: Node = node.object;
   while (current.type === 'MemberExpression') {
@@ -209,7 +225,7 @@ const rule: Rule.RuleModule = {
     schema: [],
     messages: {
       requireThunkForKey:
-        "When using step() with a 'key' option, wrap the operation in a thunk: step(() => fn(), { key }). Without a thunk, the function executes immediately before step() checks the cache. The cache will still be populated and step_complete events will fire, but the operation runs regardless of cache state.",
+        "When using step() with a 'key' option, the executor (second argument) must be a thunk: step('id', () => fn(), { key }). Without a thunk, the function executes immediately before step() checks the cache. The cache will still be populated and step_complete events will fire, but the operation runs regardless of cache state.",
     },
   },
 
@@ -304,14 +320,15 @@ const rule: Rule.RuleModule = {
         if (!hasKeyOption(node)) return;
 
         // Determine which argument is the executor based on API pattern
-        // New API: step('name', executor, options) - first arg is string literal
-        // Old API: step(executor, options) - first arg is the executor
-        let executorArg = node.arguments[0];
+        // step('id', executor, options?) - first arg is string literal, executor is second
+        // Legacy: step(executor, options) - first arg is the executor
+        const args = node.arguments;
+        let executorArg = args[0];
         if (!executorArg) return;
 
-        // If first argument is a string literal, the executor is the second argument
-        if (executorArg.type === 'Literal' && typeof (executorArg as { value: unknown }).value === 'string') {
-          executorArg = node.arguments[1];
+        const hasExplicitId = isStringLiteral(args[0]);
+        if (hasExplicitId) {
+          executorArg = args[1];
           if (!executorArg) return;
         }
 
@@ -329,7 +346,12 @@ const rule: Rule.RuleModule = {
             fix(fixer) {
               const sourceCode = context.sourceCode;
               const argText = sourceCode.getText(firstArg);
-              return fixer.replaceText(firstArg, `() => ${argText}`);
+              if (hasExplicitId) {
+                return fixer.replaceText(firstArg, `() => ${argText}`);
+              }
+              const suggestedId = getCalleeName(firstArg as CallExpression);
+              const restArgs = args.length > 1 ? `, ${args.slice(1).map((a) => sourceCode.getText(a)).join(', ')}` : '';
+              return fixer.replaceText(node, `step('${suggestedId}', () => ${argText}${restArgs})`);
             },
           });
           return;
@@ -339,8 +361,6 @@ const rule: Rule.RuleModule = {
         if (firstArg.type === 'Identifier') {
           const ident = firstArg as Identifier;
           if (isPrecomputedReference(ident)) {
-            // Even if precomputed, allow if the identifier name looks like a function
-            // This handles destructured function references: const { fetchUser } = getDeps();
             if (!isFunctionPropertyName(ident.name)) {
               context.report({
                 node: firstArg,
@@ -348,12 +368,13 @@ const rule: Rule.RuleModule = {
                 fix(fixer) {
                   const sourceCode = context.sourceCode;
                   const argText = sourceCode.getText(firstArg);
-                  return fixer.replaceText(firstArg, `() => ${argText}`);
+                  if (hasExplicitId) return fixer.replaceText(firstArg, `() => ${argText}`);
+                  const restArgs = args.length > 1 ? `, ${args.slice(1).map((a) => sourceCode.getText(a)).join(', ')}` : '';
+                  return fixer.replaceText(node, `step('step', () => ${argText}${restArgs})`);
                 },
               });
             }
           }
-          // If not precomputed, assume it's a function reference (valid thunk)
           return;
         }
 
@@ -372,7 +393,9 @@ const rule: Rule.RuleModule = {
               fix(fixer) {
                 const sourceCode = context.sourceCode;
                 const argText = sourceCode.getText(firstArg);
-                return fixer.replaceText(firstArg, `() => ${argText}`);
+                if (hasExplicitId) return fixer.replaceText(firstArg, `() => ${argText}`);
+                const restArgs = args.length > 2 ? `, ${args.slice(2).map((a) => sourceCode.getText(a)).join(', ')}` : '';
+                return fixer.replaceText(node, `step('step', () => ${argText}${restArgs})`);
               },
             });
             return;
@@ -398,7 +421,9 @@ const rule: Rule.RuleModule = {
                 fix(fixer) {
                   const sourceCode = context.sourceCode;
                   const argText = sourceCode.getText(firstArg);
-                  return fixer.replaceText(firstArg, `() => ${argText}`);
+                  if (hasExplicitId) return fixer.replaceText(firstArg, `() => ${argText}`);
+                  const restArgs = args.length > 1 ? `, ${args.slice(1).map((a) => sourceCode.getText(a)).join(', ')}` : '';
+                  return fixer.replaceText(node, `step('step', () => ${argText}${restArgs})`);
                 },
               });
             }
@@ -413,7 +438,9 @@ const rule: Rule.RuleModule = {
           fix(fixer) {
             const sourceCode = context.sourceCode;
             const argText = sourceCode.getText(firstArg);
-            return fixer.replaceText(firstArg, `() => ${argText}`);
+            if (hasExplicitId) return fixer.replaceText(firstArg, `() => ${argText}`);
+            const restArgs = args.length > 1 ? `, ${args.slice(1).map((a) => sourceCode.getText(a)).join(', ')}` : '';
+            return fixer.replaceText(node, `step('step', () => ${argText}${restArgs})`);
           },
         });
       },

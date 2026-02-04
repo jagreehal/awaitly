@@ -64,9 +64,9 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser, createOrder, sendEmail },
         async (step, { fetchUser, createOrder, sendEmail }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
-          const order = await step(() => createOrder(user.id), { key: "create-order" });
-          await step(() => sendEmail(order.orderId), { key: "send-email" });
+          const user = await step("fetch-user", () => fetchUser("123"));
+          const order = await step("create-order", () => createOrder(user.id));
+          await step("send-email", () => sendEmail(order.orderId));
           return order;
         },
         {
@@ -89,9 +89,9 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser, createOrder, sendEmail },
         async (step, { fetchUser, createOrder, sendEmail }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
-          const order = await step(() => createOrder(user.id), { key: "create-order" });
-          await step(() => sendEmail(order.orderId), { key: "send-email" });
+          const user = await step("fetch-user", () => fetchUser("123"));
+          const order = await step("create-order", () => createOrder(user.id));
+          await step("send-email", () => sendEmail(order.orderId));
           return order;
         },
         { id: "no-store-test" }
@@ -118,8 +118,8 @@ describe("Durable Execution", () => {
       const result1 = await durable.run(
         { stepWithSideEffect, failingStep },
         async (step, { stepWithSideEffect, failingStep }) => {
-          const value = await step(() => stepWithSideEffect(), { key: "side-effect-step" });
-          await step(() => failingStep(), { key: "fail-step" });
+          const value = await step("side-effect-step", () => stepWithSideEffect());
+          await step("fail-step", () => failingStep());
           return value;
         },
         { id }
@@ -131,8 +131,8 @@ describe("Durable Execution", () => {
       const result2 = await durable.run(
         { stepWithSideEffect, failingStep },
         async (step, { stepWithSideEffect, failingStep }) => {
-          const value = await step(() => stepWithSideEffect(), { key: "side-effect-step" });
-          await step(() => failingStep(), { key: "fail-step" });
+          const value = await step("side-effect-step", () => stepWithSideEffect());
+          await step("fail-step", () => failingStep());
           return value;
         },
         { id }
@@ -149,8 +149,8 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser, createOrder },
         async (step, { fetchUser, createOrder }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
-          const order = await step(() => createOrder(user.id), { key: "create-order" });
+          const user = await step("fetch-user", () => fetchUser("123"));
+          const order = await step("create-order", () => createOrder(user.id));
           return order;
         },
         {
@@ -173,9 +173,9 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser, createOrder },
         async (step, { fetchUser, createOrder }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          const user = await step("fetch-user", () => fetchUser("123"));
           // This will fail
-          await step(() => createOrder("fail"), { key: "create-order" });
+          await step("create-order", () => createOrder("fail"));
           return user;
         },
         {
@@ -210,8 +210,8 @@ describe("Durable Execution", () => {
       const result1 = await durable.run(
         { step1Op, step2Op },
         async (step, { step1Op, step2Op }) => {
-          const r1 = await step(() => step1Op(), { key: "step-1" });
-          const r2 = await step(() => step2Op(), { key: "step-2" });
+          const r1 = await step("step-1", () => step1Op());
+          const r2 = await step("step-2", () => step2Op());
           return { r1, r2 };
         },
         {
@@ -246,8 +246,8 @@ describe("Durable Execution", () => {
       const result2 = await durable.run(
         { step1Op, step2Op },
         async (step, { step1Op, step2Op }) => {
-          const r1 = await step(() => step1Op(), { key: "step-1" });
-          const r2 = await step(() => step2Op(), { key: "step-2" });
+          const r1 = await step("step-1", () => step1Op());
+          const r2 = await step("step-2", () => step2Op());
           return { r1, r2 };
         },
         {
@@ -285,8 +285,8 @@ describe("Durable Execution", () => {
       const run1 = await durable.run(
         { firstStep, secondStep },
         async (step, { firstStep, secondStep }) => {
-          await step(() => firstStep(), { key: "step-1" });
-          await step(() => secondStep(), { key: "step-2" });
+          await step("step-1", () => firstStep());
+          await step("step-2", () => secondStep());
           return "done";
         },
         { id, store }
@@ -303,8 +303,8 @@ describe("Durable Execution", () => {
       const run2 = await durable.run(
         { firstStep, secondStep },
         async (step, { firstStep, secondStep }) => {
-          await step(() => firstStep(), { key: "step-1" });
-          await step(() => secondStep(), { key: "step-2" });
+          await step("step-1", () => firstStep());
+          await step("step-2", () => secondStep());
           return "done";
         },
         { id, store }
@@ -332,7 +332,7 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser },
         async (step, { fetchUser }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
         {
@@ -363,7 +363,7 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser },
         async (step, { fetchUser }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
         {
@@ -406,7 +406,7 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser },
         async (step, { fetchUser }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
         {
@@ -443,7 +443,7 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser },
         async (step, { fetchUser }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
         {
@@ -476,7 +476,7 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser },
         async (step, { fetchUser }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
         {
@@ -497,7 +497,7 @@ describe("Durable Execution", () => {
 
       const result = await durable.run(
         { fetchUser },
-        async (step) => step(() => fetchUser("1"), { key: "u" }),
+        async (step) => step("u", () => fetchUser("1")),
         { id: "test-throw", store, version: 2, onVersionMismatch: () => "throw" }
       );
 
@@ -516,7 +516,7 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser },
         async (step, { fetchUser }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
         {
@@ -552,7 +552,7 @@ describe("Durable Execution", () => {
       const first = durable.run(
         { slowFetch },
         async (step, { slowFetch }) => {
-          return await step(() => slowFetch("123"), { key: "slow" });
+          return await step("slow", () => slowFetch("123"));
         },
         {
           id: "test-concurrent",
@@ -567,7 +567,7 @@ describe("Durable Execution", () => {
       const second = await durable.run(
         { slowFetch },
         async (step, { slowFetch }) => {
-          return await step(() => slowFetch("456"), { key: "slow" });
+          return await step("slow", () => slowFetch("456"));
         },
         {
           id: "test-concurrent",
@@ -606,7 +606,7 @@ describe("Durable Execution", () => {
         durable.run(
           { trackFetch },
           async (step, { trackFetch }) => {
-            return await step(() => trackFetch("1"), { key: "track" });
+            return await step("track", () => trackFetch("1"));
           },
           {
             id: "test-allow-concurrent",
@@ -617,7 +617,7 @@ describe("Durable Execution", () => {
         durable.run(
           { trackFetch },
           async (step, { trackFetch }) => {
-            return await step(() => trackFetch("2"), { key: "track" });
+            return await step("track", () => trackFetch("2"));
           },
           {
             id: "test-allow-concurrent",
@@ -649,7 +649,7 @@ describe("Durable Execution", () => {
         durable.run(
           { fetchUser },
           async (step, { fetchUser }) => {
-            const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+            const user = await step("fetch-user", () => fetchUser("123"));
             return user;
           },
           {
@@ -681,7 +681,7 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser },
         async (step, { fetchUser }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
         { id: "lock-error", store }
@@ -708,8 +708,8 @@ describe("Durable Execution", () => {
       const resultPromise = durable.run(
         { slowOp },
         async (step, { slowOp }) => {
-          const first = await step(() => slowOp("1"), { key: "step-1" });
-          const second = await step(() => slowOp("2"), { key: "step-2" });
+          const first = await step("step-1", () => slowOp("1"));
+          const second = await step("step-2", () => slowOp("2"));
           return { first, second };
         },
         {
@@ -758,7 +758,7 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser },
         async (step, { fetchUser }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
         { id: "invalid-snapshot", store }
@@ -785,7 +785,7 @@ describe("Durable Execution", () => {
         durable.run(
           { fetchUser },
           async (step, { fetchUser }) => {
-            const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+            const user = await step("fetch-user", () => fetchUser("123"));
             return user;
           },
           {
@@ -812,7 +812,7 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser },
         async (step, { fetchUser }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
         {
@@ -838,7 +838,7 @@ describe("Durable Execution", () => {
         durable.run(
           { fetchUser },
           async (step, { fetchUser }) => {
-            const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+            const user = await step("fetch-user", () => fetchUser("123"));
             return user;
           },
           {
@@ -863,7 +863,7 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser },
         async (step, { fetchUser }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
         {
@@ -902,8 +902,8 @@ describe("Durable Execution", () => {
           failStep: async (): AsyncResult<never, "FAIL"> => err("FAIL"),
         },
         async (step, { okStep, failStep }) => {
-          await step(() => okStep(), { key: "lossy:1" });
-          await step(() => failStep(), { key: "fail:1" });
+          await step("lossy:1", () => okStep());
+          await step("fail:1", () => failStep());
           return 0;
         },
         { id: "warn-clear", store }
@@ -927,7 +927,7 @@ describe("Durable Execution", () => {
       await durable.run(
         { fetchUser },
         async (step, { fetchUser }) => {
-          await step(() => fetchUser("unknown"), { key: "fetch" });
+          await step("fetch", () => fetchUser("unknown"));
           return null;
         },
         {
@@ -947,7 +947,7 @@ describe("Durable Execution", () => {
       await durable.run(
         { fetchUser },
         async (step, { fetchUser }) => {
-          await step(() => fetchUser("unknown"), { key: "fetch" });
+          await step("fetch", () => fetchUser("unknown"));
           return null;
         },
         {
@@ -1041,7 +1041,7 @@ describe("Durable Execution", () => {
         await durable.run(
           { fetchUser },
           async (step, { fetchUser }) => {
-            await step(() => fetchUser("unknown"), { key: "fetch" });
+            await step("fetch", () => fetchUser("unknown"));
             return null;
           },
           {
@@ -1109,13 +1109,13 @@ describe("Durable Execution", () => {
         { fetchUser },
         async (step, { fetchUser }) => {
           await delay(50);
-          return step(() => fetchUser("1"), { key: "u" });
+          return step("u", () => fetchUser("1"));
         },
         { id, store }
       );
       const second = durable.run(
         { fetchUser },
-        async (step) => step(() => fetchUser("2"), { key: "u2" }),
+        async (step) => step("u2", () => fetchUser("2")),
         { id, store }
       );
       const secondResult = await second;
@@ -1138,7 +1138,7 @@ describe("Durable Execution", () => {
       const result = await durable.run(
         { fetchUser },
         async (step, { fetchUser }) => {
-          const user = await step(() => fetchUser("123"), { key: "fetch-user" });
+          const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
         {

@@ -9,7 +9,7 @@ Workflow-level and step-level `description` and `markdown` are the **supported w
 - **Generated diagrams and docs** — Mermaid diagrams and doc generators can use them for labels and content.
 - **Future tooling** — IDE tooltips or other tooling may surface them.
 
-**Step names:** Awaitly uses the same resolution order in static analysis and at runtime: (1) explicit id from `step('name', fn, opts)`, (2) infer from the thunk (the function called inside it, e.g. `fetchUser` or `deps.fetchUser`), (3) fallback (`step_1`, `step_2`, … when inference fails). So `step('fetchUser', () => fetchUser('1'))` and `step(() => fetchUser('1'))` often yield the same step id in events, caching, and generated docs. Prefer **`step('name', fn, opts)`** when you need a stable id (e.g. after minification or for a specific display name).
+**Step names:** Step IDs are required. Use **`step('id', fn, opts)`**; the string literal first argument is the step ID used in diagrams, events, caching, and generated docs.
 
 JSDoc comments above workflow or step declarations are **also** extracted by the analyzer and exposed as `jsdocDescription` on the root and step nodes. Option-based `description` and `markdown` remain the canonical fields for display; use them for curated docs and `jsdocDescription` as a fallback (e.g. `description ?? jsdocDescription`). Only the main description (text before the first `@tag`) is extracted; `@param` / `@returns` are not parsed into separate fields.
 
@@ -46,7 +46,7 @@ await step('getUser', () => deps.fetchUser(id), {
 });
 
 // step.sleep
-await step.sleep('5s', {
+await step.sleep('wait', '5s', {
   description: 'Wait for processing',
   markdown: 'Pauses execution before the next step.',
 });

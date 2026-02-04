@@ -1737,7 +1737,7 @@ async function run() {
 
         async function run() {
           return await workflow(async (step, deps) => {
-            await step.sleep("5s");
+            await step.sleep("delay", "5s");
           });
         }
       `;
@@ -1754,7 +1754,7 @@ async function run() {
 
         async function run() {
           return await workflow(async (step, deps) => {
-            await step.sleep("30m", { key: "wait", description: "Wait for processing" });
+            await step.sleep("wait", "30m", { key: "wait", description: "Wait for processing" });
           });
         }
       `;
@@ -1839,13 +1839,14 @@ async function run() {
   });
 
   describe("step.retry() and step.withTimeout() Analysis", () => {
-    it("should parse step.retry() with operation-first signature", () => {
+    it("should parse step.retry() with id-first signature", () => {
       const source = `
         const workflow = createWorkflow({});
 
         async function run() {
           return await workflow(async (step, deps) => {
             const result = await step.retry(
+              'fetch',
               () => deps.fetchData(),
               { key: 'fetch', attempts: 5, backoff: 'linear' }
             );
@@ -1870,13 +1871,14 @@ async function run() {
       expect(stepNode?.retry?.backoff).toBe("linear");
     });
 
-    it("should parse step.withTimeout() with operation-first signature", () => {
+    it("should parse step.withTimeout() with id-first signature", () => {
       const source = `
         const workflow = createWorkflow({});
 
         async function run() {
           return await workflow(async (step, deps) => {
             const result = await step.withTimeout(
+              'fetch',
               () => deps.fetchData(),
               { key: 'fetch', ms: 3000 }
             );
@@ -2191,13 +2193,40 @@ async function run() {
   });
 
   describe("step.sleep() Additional Tests", () => {
+    it("uses the first argument as the step ID and name", () => {
+      const source = `
+        const workflow = createWorkflow({});
+
+        async function run() {
+          return await workflow(async (step, deps) => {
+            await step.sleep("delay", "100ms");
+            return "done";
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const root = results[0]?.root;
+      const children = root?.children || [];
+
+      let sleepStep: StaticStepNode | undefined;
+      if (children[0]?.type === "sequence") {
+        sleepStep = (children[0] as StaticSequenceNode).children[0] as StaticStepNode;
+      } else if (children[0]?.type === "step") {
+        sleepStep = children[0] as StaticStepNode;
+      }
+
+      expect(sleepStep?.stepId).toBe("delay");
+      expect(sleepStep?.name).toBe("delay");
+    });
+
     it("should detect step.sleep without options", () => {
       const source = `
         const workflow = createWorkflow({});
 
         async function run() {
           return await workflow(async (step, deps) => {
-            await step.sleep("100ms");
+            await step.sleep("delay", "100ms");
             return "done";
           });
         }
@@ -2216,7 +2245,8 @@ async function run() {
 
       expect(sleepStep?.type).toBe("step");
       expect(sleepStep?.callee).toBe("step.sleep");
-      expect(sleepStep?.name).toBe("sleep 100ms");
+      expect(sleepStep?.stepId).toBe("delay");
+      expect(sleepStep?.name).toBe("delay");
     });
 
     it("should count step.sleep in totalSteps stat", () => {
@@ -2225,9 +2255,9 @@ async function run() {
 
         async function run() {
           return await workflow(async (step, deps) => {
-            await step(() => doFirst());
-            await step.sleep("1s");
-            await step(() => doSecond());
+            await step('doFirst', () => doFirst());
+            await step.sleep("delay", "1s");
+            await step('doSecond', () => doSecond());
             return "done";
           });
         }
@@ -2601,7 +2631,7 @@ async function run() {
 
         async function run() {
           return await workflow(async (step, deps) => {
-            await step.sleep({ seconds: 30 });
+            await step.sleep("wait", { seconds: 30 });
           });
         }
       `;
@@ -2617,7 +2647,7 @@ async function run() {
 
         async function run() {
           return await workflow(async (step, deps) => {
-            await step.sleep('5s');
+            await step.sleep('delay', '5s');
           });
         }
       `;
@@ -2633,9 +2663,9 @@ async function run() {
 
         async function run() {
           return await workflow(async (step, deps) => {
-            await step(() => deps.fetchData(), { key: 'data' });
-            await step.sleep('1s');
-            await step(() => deps.sendData(), { key: 'send' });
+            await step('fetchData', () => deps.fetchData(), { key: 'data' });
+            await step.sleep('delay', '1s');
+            await step('sendData', () => deps.sendData(), { key: 'send' });
           });
         }
       `;
@@ -2898,6 +2928,7 @@ async function run() {
         async function run() {
           return await workflow(async (step, deps) => {
             const data = await step.retry(
+              'fetchData',
               () => deps.fetchData(),
               { attempts: 3 }
             );
@@ -2919,6 +2950,7 @@ async function run() {
         async function run() {
           return await workflow(async (step, deps) => {
             const data = await step.withTimeout(
+              'fetchData',
               () => deps.fetchData(),
               { ms: 5000 }
             );
@@ -3209,7 +3241,7 @@ async function run() {
 
         async function run() {
           return await workflow(async (step, deps) => {
-            await step.sleep('5s', { description: 'Wait for processing' });
+            await step.sleep('wait', '5s', { description: 'Wait for processing' });
           });
         }
       `;
@@ -3235,7 +3267,7 @@ async function run() {
 
         async function run() {
           return await workflow(async (step, deps) => {
-            await step.sleep('5s', {
+            await step.sleep('wait', '5s', {
               description: 'Wait for processing',
               markdown: '## Wait step\\n\\nPauses workflow execution.'
             });
