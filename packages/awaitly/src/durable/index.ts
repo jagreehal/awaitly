@@ -576,11 +576,10 @@ export const durable = {
       };
 
       // Reference to the workflow instance (populated after creation)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let workflowInstance: Workflow<any, any, C> | null = null;
+      let workflowInstance: Workflow<E, UnexpectedError, Deps, C> | null = null;
 
-      // Build workflow options with proper types
-      const workflowOptions: WorkflowOptions<E, C> = {
+      // Build workflow options with proper types (U = UnexpectedError by default)
+      const workflowOptions: WorkflowOptions<E, UnexpectedError, C> = {
         // Restore from existing snapshot
         snapshot: existingSnapshot,
 
@@ -617,9 +616,9 @@ export const durable = {
                 workflowId: wfId,
                 stepKey,
                 ts: Date.now(),
-                context: ctx,
+                context: ctx as C,
               },
-              ctx
+              ctx as C
             );
           } catch (persistError) {
             // Emit error event but continue workflow (per Temporal/Cloudflare pattern)
@@ -630,29 +629,26 @@ export const durable = {
                 stepKey,
                 error: persistError,
                 ts: Date.now(),
-                context: ctx,
+                context: ctx as C,
               },
-              ctx
+              ctx as C
             );
           }
         },
 
         // Forward events
         onEvent: (event, ctx) => {
-          // WorkflowEvent<E | UnexpectedError, C> is a subset of DurableWorkflowEvent<E, C>
-          emitDurableEvent(event, ctx);
+          emitDurableEvent(event as DurableWorkflowEvent<E, C>, ctx as C);
         },
 
-        onError,
+        onError: onError as (error: E | UnexpectedError, stepName?: string, ctx?: C) => void,
         signal,
         createContext,
       };
 
-      // Create workflow instance
-      // Note: createWorkflow<Deps, C> explicitly passes C to ensure context type flows through
-      // Wrap in try-catch to handle invalid/corrupt snapshots from the store
+      // Create workflow instance (U = UnexpectedError by default)
       try {
-        workflowInstance = createWorkflow<Deps, C>(deps, workflowOptions);
+        workflowInstance = createWorkflow<Deps, UnexpectedError, C>(deps, workflowOptions);
       } catch (createError) {
         if (createError instanceof SnapshotFormatError) {
           const error: PersistenceError = {
@@ -668,7 +664,7 @@ export const durable = {
       }
 
       // Execute workflow
-      const result = await workflowInstance(fn);
+      const result = await workflowInstance!(fn);
 
       // On success: clean up stored state
       if (result.ok) {

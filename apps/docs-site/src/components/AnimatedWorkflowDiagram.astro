@@ -1,0 +1,189 @@
+---
+interface Props {
+  steps: {
+    id: string;
+    label: string;
+    description?: string;
+    duration: string;
+  }[];
+  autoPlay?: boolean;
+  loop?: boolean;
+}
+
+const { steps, autoPlay = true, loop = true } = Astro.props;
+---
+
+<animated-workflow-diagram
+  data-steps={JSON.stringify(steps)}
+  data-autoplay={autoPlay}
+  data-loop={loop}
+  class="relative w-full"
+>
+  <div class="diagram-container relative mx-auto w-full max-w-[400px] p-0"></div>
+</animated-workflow-diagram>
+
+<script>
+  const STATUS_ICONS = {
+    completed: `<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" class="size-3"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span>Step</span>`,
+    running: `<svg class="size-3 animate-spin motion-reduce:animate-none" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg><span>Step</span>`,
+    pending: `<svg fill="currentColor" viewBox="0 0 20 20" class="size-3"><circle cx="10" cy="10" r="3"/></svg><span>Step</span>`,
+  };
+
+  const LINE_CLASS = "absolute left-1/2 -translate-x-1/2 w-0.5 z-0 bg-neutral-300 dark:bg-neutral-700";
+  const NODE_CLASS = "relative flex justify-center mb-3 last:mb-0 workflow-node";
+  const CARD_BASE = "flex items-center gap-2 rounded-lg border w-[280px] px-2 py-2 bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-700 workflow-node-card";
+  const CARD_ACTIVE_CLASSES = ["border-neutral-400", "dark:border-neutral-500"];
+  const BADGE_BASE = "inline-flex items-center gap-1 rounded py-0.5 px-1.5 text-[0.6875rem] font-medium bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 step-badge";
+  const BADGE_ACTIVE_CLASSES = ["bg-neutral-200", "dark:bg-neutral-700", "text-neutral-700", "dark:text-neutral-300"];
+  const STEP_INFO = "flex flex-col gap-0.5 flex-1 min-w-0 mt-0 step-info";
+  const STEP_NAME = "text-xs font-mono font-medium text-neutral-900 dark:text-neutral-100 step-name";
+  const STEP_DESC = "text-[0.625rem] text-neutral-500 dark:text-neutral-400 step-description";
+  const START_END_NODE = "relative flex justify-center mb-3 last:mb-0 start-end-node";
+  /* START and END use the same div + class so they render identical size (button has browser default sizing) */
+  const START_END_BTN = "start-end-btn inline-block rounded-full py-1.5 px-4 text-[0.6875rem] font-semibold uppercase tracking-wide cursor-default bg-neutral-900 dark:bg-neutral-700 text-white select-none";
+
+  class AnimatedWorkflowDiagram extends HTMLElement {
+    diagramContainer;
+    steps = [];
+    loop = false;
+    currentStepIndex = -1;
+    isPlaying = false;
+
+    connectedCallback() {
+      this.diagramContainer = this.querySelector(".diagram-container");
+      this.steps = JSON.parse(this.dataset.steps || "[]");
+      this.loop = this.dataset.loop === "true";
+
+      this.renderDiagram();
+      if (this.dataset.autoplay === "true") {
+        setTimeout(() => this.play(), 500);
+      }
+    }
+
+    renderDiagram() {
+      const line = document.createElement("div");
+      line.className = LINE_CLASS;
+      this.diagramContainer.appendChild(line);
+
+      const startNode = document.createElement("div");
+      startNode.className = START_END_NODE;
+      const startBtn = document.createElement("div");
+      startBtn.className = START_END_BTN;
+      startBtn.setAttribute("role", "button");
+      startBtn.setAttribute("tabindex", "0");
+      startBtn.textContent = "START";
+      startBtn.onclick = () => !this.isPlaying && this.play();
+      startBtn.onkeydown = (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          if (!this.isPlaying) this.play();
+        }
+      };
+      startNode.appendChild(startBtn);
+      this.diagramContainer.appendChild(startNode);
+
+      this.steps.forEach((step) => {
+        const stepNode = document.createElement("div");
+        stepNode.className = `${NODE_CLASS} pending node-${step.id}`;
+
+        const card = document.createElement("div");
+        card.className = CARD_BASE;
+
+        const badge = document.createElement("div");
+        badge.className = BADGE_BASE;
+        badge.innerHTML = STATUS_ICONS.pending;
+
+        const stepInfo = document.createElement("div");
+        stepInfo.className = STEP_INFO;
+        stepInfo.innerHTML = `<span class="${STEP_NAME}">${step.label}</span>${step.description ? `<span class="${STEP_DESC}">${step.description}</span>` : ""}`;
+
+        card.append(badge, stepInfo);
+        stepNode.appendChild(card);
+        this.diagramContainer.appendChild(stepNode);
+      });
+
+      const endNode = document.createElement("div");
+      endNode.className = START_END_NODE;
+      const endBtn = document.createElement("div");
+      endBtn.className = START_END_BTN;
+      endBtn.textContent = "END";
+      endNode.appendChild(endBtn);
+      this.diagramContainer.appendChild(endNode);
+
+      requestAnimationFrame(() => {
+        const containerRect = this.diagramContainer.getBoundingClientRect();
+        const startRect = startBtn.getBoundingClientRect();
+        const endRect = endBtn.getBoundingClientRect();
+        const lineTop = startRect.top + startRect.height / 2 - containerRect.top;
+        const lineBottom = endRect.top + endRect.height / 2 - containerRect.top;
+        line.style.top = `${lineTop}px`;
+        line.style.height = `${lineBottom - lineTop}px`;
+      });
+    }
+
+    play() {
+      this.isPlaying = true;
+      this.advanceStep();
+    }
+
+    advanceStep() {
+      if (!this.isPlaying) return;
+
+      this.currentStepIndex++;
+
+      if (this.currentStepIndex >= this.steps.length) {
+        this.updateDiagram();
+        if (this.loop) {
+          this.currentStepIndex = -1;
+          setTimeout(() => this.advanceStep(), 1000);
+        } else {
+          this.isPlaying = false;
+        }
+        return;
+      }
+
+      this.updateDiagram();
+      const duration = this.parseDuration(this.steps[this.currentStepIndex].duration);
+      setTimeout(() => this.advanceStep(), duration);
+    }
+
+    updateDiagram() {
+      this.steps.forEach((step, index) => {
+        const node = this.diagramContainer.querySelector(`.node-${step.id}`);
+        if (!node) return;
+
+        const card = node.querySelector(".workflow-node-card");
+        const badge = node.querySelector(".step-badge");
+        if (!card || !badge) return;
+
+        node.classList.remove("pending", "running", "completed");
+        card.classList.remove(...CARD_ACTIVE_CLASSES);
+        badge.classList.remove(...BADGE_ACTIVE_CLASSES);
+
+        let status;
+        if (index < this.currentStepIndex) {
+          status = "completed";
+        } else if (index === this.currentStepIndex) {
+          status = "running";
+        } else {
+          status = "pending";
+        }
+
+        node.classList.add(status);
+        if (status === "running" || status === "completed") {
+          card.classList.add(...CARD_ACTIVE_CLASSES);
+          badge.classList.add(...BADGE_ACTIVE_CLASSES);
+        }
+        badge.innerHTML = STATUS_ICONS[status];
+      });
+    }
+
+    parseDuration(duration) {
+      const match = duration.match(/^(\d+(?:\.\d+)?)(ms|s)$/);
+      if (!match) return 2000;
+      return match[2] === "s" ? parseFloat(match[1]) * 1000 : parseFloat(match[1]);
+    }
+  }
+
+  customElements.define("animated-workflow-diagram", AnimatedWorkflowDiagram);
+</script>

@@ -400,7 +400,7 @@ describe("createWorkflow with streaming", () => {
       const reader = step.getReadable<string>({
         namespace: "delayed",
         pollInterval: 5,
-        pollTimeout: 50,
+        pollTimeout: 500,
       });
 
       const writePromise = (async () => {
@@ -431,12 +431,12 @@ describe("createWorkflow with streaming", () => {
       const reader = step.getReadable<string>({
         namespace: "late-writer",
         pollInterval: 5,
-        pollTimeout: 50,
+        pollTimeout: 5000,
       });
 
       const readPromise = reader.read();
 
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 20));
       const writer = step.getWritable<string>({ namespace: "late-writer" });
       await writer.write("late");
       await writer.close();

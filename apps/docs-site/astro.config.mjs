@@ -1,10 +1,15 @@
 // @ts-check
+import { createRequire } from "node:module";
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import sitemap from '@astrojs/sitemap';
+import react from '@astrojs/react';
 import starlightThemeNext from 'starlight-theme-next';
 import tailwindcss from '@tailwindcss/vite';
 import astroMermaid from 'astro-mermaid';
+import { fileURLToPath } from "node:url";
+
+const require = createRequire(import.meta.url);
 // https://astro.build/config
 export default defineConfig({
   site: 'https://jagreehal.github.io',
@@ -12,6 +17,7 @@ export default defineConfig({
   // Local dev uses /awaitly by default so you can catch production issues; use pnpm dev:root or BASE=/ pnpm dev to run from /.
   base: process.env.BASE || '/awaitly',
   integrations: [
+    react(),
     sitemap(),
     astroMermaid(),
     starlight({
@@ -41,6 +47,12 @@ export default defineConfig({
         { icon: 'github', label: 'GitHub', href: 'https://github.com/jagreehal/awaitly' },
       ],
       sidebar: [
+        {
+          label: 'Components',
+          items: [
+            { label: 'Overview', slug: 'components' },
+          ],
+        },
         {
           label: 'Getting Started',
           items: [
@@ -165,6 +177,12 @@ export default defineConfig({
     }),
   ],
   vite: {
+    resolve: {
+      alias: {
+        "~/components": fileURLToPath(new URL("./src/components", import.meta.url)),
+        tslib: require.resolve("tslib"),
+      },
+    },
     plugins: [tailwindcss()],
   },
 });

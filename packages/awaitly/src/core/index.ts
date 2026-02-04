@@ -157,6 +157,22 @@ export type UnexpectedError = {
   type: typeof UNEXPECTED_ERROR;
   cause: UnexpectedCause;
 };
+
+/**
+ * Default mapper for unexpected causes (uncaught exceptions, cancellation, etc.).
+ * Returns the legacy UnexpectedError object shape so the default error union is E | UnexpectedError.
+ * Used when createWorkflow() is called without catchUnexpected.
+ *
+ * @param cause - The thrown value or WorkflowCancelledError
+ * @returns UnexpectedError with cause: { type: "UNCAUGHT_EXCEPTION", thrown: cause }
+ */
+export function defaultCatchUnexpected(cause: unknown): UnexpectedError {
+  return {
+    type: "UNEXPECTED_ERROR",
+    cause: { type: "UNCAUGHT_EXCEPTION", thrown: cause },
+  };
+}
+
 export type PromiseRejectedError = { type: typeof PROMISE_REJECTED; cause: unknown };
 /** Cause type for promise rejections in async batch helpers */
 export type PromiseRejectionCause = { type: "PROMISE_REJECTION"; reason: unknown };
@@ -1762,8 +1778,7 @@ export type RunOptionsWithCatch<E, C = void> = {
   onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
   /**
    * Catch-all mapper for unexpected exceptions.
-   * Required for "Strict Mode".
-   * Converts unknown exceptions (like network crashes or bugs) into your typed error union E.
+   * Converts unknown exceptions (and cancellation) into your typed error union E.
    */
   catchUnexpected: (cause: unknown) => E;
   /**
@@ -2148,47 +2163,18 @@ const DEFAULT_RETRY_CONFIG = {
  *
  * For automatic error type inference from static dependencies, use `createWorkflow()`.
  *
- * ## Modes
+ * ## Closed error union
  *
- * `run()` has three modes based on options:
- * - **Strict Mode** (`catchUnexpected`): Returns `Result<T, E>` (closed union)
- * - **Typed Mode** (`onError`): Returns `Result<T, E | UnexpectedError>`
- * - **Safe Default** (no options): Returns `Result<T, UnexpectedError>`
- *
- * @example
- * ```typescript
- * // Typed mode with explicit error union
- * const result = await run<Output, 'NOT_FOUND' | 'FETCH_ERROR'>(
- *   async (step) => {
- *     const user = await step(fetchUser(userId));
- *     return user;
- *   },
- *   { onError: (e) => console.log('Failed:', e) }
- * );
- * ```
+ * `run()` always returns a closed error type. Options determine the union:
+ * - **`catchUnexpected`**: Maps uncaught exceptions to your type E → `Result<T, E>`
+ * - **`onError`** (no catchUnexpected): Typed errors plus unexpected → `Result<T, E | UnexpectedError>`
+ * - **No options**: All errors as UnexpectedError → `Result<T, UnexpectedError>`
  *
  * @see createWorkflow - For static dependencies with auto error inference
  */
 
 /**
- * Execute a workflow with "Strict Mode" error handling.
- *
- * In this mode, you MUST provide `catchUnexpected` to map unknown exceptions
- * to your typed error union `E`. This guarantees that the returned Result
- * will only ever contain errors of type `E`.
- *
- * @param fn - The workflow function containing steps
- * @param options - Configuration options, including `catchUnexpected`
- * @returns A Promise resolving to `Result<T, E>`
- *
- * @example
- * ```typescript
- * const result = await run(async (step) => {
- *   // ... steps ...
- * }, {
- *   catchUnexpected: (e) => ({ type: 'UNKNOWN_ERROR', cause: e })
- * });
- * ```
+ * run() with catchUnexpected: closed union Result<T, E>.
  */
 export function run<T, E, C = void>(
   fn: (step: RunStep<E>) => Promise<T> | T,
@@ -2196,15 +2182,7 @@ export function run<T, E, C = void>(
 ): AsyncResult<T, E, unknown>;
 
 /**
- * Execute a workflow with "Typed Mode" error handling.
- *
- * In this mode, you provide an `onError` callback. The returned Result
- * may contain your typed errors `E` OR `UnexpectedError` if an uncaught
- * exception occurs.
- *
- * @param fn - The workflow function containing steps
- * @param options - Configuration options, including `onError`
- * @returns A Promise resolving to `Result<T, E | UnexpectedError>`
+ * run() with onError (no catchUnexpected): Result<T, E | UnexpectedError>.
  */
 export function run<T, E, C = void>(
   fn: (step: RunStep<E | UnexpectedError>) => Promise<T> | T,
@@ -2219,22 +2197,8 @@ export function run<T, E, C = void>(
 ): AsyncResult<T, E | UnexpectedError, unknown>;
 
 /**
- * Execute a workflow with "Safe Default" error handling.
- *
- * In this mode, you don't need to specify any error types.
- * Any error (Result error or thrown exception) will be returned as
- * an `UnexpectedError`.
- *
- * @param fn - The workflow function containing steps
- * @param options - Optional configuration
- * @returns A Promise resolving to `Result<T, UnexpectedError>`
- *
- * @example
- * ```typescript
- * const result = await run(async (step) => {
- *   return await step(someOp());
- * });
- * ```
+ * run() with no options: Result<T, UnexpectedError>.
+ * All errors (typed or thrown) are returned as UnexpectedError.
  */
 export function run<T, C = void>(
   fn: (step: RunStep) => Promise<T> | T,
@@ -3662,46 +3626,8 @@ export async function run<T, E, C = void>(
 }
 
 /**
- * Executes a workflow in "Strict Mode" with a closed error union.
- *
- * ## When to Use
- *
- * Use `run.strict()` when:
- * - You want a closed error union (no `UnexpectedError`)
- * - You need exhaustive error handling in production
- * - You want to guarantee all errors are explicitly typed
- * - You're building APIs where error types must be known
- *
- * ## Why Use This
- *
- * - **Closed union**: Error type is exactly `E`, no `UnexpectedError`
- * - **Exhaustive**: Forces you to handle all possible errors
- * - **Type-safe**: TypeScript ensures all errors are typed
- * - **Production-ready**: Better for APIs and libraries
- *
- * ## Important
- *
- * You MUST provide `catchUnexpected` to map any uncaught exceptions to your error type `E`.
- * This ensures the error union is truly closed.
- *
- * @param fn - The workflow function containing steps
- * @param options - Configuration options, MUST include `catchUnexpected`
- * @returns A Promise resolving to `Result<T, E>` (no UnexpectedError)
- *
- * @example
- * ```typescript
- * type AppError = 'NOT_FOUND' | 'UNAUTHORIZED' | 'UNEXPECTED';
- *
- * const result = await run.strict<User, AppError>(
- *   async (step) => {
- *     return await step(fetchUser(id));
- *   },
- *   {
- *     catchUnexpected: () => 'UNEXPECTED' as const
- *   }
- * );
- * // result.error: 'NOT_FOUND' | 'UNAUTHORIZED' | 'UNEXPECTED' (exactly)
- * ```
+ * Convenience for run() with catchUnexpected: closed union Result<T, E>.
+ * You must provide catchUnexpected to map uncaught exceptions to E.
  */
 run.strict = <T, E, C = void>(
   fn: (step: RunStep<E>) => Promise<T> | T,

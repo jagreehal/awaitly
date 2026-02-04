@@ -110,21 +110,21 @@ if (!result.ok) {
 
 TypeScript ensures you handle all known error cases.
 
-## Strict mode
+## Custom unexpected errors
 
-By default, thrown exceptions become `UnexpectedError`. Use strict mode to force explicit handling:
+Workflow error unions are always closed. By default, thrown exceptions become `UnexpectedError`. To use a custom type for unexpected errors, pass `catchUnexpected`:
 
 ```typescript
 const workflow = createWorkflow(
   { fetchUser, fetchPosts },
   {
-    strict: true,
     catchUnexpected: (thrown) => ({
       type: 'UNEXPECTED' as const,
       message: String(thrown),
     }),
   }
 );
+// result.error is now your workflow errors | { type: 'UNEXPECTED', message: string }
 ```
 
 ## When to use string literals vs objects

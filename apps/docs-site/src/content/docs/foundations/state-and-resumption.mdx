@@ -3,7 +3,7 @@ title: State and Resumption
 description: Persist workflow state and resume after crashes
 ---
 
-import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem, AnimatedWorkflowDiagram } from '~/components';
 
 awaitly can save workflow state and resume from where it left off. This enables crash recovery, long-running workflows, and idempotent operations.
 
@@ -14,6 +14,31 @@ Options like `resumeState` and `cache` must be passed to `createWorkflow(deps, {
 ## Step Caching
 
 Enable caching so steps don't re-execute:
+
+<AnimatedWorkflowDiagram
+  steps={[
+    {
+      id: 'keyedStep',
+      label: 'keyed step',
+      description: 'Provide a stable key (user:123) for caching and resumption.',
+      duration: '2s',
+    },
+    {
+      id: 'saveSnapshot',
+      label: 'save snapshot',
+      description: 'Persist workflow snapshot after step completion.',
+      duration: '1.5s',
+    },
+    {
+      id: 'resume',
+      label: 'resume later',
+      description: 'On resume, keyed steps can be replayed from saved state.',
+      duration: '2s',
+    },
+  ]}
+  autoPlay={true}
+  loop={true}
+/>
 
 ```typescript
 const workflow = createWorkflow(deps, {

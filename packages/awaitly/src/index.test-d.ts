@@ -38,6 +38,7 @@ import { Match } from "./match";
 import { Schedule } from "./schedule";
 import { CircuitOpenError } from "./circuit-breaker";
 import { matchError as matchErrorCore, type MatchErrorHandlers as MatchErrorHandlersCore } from "./core-entry";
+import { createWebhookHandler } from "./webhook-entry";
 
 // =============================================================================
 // TEST HELPERS
@@ -74,6 +75,35 @@ async function _test1() {
     // Error type includes UnexpectedError because exceptions are always possible
     expectType<AppError | UnexpectedError>(result.error);
   }
+}
+
+// =============================================================================
+// TEST: createWebhookHandler should accept workflows with custom catchUnexpected
+// =============================================================================
+
+async function _testWebhookCustomUnexpected() {
+  type AppError = "NOT_FOUND";
+  const workflow = createWorkflow(
+    { fetchUser },
+    { catchUnexpected: () => ({ type: "INTERNAL" as const }) }
+  );
+
+  const handler = createWebhookHandler<{ id: string }, { ok: boolean }, AppError>(
+    workflow,
+    async (step, deps, body) => {
+      await step("fetchUser", () => fetchUser(body.id));
+      return { ok: true };
+    },
+    {
+      validateInput: (req) => ok(req.body as { id: string }),
+      mapResult: (result) =>
+        result.ok
+          ? { status: 200, body: result.value }
+          : { status: 500, body: { error: String(result.error) } },
+    }
+  );
+
+  expectType<typeof handler>(handler);
 }
 
 // =============================================================================
@@ -514,14 +544,13 @@ async function _test10() {
 }
 
 // =============================================================================
-// TEST 11: createWorkflow strict mode - closed error union
+// TEST 11: createWorkflow with custom catchUnexpected - closed error union
 // =============================================================================
 
 async function _test11() {
   const getPosts = createWorkflow(
     { fetchUser, fetchPosts },
     {
-      strict: true,
       catchUnexpected: () => "UNEXPECTED" as const,
     }
   );
@@ -844,7 +873,6 @@ async function _test25WorkflowStrictWithArgs() {
   const workflow = createWorkflow(
     { fetchUser, fetchPosts },
     {
-      strict: true,
       catchUnexpected: () => "UNEXPECTED" as const,
     }
   );

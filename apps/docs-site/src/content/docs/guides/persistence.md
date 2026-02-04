@@ -5,6 +5,33 @@ description: Save and resume workflows across restarts
 
 Save workflow state and resume later. Completed steps return their cached results without re-executing.
 
+import { AnimatedWorkflowDiagram } from '~/components';
+
+<AnimatedWorkflowDiagram
+  steps={[
+    {
+      id: 'run',
+      label: 'run workflow',
+      description: 'Keyed steps complete and are recorded in the snapshot.',
+      duration: '2s',
+    },
+    {
+      id: 'save',
+      label: 'save snapshot',
+      description: 'Persist JSON snapshot to your store.',
+      duration: '1.5s',
+    },
+    {
+      id: 'restore',
+      label: 'restore and resume',
+      description: 'Re-run with snapshot to skip completed keyed steps.',
+      duration: '2s',
+    },
+  ]}
+  autoPlay={true}
+  loop={true}
+/>
+
 ## Quick Start
 
 ```typescript
@@ -158,7 +185,6 @@ const snapshot = workflow.getSnapshot({
   metadata: { userId: '123' }, // Custom metadata (JSONValue)
   limit: 1000,                 // Max steps to include (optional)
   sinceStepId: 'user:1',       // Incremental: only steps after this (optional)
-  strict: false,               // Override workflow strict mode (optional)
 });
 ```
 

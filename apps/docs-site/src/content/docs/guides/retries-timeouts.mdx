@@ -3,10 +3,34 @@ title: Retries & Timeouts
 description: Add resilience to workflow steps
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem, AnimatedWorkflowDiagram } from '~/components';
 
 Add retries and timeouts to individual steps without wrapping your entire workflow in try/catch.
+
+<AnimatedWorkflowDiagram
+  steps={[
+    {
+      id: 'timeout',
+      label: 'timeout',
+      description: 'Abort an attempt if it runs too long.',
+      duration: '1.5s',
+    },
+    {
+      id: 'retry',
+      label: 'retry',
+      description: 'Retry transient failures with backoff.',
+      duration: '2s',
+    },
+    {
+      id: 'succeed',
+      label: 'succeed or fail',
+      description: 'On exhaustion, the workflow exits with the last error.',
+      duration: '1.5s',
+    },
+  ]}
+  autoPlay={true}
+  loop={true}
+/>
 
 ## Timeouts
 

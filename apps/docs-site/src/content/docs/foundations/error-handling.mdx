@@ -3,13 +3,38 @@ title: Errors and Retries
 description: Unified error handling with automatic inference, retries, and timeouts
 ---
 
-import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem, AnimatedWorkflowDiagram } from '~/components';
 
 awaitly provides unified error handling: automatic type inference, structured error types, and resilience patterns like retries and timeouts.
 
 ## Error Propagation
 
 Errors from `step()` propagate automatically to the workflow result. **Never wrap steps in try/catch** - this defeats typed error propagation:
+
+<AnimatedWorkflowDiagram
+  steps={[
+    {
+      id: 'callStep',
+      label: 'run step',
+      description: 'Return err(...) for typed errors (no throw needed).',
+      duration: '1.5s',
+    },
+    {
+      id: 'retryTimeout',
+      label: 'retry and timeout',
+      description: 'Retries and timeouts wrap the operation you pass to step.',
+      duration: '2s',
+    },
+    {
+      id: 'handleBoundary',
+      label: 'handle at boundary',
+      description: 'Map typed errors to HTTP responses, UI states, or logs.',
+      duration: '1.5s',
+    },
+  ]}
+  autoPlay={true}
+  loop={true}
+/>
 
 ```typescript
 // ❌ WRONG - try/catch defeats typed error propagation
@@ -384,21 +409,21 @@ const user = await step('fetchUser', () => fetchUser('1'), {
 });
 ```
 
-## Strict Mode
+## Custom unexpected errors
 
-Force explicit handling of unexpected errors:
+Workflow error unions are always closed. By default, thrown exceptions become `UnexpectedError`. To use a custom type for unexpected errors, pass `catchUnexpected`:
 
 ```typescript
 const workflow = createWorkflow(
   { fetchUser, fetchPosts },
   {
-    strict: true,
     catchUnexpected: (thrown) => ({
       type: 'UNEXPECTED' as const,
       message: String(thrown),
     }),
   }
 );
+// result.error is now: 'NOT_FOUND' | 'EMAIL_FAILED' | { type: 'UNEXPECTED', message: string }
 ```
 
 ## Summary Table

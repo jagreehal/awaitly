@@ -158,17 +158,17 @@ export type CausesOfDeps<Deps extends Record<string, AnyResultFn>> =
  * await visualized(async (step) => { ... });
  * ```
  */
-export type ExecutionOptions<E, C = void> = {
+export type ExecutionOptions<E, U = UnexpectedError, C = void> = {
   /**
    * Event handler for workflow and step lifecycle events.
    * Overrides `onEvent` from creation-time options.
    */
-  onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
+  onEvent?: (event: WorkflowEvent<E | U, C>, ctx: C) => void;
   /**
    * Error handler called when a step fails.
    * Overrides `onError` from creation-time options.
    */
-  onError?: (error: E | UnexpectedError, stepName?: string, ctx?: C) => void;
+  onError?: (error: E | U, stepName?: string, ctx?: C) => void;
   /**
    * AbortSignal for workflow-level cancellation.
    * Overrides `signal` from creation-time options.
@@ -205,217 +205,35 @@ export type ExecutionOptions<E, C = void> = {
     context: C
   ) => void | Promise<void>;
   /**
-   * Enable strict mode for this specific run.
-   * Overrides `strict` from creation-time options.
-   *
-   * Precedence: call.strict > workflow.strict > analyzer CLI default
-   *
-   * Note: For full strict mode with closed error unions, use createWorkflow
-   * with `strict: true` and `catchUnexpected`. This option is for analyzer
-   * strict validation only.
+   * Enable strict mode for this specific run (analyzer validation only).
    */
   strict?: boolean;
   /**
    * Enable development warnings for this run.
-   * Warns on:
-   * - ctx.set() usage (prefer out option)
-   * - ctx.get() usage (prefer ctx.ref())
-   * - Steps without errors declaration
-   *
    * Only active when NODE_ENV !== 'production'.
    */
   devWarnings?: boolean;
 };
 
 /**
- * Non-strict workflow options
- * Returns E | UnexpectedError (safe default)
+ * Workflow options. Error union is always closed: E | U.
+ * When catchUnexpected is omitted, U defaults to UnexpectedError (legacy shape).
  */
-export type WorkflowOptions<E, C = void> = {
+export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends readonly string[] = readonly string[]> = {
   /** Short description for labels/tooltips (static analysis) */
   description?: string;
   /** Full markdown documentation (static analysis) */
   markdown?: string;
-  onError?: (error: E | UnexpectedError, stepName?: string, ctx?: C) => void;
   /**
-   * Unified event stream for workflow and step lifecycle.
-   *
-   * Context is automatically included in `event.context` when provided via `createContext`.
-   * The separate `ctx` parameter is provided for convenience.
+   * Map uncaught exceptions (and cancellation) to your error type U.
+   * When omitted, U = UnexpectedError and the default mapper returns the legacy UnexpectedError object.
    */
-  onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
-  /** Create per-run context for event correlation */
-  createContext?: () => C;
-  /** Step result cache - only steps with a `key` option are cached */
-  cache?: StepCache;
-  /**
-   * @deprecated Use `snapshot` option instead. Will be removed in next major version.
-   * Pre-populate cache from saved state for workflow resume.
-   */
-  resumeState?: ResumeState | (() => ResumeState | Promise<ResumeState>);
-  /**
-   * Restore workflow from a previously saved snapshot.
-   * Pass `null` for fresh start (e.g., when store.load() returns nothing).
-   *
-   * @example
-   * ```typescript
-   * const raw = localStorage.getItem('wf-123');
-   * const snapshot = raw ? JSON.parse(raw) : null;
-   * createWorkflow(deps, { snapshot });  // null = fresh start
-   * ```
-   */
-  snapshot?: WorkflowSnapshot | null;
-  /**
-   * Custom serialization for encoding/decoding values during snapshot operations.
-   * Use this for custom types (Date, BigInt, etc.) that aren't JSON-serializable.
-   */
-  serialization?: {
-    /** Encode a value for snapshot (called by getSnapshot) */
-    encode?: (value: unknown) => JSONValue;
-    /** Decode a value from snapshot (called when restoring from snapshot) */
-    decode?: (value: JSONValue) => unknown;
-  };
-  /**
-   * Snapshot serialization options.
-   */
-  snapshotSerialization?: {
-    /**
-     * If true, getSnapshot() throws on non-serializable values.
-     * If false (default), non-serializable values become null with warning.
-     */
-    strict?: boolean;
-  };
-  /**
-   * What to do when snapshot contains unknown step IDs.
-   * - 'warn': Log a warning (default)
-   * - 'error': Throw SnapshotMismatchError
-   * - 'ignore': Silently ignore unknown steps
-   */
-  onUnknownSteps?: "warn" | "error" | "ignore";
-  /**
-   * What to do when snapshot definition hash differs from current.
-   * Only applies when both snapshot and workflow have definitionHash.
-   * - 'warn': Log a warning (default)
-   * - 'error': Throw SnapshotMismatchError
-   * - 'ignore': Silently ignore hash mismatch
-   */
-  onDefinitionChange?: "warn" | "error" | "ignore";
-  /**
-   * External AbortSignal for workflow-level cancellation.
-   *
-   * Returns WorkflowCancelledError when:
-   * - Abort is signaled before the workflow starts
-   * - Abort occurs between steps
-   * - A step throws AbortError (e.g., from fetch respecting the signal)
-   * - Abort fires during the last step but the step completes successfully (late cancellation)
-   *
-   * Typed errors are preserved: if a step returns `err("KNOWN_ERROR")` even while
-   * abort is signaled, that typed error is returned (not masked as cancellation).
-   *
-   * Steps using `step.withTimeout(..., { signal: true })` receive an AbortSignal
-   * that fires on EITHER timeout OR workflow cancellation.
-   *
-   * @example
-   * ```typescript
-   * const controller = new AbortController();
-   * const workflow = createWorkflow(deps, { signal: controller.signal });
-   *
-   * // Cancel workflow from outside
-   * setTimeout(() => controller.abort('timeout'), 5000);
-   *
-   * // Inside workflow: signal fires on timeout OR workflow cancellation
-   * const data = await step.withTimeout(
-   *   (signal) => fetch(url, { signal }),
-   *   { ms: 3000, signal: true }
-   * );
-   * ```
-   */
-  signal?: AbortSignal;
-  /**
-   * Hook called before workflow execution starts.
-   * Return `false` to skip workflow execution (useful for distributed locking, queue checking).
-   * @param workflowId - Unique ID for this workflow run
-   * @param context - Context object from createContext (or void if not provided)
-   * @returns `true` to proceed, `false` to skip workflow execution
-   */
-  onBeforeStart?: (workflowId: string, context: C) => boolean | Promise<boolean>;
-  /**
-   * Hook called after each step completes (only for steps with a `key`).
-   * Useful for checkpointing to external systems (queues, streams, databases).
-   * @param stepKey - The key of the completed step
-   * @param result - The step's result (success or error)
-   * @param workflowId - Unique ID for this workflow run
-   * @param context - Context object from createContext (or void if not provided)
-   */
-  onAfterStep?: (
-    stepKey: string,
-    result: Result<unknown, unknown, unknown>,
-    workflowId: string,
-    context: C
-  ) => void | Promise<void>;
-  /**
-   * Hook to check if workflow should run (concurrency control).
-   * Called before onBeforeStart. Return `false` to skip workflow execution.
-   * @param workflowId - Unique ID for this workflow run
-   * @param context - Context object from createContext (or void if not provided)
-   * @returns `true` to proceed, `false` to skip workflow execution
-   */
-  shouldRun?: (workflowId: string, context: C) => boolean | Promise<boolean>;
-  /**
-   * Stream store for streaming data within the workflow.
-   * Use with step.getWritable() and step.getReadable().
-   *
-   * @example
-   * ```typescript
-   * import { createMemoryStreamStore } from 'awaitly/streaming';
-   *
-   * const workflow = createWorkflow(deps, {
-   *   streamStore: createMemoryStreamStore(),
-   * });
-   * ```
-   */
-  streamStore?: StreamStore;
-  catchUnexpected?: never;  // prevent footgun: can't use without strict: true
-  strict?: false;           // default
-  /**
-   * Enable development warnings.
-   * Warns on:
-   * - ctx.set() usage (prefer out option)
-   * - ctx.get() usage (prefer ctx.ref())
-   * - Steps without errors declaration
-   *
-   * Only active when NODE_ENV !== 'production'.
-   */
-  devWarnings?: boolean;
-};
-
-/**
- * Strict workflow options
- * Returns E | U (closed error union)
- */
-export type WorkflowOptionsStrict<E, U, C = void, Errs extends readonly string[] = readonly string[]> = {
-  strict: true;              // discriminator
-  catchUnexpected: (cause: unknown) => U;
+  catchUnexpected?: (cause: unknown) => U;
   /**
    * Declared errors for the workflow (strict validation).
    * When provided, the analyzer validates that computed errors match declared errors.
-   * Use with `tags()` helper for literal type inference.
-   *
-   * @example
-   * ```typescript
-   * const workflow = createWorkflow({
-   *   id: 'checkout',
-   *   deps: { getCart, chargeCard },
-   *   errors: tags('CART_NOT_FOUND', 'CARD_DECLINED', 'EMAIL_FAILED'),
-   *   strict: true,
-   * });
-   * ```
    */
   errors?: Errs;
-  /** Short description for labels/tooltips (static analysis) */
-  description?: string;
-  /** Full markdown documentation (static analysis) */
-  markdown?: string;
   onError?: (error: E | U, stepName?: string, ctx?: C) => void;
   /**
    * Unified event stream for workflow and step lifecycle.
@@ -430,82 +248,42 @@ export type WorkflowOptionsStrict<E, U, C = void, Errs extends readonly string[]
   cache?: StepCache;
   /**
    * @deprecated Use `snapshot` option instead. Will be removed in next major version.
+   * Pre-populate cache from saved state for workflow resume.
    */
   resumeState?: ResumeState | (() => ResumeState | Promise<ResumeState>);
-  /** Restore workflow from a previously saved snapshot. */
+  /**
+   * Restore workflow from a previously saved snapshot.
+   * Pass `null` for fresh start (e.g., when store.load() returns nothing).
+   */
   snapshot?: WorkflowSnapshot | null;
-  /** Custom serialization for encoding/decoding values during snapshot operations. */
+  /**
+   * Custom serialization for encoding/decoding values during snapshot operations.
+   */
   serialization?: {
     encode?: (value: unknown) => JSONValue;
     decode?: (value: JSONValue) => unknown;
   };
-  /** Snapshot serialization options. */
   snapshotSerialization?: {
     strict?: boolean;
   };
-  /** What to do when snapshot contains unknown step IDs. */
   onUnknownSteps?: "warn" | "error" | "ignore";
-  /** What to do when snapshot definition hash differs from current. */
   onDefinitionChange?: "warn" | "error" | "ignore";
   /**
    * External AbortSignal for workflow-level cancellation.
-   *
-   * Cancellation behavior:
-   * - Non-strict mode: Returns WorkflowCancelledError, emits workflow_cancelled event
-   * - Strict mode with catchUnexpected: Returns WorkflowCancelledError mapped through catchUnexpected
-   * - Late cancellation: If abort fires during the last step but the step completes successfully,
-   *   the workflow still returns WorkflowCancelledError (in both modes)
-   *
-   * Note: If a step throws AbortError (e.g., from fetch respecting the signal):
-   * - Non-strict mode: Recognized as cancellation → WorkflowCancelledError
-   * - Strict mode: Treated as regular error mapped by catchUnexpected (no special handling)
-   *
-   * Steps using `step.withTimeout(..., { signal: true })` receive an AbortSignal
-   * that fires on EITHER timeout OR workflow cancellation.
+   * Cancellation is mapped through catchUnexpected (default: UnexpectedError with cause.thrown = WorkflowCancelledError).
    */
   signal?: AbortSignal;
-  /**
-   * Hook called before workflow execution starts.
-   * Return `false` to skip workflow execution (useful for distributed locking, queue checking).
-   * @param workflowId - Unique ID for this workflow run
-   * @param context - Context object from createContext (or void if not provided)
-   * @returns `true` to proceed, `false` to skip workflow execution
-   */
   onBeforeStart?: (workflowId: string, context: C) => boolean | Promise<boolean>;
-  /**
-   * Hook called after each step completes (only for steps with a `key`).
-   * Useful for checkpointing to external systems (queues, streams, databases).
-   * @param stepKey - The key of the completed step
-   * @param result - The step's result (success or error)
-   * @param workflowId - Unique ID for this workflow run
-   * @param context - Context object from createContext (or void if not provided)
-   */
   onAfterStep?: (
     stepKey: string,
     result: Result<unknown, unknown, unknown>,
     workflowId: string,
     context: C
   ) => void | Promise<void>;
-  /**
-   * Hook to check if workflow should run (concurrency control).
-   * Called before onBeforeStart. Return `false` to skip workflow execution.
-   * @param workflowId - Unique ID for this workflow run
-   * @param context - Context object from createContext (or void if not provided)
-   * @returns `true` to proceed, `false` to skip workflow execution
-   */
   shouldRun?: (workflowId: string, context: C) => boolean | Promise<boolean>;
-  /**
-   * Stream store for streaming data within the workflow.
-   * Use with step.getWritable() and step.getReadable().
-   */
   streamStore?: StreamStore;
   /**
    * Enable development warnings.
-   * Warns on:
-   * - ctx.set() usage (prefer out option)
-   * - ctx.get() usage (prefer ctx.ref())
-   * - Steps without errors declaration
-   *
    * Only active when NODE_ENV !== 'production'.
    */
   devWarnings?: boolean;
@@ -659,148 +437,12 @@ export interface SubscribeOptions {
 }
 
 /**
- * Workflow return type (non-strict)
- * Supports both argument-less and argument-passing call patterns
+ * Workflow return type. Error union is always closed: E | U (default U = UnexpectedError).
+ * Supports both argument-less and argument-passing call patterns.
  *
- * Note: Cause type is `unknown` because:
- * - step.try errors have thrown values as cause
- * - Uncaught exceptions produce unknown causes
- * - Different steps may have different cause types
- * The cause IS preserved at runtime; narrow based on error type if needed.
+ * Cause type is `unknown` because step.try/catchUnexpected receive thrown values.
  */
-export interface Workflow<E, Deps, C = void> {
-  /**
-   * Execute workflow without arguments (original API)
-   * @param fn - Callback receives (step, deps, ctx) where ctx is workflow context (always provided)
-   */
-  <T>(fn: WorkflowFn<T, E, Deps, C>): AsyncResult<T, E | UnexpectedError, unknown>;
-
-  /**
-   * Execute workflow with typed arguments
-   * @param args - Typed arguments passed to the callback (type inferred at call site)
-   * @param fn - Callback receives (step, deps, args, ctx) where ctx is workflow context (always provided)
-   */
-  <T, Args>(
-    args: Args,
-    fn: WorkflowFnWithArgs<T, Args, E, Deps, C>
-  ): AsyncResult<T, E | UnexpectedError, unknown>;
-
-  /**
-   * Execute workflow with execution-time options (no args).
-   * Use this when you need per-run hooks/options.
-   * @param fn - Callback receives (step, deps, ctx)
-   * @param exec - Execution-time options that override creation-time options
-   */
-  run<T>(fn: WorkflowFn<T, E, Deps, C>, exec?: ExecutionOptions<E, C>): AsyncResult<T, E | UnexpectedError, unknown>;
-
-  /**
-   * Execute workflow with execution-time options (with args).
-   * Use this when you need per-run hooks/options.
-   * @param args - Typed arguments passed to the callback
-   * @param fn - Callback receives (step, deps, args, ctx)
-   * @param exec - Execution-time options that override creation-time options
-   */
-  run<T, Args>(args: Args, fn: WorkflowFnWithArgs<T, Args, E, Deps, C>, exec?: ExecutionOptions<E, C>): AsyncResult<T, E | UnexpectedError, unknown>;
-
-  /**
-   * Create a new workflow with pre-bound execution options.
-   * Options can be further overridden by `.run()`.
-   * @param exec - Execution-time options to pre-bind
-   * @returns A new Workflow with the options pre-bound
-   *
-   * @example
-   * ```typescript
-   * const visualized = workflow.with({ onEvent: viz.handleEvent });
-   * await visualized(async (step) => { ... }); // Uses viz.handleEvent
-   *
-   * // Chaining works
-   * const w = workflow.with({ onEvent }).with({ signal });
-   * await w.run(fn, { onError }); // All three options active
-   * ```
-   */
-  with(exec: ExecutionOptions<E, C>): Workflow<E, Deps, C>;
-
-  /**
-   * Get a JSON-serializable snapshot of the workflow state.
-   * Returns a deep copy (via structuredClone) of the current state.
-   *
-   * @example
-   * ```typescript
-   * // Persist to localStorage
-   * localStorage.setItem('wf-123', JSON.stringify(wf.getSnapshot()));
-   *
-   * // Persist with custom metadata
-   * const snapshot = wf.getSnapshot({ metadata: { userId: '123' } });
-   * await store.save('wf-123', snapshot);
-   * ```
-   */
-  getSnapshot(options?: GetSnapshotOptions): WorkflowSnapshot;
-
-  /**
-   * Subscribe to workflow events for auto-persistence.
-   * Returns an unsubscribe function.
-   *
-   * @example
-   * ```typescript
-   * const unsubscribe = wf.subscribe((event) => {
-   *   if (event.type === 'step_complete') {
-   *     saveToDB(event.snapshot);
-   *   }
-   * });
-   *
-   * await wf(myWorkflowFn);
-   * unsubscribe();
-   * ```
-   */
-  subscribe(
-    listener: (event: SubscribeEvent) => void,
-    options?: SubscribeOptions
-  ): () => void;
-}
-
-/**
- * Execution-time options for strict mode workflows.
- * Excludes `catchUnexpected` since that's fixed at creation time.
- */
-export type ExecutionOptionsStrict<E, U, C = void> = {
-  onEvent?: (event: WorkflowEvent<E | U, C>, ctx: C) => void;
-  onError?: (error: E | U, stepName?: string, ctx?: C) => void;
-  signal?: AbortSignal;
-  createContext?: () => C | Promise<C>;
-  resumeState?: ResumeState | (() => ResumeState | Promise<ResumeState>);
-  shouldRun?: (workflowId: string, context: C) => boolean | Promise<boolean>;
-  onBeforeStart?: (workflowId: string, context: C) => boolean | Promise<boolean>;
-  onAfterStep?: (
-    stepKey: string,
-    result: Result<unknown, unknown, unknown>,
-    workflowId: string,
-    context: C
-  ) => void | Promise<void>;
-  /**
-   * Enable strict mode for this specific run.
-   * Overrides `strict` from creation-time options.
-   */
-  strict?: boolean;
-  /**
-   * Enable development warnings for this run.
-   * Warns on:
-   * - ctx.set() usage (prefer out option)
-   * - ctx.get() usage (prefer ctx.ref())
-   * - Steps without errors declaration
-   *
-   * Only active when NODE_ENV !== 'production'.
-   */
-  devWarnings?: boolean;
-};
-
-/**
- * Workflow return type (strict)
- * Supports both argument-less and argument-passing call patterns
- *
- * Note: Cause type is `unknown` because catchUnexpected receives thrown
- * values which have unknown type.
- */
-export interface WorkflowStrict<E, U, Deps, C = void> {
+export interface Workflow<E, U = UnexpectedError, Deps = unknown, C = void> {
   /**
    * Execute workflow without arguments (original API)
    * @param fn - Callback receives (step, deps, ctx) where ctx is workflow context (always provided)
@@ -819,21 +461,24 @@ export interface WorkflowStrict<E, U, Deps, C = void> {
 
   /**
    * Execute workflow with execution-time options (no args).
-   * Use this when you need per-run hooks/options.
+   * @param fn - Callback receives (step, deps, ctx)
+   * @param exec - Execution-time options that override creation-time options
    */
-  run<T>(fn: WorkflowFn<T, E, Deps, C>, exec?: ExecutionOptionsStrict<E, U, C>): AsyncResult<T, E | U, unknown>;
+  run<T>(fn: WorkflowFn<T, E, Deps, C>, exec?: ExecutionOptions<E, U, C>): AsyncResult<T, E | U, unknown>;
 
   /**
    * Execute workflow with execution-time options (with args).
-   * Use this when you need per-run hooks/options.
+   * @param args - Typed arguments passed to the callback
+   * @param fn - Callback receives (step, deps, args, ctx)
+   * @param exec - Execution-time options that override creation-time options
    */
-  run<T, Args>(args: Args, fn: WorkflowFnWithArgs<T, Args, E, Deps, C>, exec?: ExecutionOptionsStrict<E, U, C>): AsyncResult<T, E | U, unknown>;
+  run<T, Args>(args: Args, fn: WorkflowFnWithArgs<T, Args, E, Deps, C>, exec?: ExecutionOptions<E, U, C>): AsyncResult<T, E | U, unknown>;
 
   /**
    * Create a new workflow with pre-bound execution options.
    * Options can be further overridden by `.run()`.
    */
-  with(exec: ExecutionOptionsStrict<E, U, C>): WorkflowStrict<E, U, Deps, C>;
+  with(exec: ExecutionOptions<E, U, C>): Workflow<E, U, Deps, C>;
 
   /**
    * Get a JSON-serializable snapshot of the workflow state.

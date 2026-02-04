@@ -1202,7 +1202,7 @@ describe("run.strict()", () => {
     }
   });
 
-  it("handles errors correctly in strict mode", async () => {
+  it("handles errors correctly with custom catchUnexpected", async () => {
     type AppError = "NOT_FOUND" | "UNEXPECTED";
 
     const fetchUser = async (): AsyncResult<number, "NOT_FOUND"> =>
@@ -1299,7 +1299,7 @@ describe("run.strict()", () => {
 
   it("lets catchUnexpected errors propagate - maintains type contract", async () => {
     // If catchUnexpected itself throws, we let it propagate.
-    // This maintains the strict mode contract: AsyncResult<T, E> with no UnexpectedError.
+    // Closed union: AsyncResult<T, E | U> with no UnexpectedError when catchUnexpected is custom.
     // A buggy mapper is the user's responsibility.
 
     await expect(
@@ -1418,12 +1418,11 @@ describe("createWorkflow()", () => {
     });
   });
 
-  describe("strict mode", () => {
-    it("uses run.strict internally with catchUnexpected", async () => {
+  describe("custom catchUnexpected (closed union)", () => {
+    it("uses run with catchUnexpected internally", async () => {
       const getPosts = createWorkflow(
         { fetchUser },
         {
-          strict: true,
           catchUnexpected: () => "UNEXPECTED" as const,
         }
       );
@@ -1447,12 +1446,11 @@ describe("createWorkflow()", () => {
       }
     });
 
-    it("calls onError in strict mode", async () => {
+    it("calls onError with custom catchUnexpected", async () => {
       const onError = vi.fn();
       const getPosts = createWorkflow(
         { fetchUser },
         {
-          strict: true,
           catchUnexpected: () => "UNEXPECTED" as const,
           onError,
         }
@@ -1597,12 +1595,11 @@ describe("createWorkflow()", () => {
         expect(onBeforeStart.mock.calls[0][1]).toEqual({ userId: "user-123" });
       });
 
-      it("works in strict mode", async () => {
+      it("works with custom catchUnexpected", async () => {
         const onBeforeStart = vi.fn().mockResolvedValue(true);
         const workflow = createWorkflow(
           { fetchUser },
           {
-            strict: true,
             catchUnexpected: () => "UNEXPECTED" as const,
             onBeforeStart,
           }
@@ -1632,14 +1629,13 @@ describe("createWorkflow()", () => {
         }
       });
 
-      it("routes thrown onBeforeStart error through catchUnexpected in strict mode", async () => {
+      it("routes thrown onBeforeStart error through catchUnexpected", async () => {
         const hookError = new Error("Lock acquisition failed");
         const onBeforeStart = vi.fn().mockRejectedValue(hookError);
         const catchUnexpected = vi.fn().mockReturnValue("LOCK_FAILED" as const);
         const workflow = createWorkflow(
           { fetchUser },
           {
-            strict: true,
             catchUnexpected,
             onBeforeStart,
           }
@@ -1722,12 +1718,11 @@ describe("createWorkflow()", () => {
         expect(onAfterStep.mock.calls[0][3]).toEqual({ requestId: "req-456" });
       });
 
-      it("works in strict mode", async () => {
+      it("works with custom catchUnexpected", async () => {
         const onAfterStep = vi.fn();
         const workflow = createWorkflow(
           { fetchUser },
           {
-            strict: true,
             catchUnexpected: () => "UNEXPECTED" as const,
             onAfterStep,
           }
@@ -1792,12 +1787,11 @@ describe("createWorkflow()", () => {
         expect(shouldRun.mock.calls[0][1]).toEqual({ instanceId: "instance-789" });
       });
 
-      it("works in strict mode", async () => {
+      it("works with custom catchUnexpected", async () => {
         const shouldRun = vi.fn().mockResolvedValue(true);
         const workflow = createWorkflow(
           { fetchUser },
           {
-            strict: true,
             catchUnexpected: () => "UNEXPECTED" as const,
             shouldRun,
           }
@@ -1810,13 +1804,12 @@ describe("createWorkflow()", () => {
         expect(shouldRun).toHaveBeenCalledTimes(1);
       });
 
-      it("skip error goes through catchUnexpected in strict mode", async () => {
+      it("skip error goes through catchUnexpected", async () => {
         const shouldRun = vi.fn().mockResolvedValue(false);
         const catchUnexpected = vi.fn().mockReturnValue("SKIPPED" as const);
         const workflow = createWorkflow(
           { fetchUser },
           {
-            strict: true,
             catchUnexpected,
             shouldRun,
           }
@@ -1853,14 +1846,13 @@ describe("createWorkflow()", () => {
         }
       });
 
-      it("routes thrown hook error through catchUnexpected in strict mode", async () => {
+      it("routes thrown hook error through catchUnexpected", async () => {
         const hookError = new Error("Redis connection failed");
         const shouldRun = vi.fn().mockRejectedValue(hookError);
         const catchUnexpected = vi.fn().mockReturnValue("HOOK_FAILED" as const);
         const workflow = createWorkflow(
           { fetchUser },
           {
-            strict: true,
             catchUnexpected,
             shouldRun,
           }
@@ -2050,7 +2042,7 @@ describe("createWorkflow()", () => {
       expect(callCount).toBe(2);
     });
 
-    it("works with strict mode", async () => {
+    it("works with custom catchUnexpected", async () => {
       let callCount = 0;
       const expensiveOp = async (): AsyncResult<number, "ERROR"> => {
         callCount++;
@@ -2061,7 +2053,6 @@ describe("createWorkflow()", () => {
       const workflow = createWorkflow(
         { expensiveOp },
         {
-          strict: true,
           catchUnexpected: () => "UNEXPECTED" as const,
           cache,
         }
@@ -2446,16 +2437,14 @@ describe("createWorkflow()", () => {
     });
   });
 
-  describe("strict mode event type soundness", () => {
+  describe("custom catchUnexpected event type soundness", () => {
     it("step_error events use catchUnexpected for uncaught exceptions", async () => {
-      // Bug fix: In strict mode, step_error events should contain the mapped error
-      // from catchUnexpected, not UnexpectedError
+      // step_error events should contain the mapped error from catchUnexpected, not UnexpectedError
       const events: WorkflowEvent<unknown>[] = [];
 
       const workflow = createWorkflow(
         {},
         {
-          strict: true,
           catchUnexpected: () => "MAPPED_UNEXPECTED" as const,
           onEvent: (event) => events.push(event),
         }
@@ -2479,8 +2468,8 @@ describe("createWorkflow()", () => {
       }
     });
 
-    it("strict mode step events contain mapped errors not UnexpectedError", async () => {
-      // When a step operation itself throws (not via step.try), strict mode
+    it("custom catchUnexpected step events contain mapped errors not UnexpectedError", async () => {
+      // When a step operation itself throws (not via step.try), catchUnexpected
       // should map the error via catchUnexpected for the event
       const events: WorkflowEvent<"OP_ERROR" | "MAPPED">[] = [];
 
@@ -2491,7 +2480,6 @@ describe("createWorkflow()", () => {
       const workflow = createWorkflow(
         { throwingOp },
         {
-          strict: true,
           catchUnexpected: () => "MAPPED" as const,
           onEvent: (event) => events.push(event),
         }
@@ -2524,7 +2512,6 @@ describe("createWorkflow()", () => {
       const workflow = createWorkflow(
         {},
         {
-          strict: true,
           catchUnexpected: () => {
             catchCount++;
             return `MAPPED_${catchCount}` as const;
@@ -2561,7 +2548,6 @@ describe("createWorkflow()", () => {
       const workflow = createWorkflow(
         { throwingOp },
         {
-          strict: true,
           catchUnexpected: () => {
             catchCount++;
             const mapped = `MAPPED_${catchCount}`;
@@ -3653,11 +3639,10 @@ describe("createWorkflow with typed args", () => {
     }
   });
 
-  it("works with strict mode and args", async () => {
+  it("works with custom catchUnexpected and args", async () => {
     const workflow = createWorkflow(
       { fetchUser },
       {
-        strict: true,
         catchUnexpected: () => "UNEXPECTED" as const,
       }
     );
@@ -4769,10 +4754,10 @@ describe("createWorkflow with signal (cancellation)", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      // After the fix, WorkflowCancelledError is returned directly
-      expect(isWorkflowCancelled(result.error)).toBe(true);
-      if (isWorkflowCancelled(result.error)) {
-        expect(result.error.reason).toBe("already cancelled");
+      // With default mapper, cancellation is result.cause (result.error is UnexpectedError)
+      expect(isWorkflowCancelled(result.cause)).toBe(true);
+      if (isWorkflowCancelled(result.cause)) {
+        expect(result.cause!.reason).toBe("already cancelled");
       }
     }
   });
@@ -4813,11 +4798,11 @@ describe("createWorkflow with signal (cancellation)", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(isWorkflowCancelled(result.error)).toBe(true);
-      if (isWorkflowCancelled(result.error)) {
-        expect(result.error.reason).toBe("mid-execution abort");
+      expect(isWorkflowCancelled(result.cause)).toBe(true);
+      if (isWorkflowCancelled(result.cause)) {
+        expect(result.cause!.reason).toBe("mid-execution abort");
         // lastStepKey reports the last successfully completed step (for resume purposes)
-        expect(result.error.lastStepKey).toBe("step1");
+        expect(result.cause!.lastStepKey).toBe("step1");
       }
     }
 
@@ -4883,13 +4868,12 @@ describe("createWorkflow with signal (cancellation)", () => {
     expect(isWorkflowCancelled(undefined)).toBe(false);
   });
 
-  it("works with strict mode - maps through catchUnexpected", async () => {
+  it("works with custom catchUnexpected - maps through catchUnexpected", async () => {
     const controller = new AbortController();
     controller.abort("strict cancelled");
 
     const workflow = createWorkflow({ fetchUser }, {
       signal: controller.signal,
-      strict: true,
       catchUnexpected: (cause) => {
         if (isWorkflowCancelled(cause)) {
           return { type: "CANCELLED" as const, reason: cause.reason };
@@ -4947,11 +4931,11 @@ describe("createWorkflow with signal (cancellation)", () => {
     // Even though the operation returned success, workflow should detect the late abort
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(isWorkflowCancelled(result.error)).toBe(true);
-      if (isWorkflowCancelled(result.error)) {
-        expect(result.error.reason).toBe("late abort");
+      expect(isWorkflowCancelled(result.cause)).toBe(true);
+      if (isWorkflowCancelled(result.cause)) {
+        expect(result.cause!.reason).toBe("late abort");
         // lastStepKey is the last completed step (the one that ran)
-        expect(result.error.lastStepKey).toBe("only-step");
+        expect(result.cause!.lastStepKey).toBe("only-step");
       }
     }
 
@@ -4962,7 +4946,7 @@ describe("createWorkflow with signal (cancellation)", () => {
     expect(successEvent).toBeUndefined();
   });
 
-  it("strict mode mid-execution cancellation maps through catchUnexpected", async () => {
+  it("custom catchUnexpected mid-execution cancellation maps through catchUnexpected", async () => {
     type User = { id: string; name: string };
     const controller = new AbortController();
     const events: WorkflowEvent<unknown>[] = [];
@@ -4975,7 +4959,6 @@ describe("createWorkflow with signal (cancellation)", () => {
     const workflow = createWorkflow({ slowFetch }, {
       signal: controller.signal,
       onEvent: (e) => events.push(e),
-      strict: true,
       catchUnexpected: (cause) => {
         if (isWorkflowCancelled(cause)) {
           return { type: "WORKFLOW_CANCELLED" as const, reason: cause.reason };
@@ -5038,9 +5021,9 @@ describe("createWorkflow with signal (cancellation)", () => {
     // The workflow should be cancelled because signal was already aborted
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(isWorkflowCancelled(result.error)).toBe(true);
-      if (isWorkflowCancelled(result.error)) {
-        expect(result.error.reason).toBe("pre-aborted");
+      expect(isWorkflowCancelled(result.cause)).toBe(true);
+      if (isWorkflowCancelled(result.cause)) {
+        expect(result.cause!.reason).toBe("pre-aborted");
       }
     }
 
@@ -5097,9 +5080,9 @@ describe("createWorkflow with signal (cancellation)", () => {
     // Should be recognized as cancellation
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(isWorkflowCancelled(result.error)).toBe(true);
-      if (isWorkflowCancelled(result.error)) {
-        expect(result.error.reason).toBe("user cancelled");
+      expect(isWorkflowCancelled(result.cause)).toBe(true);
+      if (isWorkflowCancelled(result.cause)) {
+        expect(result.cause!.reason).toBe("user cancelled");
       }
     }
 
@@ -5108,8 +5091,8 @@ describe("createWorkflow with signal (cancellation)", () => {
     expect(cancelledEvent).toBeDefined();
   });
 
-  it("strict mode AbortError: treated as regular error, not cancellation", async () => {
-    // In strict mode, AbortError is treated as a regular error mapped by catchUnexpected.
+  it("custom catchUnexpected AbortError: treated as regular error, not cancellation", async () => {
+    // With custom catchUnexpected, AbortError is treated as a regular error mapped by catchUnexpected.
     // This ensures event and error are consistent:
     // - catchUnexpected maps the AbortError to user's error type
     // - workflow_error event is emitted (not workflow_cancelled)
@@ -5131,7 +5114,6 @@ describe("createWorkflow with signal (cancellation)", () => {
     const workflow = createWorkflow({ fetchWithSignal }, {
       signal: controller.signal,
       onEvent: (e) => events.push(e),
-      strict: true,
       catchUnexpected: (cause): MappedError => {
         catchUnexpectedCalls.push(cause);
         // User can handle AbortError specifically if they want
@@ -5156,7 +5138,7 @@ describe("createWorkflow with signal (cancellation)", () => {
 
     // Abort during the fetch
     await new Promise((resolve) => setTimeout(resolve, 10));
-    controller.abort("strict mode abort");
+    controller.abort("user abort");
 
     const result = await resultPromise;
 
@@ -5177,7 +5159,7 @@ describe("createWorkflow with signal (cancellation)", () => {
     expect(cancelledEvent).toBeUndefined();
   });
 
-  it("non-strict mode: typed error is preserved even when abort fires", async () => {
+  it("default mapper: typed error is preserved even when abort fires", async () => {
     // When a step fails with a typed error (e.g., "USER_NOT_FOUND") and abort also fires,
     // the typed error should be preserved - abort should not mask unrelated errors.
     const controller = new AbortController();
@@ -5213,7 +5195,7 @@ describe("createWorkflow with signal (cancellation)", () => {
     if (!result.ok) {
       // Should be the typed error, not WorkflowCancelledError
       expect(result.error).toBe("USER_NOT_FOUND");
-      expect(isWorkflowCancelled(result.error)).toBe(false);
+      expect(isWorkflowCancelled(result.cause)).toBe(false);
     }
 
     // Should emit workflow_error with the typed error, not workflow_cancelled
@@ -5223,7 +5205,7 @@ describe("createWorkflow with signal (cancellation)", () => {
     expect(cancelledEvent).toBeUndefined();
   });
 
-  it("non-strict mode: AbortError exception during abort becomes cancellation", async () => {
+  it("default mapper: AbortError exception during abort becomes cancellation", async () => {
     // When a step throws an AbortError and abort fires,
     // treat it as cancellation since AbortError during abort is caused by the abort.
     const controller = new AbortController();
@@ -5253,12 +5235,12 @@ describe("createWorkflow with signal (cancellation)", () => {
 
     const result = await resultPromise;
 
-    // AbortError during abort should be treated as cancellation
+    // AbortError during abort should be treated as cancellation (result.cause = WorkflowCancelledError)
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(isWorkflowCancelled(result.error)).toBe(true);
-      if (isWorkflowCancelled(result.error)) {
-        expect(result.error.reason).toBe("user cancelled");
+      expect(isWorkflowCancelled(result.cause)).toBe(true);
+      if (isWorkflowCancelled(result.cause)) {
+        expect(result.cause!.reason).toBe("user cancelled");
       }
     }
 
@@ -5267,7 +5249,7 @@ describe("createWorkflow with signal (cancellation)", () => {
     expect(cancelledEvent).toBeDefined();
   });
 
-  it("non-strict mode: only AbortError exceptions become cancellation, not other errors", async () => {
+  it("default mapper: only AbortError exceptions become cancellation, not other errors", async () => {
     // Test that only AbortError-type exceptions are treated as cancellation.
     // Other thrown exceptions should remain as UnexpectedError even if abort was signaled.
     // This prevents masking real errors as cancellation.
@@ -5302,7 +5284,7 @@ describe("createWorkflow with signal (cancellation)", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       // Should NOT be WorkflowCancelledError - the exception is not abort-related
-      expect(isWorkflowCancelled(result.error)).toBe(false);
+      expect(isWorkflowCancelled(result.cause)).toBe(false);
       // Should be UnexpectedError wrapping the original exception
       expect(isUnexpectedError(result.error)).toBe(true);
     }
@@ -5575,7 +5557,7 @@ describe("createWorkflow with execution-time options", () => {
     const result1 = await resultPromise;
     expect(result1.ok).toBe(false);
     if (!result1.ok) {
-      expect(isWorkflowCancelled(result1.error)).toBe(true);
+      expect(isWorkflowCancelled(result1.cause)).toBe(true);
     }
 
     // Second run without signal - should complete normally
@@ -5780,7 +5762,7 @@ describe("step.sleep() method", () => {
     const result = await resultPromise;
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(isWorkflowCancelled(result.error)).toBe(true);
+      expect(isWorkflowCancelled(result.cause)).toBe(true);
     }
   });
 
@@ -5899,8 +5881,8 @@ describe("step.sleep() method", () => {
     const result = await resultPromise;
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      // Workflow signal produces WORKFLOW_CANCELLED, not UNEXPECTED_ERROR
-      expect(isWorkflowCancelled(result.error)).toBe(true);
+      // Workflow signal produces cancellation (result.cause = WorkflowCancelledError)
+      expect(isWorkflowCancelled(result.cause)).toBe(true);
     }
   });
 

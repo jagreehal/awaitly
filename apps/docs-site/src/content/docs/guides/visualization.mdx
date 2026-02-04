@@ -1,0 +1,485 @@
+---
+title: Visualization
+description: Generate diagrams of workflow execution
+---
+
+Visualize workflow execution as ASCII diagrams or Mermaid charts for debugging, documentation, or dashboards. Use **`step('id', fn, opts)`** so step IDs appear as stable labels in diagrams and in [statically generated docs](/docs/guides/static-analysis/).
+
+## Basic usage
+
+```typescript
+import { createWorkflow, ok, err, type Result } from 'awaitly';
+import { createVisualizer } from 'awaitly-visualizer';
+
+// Define your dependencies with Result-returning functions
+const deps = {
+  fetchOrder: async (id: string): Promise<Result<Order, OrderNotFound>> => {
+    const order = await db.orders.find(id);
+    return order ? ok(order) : err({ type: 'ORDER_NOT_FOUND', id });
+  },
+  chargeCard: async (amount: number): Promise<Result<Payment, PaymentFailed>> => {
+    const result = await paymentGateway.charge(amount);
+    return result.success
+      ? ok(result.payment)
+      : err({ type: 'PAYMENT_FAILED', reason: result.error });
+  },
+};
+
+const viz = createVisualizer({ workflowName: 'checkout' });
+
+const workflow = createWorkflow(deps, {
+  onEvent: viz.handleEvent,
+});
+
+await workflow(async (step) => {
+  const order = await step('fetchOrder', () => deps.fetchOrder('123'));
+  const payment = await step('chargeCard', () => deps.chargeCard(order.total));
+  return { order, payment };
+});
+
+// ASCII output
+console.log(viz.render());
+
+// Mermaid output
+console.log(viz.renderAs('mermaid'));
+```
+
+## Migration from manual logging
+
+If you're currently using manual `onEvent` logging, here's how to migrate to `createVisualizer`:
+
+### Before: Manual logging
+
+```typescript
+const workflow = createWorkflow(deps, {
+  onEvent: (event) => {
+    if (event.type === 'step_start') {
+      console.log(`Starting: ${event.name}`);
+    }
+    if (event.type === 'step_complete') {
+      console.log(`Completed: ${event.name} in ${event.durationMs}ms`);
+    }
+    if (event.type === 'step_error') {
+      console.error(`Failed: ${event.name}`, event.error);
+    }
+  },
+});
+```
+
+### After: Using createVisualizer
+
+```typescript
+import { createVisualizer } from 'awaitly-visualizer';
+
+const viz = createVisualizer({ workflowName: 'checkout' });
+const workflow = createWorkflow(deps, {
+  onEvent: viz.handleEvent,
+});
+
+// Run workflow...
+console.log(viz.render()); // ASCII diagram with all steps
+```
+
+### Benefits comparison
+
+| Feature | Manual Logging | createVisualizer |
+|---------|---------------|------------------|
+| Timing per step | Manual calculation | Automatic |
+| Error formatting | Custom | Structured |
+| Parallel detection | Not supported | Automatic |
+| Output formats | Text only | ASCII, Mermaid, JSON, Flowchart |
+| Diagram generation | Not supported | Built-in |
+| Post-execution analysis | Manual | Built-in |
+
+## ASCII output
+
+```
+┌── checkout ──────────────────────────────────────────────────────┐
+│                                                                  │
+│  ✓ Fetch order [12ms]                                            │
+│  ✓ Charge card [45ms]                                            │
+│                                                                  │
+│  Completed in 57ms                                               │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+## Mermaid output
+
+```mermaid
+flowchart TD
+    start((\"▶ Start\"))
+    step_fetch_order[✓ Fetch order 12ms]:::success
+    start --> step_fetch_order
+    step_charge_card[✓ Charge card 45ms]:::success
+    step_fetch_order --> step_charge_card
+    finish((\"✓ Done\")):::success
+    step_charge_card --> finish
+```
+
+Paste into GitHub markdown or any Mermaid-compatible renderer.
+
+## JSON output
+
+Get structured data for custom rendering:
+
+```typescript
+const ir = viz.renderAs('json');
+// {
+//   workflowName: 'checkout',
+//   status: 'completed',
+//   steps: [...],
+//   duration: 57
+// }
+```
+
+## Naming steps
+
+Give steps descriptive names for better diagrams:
+
+```typescript
+const user = await step('fetchUser', () => fetchUser('1'), { name: 'Fetch user' });
+const posts = await step('fetchPosts', () => fetchPosts(user.id), { name: 'Fetch posts' });
+```
+
+Without names, steps show as \"unnamed step\".
+
+## Parallel operations
+
+Track parallel operations individually:
+
+```typescript
+import { allAsync } from 'awaitly';
+
+const result = await workflow(async (step) => {
+  const [user, posts] = await step(
+    'fetchUserData',
+    () => allAsync([
+      fetchUser('1'),
+      fetchPosts('1'),
+    ]),
+    { name: 'Fetch user data' }
+  );
+  return { user, posts };
+});
+```
+
+## Decision tracking
+
+Track conditional logic (if/switch) to visualize branching in your workflows:
+
+### Basic decision tracking
+
+```typescript
+import { trackDecision } from 'awaitly-visualizer';
+
+const viz = createVisualizer();
+const workflow = createWorkflow(deps, {
+  onEvent: viz.handleEvent,
+});
+
+await workflow(async (step) => {
+  const user = await step('fetchUser', () => fetchUser('1'), { name: 'Fetch user' });
+
+  // Track a decision point
+  const decision = trackDecision('check-role', {
+    condition: \"user.role === 'admin'\",
+    value: user.role,
+    emit: viz.handleDecisionEvent,
+  });
+
+  if (user.role === 'admin') {
+    decision.takeBranch('admin', true);
+    await step('adminDashboard', () => adminDashboard(user), { name: 'Admin dashboard' });
+  } else {
+    decision.takeBranch('user', true);
+    await step('userDashboard', () => userDashboard(user), { name: 'User dashboard' });
+  }
+
+  decision.end();
+});
+```
+
+### trackIf - Simple if/else
+
+```typescript
+import { trackIf } from 'awaitly-visualizer';
+
+const decision = trackIf('check-premium', user.isPremium, {
+  condition: 'user.isPremium',
+  emit: viz.handleDecisionEvent,
+});
+
+if (decision.condition) {
+  decision.then();
+  await step('fetchPremiumData', () => fetchPremiumData(user.id));
+} else {
+  decision.else();
+  await step('fetchBasicData', () => fetchBasicData(user.id));
+}
+
+decision.end();
+```
+
+### trackSwitch - Switch statements
+
+```typescript
+import { trackSwitch } from 'awaitly-visualizer';
+
+const decision = trackSwitch('process-by-role', user.role, {
+  condition: 'switch(user.role)',
+  emit: viz.handleDecisionEvent,
+});
+
+switch (user.role) {
+  case 'admin':
+    decision.case('admin', true);
+    await step('processAdmin', () => processAdmin(user));
+    break;
+  case 'moderator':
+    decision.case('moderator', true);
+    await step('processModerator', () => processModerator(user));
+    break;
+  default:
+    decision.default(true);
+    await step('processUser', () => processUser(user));
+}
+
+decision.end();
+```
+
+### With event collector
+
+```typescript
+import { createEventCollector, trackIf } from 'awaitly-visualizer';
+
+const collector = createEventCollector({ workflowName: 'Role Check' });
+const workflow = createWorkflow(deps, {
+  onEvent: collector.handleEvent,
+});
+
+await workflow(async (step) => {
+  const user = await step('fetchUser', () => fetchUser('1'), { name: 'Fetch user' });
+
+  const decision = trackIf('check-role', user.role === 'admin', {
+    condition: \"user.role === 'admin'\",
+    value: user.role,
+    emit: collector.handleDecisionEvent,
+  });
+
+  if (decision.condition) {
+    decision.then();
+    await step('processAdmin', () => processAdmin(user));
+  } else {
+    decision.else();
+    await step('processUser', () => processUser(user));
+  }
+  decision.end();
+
+  return user;
+});
+
+// Visualize with decision tracking
+console.log(collector.visualize());
+```
+
+## Post-execution visualization
+
+Collect events and visualize later:
+
+```typescript
+import { createEventCollector } from 'awaitly-visualizer';
+
+const collector = createEventCollector({ workflowName: 'my-workflow' });
+
+const workflow = createWorkflow(deps, {
+  onEvent: collector.handleEvent,
+});
+
+await workflow(async (step) => { ... });
+
+// Visualize anytime after
+console.log(collector.visualize());
+console.log(collector.visualizeAs('mermaid'));
+```
+
+## Options
+
+```typescript
+const viz = createVisualizer({
+  workflowName: 'checkout',
+  showTimings: true,       // Show step durations (default: true)
+  showKeys: false,         // Show step cache keys (default: false)
+  detectParallel: true,    // Enable parallel detection (default: true)
+});
+```
+
+## Convenience APIs
+
+### combineEventHandlers
+
+Combine multiple event handlers for visualization + logging + metrics:
+
+```typescript
+import { createVisualizer, combineEventHandlers } from 'awaitly-visualizer';
+
+const viz = createVisualizer({ workflowName: 'checkout' });
+
+const workflow = createWorkflow(deps, {
+  onEvent: combineEventHandlers(
+    viz.handleEvent,
+    (e) => console.log(e.type),
+    (e) => metrics.track(e),
+  ),
+});
+```
+
+## When to use each renderer
+
+| Renderer | Best For | Example Use |
+|----------|----------|-------------|
+| ASCII | Terminal debugging | Quick inspection during development |
+| Mermaid | Documentation | GitHub READMEs, Confluence pages |
+| Logger | Production | Structured logging with Pino/Winston |
+| Flowchart | Complex workflows | Box-and-arrow diagrams in terminal |
+| JSON | Custom rendering | Building custom UIs or dashboards |
+
+### ASCII renderer
+
+Best for terminal-based debugging during development:
+
+```typescript
+const output = viz.renderAs('ascii');
+// ┌── checkout ──────────────────────────────────────────┐
+// │  ✓ Fetch order [12ms]                                │
+// │  ✓ Charge card [45ms]                                │
+// │  Completed in 57ms                                   │
+// └──────────────────────────────────────────────────────┘
+```
+
+### Mermaid renderer
+
+Best for documentation that renders in GitHub, Confluence, or other Markdown viewers:
+
+```typescript
+const mermaid = viz.renderAs('mermaid');
+// flowchart TD
+//     start((\"▶ Start\"))
+//     step_1[✓ Fetch order 12ms]:::success
+//     ...
+```
+
+### Logger renderer
+
+Best for production logging with structured output:
+
+```typescript
+import { loggerRenderer } from 'awaitly-visualizer';
+
+const renderer = loggerRenderer();
+const output = renderer.render(viz.getIR(), {
+  showTimings: true,
+  showKeys: false,
+  colors: { success: 'green', error: 'red', ... },
+});
+```
+
+### Flowchart renderer
+
+Best for complex workflows with box-and-arrow diagrams:
+
+```typescript
+const flowchart = viz.renderAs('flowchart');
+// ╭──────────────────╮
+// │   Fetch order    │
+// ╰────────┬─────────╯
+//          │
+//          ▼
+// ╭──────────────────╮
+// │   Charge card    │
+// ╰──────────────────╯
+```
+
+## Integration patterns
+
+### Express middleware
+
+Log and visualize workflows in HTTP handlers:
+
+```typescript
+import { createEventCollector } from 'awaitly-visualizer';
+
+app.post('/checkout', async (req, res) => {
+  const collector = createEventCollector({ workflowName: 'checkout' });
+
+  const workflow = createWorkflow(deps, {
+    onEvent: collector.handleEvent,
+  });
+
+  const result = await workflow(async (step) => {
+    const order = await step('fetchOrder', () => deps.fetchOrder(req.body.orderId), { name: 'Fetch order' });
+    const payment = await step('chargeCard', () => deps.chargeCard(order.total), { name: 'Charge card' });
+    return { order, payment };
+  });
+
+  // Log visualization on error for debugging
+  if (!result.ok) {
+    logger.error('Checkout failed', {
+      visualization: collector.visualize(),
+      events: collector.getEvents(),
+    });
+    return res.status(500).json({ error: result.error });
+  }
+
+  res.json(result.value);
+});
+```
+
+### Event collector for batched logging
+
+Collect events across multiple workflow runs for aggregated analysis:
+
+```typescript
+import { createEventCollector } from 'awaitly-visualizer';
+
+const allEvents: CollectableEvent[] = [];
+
+const workflow = createWorkflow(deps, {
+  onEvent: (e) => allEvents.push(e),
+});
+
+// Run multiple workflows
+await workflow(async (step) => { ... });
+await workflow(async (step) => { ... });
+```
+
+### CI/CD artifact generation
+
+Generate Mermaid diagrams as build artifacts:
+
+```typescript
+import fs from 'fs';
+import { createVisualizer } from 'awaitly-visualizer';
+import { createWorkflow } from 'awaitly';
+
+const viz = createVisualizer({ workflowName: 'deployment' });
+
+const workflow = createWorkflow(deps, {
+  onEvent: viz.handleEvent,
+});
+
+await workflow(async (step) => {
+  await step('runTests', () => deps.runTests(), { name: 'Run tests' });
+  await step('buildApp', () => deps.buildApp(), { name: 'Build app' });
+  await step('deploy', () => deps.deploy(), { name: 'Deploy' });
+});
+
+// Write Mermaid diagram to artifacts
+const mermaid = viz.renderAs('mermaid');
+fs.writeFileSync('artifacts/workflow-diagram.md', `\\`\\`\\`mermaid\\n${mermaid}\\n\\`\\`\\``);
+```
+
+## Next
+
+[Learn about Testing →](/guides/testing/)
+
