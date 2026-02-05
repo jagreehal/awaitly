@@ -2396,60 +2396,30 @@ function analyzeParallelCall(
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
 
-  // Check for step.parallel("name", callback) form
-  if (args[0] && Node.isStringLiteral(args[0])) {
-    parallelNode.name = args[0].getLiteralValue();
-    // Analyze the callback in args[1]
-    if (args[1]) {
-      const children = analyzeCallbackArgument(args[1], opts, warnings, stats, sagaContext, context);
-      // If callback contains allAsync, extract its children
-      if (children.length === 1 && children[0].type === "parallel") {
-        const inner = children[0] as StaticParallelNode;
-        parallelNode.children = inner.children;
-        parallelNode.mode = inner.mode;
-        return parallelNode;
-      }
-      parallelNode.children.push(...children);
-    }
-    return parallelNode;
-  }
-
-  // Check for step.parallel(NamedConstant, callback) form
-  if (args[0] && !Node.isObjectLiteralExpression(args[0]) && !Node.isArrayLiteralExpression(args[0]) && args[1]) {
-    // First arg is a name expression (like ParallelOps.fetchAll)
-    parallelNode.name = args[0].getText();
-    const children = analyzeCallbackArgument(args[1], opts, warnings, stats, sagaContext, context);
-    if (children.length === 1 && children[0].type === "parallel") {
-      const inner = children[0] as StaticParallelNode;
-      parallelNode.children = inner.children;
-      parallelNode.mode = inner.mode;
-      return parallelNode;
-    }
-    parallelNode.children.push(...children);
-    return parallelNode;
-  }
-
-  // Extract operations from arguments
-  if (args[0] && Node.isObjectLiteralExpression(args[0])) {
-    // Named parallel: step.parallel({ a: () => ..., b: () => ... })
-    // Or strict form: step.parallel({ a: { fn: () => ..., errors: [...] }, ... })
-    for (const prop of args[0].getProperties()) {
+  // Check for step.parallel(name, operations) name-first object form
+  if (
+    args[0] &&
+    args[1] &&
+    (Node.isStringLiteral(args[0]) || (!Node.isObjectLiteralExpression(args[0]) && !Node.isArrayLiteralExpression(args[0]))) &&
+    Node.isObjectLiteralExpression(args[1])
+  ) {
+    const nameArg = args[0];
+    parallelNode.name = Node.isStringLiteral(nameArg) ? nameArg.getLiteralValue() : nameArg.getText();
+    const operationsNode = args[1];
+    for (const prop of operationsNode.getProperties()) {
       if (Node.isPropertyAssignment(prop)) {
         const name = prop.getName();
         const init = prop.getInitializer();
         if (init) {
-          // Check for strict form: { fn: () => ..., errors: [...] }
           if (Node.isObjectLiteralExpression(init)) {
             const fnProp = init.getProperty("fn");
             const errorsProp = init.getProperty("errors");
-
             if (fnProp && Node.isPropertyAssignment(fnProp)) {
               const fnInit = fnProp.getInitializer();
               if (fnInit) {
                 const implicitStep = tryExtractImplicitStep(fnInit, opts, stats);
                 if (implicitStep) {
                   implicitStep.name = name;
-                  // Extract errors if present
                   if (errorsProp && Node.isPropertyAssignment(errorsProp)) {
                     const errorsInit = errorsProp.getInitializer();
                     if (errorsInit) {
@@ -2462,8 +2432,6 @@ function analyzeParallelCall(
               }
             }
           }
-
-          // Standard form: property value is a function
           const implicitStep = tryExtractImplicitStep(init, opts, stats);
           if (implicitStep) {
             implicitStep.name = name;
@@ -2479,28 +2447,37 @@ function analyzeParallelCall(
         }
       }
     }
-    // Check for options in second argument
-    if (args[1] && Node.isObjectLiteralExpression(args[1])) {
-      for (const prop of args[1].getProperties()) {
-        if (Node.isPropertyAssignment(prop) && prop.getName() === "name") {
-          const init = prop.getInitializer();
-          if (init) {
-            parallelNode.name = extractStringValue(init);
-          }
-        }
+    return parallelNode;
+  }
+
+  // Check for step.parallel("name", callback) array form
+  if (args[0] && Node.isStringLiteral(args[0])) {
+    parallelNode.name = args[0].getLiteralValue();
+    if (args[1]) {
+      const children = analyzeCallbackArgument(args[1], opts, warnings, stats, sagaContext, context);
+      if (children.length === 1 && children[0].type === "parallel") {
+        const inner = children[0] as StaticParallelNode;
+        parallelNode.children = inner.children;
+        parallelNode.mode = inner.mode;
+        return parallelNode;
       }
+      parallelNode.children.push(...children);
     }
-  } else if (args[0] && Node.isArrayLiteralExpression(args[0])) {
-    // Array parallel: step.parallel([() => ..., () => ...])
-    for (const element of args[0].getElements()) {
-      const implicitStep = tryExtractImplicitStep(element, opts, stats);
-      if (implicitStep) {
-        parallelNode.children.push(implicitStep);
-      } else {
-        const children = analyzeCallbackArgument(element, opts, warnings, stats, sagaContext, context);
-        parallelNode.children.push(...children);
-      }
+    return parallelNode;
+  }
+
+  // Check for step.parallel(NamedConstant, callback) array form
+  if (args[0] && !Node.isObjectLiteralExpression(args[0]) && !Node.isArrayLiteralExpression(args[0]) && args[1]) {
+    parallelNode.name = args[0].getText();
+    const children = analyzeCallbackArgument(args[1], opts, warnings, stats, sagaContext, context);
+    if (children.length === 1 && children[0].type === "parallel") {
+      const inner = children[0] as StaticParallelNode;
+      parallelNode.children = inner.children;
+      parallelNode.mode = inner.mode;
+      return parallelNode;
     }
+    parallelNode.children.push(...children);
+    return parallelNode;
   }
 
   return parallelNode;

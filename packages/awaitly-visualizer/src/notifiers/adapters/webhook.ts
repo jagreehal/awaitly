@@ -28,10 +28,7 @@ export interface WebhookAdapterOptions {
   timeout?: number;
   /** Whether to include raw mermaid text (default: false) */
   includeMermaid?: boolean;
-  /**
-   * Whether to include diagram URL (default: true).
-   * @deprecated Use includeDiagramUrl instead
-   */
+  /** Whether to include diagram URL (default: true). Prefer includeDiagramUrl. */
   includeKrokiUrl?: boolean;
   /** Whether to include diagram URL (default: true) */
   includeDiagramUrl?: boolean;
@@ -55,10 +52,7 @@ export interface WebhookPayload {
   status?: WorkflowStatus | "running";
   /** Diagram SVG URL (from Kroki or mermaid.ink) */
   diagramUrl?: string;
-  /**
-   * Kroki SVG URL for visualization
-   * @deprecated Use diagramUrl instead
-   */
+  /** Kroki SVG URL for visualization. Prefer diagramUrl. */
   krokiUrl?: string;
   /** Diagram provider used ("kroki" or "mermaid-ink") */
   diagramProvider?: string;

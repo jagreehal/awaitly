@@ -395,15 +395,12 @@ describe("visualization", () => {
 
       await workflow(
         async (step, { fetchUser, fetchOrders, fetchSettings }) => {
-          // Use named object form - matches actual API
-          const { user, orders, settings } = await step.parallel(
-            {
-              user: () => fetchUser("123"),
-              orders: () => fetchOrders("123"),
-              settings: () => fetchSettings("123"),
-            },
-            { name: "Fetch all data" }
-          );
+          // Use name-first object form
+          const { user, orders, settings } = await step.parallel("Fetch all data", {
+            user: () => fetchUser("123"),
+            orders: () => fetchOrders("123"),
+            settings: () => fetchSettings("123"),
+          });
 
           return { user, orders, settings };
         }

@@ -165,14 +165,13 @@ See [Troubleshooting: Double-wrapping](/guides/troubleshooting/#returning-ok-fro
 
 ## Step Options
 
-Give steps names and keys for visualization and caching:
+Use the first argument (step id) for visualization; use options for caching, retry, and timeout:
 
 ```typescript
-const user = await step('fetchUser', () => fetchUser('1'), {
-  name: 'Fetch user',       // For visualization/logging
+const user = await step('Fetch user', () => fetchUser('1'), {
   key: 'user:1',            // For caching/deduplication
   retry: { attempts: 3 },   // Retry on failure
-  timeout: { ms: 5000 },    // Timeout after 5 seconds
+  timeout: { ms: 5000 },     // Timeout after 5 seconds
 });
 ```
 
@@ -471,11 +470,11 @@ const result = await workflow(async (step) => {
 
 ## Named Steps for Visualization
 
-Give steps names to see them in workflow diagrams:
+Use descriptive step ids (first argument) to see them in workflow diagrams:
 
 ```typescript
-const user = await step('fetchUser', () => fetchUser('1'), { name: 'Fetch user' });
-const posts = await step('fetchPosts', () => fetchPosts(user.id), { name: 'Fetch posts' });
+const user = await step('Fetch user', () => fetchUser('1'));
+const posts = await step('Fetch posts', () => fetchPosts(user.id));
 /*
 Workflow diagram shows:
 ┌─────────────┐     ┌─────────────┐

@@ -42,9 +42,9 @@ const checkoutWorkflow = createWorkflow({ fetchCart, validateStock, processPayme
 // Server Action
 export async function checkout(userId: string, cardId: string) {
   const result = await checkoutWorkflow(async (step) => {
-    const cart = await step('fetchCart', () => fetchCart(userId), { name: 'fetch-cart' });
-    await step('validateStock', () => validateStock(cart.items), { name: 'validate-stock' });
-    const payment = await step('processPayment', () => processPayment(cart.total, cardId), { name: 'process-payment' });
+    const cart = await step('fetch-cart', () => fetchCart(userId));
+    await step('validate-stock', () => validateStock(cart.items));
+    const payment = await step('process-payment', () => processPayment(cart.total, cardId));
     return { orderId: payment.id, total: cart.total };
   });
 
@@ -308,10 +308,10 @@ router.post('/checkout', withWorkflow(
     const paymentToken = req.body.paymentToken;
 
     return checkoutWorkflow(async (step) => {
-      const cart = await step('fetchCart', () => fetchCart(userId), { name: 'fetch-cart' });
-      const reservation = await step('reserveInventory', () => reserveInventory(cart.items), { name: 'reserve' });
-      const payment = await step('processPayment', () => processPayment(cart.total, paymentToken), { name: 'pay' });
-      const order = await step('createOrder', () => createOrder(cart, payment), { name: 'create-order' });
+      const cart = await step('fetch-cart', () => fetchCart(userId));
+      const reservation = await step('reserve', () => reserveInventory(cart.items));
+      const payment = await step('pay', () => processPayment(cart.total, paymentToken));
+      const order = await step('create-order', () => createOrder(cart, payment));
       return { orderId: order.id, total: order.total };
     });
   },

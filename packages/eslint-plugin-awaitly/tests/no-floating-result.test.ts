@@ -54,7 +54,7 @@ describe('no-floating-result', () => {
     });
 
     it('allows step.parallel with assignment', () => {
-      const code = `const results = await step.parallel({ a: () => fetch1(), b: () => fetch2() });`;
+      const code = `const results = await step.parallel('Fetch', { a: () => fetch1(), b: () => fetch2() });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
@@ -102,7 +102,7 @@ describe('no-floating-result', () => {
     });
 
     it('reports floating step.parallel()', () => {
-      const code = `step.parallel({ a: () => fetch1(), b: () => fetch2() });`;
+      const code = `step.parallel('Fetch', { a: () => fetch1(), b: () => fetch2() });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
       expect(messages[0].message).toContain('step.parallel');

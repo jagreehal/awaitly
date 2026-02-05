@@ -4,7 +4,7 @@ import type { CallExpression, MemberExpression } from 'estree';
 /**
  * Rule: require-step-id
  *
- * step() and all step helper methods require a string literal as the first argument (step ID).
+ * step() and all step helper methods require a string literal as the first argument (step ID / name).
  *
  * Covers:
  * - step('id', fn, options?)
@@ -13,18 +13,18 @@ import type { CallExpression, MemberExpression } from 'estree';
  * - step.withTimeout('id', fn, options)
  * - step.try('id', fn, options)
  * - step.fromResult('id', fn, options)
+ * - step.parallel('name', operations | callback)
+ * - step.race('name', callback)
+ * - step.allSettled('name', callback)
  *
  * BAD:  step(() => fetchUser('1'))           - missing step ID
- * BAD:  step.sleep(duration)                 - missing step ID
- * BAD:  step.retry(fn, { attempts: 3 })      - missing step ID
- * BAD:  step.sleep(someVar, '1s')            - dynamic ID (not a string literal)
- * GOOD: step('fetchUser', () => fetchUser('1'))
- * GOOD: step.sleep('delay', '5s')
- * GOOD: step.retry('fetchData', () => fetchData(), { attempts: 3 })
+ * BAD:  step.parallel({ a: () => ... })      - missing name (legacy form removed)
+ * GOOD: step.parallel('Fetch data', { a: () => fetchA(), b: () => fetchB() })
+ * GOOD: step.race('Fastest API', () => anyAsync([...]))
  */
 
-// Step helper methods that require ID as first argument
-const STEP_HELPER_METHODS = ['sleep', 'retry', 'withTimeout', 'try', 'fromResult'];
+// Step helper methods that require string (id/name) as first argument
+const STEP_HELPER_METHODS = ['sleep', 'retry', 'withTimeout', 'try', 'fromResult', 'parallel', 'race', 'allSettled'];
 
 function isDirectStepCall(node: CallExpression): boolean {
   const { callee } = node;
@@ -72,7 +72,7 @@ const rule: Rule.RuleModule = {
     type: 'problem',
     docs: {
       description:
-        "Require a string literal as the first argument to step() and step helper methods (sleep, retry, withTimeout, try, fromResult).",
+        "Require a string literal as the first argument to step() and step helper methods (sleep, retry, withTimeout, try, fromResult, parallel, race, allSettled).",
       recommended: true,
     },
     schema: [],
@@ -130,6 +130,9 @@ const rule: Rule.RuleModule = {
             withTimeout: 'slowOp',
             try: 'parse',
             fromResult: 'callProvider',
+            parallel: 'Fetch data',
+            race: 'Fastest API',
+            allSettled: 'Fetch all',
           };
 
           if (!firstArg) {

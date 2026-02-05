@@ -1422,7 +1422,7 @@ export function createWorkflow<
       cachedStepFn.retry = <StepT, StepE extends E, StepC = unknown>(
         id: string,
         operation: () => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>,
-        options: RetryOptions & { name?: string; key?: string; timeout?: TimeoutOptions; ttl?: number }
+        options: RetryOptions & { key?: string; timeout?: TimeoutOptions; ttl?: number }
       ): Promise<StepT> => {
         const stepOptions = {
           key: options.key, // explicitly pass so undefined = don't cache

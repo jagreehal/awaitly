@@ -639,7 +639,6 @@ export type TimeoutOptions = {
   /**
    * Custom error to use when timeout occurs.
    * @default StepTimeoutError with step details
-   * @deprecated Use `onTimeout` with a function for custom errors
    */
   error?: unknown;
 
@@ -867,24 +866,23 @@ export interface RunStep<E = unknown> {
    * This wraps the operations with scope_start and scope_end events, enabling
    * visualization of parallel execution branches.
    *
-   * @overload Shorthand form - function callbacks
-   * @overload Canonical form - { fn, errors } objects (required in strict mode)
-   * @overload Array form - wraps allAsync result with scope events
+   * @overload Object form - step.parallel(name, { key: () => ... })
+   * @overload Array form - step.parallel(name, () => allAsync([...]))
    *
-   * @example Shorthand form (works in default mode)
+   * @example Object form
    * ```typescript
-   * const { user, posts } = await step.parallel({
+   * const { user, posts } = await step.parallel('Fetch user data', {
    *   user: () => fetchUser(id),
    *   posts: () => fetchPosts(id),
-   * }, { name: 'Fetch user data' });
+   * });
    * ```
    *
-   * @example Canonical form (required in strict mode)
+   * @example Canonical form (strict mode)
    * ```typescript
-   * const { user, posts } = await step.parallel({
+   * const { user, posts } = await step.parallel('Fetch user data', {
    *   user: { fn: () => fetchUser(id), errors: ['NOT_FOUND'] },
    *   posts: { fn: () => fetchPosts(id), errors: ['FETCH_ERROR'] },
-   * }, { name: 'Fetch user data' });
+   * });
    * ```
    *
    * @example Array form
@@ -895,15 +893,15 @@ export interface RunStep<E = unknown> {
    * ```
    */
   parallel: {
-    // Shorthand form - function callbacks
+    // Object form: step.parallel(name, { key: () => ... })
     <
       TOperations extends Record<
         string,
         () => MaybeAsyncResult<unknown, E, unknown>
       >
     >(
-      operations: TOperations,
-      options?: { name?: string }
+      name: string,
+      operations: TOperations
     ): Promise<{
       [K in keyof TOperations]: TOperations[K] extends () => MaybeAsyncResult<
         infer V,
@@ -914,15 +912,15 @@ export interface RunStep<E = unknown> {
         : never;
     }>;
 
-    // Canonical form - { fn, errors } objects
+    // Object form canonical: step.parallel(name, { key: { fn, errors } })
     <
       TOperations extends Record<
         string,
         ParallelOperationDescriptor<unknown, readonly string[]>
       >
     >(
-      operations: TOperations,
-      options?: { name?: string }
+      name: string,
+      operations: TOperations
     ): Promise<{
       [K in keyof TOperations]: TOperations[K] extends ParallelOperationDescriptor<
         infer V,
@@ -932,7 +930,7 @@ export interface RunStep<E = unknown> {
         : never;
     }>;
 
-    // Array form - wraps allAsync with scope events
+    // Array form: step.parallel(name, () => allAsync([...]))
     <T, StepE extends E, StepC = unknown>(
       name: string,
       operation: () => Result<T[], StepE, StepC> | AsyncResult<T[], StepE, StepC>
@@ -3112,40 +3110,44 @@ export async function run<T, E, C = void>(
     };
 
     // step.parallel: Execute parallel operations with scope events
-    // Supports three overloads:
-    // 1. Shorthand form: step.parallel({ user: () => fetchUser(id) }, { name: 'Fetch' })
-    // 2. Canonical form: step.parallel({ user: { fn: () => fetchUser(id), errors: ['NOT_FOUND'] } }, { name: 'Fetch' })
-    // 3. Array form: step.parallel('name', () => allAsync([...]))
+    // 1. Object form: step.parallel(name, { key: fn | { fn, errors } })
+    // 2. Array form: step.parallel(name, () => allAsync([...]))
     stepFn.parallel = ((...args: unknown[]): Promise<unknown> => {
-      // Detect which overload is being used
-      if (typeof args[0] === "string") {
-        // Array form: step.parallel(name, operation)
-        const name = args[0] as string;
-        const operation = args[1] as () => MaybeAsyncResult<unknown[], unknown, unknown>;
-        return executeParallelArray(name, operation);
-      } else {
-        // Named object form: step.parallel({ key: fn | { fn, errors } }, { name? })
-        const rawOperations = args[0] as Record<string, (() => MaybeAsyncResult<unknown, unknown, unknown>) | ParallelOperationDescriptor<unknown, readonly string[]>>;
-        const options = (args[1] as { name?: string } | undefined) ?? {};
-
-        // Normalize to function form (extract fn from descriptor if canonical form)
-        const normalizedOperations: Record<string, () => MaybeAsyncResult<unknown, unknown, unknown>> = {};
-        for (const [key, value] of Object.entries(rawOperations)) {
-          if (typeof value === 'function') {
-            // Shorthand form: () => fetchUser()
-            normalizedOperations[key] = value;
-          } else if (value && typeof value === 'object' && 'fn' in value) {
-            // Canonical form: { fn: () => fetchUser(), errors: [...] }
-            normalizedOperations[key] = value.fn;
-          } else {
-            // Invalid form - skip or throw
-            throw new TypeError(`step.parallel: operation "${key}" must be a function or { fn, errors? } object`);
-          }
-        }
-
-        return executeParallelNamed(normalizedOperations, options);
+      if (typeof args[0] !== "string") {
+        throw new TypeError(
+          "step.parallel(name, ...): first argument must be a string (step name). Example: step.parallel('Fetch data', { user: () => fetchUser(), posts: () => fetchPosts() })"
+        );
       }
+      const name = args[0] as string;
+      const second = args[1];
+      if (typeof second === "function") {
+        return executeParallelArray(name, second as () => MaybeAsyncResult<unknown[], unknown, unknown>);
+      }
+      if (second && typeof second === "object" && !Array.isArray(second)) {
+        const rawOperations = second as Record<string, (() => MaybeAsyncResult<unknown, unknown, unknown>) | ParallelOperationDescriptor<unknown, readonly string[]>>;
+        const normalizedOperations = normalizeParallelOperations(rawOperations);
+        return executeParallelNamed(normalizedOperations, { name });
+      }
+      throw new TypeError(
+        "step.parallel(name, ...): second argument must be a function (array form) or an object of operations (object form)."
+      );
     }) as RunStep<E>["parallel"];
+
+    function normalizeParallelOperations(
+      rawOperations: Record<string, (() => MaybeAsyncResult<unknown, unknown, unknown>) | ParallelOperationDescriptor<unknown, readonly string[]>>
+    ): Record<string, () => MaybeAsyncResult<unknown, unknown, unknown>> {
+      const out: Record<string, () => MaybeAsyncResult<unknown, unknown, unknown>> = {};
+      for (const [key, value] of Object.entries(rawOperations)) {
+        if (typeof value === "function") {
+          out[key] = value;
+        } else if (value && typeof value === "object" && "fn" in value) {
+          out[key] = value.fn;
+        } else {
+          throw new TypeError(`step.parallel: operation "${key}" must be a function or { fn, errors? } object`);
+        }
+      }
+      return out;
+    }
 
     // Array form implementation
     function executeParallelArray<T>(

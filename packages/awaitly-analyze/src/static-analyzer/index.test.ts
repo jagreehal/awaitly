@@ -220,7 +220,7 @@ describe("ts-morph Static Analyzer", () => {
 
         async function run() {
           return await workflow(async (step, deps) => {
-            const results = await step.parallel({
+            const results = await step.parallel("Fetch posts and friends", {
               posts: () => deps.fetchPosts(id),
               friends: () => deps.fetchFriends(id),
             });
@@ -1229,7 +1229,7 @@ async function run() {
             const r = arr.race(fn);
             const t = obj.retry(() => action());
 
-            const results = await step.parallel({
+            const results = await step.parallel("Fetch A and B", {
               a: () => deps.fetchA(),
               b: () => deps.fetchB(),
             });
@@ -1695,19 +1695,16 @@ async function run() {
       }
     });
 
-    it("should capture step.parallel name option in object form", () => {
+    it("should capture step.parallel name from name-first form", () => {
       const source = `
         const workflow = createWorkflow({});
 
         async function run() {
           return await workflow(async (step, deps) => {
-            await step.parallel(
-              {
-                posts: () => deps.fetchPosts(id),
-                friends: () => deps.fetchFriends(id),
-              },
-              { name: 'Fetch all' }
-            );
+            await step.parallel("Fetch user data", {
+              posts: () => deps.fetchPosts(id),
+              friends: () => deps.fetchFriends(id),
+            });
           });
         }
       `;
@@ -1725,7 +1722,8 @@ async function run() {
 
       expect(parallelNode?.type).toBe("parallel");
       if (parallelNode?.type === "parallel") {
-        expect(parallelNode.name).toBe("Fetch all");
+        expect(parallelNode.name).toBe("Fetch user data");
+        expect(parallelNode.children).toHaveLength(2);
       }
     });
   });
@@ -2356,7 +2354,7 @@ async function run() {
               retry: { attempts: 3, backoff: 'exponential' },
             });
 
-            const parallel = await step.parallel({
+            const parallel = await step.parallel("Fetch A and B", {
               a: () => deps.fetchA(),
               b: () => deps.fetchB(),
             });
@@ -2747,7 +2745,7 @@ async function run() {
 
         async function run() {
           return await workflow(async (step, deps) => {
-            await step.parallel({
+            await step.parallel("Fetch posts and friends", {
               posts: () => deps.fetchPosts(),
               friends: () => deps.fetchFriends(),
             });
@@ -2761,7 +2759,7 @@ async function run() {
       const mermaid = renderStaticMermaid(results[0]);
 
       expect(mermaid).toContain("flowchart TB");
-      expect(mermaid).toContain("Parallel");
+      expect(mermaid).toContain("Fetch posts and friends");
     });
   });
 
@@ -3356,7 +3354,7 @@ async function run() {
 
         async function execute() {
           return await run(async (step, deps) => {
-            const results = await step.parallel({
+            const results = await step.parallel("Fetch posts and friends", {
               posts: () => deps.fetchPosts(),
               friends: () => deps.fetchFriends(),
             });

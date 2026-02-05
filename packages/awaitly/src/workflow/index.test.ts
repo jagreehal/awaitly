@@ -4549,7 +4549,7 @@ describe("step.parallel() named object form", () => {
 
     const result = await run(
       async (step) => {
-        const { user, posts } = await step.parallel({
+        const { user, posts } = await step.parallel("Fetch user and posts", {
           user: () => fetchUser("1"),
           posts: () => fetchPosts("1"),
         });
@@ -4574,18 +4574,15 @@ describe("step.parallel() named object form", () => {
     expect(scopeEnd).toBeDefined();
   });
 
-  it("should accept custom name in options", async () => {
+  it("should support name-first form step.parallel(name, operations)", async () => {
     const events: WorkflowEvent<unknown>[] = [];
 
-    await run(
+    const result = await run(
       async (step) => {
-        const { user, posts } = await step.parallel(
-          {
-            user: () => fetchUser("1"),
-            posts: () => fetchPosts("1"),
-          },
-          { name: "Fetch user data" }
-        );
+        const { user, posts } = await step.parallel("Fetch user data", {
+          user: () => fetchUser("1"),
+          posts: () => fetchPosts("1"),
+        });
         return { user, posts };
       },
       {
@@ -4593,9 +4590,15 @@ describe("step.parallel() named object form", () => {
       }
     );
 
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.user).toEqual({ id: "1", name: "User 1" });
+      expect(result.value.posts).toEqual([{ id: "p1", title: "Post by 1" }]);
+    }
     const scopeStart = events.find((e) => e.type === "scope_start");
     expect(scopeStart?.type === "scope_start" && scopeStart.name).toBe("Fetch user data");
   });
+
 
   it("should fail fast on first error", async () => {
     const events: WorkflowEvent<unknown>[] = [];
@@ -4608,7 +4611,7 @@ describe("step.parallel() named object form", () => {
     );
 
     const result = await workflow(async (step, { fetchUser, fetchPosts }) => {
-      const { user, posts } = await step.parallel({
+      const { user, posts } = await step.parallel("Fetch user and posts", {
         user: () => fetchUser("missing"), // This will fail
         posts: () => fetchPosts("1"),
       });
@@ -4635,7 +4638,7 @@ describe("step.parallel() named object form", () => {
 
     const result = await workflow(async (step, { slowOp, fastFailOp }) => {
       // slowOp is first but takes 100ms, fastFailOp is second but fails immediately
-      const { slow, fast } = await step.parallel({
+      const { slow, fast } = await step.parallel("Fetch slow and fast", {
         slow: () => slowOp(),
         fast: () => fastFailOp(),
       });
@@ -4650,7 +4653,7 @@ describe("step.parallel() named object form", () => {
 
   it("should support three or more operations", async () => {
     const result = await run(async (step) => {
-      const { user, posts, comments } = await step.parallel({
+      const { user, posts, comments } = await step.parallel("Fetch user posts comments", {
         user: () => fetchUser("1"),
         posts: () => fetchPosts("1"),
         comments: () => fetchComments("p1"),
@@ -4669,7 +4672,7 @@ describe("step.parallel() named object form", () => {
 
   it("should handle empty operations object", async () => {
     const result = await run(async (step) => {
-      const data = await step.parallel({});
+      const data = await step.parallel("Empty parallel", {});
       return data;
     });
 
@@ -4683,7 +4686,7 @@ describe("step.parallel() named object form", () => {
     const workflow = createWorkflow({ fetchUser, fetchPosts });
 
     const result = await workflow(async (step, deps) => {
-      const { user, posts } = await step.parallel({
+      const { user, posts } = await step.parallel("Fetch user and posts", {
         user: () => deps.fetchUser("1"),
         posts: () => deps.fetchPosts("1"),
       });

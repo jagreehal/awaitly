@@ -468,8 +468,7 @@ const user = await step.retry(
 You can also configure retry and timeout directly in step options:
 
 ```typescript
-const user = await step('fetchUser', () => fetchUser('1'), {
-  name: 'Fetch user',
+const user = await step('Fetch user', () => fetchUser('1'), {
   retry: {
     attempts: 3,
     backoff: 'exponential',
