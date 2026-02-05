@@ -154,7 +154,7 @@ npx awaitly-analyze ./workflow.ts -o
 The analysis produces these node types:
 - `workflow` - Root workflow node
 - `step` - Single step execution. Every step type takes a string as the first argument (ID or name): `step('id', fn, opts)`, `step.sleep('id', duration, opts?)`, `step.retry('id', operation, opts)`, `step.withTimeout('id', operation, opts)`, `step.try('id', operation, opts)`, `step.fromResult('id', operation, opts)`, `step.parallel('name', operations | callback)`, `step.race('name', callback)`, `step.allSettled('name', callback)`. Legacy `step(fn, opts)` yields `stepId: "<missing>"` and a warning.
-- `saga-step` - Saga step with compensation
+- `saga-step` - Saga step with compensation. Name-first form only: `saga.step(name, operation, options?)`, `saga.tryStep(name, operation, options)`. The analyzer reads the step name from the first argument (string literal), not from the options object.
 - `sequence` - Sequential execution
 - `parallel` - Concurrent execution (allAsync)
 - `race` - First-wins execution (anyAsync)

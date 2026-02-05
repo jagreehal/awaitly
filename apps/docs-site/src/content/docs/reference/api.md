@@ -635,11 +635,10 @@ Single place for all workflow and step option keys (for docs and static analysis
 | `timeout` | `object?` | Timeout config (step.withTimeout) |
 | `signal` | `AbortSignal?` | Step cancellation (e.g. step.sleep) |
 
-**Saga step (saga.step / saga.tryStep)** — in options object:
+**Saga step (saga.step / saga.tryStep)** — first argument is the step name (string). Optional third argument is an options object:
 
 | Option | Type | Purpose |
 |--------|------|---------|
-| `name` | `string?` | Step name |
 | `description` | `string?` | Short description for docs and static analysis |
 | `markdown` | `string?` | Full markdown for step documentation |
 | `compensate` | `function?` | Compensation function on rollback |

@@ -342,9 +342,9 @@ export const orderProcessingSaga = createSagaWorkflow(
 export async function processOrder(request: OrderRequest) {
   return await orderProcessingSaga(async (saga, deps) => {
     await saga.step(
+      "reserve-inventory",
       () => deps.reserveInventory(request.items),
       {
-        name: "reserve-inventory",
         compensate: async () => {
           await deps.releaseInventory(request.items);
         },
@@ -352,9 +352,9 @@ export async function processOrder(request: OrderRequest) {
     );
 
     const payment = await saga.step(
+      "process-payment",
       () => deps.processPayment(request.paymentMethod),
       {
-        name: "process-payment",
         compensate: async (p: PaymentResult) => {
           await deps.refundPayment(p.transactionId, p.amount);
         },
@@ -362,9 +362,9 @@ export async function processOrder(request: OrderRequest) {
     );
 
     const label = await saga.step(
+      "create-shipping-label",
       () => deps.createShippingLabel(request.address),
       {
-        name: "create-shipping-label",
         compensate: async (label: ShippingLabel) => {
           await cancelShippingLabel(label.trackingNumber);
         },

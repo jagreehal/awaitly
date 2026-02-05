@@ -3118,18 +3118,23 @@ function analyzeSagaStepCall(
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
 
-  // Extract the operation from first argument
-  if (args[0]) {
-    sagaNode.callee = extractCallee(args[0]);
-    sagaNode.name = sagaNode.callee;
+  // Name-first form: saga.step(name, operation, options?) / saga.tryStep(name, operation, options)
+  const nameArg = args[0];
+  const operationArg = args[1];
+  const optionsArg = args[2];
+
+  if (nameArg) {
+    const nameVal = extractStringValue(nameArg);
+    if (nameVal && nameVal !== "<dynamic>") sagaNode.name = nameVal;
   }
 
-  // Check for options object in second argument (saga.step(() => ..., { name, compensate }))
-  if (args[1] && Node.isObjectLiteralExpression(args[1])) {
-    const sagaOptions = extractSagaStepOptions(args[1]);
-    if (sagaOptions.name) {
-      sagaNode.name = sagaOptions.name;
-    }
+  if (operationArg) {
+    sagaNode.callee = extractCallee(operationArg);
+    if (!sagaNode.name) sagaNode.name = sagaNode.callee;
+  }
+
+  if (optionsArg && Node.isObjectLiteralExpression(optionsArg)) {
+    const sagaOptions = extractSagaStepOptions(optionsArg);
     if (sagaOptions.description) {
       sagaNode.description = sagaOptions.description;
     }
@@ -3154,10 +3159,10 @@ function analyzeSagaStepCall(
 
 /**
  * Extract options from a saga step options object.
- * e.g., { name: 'Create Order', compensate: () => deps.cancelOrder() }
+ * Name is not in options; it is the first argument to saga.step/saga.tryStep.
+ * e.g., { description: '...', compensate: () => deps.cancelOrder() }
  */
 function extractSagaStepOptions(optionsNode: Node): {
-  name?: string;
   description?: string;
   markdown?: string;
   hasCompensation: boolean;
@@ -3165,7 +3170,6 @@ function extractSagaStepOptions(optionsNode: Node): {
 } {
   const { Node } = loadTsMorph();
   const result = {
-    name: undefined as string | undefined,
     description: undefined as string | undefined,
     markdown: undefined as string | undefined,
     hasCompensation: false,
@@ -3182,9 +3186,7 @@ function extractSagaStepOptions(optionsNode: Node): {
     const propName = prop.getName();
     const init = prop.getInitializer();
 
-    if (propName === "name" && init) {
-      result.name = extractStringValue(init);
-    } else if (propName === "description" && init) {
+    if (propName === "description" && init) {
       result.description = extractStringValue(init);
     } else if (propName === "markdown" && init) {
       result.markdown = extractStringValue(init);

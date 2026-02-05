@@ -13,16 +13,18 @@
  *
  * const result = await checkout(async (saga) => {
  *   const reservation = await saga.step(
+ *     'reserveInventory',
  *     () => reserveInventory(items),
  *     { compensate: (res) => releaseInventory(res.reservationId) }
  *   );
  *
  *   const payment = await saga.step(
+ *     'chargeCard',
  *     () => chargeCard(amount),
  *     { compensate: (p) => refundPayment(p.txId) }
  *   );
  *
- *   await saga.step(() => sendEmail(userId)); // No compensation needed
+ *   await saga.step('sendEmail', () => sendEmail(userId)); // No compensation needed
  *
  *   return { reservation, payment };
  * });
@@ -104,53 +106,41 @@ export function isSagaCompensationError(
 export interface SagaContext<E = unknown> {
   /**
    * Execute a step with optional compensation.
+   * Name is required as the first argument (consistent with other step APIs).
    *
+   * @param name - Step name (for observability and compensation tracking)
    * @param operation - The operation to execute (returns Result)
    * @param options - Step options including compensation action
    * @returns The unwrapped success value
    */
-  step: {
-    <T, StepE extends E, StepC = unknown>(
-      operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
-      options?: SagaStepOptions<T>
-    ): Promise<T>;
-    <T, StepE extends E, StepC = unknown>(
-      name: string,
-      operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
-      options?: SagaStepOptions<T>
-    ): Promise<T>;
-  };
+  step: <T, StepE extends E, StepC = unknown>(
+    name: string,
+    operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
+    options?: SagaStepOptions<T>
+  ) => Promise<T>;
 
   /**
    * Execute a throwing operation with optional compensation.
+   * Name is required as the first argument.
    *
+   * @param name - Step name (for observability and compensation tracking)
    * @param operation - The operation to execute (may throw)
    * @param options - Step options including error mapping and compensation
    * @returns The success value
    */
-  tryStep: {
-    <T, Err extends E>(
-      operation: () => T | Promise<T>,
-      options: {
-        error: Err;
-        compensate?: CompensationAction<T>;
-      } | {
-        onError: (cause: unknown) => Err;
-        compensate?: CompensationAction<T>;
-      }
-    ): Promise<T>;
-    <T, Err extends E>(
-      name: string,
-      operation: () => T | Promise<T>,
-      options: {
-        error: Err;
-        compensate?: CompensationAction<T>;
-      } | {
-        onError: (cause: unknown) => Err;
-        compensate?: CompensationAction<T>;
-      }
-    ): Promise<T>;
-  };
+  tryStep: <T, Err extends E>(
+    name: string,
+    operation: () => T | Promise<T>,
+    options:
+      | {
+          error: Err;
+          compensate?: CompensationAction<T>;
+        }
+      | {
+          onError: (cause: unknown) => Err;
+          compensate?: CompensationAction<T>;
+        }
+  ) => Promise<T>;
 
   /**
    * Get all recorded compensations (for debugging/testing).
@@ -234,11 +224,13 @@ type ErrorsOfDeps<Deps extends Record<string, AnyResultFn>> = {
  *
  * const result = await saga(async (ctx) => {
  *   const reservation = await ctx.step(
+ *     'reserveInventory',
  *     () => reserveInventory(items),
  *     { compensate: (res) => releaseInventory(res.id) }
  *   );
  *
  *   const payment = await ctx.step(
+ *     'chargeCard',
  *     () => chargeCard(amount),
  *     { compensate: (p) => refundPayment(p.txId) }
  *   );
@@ -330,30 +322,18 @@ export function createSagaWorkflow<
 
     // Create saga context
     const sagaContext: SagaContext<E> = {
-      // Overloaded step: (operation, options?) or (name, operation, options?)
       step: async function stepImpl<T, StepE extends E, StepC = unknown>(
-        nameOrOperation: string | (() => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>),
-        operationOrOptions?: (() => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>) | SagaStepOptions<T>,
-        maybeOptions?: SagaStepOptions<T>
+        name: string,
+        operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
+        stepOptions?: SagaStepOptions<T>
       ): Promise<T> {
-        // Detect overload: step(name, operation, options?) vs step(operation, options?)
-        let name: string | undefined;
-        let operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>;
-        let stepOptions: SagaStepOptions<T> | undefined;
-
-        if (typeof nameOrOperation === "string") {
-          name = nameOrOperation;
-          operation = operationOrOptions as () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>;
-          stepOptions = maybeOptions;
-        } else {
-          operation = nameOrOperation;
-          stepOptions = operationOrOptions as SagaStepOptions<T> | undefined;
+        if (typeof name !== "string" || name.length === 0) {
+          throw new TypeError(
+            "saga.step(name, operation, options?): first argument must be a string (step name). Example: saga.step('createOrder', () => deps.createOrder(), { compensate: (o) => deps.cancelOrder(o) })"
+          );
         }
-
         const result = await operation();
-
         if (result.ok) {
-          // Record compensation if provided
           if (stepOptions?.compensate) {
             compensations.push({
               name,
@@ -363,25 +343,16 @@ export function createSagaWorkflow<
           }
           return result.value;
         }
-
-        // Step failed - throw early exit to trigger compensation
         throw createEarlyExit(result.error as unknown as E, {
           origin: "result",
           resultCause: result.cause,
         });
       },
 
-      // Overloaded tryStep: (operation, opts) or (name, operation, opts)
       tryStep: async function tryStepImpl<T, Err extends E>(
-        nameOrOperation: string | (() => T | Promise<T>),
-        operationOrOpts: (() => T | Promise<T>) | {
-          error: Err;
-          compensate?: CompensationAction<T>;
-        } | {
-          onError: (cause: unknown) => Err;
-          compensate?: CompensationAction<T>;
-        },
-        maybeOpts?: {
+        name: string,
+        operation: () => T | Promise<T>,
+        opts: {
           error: Err;
           compensate?: CompensationAction<T>;
         } | {
@@ -389,32 +360,14 @@ export function createSagaWorkflow<
           compensate?: CompensationAction<T>;
         }
       ): Promise<T> {
-        // Detect overload: tryStep(name, operation, opts) vs tryStep(operation, opts)
-        let name: string | undefined;
-        let operation: () => T | Promise<T>;
-        let opts: {
-          error: Err;
-          compensate?: CompensationAction<T>;
-        } | {
-          onError: (cause: unknown) => Err;
-          compensate?: CompensationAction<T>;
-        };
-
-        if (typeof nameOrOperation === "string") {
-          name = nameOrOperation;
-          operation = operationOrOpts as () => T | Promise<T>;
-          opts = maybeOpts!;
-        } else {
-          operation = nameOrOperation;
-          opts = operationOrOpts as typeof opts;
+        if (typeof name !== "string" || name.length === 0) {
+          throw new TypeError(
+            "saga.tryStep(name, operation, options): first argument must be a string (step name). Example: saga.tryStep('riskyOp', () => deps.riskyOp(), { error: 'RISKY_FAILED' })"
+          );
         }
-
         const mapToError = "error" in opts ? () => opts.error : opts.onError;
-
         try {
           const value = await operation();
-
-          // Record compensation if provided
           if (opts.compensate) {
             compensations.push({
               name,
@@ -422,7 +375,6 @@ export function createSagaWorkflow<
               compensate: opts.compensate as CompensationAction<unknown>,
             });
           }
-
           return value;
         } catch (thrown) {
           const mapped = mapToError(thrown);
@@ -518,6 +470,7 @@ export function createSagaWorkflow<
  * ```typescript
  * const result = await runSaga<CheckoutResult, CheckoutError>(async (saga) => {
  *   const reservation = await saga.step(
+ *     'reserveInventory',
  *     () => reserveInventory(items),
  *     { compensate: (res) => releaseInventory(res.id) }
  *   );
@@ -601,28 +554,17 @@ export async function runSaga<T, E>(
 
   // Create saga context
   const sagaContext: SagaContext<E> = {
-    // Overloaded step: (operation, options?) or (name, operation, options?)
     step: async function stepImpl<T, StepE extends E, StepC = unknown>(
-      nameOrOperation: string | (() => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>),
-      operationOrOptions?: (() => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>) | SagaStepOptions<T>,
-      maybeOptions?: SagaStepOptions<T>
+      name: string,
+      operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
+      stepOptions?: SagaStepOptions<T>
     ): Promise<T> {
-      // Detect overload: step(name, operation, options?) vs step(operation, options?)
-      let name: string | undefined;
-      let operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>;
-      let stepOptions: SagaStepOptions<T> | undefined;
-
-      if (typeof nameOrOperation === "string") {
-        name = nameOrOperation;
-        operation = operationOrOptions as () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>;
-        stepOptions = maybeOptions;
-      } else {
-        operation = nameOrOperation;
-        stepOptions = operationOrOptions as SagaStepOptions<T> | undefined;
+      if (typeof name !== "string" || name.length === 0) {
+        throw new TypeError(
+          "saga.step(name, operation, options?): first argument must be a string (step name). Example: saga.step('createOrder', () => deps.createOrder(), { compensate: (o) => deps.cancelOrder(o) })"
+        );
       }
-
       const result = await operation();
-
       if (result.ok) {
         if (stepOptions?.compensate) {
           compensations.push({
@@ -633,24 +575,16 @@ export async function runSaga<T, E>(
         }
         return result.value;
       }
-
       throw createEarlyExit(result.error as unknown as E, {
         origin: "result",
         resultCause: result.cause,
       });
     },
 
-    // Overloaded tryStep: (operation, opts) or (name, operation, opts)
     tryStep: async function tryStepImpl<T, Err extends E>(
-      nameOrOperation: string | (() => T | Promise<T>),
-      operationOrOpts: (() => T | Promise<T>) | {
-        error: Err;
-        compensate?: CompensationAction<T>;
-      } | {
-        onError: (cause: unknown) => Err;
-        compensate?: CompensationAction<T>;
-      },
-      maybeOpts?: {
+      name: string,
+      operation: () => T | Promise<T>,
+      opts: {
         error: Err;
         compensate?: CompensationAction<T>;
       } | {
@@ -658,31 +592,14 @@ export async function runSaga<T, E>(
         compensate?: CompensationAction<T>;
       }
     ): Promise<T> {
-      // Detect overload: tryStep(name, operation, opts) vs tryStep(operation, opts)
-      let name: string | undefined;
-      let operation: () => T | Promise<T>;
-      let opts: {
-        error: Err;
-        compensate?: CompensationAction<T>;
-      } | {
-        onError: (cause: unknown) => Err;
-        compensate?: CompensationAction<T>;
-      };
-
-      if (typeof nameOrOperation === "string") {
-        name = nameOrOperation;
-        operation = operationOrOpts as () => T | Promise<T>;
-        opts = maybeOpts!;
-      } else {
-        operation = nameOrOperation;
-        opts = operationOrOpts as typeof opts;
+      if (typeof name !== "string" || name.length === 0) {
+        throw new TypeError(
+          "saga.tryStep(name, operation, options): first argument must be a string (step name). Example: saga.tryStep('riskyOp', () => deps.riskyOp(), { error: 'RISKY_FAILED' })"
+        );
       }
-
       const mapToError = "error" in opts ? () => opts.error : opts.onError;
-
       try {
         const value = await operation();
-
         if (opts.compensate) {
           compensations.push({
             name,
@@ -690,7 +607,6 @@ export async function runSaga<T, E>(
             compensate: opts.compensate as CompensationAction<unknown>,
           });
         }
-
         return value;
       } catch (thrown) {
         const mapped = mapToError(thrown);

@@ -248,11 +248,10 @@ function generateMarkdown(project) {
   lines.push("| `timeout` | `object?` | Timeout config (step.withTimeout) |");
   lines.push("| `signal` | `AbortSignal?` | Step cancellation (e.g. step.sleep) |");
   lines.push("");
-  lines.push("**Saga step (saga.step / saga.tryStep)** — in options object:");
+  lines.push("**Saga step (saga.step / saga.tryStep)** — first argument is the step name (string). Optional third argument is an options object:");
   lines.push("");
   lines.push("| Option | Type | Purpose |");
   lines.push("|--------|------|---------|");
-  lines.push("| `name` | `string?` | Step name |");
   lines.push("| `description` | `string?` | Short description for docs and static analysis |");
   lines.push("| `markdown` | `string?` | Full markdown for step documentation |");
   lines.push("| `compensate` | `function?` | Compensation function on rollback |");

@@ -221,29 +221,23 @@ describe("Workflows Documentation - Saga Pattern", () => {
     const result = await sagaCheckout(async (saga, deps) => {
       // Step 1: Charge with compensation
       await saga.step(
+        "charge-payment",
         () => deps.chargePayment({ amount: 99, method: "card_xxx" }),
-        {
-          name: "charge-payment",
-          compensate: (payment) => deps.refundPayment({ paymentId: payment.id }),
-        }
+        { compensate: (payment) => deps.refundPayment({ paymentId: payment.id }) }
       );
 
       // Step 2: Reserve inventory with compensation
       await saga.step(
+        "reserve-inventory",
         () => deps.reserveInventory({ items: cartItems }),
-        {
-          name: "reserve-inventory",
-          compensate: (reservation) => deps.releaseInventory({ reservationId: reservation.id }),
-        }
+        { compensate: (reservation) => deps.releaseInventory({ reservationId: reservation.id }) }
       );
 
       // Step 3: Create order with compensation (this will fail)
       const order = await saga.step(
+        "create-order",
         () => deps.createOrder(),
-        {
-          name: "create-order",
-          compensate: (order) => deps.cancelOrder({ orderId: order.id }),
-        }
+        { compensate: (order) => deps.cancelOrder({ orderId: order.id }) }
       );
 
       return order;
@@ -312,17 +306,15 @@ describe("Workflows Documentation - Saga Pattern", () => {
     const result = await saga(async (ctx, deps) => {
       // No compensation needed for reads
       const user = await ctx.step(
-        () => deps.fetchUser({ userId: "user_1" }),
-        { name: "fetch-user" }
+        "fetch-user",
+        () => deps.fetchUser({ userId: "user_1" })
       );
 
       // Needs compensation - creates state
       const payment = await ctx.step(
+        "charge-payment",
         () => deps.chargePayment(),
-        {
-          name: "charge-payment",
-          compensate: (p) => deps.refundPayment({ paymentId: p.id }),
-        }
+        { compensate: (p) => deps.refundPayment({ paymentId: p.id }) }
       );
 
       return { user, payment };
@@ -793,41 +785,35 @@ describe("Workflows Documentation - Combining Patterns", () => {
     const result = await orderFulfillment(async (saga, deps) => {
       // Validation (no compensation needed)
       const order = await saga.step(
-        () => deps.validateOrder({ orderId: "order_1" }),
-        { name: "validate-order" }
+        "validate-order",
+        () => deps.validateOrder({ orderId: "order_1" })
       );
 
       // Reserve inventory with compensation
       await saga.step(
+        "reserve-inventory",
         () => deps.reserveInventory({ items: order.items }),
-        {
-          name: "reserve-inventory",
-          compensate: (r) => deps.releaseInventory({ reservationId: r.id }),
-        }
+        { compensate: (r) => deps.releaseInventory({ reservationId: r.id }) }
       );
 
       // Charge payment with compensation
       const payment = await saga.step(
+        "charge-payment",
         () => deps.chargePayment({ amount: order.total }),
-        {
-          name: "charge-payment",
-          compensate: (p) => deps.refundPayment({ paymentId: p.id }),
-        }
+        { compensate: (p) => deps.refundPayment({ paymentId: p.id }) }
       );
 
       // Create shipment with compensation (this will fail)
       const shipment = await saga.step(
+        "create-shipment",
         () => deps.createShipment(),
-        {
-          name: "create-shipment",
-          compensate: (s) => deps.cancelShipment({ shipmentId: s.id }),
-        }
+        { compensate: (s) => deps.cancelShipment({ shipmentId: s.id }) }
       );
 
       // Notify customer (no compensation - can't un-send)
       await saga.step(
-        () => deps.notifyCustomer({ email: "customer@example.com", shipment }),
-        { name: "notify-customer" }
+        "notify-customer",
+        () => deps.notifyCustomer({ email: "customer@example.com", shipment })
       );
 
       return { order, shipment, payment };
