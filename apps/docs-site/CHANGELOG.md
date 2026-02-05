@@ -1,5 +1,11 @@
 # awaitly-docs
 
+## 1.15.0
+
+### Minor Changes
+
+- afc8f6c: Documentation updates, static analyzer improvements, visualizer and ESLint plugin updates, and dependency bumps across packages.
+
 ## 1.14.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "awaitly-visualizer",
-  "version": "5.0.0",
+  "version": "6.0.0",
   "type": "module",
   "description": "Visualization and rendering for awaitly workflows - Mermaid diagrams, ASCII art, HTML, and more",
   "main": "./dist/index.cjs",
