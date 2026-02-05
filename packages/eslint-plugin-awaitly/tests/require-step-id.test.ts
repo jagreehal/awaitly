@@ -112,6 +112,72 @@ describe('require-step-id', () => {
     });
   });
 
+  describe('valid cases - saga.step / saga.tryStep', () => {
+    it('allows saga.step with name first and options', () => {
+      const code = `
+        orderSaga(async (saga, deps) => {
+          saga.step('createOrder', () => deps.createOrder(), { compensate: (o) => deps.cancelOrder(o) });
+        });
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows saga.tryStep with name first and options', () => {
+      const code = `
+        orderSaga(async (saga, deps) => {
+          saga.tryStep('riskyOp', () => deps.riskyOp(), { error: 'FAILED', compensate: () => deps.undo() });
+        });
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows ctx.step with name first', () => {
+      const code = `
+        orderSaga(async (ctx, deps) => {
+          ctx.step('reserve', () => reserve());
+        });
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows destructured tryStep with name first', () => {
+      const code = `tryStep('riskyOp', () => deps.riskyOp(), { error: 'FAILED', compensate: () => deps.undo() });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('does not flag unrelated local tryStep function', () => {
+      const code = `
+        const tryStep = (fn) => fn();
+        tryStep(() => doSomething());
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('does not flag tryStep when it is a plain function parameter (not saga context)', () => {
+      const code = `
+        function run(tryStep) {
+          tryStep(() => doSomething());
+        }
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('does not flag s.tryStep for unrelated local object', () => {
+      const code = `
+        const s = { tryStep: (fn) => fn() };
+        s.tryStep(() => doSomething());
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
   describe('invalid cases - step()', () => {
     it('reports when step has no arguments', () => {
       const code = `step();`;
@@ -218,6 +284,79 @@ describe('require-step-id', () => {
       expect(messages).toHaveLength(1);
       expect(messages[0].ruleId).toBe('awaitly/require-step-id');
       expect(messages[0].message).toContain('step.fromResult()');
+    });
+  });
+
+  describe('invalid cases - saga.step / saga.tryStep', () => {
+    it('reports when saga.step has operation first (missing name)', () => {
+      const code = `
+        orderSaga(async (saga, deps) => {
+          saga.step(() => deps.createOrder(), { compensate: () => deps.cancelOrder() });
+        });
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('saga.step()');
+    });
+
+    it('reports when saga.tryStep has operation first (missing name)', () => {
+      const code = `
+        orderSaga(async (saga, deps) => {
+          saga.tryStep(() => deps.riskyOp(), { error: 'FAILED' });
+        });
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('saga.tryStep()');
+    });
+
+    it('reports when saga.step has no arguments', () => {
+      const code = `
+        orderSaga(async (saga, deps) => {
+          saga.step();
+        });
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+    });
+
+    it('reports when destructured tryStep has operation first (missing name)', () => {
+      const code = `
+        orderSaga(async ({ step, tryStep }, deps) => {
+          tryStep(() => deps.riskyOp(), { error: 'FAILED' });
+        });
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('tryStep');
+    });
+
+    it('reports when saga.step has empty string name', () => {
+      const code = `
+        orderSaga(async (saga, deps) => {
+          saga.step('', () => deps.createOrder(), { compensate: () => deps.cancelOrder() });
+        });
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('saga.step()');
+    });
+
+    it('reports when tryStep has empty string name', () => {
+      const code = `
+        orderSaga(async ({ step, tryStep }, deps) => {
+          tryStep('', () => deps.riskyOp(), { error: 'FAILED' });
+        });
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('tryStep');
     });
   });
 

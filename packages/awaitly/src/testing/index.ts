@@ -875,13 +875,15 @@ export interface SagaStepOptions<T> {
  *
  * const result = await harness.runSaga(async (saga, deps) => {
  *   const payment = await saga.step(
+ *     'charge-payment',
  *     () => deps.chargePayment({ amount: 100 }),
- *     { name: 'charge-payment', compensate: (p) => deps.refundPayment({ id: p.id }) }
+ *     { compensate: (p) => deps.refundPayment({ id: p.id }) }
  *   );
  *
  *   const reservation = await saga.step(
+ *     'reserve-inventory',
  *     () => deps.reserveInventory({ items: [] }),
- *     { name: 'reserve-inventory', compensate: (r) => deps.releaseInventory({ id: r.id }) }
+ *     { compensate: (r) => deps.releaseInventory({ id: r.id }) }
  *   );
  *
  *   return { payment, reservation };

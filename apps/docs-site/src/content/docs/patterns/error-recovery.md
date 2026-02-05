@@ -95,18 +95,21 @@ import { createSagaWorkflow } from 'awaitly/workflow';
 const checkout = createSagaWorkflow(deps);
 const result = await checkout(async (saga) => {
   const payment = await saga.step(
+    'charge',
     () => chargeCard(amount),
-    { name: 'charge', compensate: (p) => refundCard(p.id) }
+    { compensate: (p) => refundCard(p.id) }
   );
 
   const reservation = await saga.step(
+    'reserve',
     () => reserveInventory(items),
-    { name: 'reserve', compensate: (r) => releaseInventory(r.id) }
+    { compensate: (r) => releaseInventory(r.id) }
   );
 
   const order = await saga.step(
+    'order',
     () => createOrder({ payment, reservation }),
-    { name: 'order', compensate: (o) => cancelOrder(o.id) }
+    { compensate: (o) => cancelOrder(o.id) }
   );
 
   return order;
@@ -135,6 +138,7 @@ Patterns compose. The key is ordering them correctly:
 ```typescript
 // Good: Retry is scoped to one step
 const payment = await saga.step(
+  'charge',
   () => retry(() => chargeCard(amount), { maxAttempts: 3 }),
   { compensate: (p) => refundCard(p.id) }
 );
@@ -249,6 +253,7 @@ const checkout = createSagaWorkflow(deps);
 const result = await checkout(async (saga) => {
   // Step 1: Charge with retry + circuit breaker + rate limiting
   const payment = await saga.step(
+    'charge',
     async () => {
       return paymentLimiter.call(() =>
         paymentBreaker.call(() =>
@@ -259,13 +264,14 @@ const result = await checkout(async (saga) => {
         )
       );
     },
-    { name: 'charge', compensate: (p) => refundCard(p.id) }
+    { compensate: (p) => refundCard(p.id) }
   );
 
   // Step 2: Reserve (simpler, internal service)
   const reservation = await saga.step(
+    'reserve',
     () => reserveInventory(items),
-    { name: 'reserve', compensate: (r) => releaseInventory(r.id) }
+    { compensate: (r) => releaseInventory(r.id) }
   );
 
   return { payment, reservation };

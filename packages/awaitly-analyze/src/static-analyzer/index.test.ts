@@ -649,8 +649,7 @@ async function run() {
 
         export async function run() {
           return await orderSaga(async (saga, deps) => {
-            const order = await saga.step(() => deps.createOrder(), {
-              name: 'Create Order',
+            const order = await saga.step('Create Order', () => deps.createOrder(), {
               compensate: () => deps.cancelOrder(),
             });
             return order;
@@ -672,12 +671,10 @@ async function run() {
 
         async function run() {
           return await orderSaga(async (saga, deps) => {
-            const order = await saga.step(() => deps.createOrder(), {
-              name: 'Create Order',
+            const order = await saga.step('Create Order', () => deps.createOrder(), {
               compensate: () => deps.cancelOrder(),
             });
-            await saga.step(() => deps.chargePayment(order.id), {
-              name: 'Charge Payment',
+            await saga.step('Charge Payment', () => deps.chargePayment(order.id), {
               compensate: () => deps.refundPayment(),
             });
             return order;
@@ -698,8 +695,7 @@ async function run() {
 
         async function run() {
           return await orderSaga(async (saga, deps) => {
-            const order = await saga.step(() => deps.createOrder(), {
-              name: 'Create Order',
+            const order = await saga.step('Create Order', () => deps.createOrder(), {
               compensate: () => {
                 return deps.cancelOrder();
               },
@@ -733,8 +729,7 @@ async function run() {
 
         async function run() {
           return await orderSaga(async (saga, deps) => {
-            const order = await saga.step(() => deps.createOrder(), {
-              name: 'Create Order',
+            const order = await saga.step('Create Order', () => deps.createOrder(), {
               description: 'Creates the order record',
               markdown: '## Create Order\\n\\nPersists order to the database.',
               compensate: () => deps.cancelOrder(),
@@ -757,9 +752,39 @@ async function run() {
 
       expect(sagaStep).toBeDefined();
       if (sagaStep?.type === "saga-step") {
+        expect(sagaStep.name).toBe("Create Order");
         expect(sagaStep.description).toBe("Creates the order record");
         expect(sagaStep.markdown).toContain("Create Order");
         expect(sagaStep.markdown).toContain("Persists order");
+      }
+    });
+
+    it("should set saga step name from first argument (string literal)", () => {
+      const source = `
+        const orderSaga = createSagaWorkflow({});
+
+        async function run() {
+          return await orderSaga(async (saga, deps) => {
+            const order = await saga.step('createOrder', () => deps.createOrder());
+            return order;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const root = results[0]?.root;
+      const children = root?.children || [];
+
+      let sagaStep = children.find((c) => c.type === "saga-step");
+      if (!sagaStep && children[0]?.type === "sequence") {
+        sagaStep = (children[0] as StaticSequenceNode).children.find(
+          (c: StaticFlowNode) => c.type === "saga-step"
+        );
+      }
+
+      expect(sagaStep).toBeDefined();
+      if (sagaStep?.type === "saga-step") {
+        expect(sagaStep.name).toBe("createOrder");
       }
     });
 
@@ -769,8 +794,8 @@ async function run() {
 
         async function run() {
           return await orderSaga(async (saga, deps) => {
-            const result = await saga.tryStep(() => deps.riskyOperation(), {
-              name: 'Risky Operation',
+            const result = await saga.tryStep('Risky Operation', () => deps.riskyOperation(), {
+              error: 'RISKY_FAILED',
               compensate: () => deps.undoRisky(),
             });
             return result;
@@ -803,11 +828,10 @@ async function run() {
 
         async function run() {
           return await orderSaga(async ({ step, tryStep }, deps) => {
-            const order = await step(() => deps.createOrder(), {
-              name: 'Create Order',
+            const order = await step('Create Order', () => deps.createOrder(), {
               compensate: () => deps.cancelOrder(),
             });
-            const result = await tryStep(() => deps.riskyOp());
+            const result = await tryStep('Risky Op', () => deps.riskyOp(), { error: 'RISKY_OP_FAILED' });
             return { order, result };
           });
         }
@@ -827,8 +851,8 @@ async function run() {
 
         export async function runOrder() {
           return await runSaga(async (saga) => {
-            await saga.step(() => createOrder());
-            await saga.step(() => chargePayment());
+            await saga.step('createOrder', () => createOrder());
+            await saga.step('chargePayment', () => chargePayment());
             return { success: true };
           });
         }

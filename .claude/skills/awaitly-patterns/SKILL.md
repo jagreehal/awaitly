@@ -699,7 +699,7 @@ it('retries on failure', async () => {
 ### Documentation options
 
 - **Workflows:** Set `description` and `markdown` in `createWorkflow` (deps or second-argument options) for doc generation and static analysis. Not available on `run()` / `runSaga()` (no options object).
-- **Steps:** Set `description` and `markdown` in step options, e.g. `step('id', fn, { key, description, markdown })`, `step.sleep(id, duration, { description, markdown })`, `saga.step(fn, { description, markdown, compensate })`.
+- **Steps:** Set `description` and `markdown` in step options, e.g. `step('id', fn, { key, description, markdown })`, `step.sleep(id, duration, { description, markdown })`, `saga.step('name', fn, { description, markdown, compensate })`.
 
 ### Static analysis output
 
@@ -717,7 +717,7 @@ Full structure is documented in awaitly-analyze README (“JSON output shape”)
 |---------|--------------------------------------------------------|
 | Workflow (createWorkflow / createSagaWorkflow) | `description`, `markdown`, `strict`, `catchUnexpected`, `onEvent`, `createContext`, `cache`, `resumeState`, `signal`, `streamStore` |
 | Step (step, step.sleep, step.retry, step.withTimeout, step.try, step.fromResult, step.parallel, step.race, step.allSettled) | **Every step type**: first arg is string (ID or name, required). No `name` in options. `step(id, fn, opts)`, `step.retry(id, fn, opts)`, `step.withTimeout(id, fn, opts)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, opts?)`, `step.parallel(name, operations | callback)`, `step.race(name, callback)`, `step.allSettled(name, callback)`. Options (where applicable): `key`, `description`, `markdown`, `ttl`, `retry`, `timeout`, `signal` |
-| Saga step (saga.step / saga.tryStep) | `name`, `description`, `markdown`, `compensate` |
+| Saga step (saga.step / saga.tryStep) | First argument is step name (required). Options: `description`, `markdown`, `compensate`. No `name` in options. |
 
 ---
 

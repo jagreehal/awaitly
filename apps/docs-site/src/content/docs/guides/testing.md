@@ -341,17 +341,15 @@ describe('payment saga', () => {
     const result = await harness.runSaga(async (saga, deps) => {
       // Charge payment - add compensation to refund if later steps fail
       const payment = await saga.step(
+        'charge-payment',
         () => deps.chargePayment({ amount: 100 }),
-        {
-          name: 'charge-payment',
-          compensate: (p) => deps.refundPayment({ id: p.id }),
-        }
+        { compensate: (p) => deps.refundPayment({ id: p.id }) }
       );
 
       // This fails - triggers compensation
       const reservation = await saga.step(
-        () => deps.reserveInventory({ items: [] }),
-        { name: 'reserve-inventory' }
+        'reserve-inventory',
+        () => deps.reserveInventory({ items: [] })
       );
 
       return { payment, reservation };
