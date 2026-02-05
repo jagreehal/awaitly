@@ -125,7 +125,7 @@ if (!result.valid) {
 ```
 
 Strict validation checks include:
-- **missing-step-id**: All step types must use an ID as the first argument: `step('id', fn, opts)`, `step.sleep('id', duration, opts?)`, `step.retry('id', operation, opts)`, `step.withTimeout('id', operation, opts)`, `step.try('id', operation, opts)`, `step.fromResult('id', operation, opts)`. Legacy `step(fn, opts)` is parsed (with `stepId: "<missing>"`) but triggers this warning. For `step.sleep`, both id and duration are required; single-argument `step.sleep(duration)` is the old API and is invalid at runtime.
+- **missing-step-id**: All step types must use a string as the first argument (ID or name): `step('id', fn, opts)`, `step.sleep('id', duration, opts?)`, `step.retry('id', operation, opts)`, `step.withTimeout('id', operation, opts)`, `step.try('id', operation, opts)`, `step.fromResult('id', operation, opts)`, `step.parallel('name', operations | callback)`, `step.race('name', callback)`, `step.allSettled('name', callback)`. Legacy `step(fn, opts)` is parsed (with `stepId: "<missing>"`) but triggers this warning. For `step.sleep`, both id and duration are required; single-argument `step.sleep(duration)` is invalid. `step.parallel` only supports the name-first form; the legacy `step.parallel(operations, { name })` form is no longer supported.
 
 ## Cross-Workflow Analysis
 
@@ -153,7 +153,7 @@ npx awaitly-analyze ./workflow.ts -o
 
 The analysis produces these node types:
 - `workflow` - Root workflow node
-- `step` - Single step execution. Every step type takes an ID as the first argument: `step('id', fn, opts)`, `step.sleep('id', duration, opts?)`, `step.retry('id', operation, opts)`, `step.withTimeout('id', operation, opts)`, `step.try('id', operation, opts)`, `step.fromResult('id', operation, opts)`. Legacy `step(fn, opts)` yields `stepId: "<missing>"` and a warning.
+- `step` - Single step execution. Every step type takes a string as the first argument (ID or name): `step('id', fn, opts)`, `step.sleep('id', duration, opts?)`, `step.retry('id', operation, opts)`, `step.withTimeout('id', operation, opts)`, `step.try('id', operation, opts)`, `step.fromResult('id', operation, opts)`, `step.parallel('name', operations | callback)`, `step.race('name', callback)`, `step.allSettled('name', callback)`. Legacy `step(fn, opts)` yields `stepId: "<missing>"` and a warning.
 - `saga-step` - Saga step with compensation
 - `sequence` - Sequential execution
 - `parallel` - Concurrent execution (allAsync)

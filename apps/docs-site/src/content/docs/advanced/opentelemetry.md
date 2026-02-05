@@ -47,8 +47,8 @@ const workflow = createWorkflow(deps, {
 });
 
 await workflow(async (step) => {
-  const user = await step('fetchUser', () => deps.fetchUser(id), { name: 'fetch-user' });
-  const charge = await step('chargeCard', () => deps.chargeCard(100), { name: 'charge-card' });
+  const user = await step('fetch-user', () => deps.fetchUser(id));
+  const charge = await step('charge-card', () => deps.chargeCard(100));
   return { user, charge };
 });
 ```
@@ -97,8 +97,8 @@ const traced = withAutotelTracing(trace, { serviceName: 'checkout' });
 
 const result = await traced('process-order', async () => {
   return workflow(async (step) => {
-    const user = await step('fetchUser', () => deps.fetchUser(id), { name: 'fetch-user' });
-    const charge = await step('chargeCard', () => deps.chargeCard(100), { name: 'charge' });
+    const user = await step('fetch-user', () => deps.fetchUser(id));
+    const charge = await step('charge', () => deps.chargeCard(100));
     return { user, charge };
   });
 }, { orderId: '123' }); // Optional attributes

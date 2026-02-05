@@ -46,7 +46,7 @@ await step('getUser', getUser(id));
 - No retries or caching needed
 - Already have a Result/Promise to unwrap
 
-**Every step type takes an ID as the first argument.** `step(id, fn, opts)`, `step.retry(id, operation, options)`, `step.withTimeout(id, operation, options)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, options?)`. Use optional `key` in options for per-iteration identity (e.g. in loops).
+**Every step type takes a string as the first argument (ID or name).** `step(id, fn, opts)`, `step.retry(id, operation, options)`, `step.withTimeout(id, operation, options)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, options?)`, `step.parallel(name, operations | callback)`, `step.race(name, callback)`, `step.allSettled(name, callback)`. There is no `name` in options—the first argument is the step name/id. Use optional `key` in options for per-iteration identity (e.g. in loops).
 
 **Label vs instance:** The first argument is the step **label** (category, e.g. `'fetchUser'`). The optional `key` is the **instance** identity (which iteration or entity). In loops, use one literal ID + key: `step('fetchUser', () => fetchUser(id), { key: \`user:${id}\` })`. Rules of thumb for key: stable (same input → same key); scoped to the step (e.g. `fetchUser:${id}`, `user:${id}`); keep short for logs/snapshots.
 
@@ -144,6 +144,7 @@ If you need per-item error handling in a loop, use `step.forEach()` with error c
 | Pattern | Why |
 |---------|-----|
 | `step(...)` without string ID as first argument | step() requires `step('id', fn, opts)` or `step('id', result, opts)` |
+| `step.parallel(operations, { name })` (legacy) | Use `step.parallel('name', operations)` — name is always the first argument |
 | Template literal as step ID (e.g. `` step(`step-${i}`, ...) ``) | Use a literal ID + `key` instead: `step('fetchUser', () => fetchUser(i), { key: \`user:${i}\` })` |
 | `step(promise)` when using retries/caching | Direct form can't re-execute or cache-before-run; use thunk `step('id', () => deps.fn(args))` |
 | `await x` without step | Bypasses error handling and tracking |
@@ -269,8 +270,12 @@ const result = await processOrder(async (step, deps) => {
 | Retries | `step.retry(id, fn, opts)` | `step.retry('fetch', () => deps.fn(), { attempts: 3 })` |
 | Timeout | `step.withTimeout(id, fn, opts)` | `step.withTimeout('slowOp', () => deps.fn(), { ms: 5000 })` |
 | Sleep/delay | `step.sleep(id, duration, opts?)` | `step.sleep('rate-limit', '1s')` |
+| Parallel (object) | `step.parallel(name, operations)` | `step.parallel('Fetch data', { user: () => deps.getUser(id), posts: () => deps.getPosts(id) })` |
+| Parallel (array) | `step.parallel(name, callback)` | `step.parallel('Fetch all', () => allAsync([deps.getUser(id), deps.getPosts(id)]))` |
+| Race | `step.race(name, callback)` | `step.race('Fastest API', () => anyAsync([primary(), fallback()]))` |
+| All settled | `step.allSettled(name, callback)` | `step.allSettled('Fetch all', () => allSettledAsync([...]))` |
 
-**`step.retry`, `step.withTimeout`, `step.try`, `step.fromResult`, and `step.sleep` all take an ID as the first argument.** For `step.sleep`, the second argument is the duration (string like `'5s'` or a `Duration` from `awaitly/duration`). Single-argument `step.sleep('5s')` (old API) is invalid and fails at runtime—always use `step.sleep('id', duration, opts?)`. Use optional `key` in options for per-iteration identity (e.g. in loops).
+**All step helpers take a string as the first argument (ID or name). There is no `name` in options.** For `step.sleep`, the second argument is the duration (string like `'5s'` or a `Duration` from `awaitly/duration`). Single-argument `step.sleep('5s')` (old API) is invalid and fails at runtime—always use `step.sleep('id', duration, opts?)`. Use optional `key` in options for per-iteration identity (e.g. in loops).
 
 **`step.try()` handles both sync and async**: It catches exceptions from sync code (like `JSON.parse`) and rejections from async code (like `fetch`).
 
@@ -332,17 +337,26 @@ Manual `for` loops with dynamic keys like `${item.id}`:
 
 ---
 
-## Concurrency with allAsync
+## Concurrency with allAsync and step.parallel
 
-Use `allAsync()` for parallel operations. Always wrap in `step()`:
+For parallel work, use `step.parallel(name, ...)` (name is always the first argument) or wrap `allAsync` in `step()`:
 
+**Object form** (named keys, typed result):
 ```typescript
-// Parallel fetch with allAsync
-const [user, posts] = await step('fetchUserAndPosts', () => allAsync([
-  deps.getUser(id),
-  deps.getPosts(id),
-]));
+const { user, posts } = await step.parallel('Fetch user and posts', {
+  user: () => deps.getUser(id),
+  posts: () => deps.getPosts(id),
+});
 ```
+
+**Array form** (wraps allAsync):
+```typescript
+const [user, posts] = await step.parallel('Fetch user and posts', () =>
+  allAsync([deps.getUser(id), deps.getPosts(id)])
+);
+```
+
+Legacy `step.parallel(operations, { name })` is not supported; always pass the name as the first argument.
 
 Import: `import { allAsync } from 'awaitly';`
 
@@ -702,7 +716,7 @@ Full structure is documented in awaitly-analyze README (“JSON output shape”)
 | Context | Option keys (use when generating/editing workflow code) |
 |---------|--------------------------------------------------------|
 | Workflow (createWorkflow / createSagaWorkflow) | `description`, `markdown`, `strict`, `catchUnexpected`, `onEvent`, `createContext`, `cache`, `resumeState`, `signal`, `streamStore` |
-| Step (step, step.sleep, step.retry, step.withTimeout, step.try, step.fromResult) | **Every step type**: first arg is string ID (required). `step(id, fn, opts)`, `step.retry(id, fn, opts)`, `step.withTimeout(id, fn, opts)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, opts?)`. Options: `key`, `description`, `markdown`, `ttl`, `retry`, `timeout`, `signal` |
+| Step (step, step.sleep, step.retry, step.withTimeout, step.try, step.fromResult, step.parallel, step.race, step.allSettled) | **Every step type**: first arg is string (ID or name, required). No `name` in options. `step(id, fn, opts)`, `step.retry(id, fn, opts)`, `step.withTimeout(id, fn, opts)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, opts?)`, `step.parallel(name, operations | callback)`, `step.race(name, callback)`, `step.allSettled(name, callback)`. Options (where applicable): `key`, `description`, `markdown`, `ttl`, `retry`, `timeout`, `signal` |
 | Saga step (saga.step / saga.tryStep) | `name`, `description`, `markdown`, `compensate` |
 
 ---

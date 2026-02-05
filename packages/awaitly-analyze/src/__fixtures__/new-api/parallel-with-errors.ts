@@ -26,19 +26,17 @@ export const userDashboardWorkflow = createWorkflow({
 
 export async function loadUserDashboard(userId: string) {
   return await userDashboardWorkflow(async (step, ctx) => {
-    // Parallel with shorthand (default mode)
-    const { profile, activity } = await step.parallel({
+    const { profile, activity } = await step.parallel('Fetch profile and activity', {
       profile: () => ctx.deps.fetchProfile(userId),
       activity: () => ctx.deps.fetchActivity(userId),
     });
 
-    // Parallel with explicit errors (strict mode)
-    const { notifications } = await step.parallel({
+    const { notifications } = await step.parallel('Fetch notifications', {
       notifications: {
         fn: () => ctx.deps.fetchNotifications(userId),
         errors: ['NOTIFICATIONS_FETCH_FAILED'],
       },
-    }, { name: 'Fetch notifications' });
+    });
 
     return { profile, activity, notifications };
   });

@@ -17,7 +17,7 @@ describe("step.parallel() Strict Mode", () => {
         const workflow = createWorkflow({ fetchUser: async () => ok({}), fetchPosts: async () => ok([]) });
         export async function run() {
           return await workflow(async (step, deps) => {
-            const { user, posts } = await step.parallel({
+            const { user, posts } = await step.parallel("Fetch user and posts", {
               user: { fn: () => deps.fetchUser("1"), errors: ['NOT_FOUND'] },
               posts: { fn: () => deps.fetchPosts("1"), errors: ['FETCH_ERROR'] },
             });
@@ -48,7 +48,7 @@ describe("step.parallel() Strict Mode", () => {
         const workflow = createWorkflow({ fetchUser: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
-            const { user } = await step.parallel({
+            const { user } = await step.parallel("Fetch user", {
               user: { fn: () => deps.fetchUser("1"), errors: userErrors },
             });
           });
@@ -70,7 +70,7 @@ describe("step.parallel() Strict Mode", () => {
         const workflow = createWorkflow({ fetchUser: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
-            const { user } = await step.parallel({
+            const { user } = await step.parallel("Fetch user", {
               user: () => deps.fetchUser("1"),
             });
           });
@@ -93,10 +93,10 @@ describe("step.parallel() Strict Mode", () => {
         const workflow = createWorkflow({ a: async () => ok({}), b: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
-            await step.parallel({
+            await step.parallel("Fetch user data", {
               a: { fn: () => deps.a(), errors: [] },
               b: { fn: () => deps.b(), errors: [] },
-            }, { name: "Fetch user data" });
+            });
           });
         }
       `;

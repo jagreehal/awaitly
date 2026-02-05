@@ -189,11 +189,11 @@ export const parallelWorkflow = createWorkflow(
 export async function runParallelWorkflow(id: string) {
   return await parallelWorkflow(async (step) => {
     // Named object form (recommended - better type inference)
-    const { user, posts, comments } = await step.parallel({
+    const { user, posts, comments } = await step.parallel("Fetch all data", {
       user: () => deps.fetchUser(id),
       posts: () => deps.fetchPosts(id),
       comments: () => deps.fetchComments(id),
-    }, { name: "Fetch all data" });
+    });
 
     return { user, posts, comments };
   });

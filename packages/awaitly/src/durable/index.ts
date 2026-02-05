@@ -101,9 +101,7 @@ export type VersionMismatchError = {
   requestedVersion: number;
   /** Guidance message with suggested actions */
   message: string;
-  /**
-   * @deprecated Use requestedVersion
-   */
+  /** Use requestedVersion. */
   currentVersion?: number;
 };
 

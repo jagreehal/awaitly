@@ -203,7 +203,7 @@ describe("Strict Mode Diagnostics", () => {
         const workflow = createWorkflow({ fetchUser: async () => ok({}), fetchPosts: async () => ok([]) });
         export async function run() {
           return await workflow(async (step, deps) => {
-            const { user, posts } = await step.parallel({
+            const { user, posts } = await step.parallel("Fetch user and posts", {
               user: () => deps.fetchUser("1"),
               posts: () => deps.fetchPosts("1"),
             });
@@ -227,7 +227,7 @@ describe("Strict Mode Diagnostics", () => {
         const workflow = createWorkflow({ fetchUser: async () => ok({}), fetchPosts: async () => ok([]) });
         export async function run() {
           return await workflow(async (step, deps) => {
-            const { user, posts } = await step.parallel({
+            const { user, posts } = await step.parallel("Fetch user and posts", {
               user: { fn: () => deps.fetchUser("1"), errors: ['NOT_FOUND'] },
               posts: { fn: () => deps.fetchPosts("1"), errors: ['FETCH_ERROR'] },
             });

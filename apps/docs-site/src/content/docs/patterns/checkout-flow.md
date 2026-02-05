@@ -145,20 +145,11 @@ const checkout = createWorkflow(deps, {
 });
 
 const result = await checkout(async (step) => {
-  const validItems = await step(
-    () => validateCart(cartItems),
-    { name: 'Validate cart' }
-  );
+  const validItems = await step('Validate cart', () => validateCart(cartItems));
 
-  const availableItems = await step(
-    () => checkInventory(validItems),
-    { name: 'Check inventory' }
-  );
+  const availableItems = await step('Check inventory', () => checkInventory(validItems));
 
-  const total = await step(
-    () => calculateTotal(availableItems),
-    { name: 'Calculate total' }
-  );
+  const total = await step('Calculate total', () => calculateTotal(availableItems));
 
   // Retry payment with exponential backoff
   const payment = await step.retry(
@@ -172,10 +163,7 @@ const result = await checkout(async (step) => {
     }
   );
 
-  const order = await step(
-    () => createOrder(availableItems, payment),
-    { name: 'Create order' }
-  );
+  const order = await step('Create order', () => createOrder(availableItems, payment));
 
   return order;
 });

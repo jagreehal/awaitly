@@ -407,10 +407,10 @@ Parallel and race nodes support custom names that appear in diagrams:
 
 ```typescript
 // Object form with name option
-await step.parallel(
-  { user: () => deps.fetchUser(), posts: () => deps.fetchPosts() },
-  { name: 'Fetch user data' }
-);
+await step.parallel('Fetch user data', {
+  user: () => deps.fetchUser(),
+  posts: () => deps.fetchPosts(),
+});
 
 // Array form with name
 await step.parallel('Fetch all', () => allAsync([

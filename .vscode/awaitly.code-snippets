@@ -53,9 +53,9 @@
   "Awaitly Parallel Steps": {
     "prefix": ["awaitly-parallel", "step-parallel"],
     "body": [
-      "const ${1:results} = await step.parallel({",
-      "\t${2:first}: () => ${3:firstOperation()},",
-      "\t${4:second}: () => ${5:secondOperation()},",
+      "const ${1:results} = await step.parallel('${2:Fetch data}', {",
+      "\t${3:first}: () => ${4:firstOperation()},",
+      "\t${5:second}: () => ${6:secondOperation()},",
       "});"
     ],
     "description": "Create parallel awaitly steps"

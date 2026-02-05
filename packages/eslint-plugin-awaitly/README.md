@@ -36,7 +36,7 @@ step('fetchUser', () => fetchUser('1'));
 step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 ```
 
-**Note**: All step types take an ID as the first argument: `step.retry(id, operation, options)`, `step.withTimeout(id, operation, options)`, `step.try(id, operation, opts)`, `step.sleep(id, duration, opts?)`, `step.fromResult(id, operation, opts)`.
+**Note**: All step types take a string as the first argument (ID or name): `step.retry(id, operation, options)`, `step.withTimeout(id, operation, options)`, `step.try(id, operation, opts)`, `step.sleep(id, duration, opts?)`, `step.fromResult(id, operation, opts)`, `step.parallel(name, operations | callback)`, `step.race(name, callback)`, `step.allSettled(name, callback)`.
 
 ### `awaitly/no-immediate-execution` (error)
 

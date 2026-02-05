@@ -135,30 +135,25 @@ const ir = viz.renderAs('json');
 
 ## Naming steps
 
-Give steps descriptive names for better diagrams:
+Use a descriptive string as the first argument (step id) for better diagrams:
 
 ```typescript
-const user = await step('fetchUser', () => fetchUser('1'), { name: 'Fetch user' });
-const posts = await step('fetchPosts', () => fetchPosts(user.id), { name: 'Fetch posts' });
+const user = await step('Fetch user', () => fetchUser('1'));
+const posts = await step('Fetch posts', () => fetchPosts(user.id));
 ```
 
-Without names, steps show as \"unnamed step\".
+The step id is used for visualization and step identification.
 
 ## Parallel operations
 
-Track parallel operations individually:
+Track parallel operations with `step.parallel(name, ...)`:
 
 ```typescript
 import { allAsync } from 'awaitly';
 
 const result = await workflow(async (step) => {
-  const [user, posts] = await step(
-    'fetchUserData',
-    () => allAsync([
-      fetchUser('1'),
-      fetchPosts('1'),
-    ]),
-    { name: 'Fetch user data' }
+  const [user, posts] = await step.parallel('Fetch user data', () =>
+    allAsync([fetchUser('1'), fetchPosts('1')])
   );
   return { user, posts };
 });
@@ -179,7 +174,7 @@ const workflow = createWorkflow(deps, {
 });
 
 await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'), { name: 'Fetch user' });
+  const user = await step('Fetch user', () => fetchUser('1'));
 
   // Track a decision point
   const decision = trackDecision('check-role', {
@@ -190,10 +185,10 @@ await workflow(async (step) => {
 
   if (user.role === 'admin') {
     decision.takeBranch('admin', true);
-    await step('adminDashboard', () => adminDashboard(user), { name: 'Admin dashboard' });
+    await step('Admin dashboard', () => adminDashboard(user));
   } else {
     decision.takeBranch('user', true);
-    await step('userDashboard', () => userDashboard(user), { name: 'User dashboard' });
+    await step('User dashboard', () => userDashboard(user));
   }
 
   decision.end();
@@ -259,7 +254,7 @@ const workflow = createWorkflow(deps, {
 });
 
 await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'), { name: 'Fetch user' });
+  const user = await step('Fetch user', () => fetchUser('1'));
 
   const decision = trackIf('check-role', user.role === 'admin', {
     condition: \"user.role === 'admin'\",
@@ -417,8 +412,8 @@ app.post('/checkout', async (req, res) => {
   });
 
   const result = await workflow(async (step) => {
-    const order = await step('fetchOrder', () => deps.fetchOrder(req.body.orderId), { name: 'Fetch order' });
-    const payment = await step('chargeCard', () => deps.chargeCard(order.total), { name: 'Charge card' });
+    const order = await step('Fetch order', () => deps.fetchOrder(req.body.orderId));
+    const payment = await step('Charge card', () => deps.chargeCard(order.total));
     return { order, payment };
   });
 
@@ -469,9 +464,9 @@ const workflow = createWorkflow(deps, {
 });
 
 await workflow(async (step) => {
-  await step('runTests', () => deps.runTests(), { name: 'Run tests' });
-  await step('buildApp', () => deps.buildApp(), { name: 'Build app' });
-  await step('deploy', () => deps.deploy(), { name: 'Deploy' });
+  await step('Run tests', () => deps.runTests());
+  await step('Build app', () => deps.buildApp());
+  await step('Deploy', () => deps.deploy());
 });
 
 // Write Mermaid diagram to artifacts

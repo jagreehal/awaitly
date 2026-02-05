@@ -35,7 +35,7 @@ export async function runParallelCallbackWorkflow(userId: string) {
       name: "Fetch User",
     });
 
-    const results = await step.parallel({
+    const results = await step.parallel("Fetch posts and friends", {
       posts: () => deps.fetchPosts(user.id),
       friends: () => deps.fetchFriends(user.id),
     });

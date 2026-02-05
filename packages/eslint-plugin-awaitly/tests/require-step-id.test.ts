@@ -82,6 +82,36 @@ describe('require-step-id', () => {
     });
   });
 
+  describe('valid cases - step.parallel()', () => {
+    it('allows step.parallel with name and object', () => {
+      const code = `step.parallel('Fetch data', { a: () => fetchA(), b: () => fetchB() });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows step.parallel with name and callback (array form)', () => {
+      const code = `step.parallel('Fetch all', () => allAsync([fetchUser(), fetchPosts()]));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
+  describe('valid cases - step.race()', () => {
+    it('allows step.race with name and callback', () => {
+      const code = `step.race('Fastest API', () => anyAsync([primary(), fallback()]));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
+  describe('valid cases - step.allSettled()', () => {
+    it('allows step.allSettled with name and callback', () => {
+      const code = `step.allSettled('Fetch all', () => allSettledAsync([fetchA(), fetchB()]));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
   describe('invalid cases - step()', () => {
     it('reports when step has no arguments', () => {
       const code = `step();`;
@@ -188,6 +218,40 @@ describe('require-step-id', () => {
       expect(messages).toHaveLength(1);
       expect(messages[0].ruleId).toBe('awaitly/require-step-id');
       expect(messages[0].message).toContain('step.fromResult()');
+    });
+  });
+
+  describe('invalid cases - step.parallel()', () => {
+    it('reports when step.parallel first argument is object (legacy form)', () => {
+      const code = `step.parallel({ a: () => fetchA(), b: () => fetchB() });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('step.parallel()');
+    });
+
+    it('reports when step.parallel has no arguments', () => {
+      const code = `step.parallel();`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+    });
+
+    it('reports when step.parallel first argument is identifier', () => {
+      const code = `step.parallel(myName, { a: () => fetchA() });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+    });
+  });
+
+  describe('invalid cases - step.race()', () => {
+    it('reports when step.race first argument is function', () => {
+      const code = `step.race(() => anyAsync([a(), b()]));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('step.race()');
     });
   });
 

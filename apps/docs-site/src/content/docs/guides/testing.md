@@ -400,8 +400,8 @@ describe('event assertions', () => {
     });
 
     await workflow(async (step) => {
-      const user = await step('fetchUser', () => fetchUser('1'), { name: 'fetch-user' });
-      const posts = await step('fetchPosts', () => fetchPosts(user.id), { name: 'fetch-posts' });
+      const user = await step('fetch-user', () => fetchUser('1'));
+      const posts = await step('fetch-posts', () => fetchPosts(user.id));
       return { user, posts };
     });
 
@@ -426,7 +426,7 @@ describe('event assertions', () => {
     });
 
     await workflow(async (step) => {
-      await step('fetchUser', () => fetchUser('unknown'), { name: 'fetch-user' });
+      await step('fetch-user', () => fetchUser('unknown'));
     });
 
     // Assert error event was emitted
@@ -446,7 +446,7 @@ describe('event assertions', () => {
     });
 
     await workflow(async (step) => {
-      const user = await step('fetchUser', () => fetchUser('1'), { name: 'fetch-user' });
+      const user = await step('fetch-user', () => fetchUser('1'));
       return user;
     });
 

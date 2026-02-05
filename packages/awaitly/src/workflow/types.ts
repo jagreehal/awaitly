@@ -246,10 +246,7 @@ export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends reado
   createContext?: () => C;
   /** Step result cache - only steps with a `key` option are cached */
   cache?: StepCache;
-  /**
-   * @deprecated Use `snapshot` option instead. Will be removed in next major version.
-   * Pre-populate cache from saved state for workflow resume.
-   */
+  /** Pre-populate cache from saved state for workflow resume. Prefer `snapshot` option. */
   resumeState?: ResumeState | (() => ResumeState | Promise<ResumeState>);
   /**
    * Restore workflow from a previously saved snapshot.

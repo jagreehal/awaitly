@@ -1037,8 +1037,7 @@ async function _test31ParallelNamedObjectTypeInference() {
     Promise.resolve(ok([{ id: "c1", text: `Comment on ${postId}` }]));
 
   await run(async (step) => {
-    // Named object form should infer typed results
-    const result = await step.parallel({
+    const result = await step.parallel("Fetch user posts comments", {
       user: () => fetchUser("1"),
       posts: () => fetchPosts("1"),
       comments: () => fetchComments("p1"),
@@ -1054,10 +1053,10 @@ async function _test31ParallelNamedObjectTypeInference() {
 }
 
 // =============================================================================
-// TEST 32: step.parallel() named object with options
+// TEST 32a: step.parallel() name-first object form
 // =============================================================================
 
-async function _test32ParallelNamedObjectWithOptions() {
+async function _test32aParallelNameFirstForm() {
   type User = { id: string; name: string };
   type Post = { id: string; title: string };
 
@@ -1068,14 +1067,10 @@ async function _test32ParallelNamedObjectWithOptions() {
     Promise.resolve(ok([{ id: "p1", title: `Post by ${userId}` }]));
 
   await run(async (step) => {
-    // Should accept options parameter
-    const result = await step.parallel(
-      {
-        user: () => fetchUser("1"),
-        posts: () => fetchPosts("1"),
-      },
-      { name: "Fetch user data" }
-    );
+    const result = await step.parallel("Fetch user data", {
+      user: () => fetchUser("1"),
+      posts: () => fetchPosts("1"),
+    });
 
     expectType<User>(result.user);
     expectType<Post[]>(result.posts);
@@ -1102,8 +1097,7 @@ async function _test36ParallelWithCreateWorkflow() {
   const workflow = createWorkflow({ fetchUser, fetchPosts });
 
   const result = await workflow(async (step, { fetchUser, fetchPosts }) => {
-    // Named object parallel should work within createWorkflow
-    const { user, posts } = await step.parallel({
+    const { user, posts } = await step.parallel("Fetch user and posts", {
       user: () => fetchUser("1"),
       posts: () => fetchPosts("1"),
     });

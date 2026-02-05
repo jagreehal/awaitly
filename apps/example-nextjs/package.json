@@ -13,13 +13,13 @@
     "@libsql/client": "^0.17",
     "@tanstack/react-query": "^5",
     "awaitly": "workspace:*",
-    "drizzle-orm": "^0.38",
+    "drizzle-orm": "^0.45",
     "next": "16.1.6",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.30",
+    "drizzle-kit": "^0.31",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^25",
     "@types/react": "^19",
