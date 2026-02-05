@@ -1,5 +1,11 @@
 # eslint-plugin-awaitly
 
+## 0.10.0
+
+### Minor Changes
+
+- 6119f95: Saga step names: require a string name as the first argument to `saga.step()` and `saga.tryStep()` for observability and compensation tracking. Runtime validation rejects empty or non-string names with clear errors. ESLint rule `require-step-id` and static analyzer updated to enforce and analyze step names.
+
 ## 0.9.0
 
 ### Minor Changes
