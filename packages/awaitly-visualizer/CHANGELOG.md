@@ -1,5 +1,16 @@
 # awaitly-visualizer
 
+## 6.0.0
+
+### Minor Changes
+
+- afc8f6c: Documentation updates, static analyzer improvements, visualizer and ESLint plugin updates, and dependency bumps across packages.
+
+### Patch Changes
+
+- Updated dependencies [afc8f6c]
+  - awaitly@1.17.0
+
 ## 5.0.0
 
 ### Patch Changes
