@@ -103,11 +103,12 @@ function isSagaContextMemberCall(
 
   const objName = (memberExpr.object as { name: string }).name;
   let scope = context.sourceCode.getScope(callNode) as ScopeWithReferences | null;
-  let ref: { resolved: { defs: Array<{ type: string }>; scope: { block: unknown; params?: unknown[] } } | null } | null = null;
+  type ResolvedRef = { resolved: { defs: Array<{ type: string }>; scope: ScopeWithReferences } | null };
+  let ref: ResolvedRef | null = null;
   while (scope) {
     const r = scope.references.find((x) => x.identifier === memberExpr.object);
     if (r) {
-      ref = r as typeof ref;
+      ref = r as unknown as ResolvedRef;
       break;
     }
     scope = scope.upper;
@@ -117,8 +118,9 @@ function isSagaContextMemberCall(
   if (variable.defs.length === 0) return true;
   if (variable.defs[0].type === 'Variable' || variable.defs[0].type === 'Function') return false; // Local: skip
   if (variable.defs[0].type === 'Parameter') {
-    const paramScope = variable.scope as { block: { type: string; params?: unknown[] } };
-    const firstParam = paramScope.block?.params?.[0] as { type: string; name?: string } | undefined;
+    const paramScope = variable.scope;
+    const fn = paramScope.block as { type: string; params?: unknown[] } | undefined;
+    const firstParam = fn?.params?.[0] as { type: string; name?: string } | undefined;
     if (firstParam?.type === 'Identifier' && firstParam.name !== objName) return false; // Other param: skip
   }
   return true;
@@ -183,7 +185,7 @@ function isSagaContextTryStep(
   if (variable.defs[0].type !== 'Parameter') return false;
 
   const paramScope = variable.scope;
-  let current: typeof scope | null = scope;
+  let current: ScopeWithReferences | null = scope;
   while (current) {
     if (current === paramScope) break;
     current = current.upper;
@@ -209,8 +211,9 @@ function isSagaContextTryStep(
 }
 
 interface ScopeWithReferences {
-  references: Array<{ identifier: unknown; resolved: { defs: Array<{ type: string }>; scope: { block: unknown; upper: null | ScopeWithReferences } } | null }>;
+  references: Array<{ identifier: unknown; resolved: { defs: Array<{ type: string }>; scope: ScopeWithReferences } | null }>;
   upper: ScopeWithReferences | null;
+  block?: unknown;
 }
 
 const rule: Rule.RuleModule = {
