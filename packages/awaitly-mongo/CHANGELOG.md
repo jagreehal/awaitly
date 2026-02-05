@@ -1,5 +1,12 @@
 # awaitly-mongo
 
+## 8.0.0
+
+### Patch Changes
+
+- Updated dependencies [6119f95]
+  - awaitly@1.18.0
+
 ## 7.0.0
 
 ### Minor Changes
