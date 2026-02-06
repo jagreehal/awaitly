@@ -27,7 +27,7 @@ import { createWorkflow } from 'awaitly/workflow';
 const store = postgres('postgresql://localhost/mydb');
 
 // Execute + persist
-const workflow = createWorkflow({ fetchUser, createOrder });
+const workflow = createWorkflow('workflow', { fetchUser, createOrder });
 await workflow(async (step, deps) => {
   const user = await step('fetchUser', () => deps.fetchUser('123'), { key: 'fetch-user' });
   const order = await step('createOrder', () => deps.createOrder(user), { key: 'create-order' });
@@ -38,7 +38,7 @@ await store.save('checkout-123', workflow.getSnapshot());
 
 // Later: restore + resume
 const snapshot = await store.load('checkout-123');
-const workflow2 = createWorkflow({ fetchUser, createOrder }, { snapshot });
+const workflow2 = createWorkflow('workflow', { fetchUser, createOrder }, { snapshot });
 await workflow2(/* same workflow fn */);
 ```
 

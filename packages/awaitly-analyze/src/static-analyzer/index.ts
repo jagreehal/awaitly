@@ -16,6 +16,7 @@ import { extname } from "path";
 // Type-only imports - erased at compile time, no runtime dependency
 // These provide type checking without creating a runtime dependency on ts-morph
 import type { SourceFile, Project, Node } from "ts-morph";
+import type * as ts from "typescript";
 import { loadTsMorph } from "../ts-morph-loader";
 
 import {
@@ -355,6 +356,14 @@ function createProject(opts: Required<AnalyzerOptions>): Project {
 
 interface WorkflowCallInfo {
   name: string;
+  /**
+   * Identifier name used to invoke the workflow (e.g. `myWorkflow(...)`).
+   * This is usually the variable name the factory call is assigned to.
+   *
+   * Note: This is distinct from `name`, which is the workflow's canonical name
+   * (for createWorkflow/createSagaWorkflow this should come from the explicit first argument).
+   */
+  bindingName?: string;
   callExpression: Node;
   depsObject: Node | undefined;
   optionsObject: Node | undefined;
@@ -419,6 +428,14 @@ function findWorkflowCalls(sourceFile: SourceFile, opts: Required<AnalyzerOption
   // Track local declarations that shadow imports
   const localDeclarations = findLocalDeclarations(sourceFile);
 
+  function resolveWorkflowNameArg(arg: Node | undefined): string | undefined {
+    if (!arg) return undefined;
+    if (Node.isStringLiteral(arg)) return arg.getLiteralText();
+    if (Node.isNoSubstitutionTemplateLiteral(arg)) return arg.getLiteralText();
+    // Best-effort: keep something stable for labels (may be dynamic).
+    return arg.getText();
+  }
+
   // Find all call expressions
   sourceFile.forEachDescendant((node) => {
     if (!Node.isCallExpression(node)) return;
@@ -443,29 +460,30 @@ function findWorkflowCalls(sourceFile: SourceFile, opts: Required<AnalyzerOption
         const args = node.getArguments();
         const parent = node.getParent();
 
-        let name = "anonymous";
+        let bindingName: string | undefined;
         let variableDeclaration: Node | undefined;
         let depsObject: Node | undefined;
         let optionsObject: Node | undefined;
 
-        // Try to get the name from variable declaration
+        // Track the binding name (how this workflow is invoked in code)
         if (Node.isVariableDeclaration(parent)) {
-          name = parent.getName();
+          bindingName = parent.getName();
           variableDeclaration = parent;
         } else if (Node.isPropertyAssignment(parent)) {
-          name = parent.getName();
+          bindingName = parent.getName();
         }
 
-        // createWorkflow can have (deps) or (deps, options)
-        if (args[0]) {
-          depsObject = args[0];
-        }
-        if (args[1] && Node.isObjectLiteralExpression(args[1])) {
-          optionsObject = args[1];
-        }
+        // createWorkflow(workflowName) or createWorkflow(workflowName, deps, options?)
+        if (args.length >= 1 && args[0]) {
+          const name = resolveWorkflowNameArg(args[0]) ?? bindingName ?? "anonymous";
+          depsObject = args.length >= 2 ? args[1] : undefined;
+          if (args.length >= 3 && args[2] && Node.isObjectLiteralExpression(args[2])) {
+            optionsObject = args[2];
+          }
 
-        workflows.push({
+          workflows.push({
           name,
+          bindingName,
           callExpression: node,
           depsObject,
           optionsObject,
@@ -473,6 +491,7 @@ function findWorkflowCalls(sourceFile: SourceFile, opts: Required<AnalyzerOption
           variableDeclaration,
           source: "createWorkflow",
         });
+        }
       }
     }
 
@@ -489,26 +508,38 @@ function findWorkflowCalls(sourceFile: SourceFile, opts: Required<AnalyzerOption
         const args = node.getArguments();
         const parent = node.getParent();
 
-        let name = "anonymous";
+        let bindingName: string | undefined;
         let variableDeclaration: Node | undefined;
+        let depsObject: Node | undefined;
+        let optionsObject: Node | undefined;
 
-        // Try to get the name from variable declaration
+        // Track the binding name (how this saga is invoked in code)
         if (Node.isVariableDeclaration(parent)) {
-          name = parent.getName();
+          bindingName = parent.getName();
           variableDeclaration = parent;
         } else if (Node.isPropertyAssignment(parent)) {
-          name = parent.getName();
+          bindingName = parent.getName();
         }
 
-        workflows.push({
-          name,
-          callExpression: node,
-          depsObject: args[0],
-          optionsObject: args[1],
-          callbackFunction: undefined,
-          variableDeclaration,
-          source: "createSagaWorkflow",
-        });
+        // createSagaWorkflow(workflowName, deps, options?) — deps required (no name-only form at runtime)
+        if (args.length >= 2 && args[0]) {
+          const name = resolveWorkflowNameArg(args[0]) ?? bindingName ?? "anonymous";
+          depsObject = args[1];
+          if (args[2] && Node.isObjectLiteralExpression(args[2])) {
+            optionsObject = args[2];
+          }
+
+          workflows.push({
+            name,
+            callExpression: node,
+            bindingName,
+            depsObject,
+            optionsObject,
+            callbackFunction: undefined,
+            variableDeclaration,
+            source: "createSagaWorkflow",
+          });
+        }
       }
     }
 
@@ -853,8 +884,10 @@ function analyzeWorkflowCall(
 
   // For run() and runSaga(), the callback is already in callbackFunction
   const children: StaticFlowNode[] = [];
+  let callbackForReturnType: Node | undefined;
 
   if (source === "run" || source === "runSaga") {
+    callbackForReturnType = workflowInfo.callbackFunction;
     // run() and runSaga() have the callback as the first argument
     if (workflowInfo.callbackFunction) {
       // Extract saga parameter info for runSaga
@@ -876,7 +909,9 @@ function analyzeWorkflowCall(
   } else {
     // For createWorkflow and createSagaWorkflow, find invocations
     const invocations = findWorkflowInvocations(workflowInfo, sourceFile);
-
+    if (invocations.length > 0 && invocations[0].callbackArg) {
+      callbackForReturnType = invocations[0].callbackArg;
+    }
     for (const invocation of invocations) {
       const callback = invocation.callbackArg;
       if (callback) {
@@ -907,6 +942,14 @@ function analyzeWorkflowCall(
     declaredErrors: workflowStrict.declaredErrors,
   };
 
+  // Best-effort: workflow callback return type (inline callback or callback-by-identifier)
+  try {
+    const inferred = getWorkflowCallbackReturnType(callbackForReturnType);
+    if (inferred) root.workflowReturnType = inferred;
+  } catch {
+    // ignore
+  }
+
   if (workflowInfo.variableDeclaration) {
     const decl = workflowInfo.variableDeclaration as { getVariableStatement?: () => Node };
     const statement =
@@ -920,6 +963,13 @@ function analyzeWorkflowCall(
     if (statement) {
       const jsdoc = getJSDocDescriptionFromNode(statement);
       if (jsdoc) root.jsdocDescription = jsdoc;
+      const tags = getJSDocTagsFromNode(statement);
+      if (tags) {
+        if (tags.params?.length) root.jsdocParams = tags.params;
+        if (tags.returns) root.jsdocReturns = tags.returns;
+        if (tags.throws?.length) root.jsdocThrows = tags.throws;
+        if (tags.example) root.jsdocExample = tags.example;
+      }
     }
   }
 
@@ -974,6 +1024,49 @@ function extractStepParameterInfo(callback: Node): StepParameterInfo | undefined
     name: nameNode.getText(),
     isDestructured: false,
   };
+}
+
+/**
+ * Infer workflow callback return type from the callback node (inline function or identifier).
+ * When the callback is passed by identifier (e.g. workflow(callback)), resolves to the
+ * declaration and gets return type from the initializer or function declaration.
+ */
+function getWorkflowCallbackReturnType(cb: Node | undefined): string | undefined {
+  if (!cb) return undefined;
+  const { Node } = loadTsMorph();
+  let node: Node = cb;
+  while (Node.isParenthesizedExpression(node)) {
+    node = node.getExpression();
+  }
+  if (Node.isArrowFunction(node) || Node.isFunctionExpression(node)) {
+    const ret = (node as { getReturnType?: () => { getText: () => string } }).getReturnType?.();
+    return ret?.getText();
+  }
+  if (Node.isIdentifier(node)) {
+    const ident = node as { getDefinitionNodes?: () => Node[] };
+    const defNodes = ident.getDefinitionNodes?.();
+    if (!defNodes?.length) return undefined;
+    for (const def of defNodes) {
+      if (Node.isVariableDeclaration(def)) {
+        const init = def.getInitializer();
+        if (!init) break;
+        if (Node.isArrowFunction(init) || Node.isFunctionExpression(init)) {
+          const ret = (init as { getReturnType?: () => { getText: () => string } }).getReturnType?.();
+          if (ret) return ret.getText();
+        } else if (Node.isIdentifier(init)) {
+          // One alias hop: const callback = handler -> resolve handler to get return type
+          return getWorkflowCallbackReturnType(init);
+        }
+        break;
+      }
+      if (Node.isFunctionDeclaration(def)) {
+        const ret = (def as { getReturnType?: () => { getText: () => string } }).getReturnType?.();
+        if (ret) return ret.getText();
+        break;
+      }
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -1111,7 +1204,7 @@ function findWorkflowInvocations(
 ): WorkflowInvocation[] {
   const { Node } = loadTsMorph();
   const invocations: WorkflowInvocation[] = [];
-  const workflowName = workflowInfo.name;
+  const workflowName = workflowInfo.bindingName ?? workflowInfo.name;
 
   // Get the position of the workflow definition to limit search
   const workflowDefinitionNode =
@@ -1901,7 +1994,7 @@ function analyzeStepSleepCall(
     if (options.markdown) stepNode.markdown = options.markdown;
   }
 
-  // Use first argument (step ID) as name; duration is not used for ID/name (runtime requires explicit ID)
+  // Step name is always the first argument in awaitly (step.sleep('id', ...)), not from options.
   if (!stepNode.name) {
     stepNode.name = stepId;
   }
@@ -1910,6 +2003,13 @@ function analyzeStepSleepCall(
   if (statement) {
     const jsdoc = getJSDocDescriptionFromNode(statement);
     if (jsdoc) stepNode.jsdocDescription = jsdoc;
+    const tags = getJSDocTagsFromNode(statement);
+    if (tags) {
+      if (tags.params?.length) stepNode.jsdocParams = tags.params;
+      if (tags.returns) stepNode.jsdocReturns = tags.returns;
+      if (tags.throws?.length) stepNode.jsdocThrows = tags.throws;
+      if (tags.example) stepNode.jsdocExample = tags.example;
+    }
   }
 
   return stepNode;
@@ -2019,6 +2119,7 @@ function analyzeStepCall(
   const optionsArg = isNewSignature ? args[2] : args[1];
 
   // Extract the operation being called and detect ctx.ref() reads
+  let innerCallNode: Node | undefined;
   if (operationArg) {
     // Check for step.dep('name', fn) wrapper first
     if (Node.isCallExpression(operationArg)) {
@@ -2049,6 +2150,7 @@ function analyzeStepCall(
       if (Node.isCallExpression(body)) {
         // Arrow function with expression body: () => deps.fetchUser(id)
         stepNode.callee = body.getExpression().getText();
+        innerCallNode = body;
       } else if (Node.isBlock(body)) {
         // Block body: () => { return deps.fetchUser(id); }
         // Look for a return statement with a call expression
@@ -2058,6 +2160,7 @@ function analyzeStepCall(
             const returnExpr = stmt.getExpression();
             if (returnExpr && Node.isCallExpression(returnExpr)) {
               stepNode.callee = returnExpr.getExpression().getText();
+              innerCallNode = returnExpr;
               break;
             }
           }
@@ -2083,11 +2186,14 @@ function analyzeStepCall(
     } else if (Node.isCallExpression(operationArg)) {
       // step(fetchUser(id)) - direct call
       stepNode.callee = operationArg.getExpression().getText();
+      innerCallNode = operationArg;
     } else {
       // step(someResult) - passing a result directly
       stepNode.callee = operationArg.getText();
     }
   }
+
+  inferStepIOFromInnerCall(node, innerCallNode, stepNode);
 
   // Extract options
   if (optionsArg && Node.isObjectLiteralExpression(optionsArg)) {
@@ -2109,7 +2215,7 @@ function analyzeStepCall(
     }
   }
 
-  // Use stepId as name (stepId is always set now)
+  // In awaitly, step name is always derived from the first argument (id), not from options.
   if (!stepNode.name) {
     stepNode.name = stepNode.stepId;
   }
@@ -2118,6 +2224,21 @@ function analyzeStepCall(
   if (statement) {
     const jsdoc = getJSDocDescriptionFromNode(statement);
     if (jsdoc) stepNode.jsdocDescription = jsdoc;
+    const tags = getJSDocTagsFromNode(statement);
+    if (tags) {
+      if (tags.params?.length) stepNode.jsdocParams = tags.params;
+      if (tags.returns) stepNode.jsdocReturns = tags.returns;
+      if (tags.throws?.length) stepNode.jsdocThrows = tags.throws;
+      if (tags.example) stepNode.jsdocExample = tags.example;
+    }
+  }
+
+  if (opts.includeLocations && innerCallNode) {
+    const { Node } = loadTsMorph();
+    if (Node.isCallExpression(innerCallNode)) {
+      const calleeExpr = innerCallNode.getExpression();
+      stepNode.depLocation = getDefinitionLocationForCallee(calleeExpr) ?? getLocation(calleeExpr);
+    }
   }
 
   return stepNode;
@@ -2179,29 +2300,47 @@ function analyzeStepRetryCall(
     }
   }
 
-  // Extract the operation callee from second argument for additional context
-  const operationCallee = args[1] ? extractCallee(args[1]) : undefined;
+  // Unwrap step.dep('name', fn) so we get callee/depSource from the inner operation
+  const { operation: operationArg, depSourceOverride } = unwrapStepDepOperation(args[1]);
+  const operationCallee = operationArg ? extractCallee(operationArg) : undefined;
+  const innerCallNode = operationArg ? getInnerCallNodeFromOperation(operationArg) : undefined;
 
   const stepNode: StaticStepNode = {
     id: generateId(),
     type: "step",
     stepId,
     callee: operationCallee,
+    depSource: depSourceOverride ?? normalizeCalleeToDepSource(operationCallee),
     name: stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
+
+  inferStepIOFromInnerCall(node, innerCallNode, stepNode);
 
   // Extract retry options from third argument
   if (args[2] && Node.isObjectLiteralExpression(args[2])) {
     stepNode.retry = extractRetryConfig(args[2]);
     const options = extractStepOptions(args[2]);
     if (options.key) stepNode.key = options.key;
+    if (options.dep) stepNode.depSource = options.dep;
+  }
+
+  if (opts.includeLocations && innerCallNode && Node.isCallExpression(innerCallNode)) {
+    const calleeExpr = innerCallNode.getExpression();
+    stepNode.depLocation = getDefinitionLocationForCallee(calleeExpr) ?? getLocation(calleeExpr);
   }
 
   const statement = getContainingStatement(node);
   if (statement) {
     const jsdoc = getJSDocDescriptionFromNode(statement);
     if (jsdoc) stepNode.jsdocDescription = jsdoc;
+    const tags = getJSDocTagsFromNode(statement);
+    if (tags) {
+      if (tags.params?.length) stepNode.jsdocParams = tags.params;
+      if (tags.returns) stepNode.jsdocReturns = tags.returns;
+      if (tags.throws?.length) stepNode.jsdocThrows = tags.throws;
+      if (tags.example) stepNode.jsdocExample = tags.example;
+    }
   }
 
   return stepNode;
@@ -2234,29 +2373,45 @@ function analyzeStepTimeoutCall(
     }
   }
 
-  // Extract the operation callee from second argument for additional context
-  const operationCallee = args[1] ? extractCallee(args[1]) : undefined;
+  const { operation: operationArg, depSourceOverride } = unwrapStepDepOperation(args[1]);
+  const operationCallee = operationArg ? extractCallee(operationArg) : undefined;
+  const innerCallNode = operationArg ? getInnerCallNodeFromOperation(operationArg) : undefined;
 
   const stepNode: StaticStepNode = {
     id: generateId(),
     type: "step",
     stepId,
     callee: operationCallee,
+    depSource: depSourceOverride ?? normalizeCalleeToDepSource(operationCallee),
     name: stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
 
-  // Extract timeout options from third argument
+  inferStepIOFromInnerCall(node, innerCallNode, stepNode);
+
   if (args[2] && Node.isObjectLiteralExpression(args[2])) {
     stepNode.timeout = extractTimeoutConfig(args[2]);
     const options = extractStepOptions(args[2]);
     if (options.key) stepNode.key = options.key;
+    if (options.dep) stepNode.depSource = options.dep;
+  }
+
+  if (opts.includeLocations && innerCallNode && Node.isCallExpression(innerCallNode)) {
+    const calleeExpr = innerCallNode.getExpression();
+    stepNode.depLocation = getDefinitionLocationForCallee(calleeExpr) ?? getLocation(calleeExpr);
   }
 
   const statement = getContainingStatement(node);
   if (statement) {
     const jsdoc = getJSDocDescriptionFromNode(statement);
     if (jsdoc) stepNode.jsdocDescription = jsdoc;
+    const tags = getJSDocTagsFromNode(statement);
+    if (tags) {
+      if (tags.params?.length) stepNode.jsdocParams = tags.params;
+      if (tags.returns) stepNode.jsdocReturns = tags.returns;
+      if (tags.throws?.length) stepNode.jsdocThrows = tags.throws;
+      if (tags.example) stepNode.jsdocExample = tags.example;
+    }
   }
 
   return stepNode;
@@ -2289,28 +2444,44 @@ function analyzeStepTryCall(
     }
   }
 
-  // Extract the operation callee from second argument for additional context
-  const operationCallee = args[1] ? extractCallee(args[1]) : undefined;
+  const { operation: operationArg, depSourceOverride } = unwrapStepDepOperation(args[1]);
+  const operationCallee = operationArg ? extractCallee(operationArg) : undefined;
+  const innerCallNode = operationArg ? getInnerCallNodeFromOperation(operationArg) : undefined;
 
   const stepNode: StaticStepNode = {
     id: generateId(),
     type: "step",
     stepId,
     callee: operationCallee ?? "step.try",
+    depSource: depSourceOverride ?? normalizeCalleeToDepSource(operationCallee),
     name: stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
 
-  // Extract options from third argument
+  inferStepIOFromInnerCall(node, innerCallNode, stepNode);
+
   if (args[2] && Node.isObjectLiteralExpression(args[2])) {
     const options = extractStepOptions(args[2]);
     if (options.key) stepNode.key = options.key;
+    if (options.dep) stepNode.depSource = options.dep;
+  }
+
+  if (opts.includeLocations && innerCallNode && Node.isCallExpression(innerCallNode)) {
+    const calleeExpr = innerCallNode.getExpression();
+    stepNode.depLocation = getDefinitionLocationForCallee(calleeExpr) ?? getLocation(calleeExpr);
   }
 
   const statement = getContainingStatement(node);
   if (statement) {
     const jsdoc = getJSDocDescriptionFromNode(statement);
     if (jsdoc) stepNode.jsdocDescription = jsdoc;
+    const tags = getJSDocTagsFromNode(statement);
+    if (tags) {
+      if (tags.params?.length) stepNode.jsdocParams = tags.params;
+      if (tags.returns) stepNode.jsdocReturns = tags.returns;
+      if (tags.throws?.length) stepNode.jsdocThrows = tags.throws;
+      if (tags.example) stepNode.jsdocExample = tags.example;
+    }
   }
 
   return stepNode;
@@ -2343,28 +2514,44 @@ function analyzeStepFromResultCall(
     }
   }
 
-  // Extract the operation callee from second argument for additional context
-  const operationCallee = args[1] ? extractCallee(args[1]) : undefined;
+  const { operation: operationArg, depSourceOverride } = unwrapStepDepOperation(args[1]);
+  const operationCallee = operationArg ? extractCallee(operationArg) : undefined;
+  const innerCallNode = operationArg ? getInnerCallNodeFromOperation(operationArg) : undefined;
 
   const stepNode: StaticStepNode = {
     id: generateId(),
     type: "step",
     stepId,
     callee: operationCallee ?? "step.fromResult",
+    depSource: depSourceOverride ?? normalizeCalleeToDepSource(operationCallee),
     name: stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
 
-  // Extract options from third argument
+  inferStepIOFromInnerCall(node, innerCallNode, stepNode);
+
   if (args[2] && Node.isObjectLiteralExpression(args[2])) {
     const options = extractStepOptions(args[2]);
     if (options.key) stepNode.key = options.key;
+    if (options.dep) stepNode.depSource = options.dep;
+  }
+
+  if (opts.includeLocations && innerCallNode && Node.isCallExpression(innerCallNode)) {
+    const calleeExpr = innerCallNode.getExpression();
+    stepNode.depLocation = getDefinitionLocationForCallee(calleeExpr) ?? getLocation(calleeExpr);
   }
 
   const statement = getContainingStatement(node);
   if (statement) {
     const jsdoc = getJSDocDescriptionFromNode(statement);
     if (jsdoc) stepNode.jsdocDescription = jsdoc;
+    const tags = getJSDocTagsFromNode(statement);
+    if (tags) {
+      if (tags.params?.length) stepNode.jsdocParams = tags.params;
+      if (tags.returns) stepNode.jsdocReturns = tags.returns;
+      if (tags.throws?.length) stepNode.jsdocThrows = tags.throws;
+      if (tags.example) stepNode.jsdocExample = tags.example;
+    }
   }
 
   return stepNode;
@@ -3118,7 +3305,7 @@ function analyzeSagaStepCall(
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
 
-  // Name-first form: saga.step(name, operation, options?) / saga.tryStep(name, operation, options)
+  // In awaitly, saga.step(name, operation, options?) / saga.tryStep(name, operation, options) — name is first param, not in options.
   const nameArg = args[0];
   const operationArg = args[1];
   const optionsArg = args[2];
@@ -3152,6 +3339,13 @@ function analyzeSagaStepCall(
   if (statement) {
     const jsdoc = getJSDocDescriptionFromNode(statement);
     if (jsdoc) sagaNode.jsdocDescription = jsdoc;
+    const tags = getJSDocTagsFromNode(statement);
+    if (tags) {
+      if (tags.params?.length) sagaNode.jsdocParams = tags.params;
+      if (tags.returns) sagaNode.jsdocReturns = tags.returns;
+      if (tags.throws?.length) sagaNode.jsdocThrows = tags.throws;
+      if (tags.example) sagaNode.jsdocExample = tags.example;
+    }
   }
 
   return sagaNode;
@@ -3159,7 +3353,7 @@ function analyzeSagaStepCall(
 
 /**
  * Extract options from a saga step options object.
- * Name is not in options; it is the first argument to saga.step/saga.tryStep.
+ * Aligns with awaitly: saga.step(name, operation, options?) — name is always the first argument, never in options.
  * e.g., { description: '...', compensate: () => deps.cancelOrder() }
  */
 function extractSagaStepOptions(optionsNode: Node): {
@@ -3185,6 +3379,9 @@ function extractSagaStepOptions(optionsNode: Node): {
 
     const propName = prop.getName();
     const init = prop.getInitializer();
+
+    // In awaitly, saga step name is always the first argument, not an option.
+    if (propName === "name") continue;
 
     if (propName === "description" && init) {
       result.description = extractStringValue(init);
@@ -3259,6 +3456,15 @@ function analyzeIfStatement(
     return undefined;
   }
 
+  // Best-effort: condition expression type
+  let conditionType: string | undefined;
+  try {
+    const t = conditionExpr.getType();
+    if (t) conditionType = t.getText();
+  } catch {
+    // ignore
+  }
+
   // Check if condition is a step.if() call - create StaticDecisionNode
   const stepIfInfo = extractStepIfInfo(conditionExpr, context);
   if (stepIfInfo) {
@@ -3271,6 +3477,7 @@ function analyzeIfStatement(
       consequent,
       alternate,
       location: opts.includeLocations ? getLocation(node) : undefined,
+      conditionType,
     };
   }
 
@@ -3282,6 +3489,7 @@ function analyzeIfStatement(
     consequent,
     alternate,
     location: opts.includeLocations ? getLocation(node) : undefined,
+    conditionType,
   };
 }
 
@@ -3706,14 +3914,43 @@ function extractDependencies(
       continue;
     }
 
+    const errorTypes = inferErrorTypesFromSignature(typeSignature);
+
     dependencies.push({
       name,
       typeSignature,
-      errorTypes: [],
+      errorTypes,
     });
   }
 
   return dependencies;
+}
+
+/**
+ * Best-effort: infer error type union from Result<T, E> in a type signature string.
+ * Handles Promise<Result<T, E>> and Result<T, E>. Extracts string literal union members.
+ * T may contain commas (e.g. tuple [number, string]), so we only treat a comma at
+ * depth 1 (outside any nested <>, [], {}, ()) as the T/E separator.
+ */
+function inferErrorTypesFromSignature(typeSignature: string | undefined): string[] {
+  if (!typeSignature) return [];
+  const resultMatch = typeSignature.match(/Result\s*</);
+  if (!resultMatch) return [];
+  const start = resultMatch.index! + resultMatch[0].length;
+  let depth = 1;
+  let i = start;
+  let firstComma = -1;
+  while (i < typeSignature.length && depth > 0) {
+    const c = typeSignature[i];
+    if (c === "<" || c === "[" || c === "{" || c === "(") depth++;
+    else if (c === ">" || c === "]" || c === "}" || c === ")") depth--;
+    else if (c === "," && depth === 1 && firstComma < 0) firstComma = i;
+    i++;
+  }
+  if (firstComma < 0 || depth !== 0) return [];
+  const secondArg = typeSignature.slice(firstComma + 1, i - 1).trim();
+  const parts = secondArg.split(/\s*\|\s*/).map((s) => s.trim().replace(/^["']|["']$/g, ""));
+  return parts.filter((s) => s.length > 0 && /^[A-Z_][A-Z0-9_]*$/i.test(s));
 }
 
 function extractErrorTypes(dependencies: DependencyInfo[]): string[] {
@@ -3726,13 +3963,18 @@ function extractErrorTypes(dependencies: DependencyInfo[]): string[] {
   return Array.from(errorTypes);
 }
 
+/**
+ * Step options we extract from step('id', fn, opts).
+ * Aligns with awaitly: step identity/name is always the first argument, never in opts.
+ * Same in awaitly: step('id', ...), step.sleep/retry/withTimeout/try/fromResult('id', ...),
+ * step.parallel(name, ...), step.race(name, ...), saga.step(name, ...), saga.tryStep(name, ...).
+ */
 interface StepOptions {
   key?: string;
   description?: string;
   markdown?: string;
   retry?: StaticRetryConfig;
   timeout?: StaticTimeoutConfig;
-  // New API fields
   errors?: string[];
   out?: string;
   dep?: string;
@@ -3752,6 +3994,9 @@ function extractStepOptions(optionsNode: Node): StepOptions {
 
     const propName = prop.getName();
     const init = prop.getInitializer();
+
+    // Intentionally do not extract "name": in awaitly, step name/ID is always the first argument.
+    if (propName === "name") continue;
 
     if (propName === "key" && init) {
       options.key = extractStringValue(init);
@@ -3975,6 +4220,17 @@ function extractCallee(node: Node): string {
     if (Node.isCallExpression(body)) {
       return body.getExpression().getText();
     }
+    if (Node.isBlock(body)) {
+      for (const stmt of body.getStatements()) {
+        if (Node.isReturnStatement(stmt)) {
+          const expr = stmt.getExpression();
+          if (expr && Node.isCallExpression(expr)) {
+            return expr.getExpression().getText();
+          }
+          break;
+        }
+      }
+    }
     return body?.getText() ?? "<unknown>";
   }
   if (Node.isCallExpression(node)) {
@@ -3997,6 +4253,143 @@ function getLocation(node: Node): SourceLocation {
     endLine: endPos.line,
     endColumn: endPos.column - 1,
   };
+}
+
+/**
+ * Best-effort: infer stepNode.outputType and stepNode.inputType from the inner call using the type checker.
+ * Uses the TypeScript compiler node so getResolvedSignature resolves correctly (ts-morph wrapper can miss in some setups).
+ */
+function inferStepIOFromInnerCall(
+  contextNode: Node,
+  innerCallNode: Node | undefined,
+  stepNode: StaticStepNode
+): void {
+  const { Node } = loadTsMorph();
+  if (!innerCallNode || !Node.isCallExpression(innerCallNode)) return;
+  try {
+    const project = contextNode.getSourceFile().getProject();
+    const typeChecker = project.getTypeChecker();
+    const tc = typeChecker.compilerObject as ts.TypeChecker;
+    const tsNode = (innerCallNode as { compilerNode: ts.CallExpression }).compilerNode;
+    const sig = tc.getResolvedSignature(tsNode);
+    if (sig) {
+      stepNode.outputType = tc.typeToString(sig.getReturnType());
+      const decl = sig.getDeclaration();
+      if (decl && "parameters" in decl && Array.isArray((decl as ts.SignatureDeclaration).parameters)) {
+        const params = (decl as ts.SignatureDeclaration).parameters;
+        if (params.length > 0) {
+          const parts = params
+            .map((p: ts.ParameterDeclaration) => (p.type ? tc.getTypeFromTypeNode(p.type) : null))
+            .filter((t: ts.Type | null): t is ts.Type => t != null)
+            .map((t: ts.Type) => tc.typeToString(t));
+          if (parts.length > 0) stepNode.inputType = parts.join(", ");
+        }
+      }
+    }
+  } catch {
+    // Type checker may be unavailable or call not resolved
+  }
+}
+
+/**
+ * Unwrap step.dep('name', fn) so retry/withTimeout/try/fromResult get callee and depSource from the inner operation.
+ * Returns the inner operation node and optional depSource from the wrapper's first argument.
+ */
+function unwrapStepDepOperation(operationArg: Node | undefined): { operation: Node | undefined; depSourceOverride?: string } {
+  if (!operationArg) return { operation: undefined };
+  const { Node } = loadTsMorph();
+  if (!Node.isCallExpression(operationArg)) return { operation: operationArg };
+  const calleeExpr = operationArg.getExpression();
+  if (!Node.isPropertyAccessExpression(calleeExpr) || calleeExpr.getName() !== "dep") {
+    return { operation: operationArg };
+  }
+  const depArgs = operationArg.getArguments();
+  let depSourceOverride: string | undefined;
+  if (depArgs[0] && Node.isStringLiteral(depArgs[0])) {
+    depSourceOverride = depArgs[0].getLiteralValue();
+  }
+  const inner = depArgs[1] ?? operationArg;
+  return { operation: inner, depSourceOverride };
+}
+
+/**
+ * Get the inner call expression node from an operation (arrow/fn) used in step('id', fn) or step.retry('id', fn).
+ * Returns the call node so we can resolve depLocation and keep callee text.
+ */
+function getInnerCallNodeFromOperation(operationArg: Node): Node | undefined {
+  const { Node } = loadTsMorph();
+  if (!operationArg) return undefined;
+  let body: Node;
+  if (Node.isArrowFunction(operationArg) || Node.isFunctionExpression(operationArg)) {
+    body = operationArg.getBody();
+    while (Node.isParenthesizedExpression(body)) body = body.getExpression();
+    if (Node.isCallExpression(body)) return body;
+    if (Node.isBlock(body)) {
+      for (const stmt of body.getStatements()) {
+        if (Node.isReturnStatement(stmt)) {
+          const expr = stmt.getExpression();
+          if (expr && Node.isCallExpression(expr)) return expr;
+          break;
+        }
+      }
+    }
+  } else if (Node.isCallExpression(operationArg)) {
+    return operationArg;
+  }
+  return undefined;
+}
+
+/**
+ * Normalize callee to depSource (e.g. deps.fetchUser -> fetchUser) for grouping. Keeps callee as full expression.
+ */
+function normalizeCalleeToDepSource(callee: string | undefined): string | undefined {
+  if (!callee) return undefined;
+  const m = callee.match(/^(?:deps|ctx\.deps)\.([a-zA-Z_$][a-zA-Z0-9_$]*)/);
+  return m ? m[1] : undefined;
+}
+
+/**
+ * Resolve the definition location of a callee expression (e.g. deps.getBatch).
+ * Uses the type checker: symbol at location, or for property access the type's symbol.
+ */
+function getDefinitionLocationForCallee(calleeNode: Node): SourceLocation | undefined {
+  const { Node } = loadTsMorph();
+  try {
+    const project = calleeNode.getSourceFile().getProject();
+    const typeChecker = project.getTypeChecker();
+    const tsNode = calleeNode as Parameters<typeof typeChecker.getSymbolAtLocation>[0];
+    let sym = typeChecker.getSymbolAtLocation(tsNode);
+    if (!sym && Node.isPropertyAccessExpression(calleeNode)) {
+      const nameNode = calleeNode.getNameNode();
+      if (nameNode) sym = typeChecker.getSymbolAtLocation(nameNode as typeof tsNode);
+    }
+    if (!sym) {
+      const type = typeChecker.getTypeAtLocation(tsNode);
+      if (type) {
+        const maybeSym = type.getSymbol?.() ?? (type as { symbol?: unknown }).symbol;
+        if (maybeSym) sym = maybeSym as ReturnType<typeof typeChecker.getSymbolAtLocation>;
+      }
+    }
+    if (!sym) return undefined;
+    const decls = sym.getDeclarations();
+    if (!decls?.length) return undefined;
+    const decl = decls[0];
+    const tsDecl = (decl as unknown as { compilerNode?: ts.Node }).compilerNode ?? (decl as unknown as ts.Node);
+    const sf = tsDecl.getSourceFile();
+    const start = tsDecl.getStart();
+    const end = tsDecl.getEnd();
+    const startPos = sf.getLineAndCharacterOfPosition(start);
+    const endPos = sf.getLineAndCharacterOfPosition(end);
+    return {
+      filePath: sf.fileName,
+      line: startPos.line + 1,
+      column: startPos.character,
+      endLine: endPos.line + 1,
+      endColumn: endPos.character,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -4026,6 +4419,84 @@ function parseJSDocCommentText(text: string): string | undefined {
     .trim();
   const beforeAt = inner.split(/\s*@/)[0].trim();
   return beforeAt || undefined;
+}
+
+/** Structured JSDoc tags for steps/workflows */
+interface JSDocTagsResult {
+  params?: Array<{ name: string; description?: string }>;
+  returns?: string;
+  throws?: string[];
+  example?: string;
+}
+
+/**
+ * Extract JSDoc @param, @returns, @throws, @example from a node that has getJsDocs().
+ */
+function getJSDocTagsFromNode(node: Node): JSDocTagsResult | undefined {
+  const n = node as {
+    getJsDocs?: () => Array<{
+      getTags?: () => Array<{ getTagName?: () => string; getText: () => string }>;
+    }>;
+  };
+  if (typeof n.getJsDocs !== "function") return undefined;
+  try {
+    const docs = n.getJsDocs();
+    if (!docs || docs.length === 0) return undefined;
+    const first = docs[0];
+    const tags = first.getTags?.();
+    if (!tags || tags.length === 0) return undefined;
+
+    const result: JSDocTagsResult = {};
+    for (const tag of tags) {
+      const raw = tag.getTagName?.() ?? (tag as { getName?: () => string }).getName?.();
+      const tagName = typeof raw === "string" ? raw.toLowerCase() : undefined;
+      const text = tag.getText().trim();
+      if (!tagName) continue;
+      if (tagName === "param" || tagName === "argument" || tagName === "arg") {
+        // JSDoc: @param [type] name - desc or @param [type] [name] - desc (optional param). Capture name without brackets.
+        const match = text.match(/^(?:@?\w+\s+)?(?:\{[^}]*\}\s*)?\[?(\w+)\]?\s*[-–—]\s*(.*)$/s);
+        const words = text.split(/\s+/);
+        const tagWords = ["@param", "param", "@argument", "argument", "@arg", "arg"];
+        const isTypeToken = (w: string) => /^\{.*\}$/.test(w);
+        const nameFromFallback = words.find((w) => !tagWords.includes(w) && !isTypeToken(w)) ?? words[0] ?? "?";
+        const rawName = match ? match[1]!.trim() : nameFromFallback;
+        // Strip optional brackets and default value: [id="guest"] -> id
+        const name = rawName.replace(/^@/, "").replace(/^\[|\]$/g, "").split("=")[0]!.trim();
+        let desc: string | undefined;
+        if (match) {
+          desc = match[2]!.trim().replace(/\s*\*+\s*$/, "");
+        } else {
+          // No dash separator: @param {string} id User identifier — description is everything after the param name
+          const wordsForDesc = words.filter((w) => !isTypeToken(w));
+          const nameToken = rawName.replace(/^@/, "");
+          const nameIdx = wordsForDesc.indexOf(nameToken);
+          const descStr = nameIdx >= 0 ? wordsForDesc.slice(nameIdx + 1).join(" ") : wordsForDesc.slice(1).join(" ");
+          desc = descStr.replace(/^\s*[-–—]\s*/, "").trim().replace(/\s*\*+\s*$/, "") || undefined;
+        }
+        result.params = result.params ?? [];
+        result.params.push({ name, description: desc || undefined });
+      } else if (tagName === "returns" || tagName === "return") {
+        // Strip tag then optional @returns {Type}; keep only the description
+        const afterTag = text.replace(/^@?(?:returns?|return)\s+/i, "").trim();
+        const afterType = afterTag.replace(/^\s*\{[^}]*\}\s*/, "").trim().replace(/\s*\*+\s*$/, "");
+        result.returns = afterType || undefined;
+      } else if (tagName === "throws" || tagName === "exception") {
+        // Strip tag and optional {Type}; keep only the description (consistent with @returns)
+        const raw = text.trim();
+        const afterTag = raw.replace(/^@?(?:throws|exception)\s+/i, "").trim();
+        const afterType = afterTag.replace(/^\s*\{[^}]*\}\s*/, "").trim().replace(/\s*\*+\s*$/, "");
+        result.throws = result.throws ?? [];
+        result.throws.push(afterType || "");
+      } else if (tagName === "example") {
+        // Store only the example content, not the @example tag prefix
+        const clean = text.replace(/^@?example\s*/i, "").trim();
+        result.example = clean || undefined;
+      }
+    }
+    return Object.keys(result).length > 0 ? result : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

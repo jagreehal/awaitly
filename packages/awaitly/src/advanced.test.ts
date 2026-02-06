@@ -158,7 +158,7 @@ describe('Advanced Examples', () => {
 
   describe('Dynamic error mapping', () => {
     it('should work with onError option in step.try', async () => {
-      const workflow = createWorkflow({});
+      const workflow = createWorkflow("workflow", {});
 
       // Mock fetch
       global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
@@ -191,7 +191,7 @@ describe('Advanced Examples', () => {
         },
       };
 
-      const workflow = createWorkflow({});
+      const workflow = createWorkflow("workflow", {});
 
       const result = await workflow(async (step) => {
         const parsed = await step.try(
@@ -408,6 +408,7 @@ describe('Advanced Examples', () => {
 
       const collector = createApprovalStateCollector();
       const workflow = createWorkflow(
+        "workflow",
         { fetchData, requireManagerApproval },
         { onEvent: collector.handleEvent }
       );
@@ -443,6 +444,7 @@ describe('Advanced Examples', () => {
 
       const collector = createApprovalStateCollector();
       const workflow1 = createWorkflow(
+        "workflow",
         { fetchData, requireManagerApproval },
         { onEvent: collector.handleEvent }
       );
@@ -466,6 +468,7 @@ describe('Advanced Examples', () => {
       });
 
       const workflow2 = createWorkflow(
+        "workflow",
         { fetchData, requireManagerApproval },
         { resumeState }
       );
@@ -518,7 +521,7 @@ describe('Advanced Examples', () => {
         return ntResult.isOk() ? ok(ntResult.value!) : err(ntResult.error!);
       }
 
-      const workflow = createWorkflow({});
+      const workflow = createWorkflow("workflow", {});
 
       const result = await workflow(async (step) => {
         const validated = await step('fromNeverthrow', () => fromNeverthrow(ntResult));

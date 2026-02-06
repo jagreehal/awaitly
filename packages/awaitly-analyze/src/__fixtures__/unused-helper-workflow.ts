@@ -10,7 +10,7 @@ const fetchUser = async (
   return ok({ id });
 };
 
-export const unusedHelperWorkflow = createWorkflow({
+export const unusedHelperWorkflow = createWorkflow("unusedHelperWorkflow", {
   fetchUser,
 });
 

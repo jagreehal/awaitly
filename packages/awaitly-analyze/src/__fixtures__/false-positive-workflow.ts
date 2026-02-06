@@ -25,7 +25,7 @@ const withTimeoutHelper = async (): AsyncResult<string, "TIMEOUT"> => {
   return ok("ok");
 };
 
-export const falsePositiveWorkflow = createWorkflow({
+export const falsePositiveWorkflow = createWorkflow("falsePositiveWorkflow", {
   fetchUser,
   parallelFetch,
   raceConditionCheck,

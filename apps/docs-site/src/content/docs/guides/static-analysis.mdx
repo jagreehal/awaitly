@@ -30,6 +30,54 @@ npx awaitly-analyze ./src/workflows/checkout.ts --keys
 npx awaitly-analyze ./src/workflows/checkout.ts --direction=LR
 ```
 
+### Interactive HTML
+
+Generate a self-contained HTML file with an interactive Mermaid diagram, click-to-inspect node details, and a built-in theme picker:
+
+```bash
+# Generate interactive HTML (writes <basename>.html next to source)
+npx awaitly-analyze ./src/workflows/checkout.ts --html
+
+# Custom output path
+npx awaitly-analyze ./src/workflows/checkout.ts --html --html-output=./docs/checkout-diagram.html
+```
+
+The generated HTML file is fully self-contained — it loads Mermaid from a CDN and embeds all workflow metadata inline. Open it in any browser; no dev server needed.
+
+**What's included:**
+
+- **Mermaid diagram** rendered client-side via CDN
+- **Click-to-inspect** — click any node to see its step ID, callee, retry/timeout config, types, data flow, and source location in a side panel
+- **6 color themes** — 4 dark (Midnight, Ocean, Ember, Forest) and 2 light (Daylight, Paper)
+- **System preference detection** — auto-selects a dark or light theme based on `prefers-color-scheme`
+- **localStorage persistence** — your theme choice is remembered across sessions
+
+**Programmatic usage:**
+
+```typescript
+import {
+  analyze,
+  renderStaticMermaid,
+  extractNodeMetadata,
+  generateInteractiveHTML,
+} from 'awaitly-analyze';
+
+const ir = analyze('./checkout.ts').single();
+const mermaid = renderStaticMermaid(ir);
+const metadata = extractNodeMetadata(ir);
+const html = generateInteractiveHTML(mermaid, metadata, {
+  theme: 'midnight',    // optional: force a specific theme
+  title: 'Checkout',    // optional: override page title
+  direction: 'TB',      // optional: diagram direction
+});
+
+// Write to disk
+import { writeFileSync } from 'node:fs';
+writeFileSync('checkout.html', html);
+```
+
+See [Renderers → Interactive HTML renderer](#interactive-html-renderer) for the full API.
+
 ### Multi-workflow output
 
 When a file contains multiple workflows, each gets its own section with a markdown header and mermaid diagram:
@@ -103,7 +151,7 @@ Analyze workflow code directly without reading from a file:
 import { analyze } from 'awaitly-analyze';
 
 const source = `
-  const checkout = createWorkflow(deps);
+  const checkout = createWorkflow('workflow', deps);
 
   async function run() {
     return await checkout(async (step) => {
@@ -256,8 +304,8 @@ A single file can contain multiple workflows:
 import { analyze } from 'awaitly-analyze';
 
 const source = `
-  const workflowA = createWorkflow(depsA);
-  const workflowB = createWorkflow(depsB);
+  const workflowA = createWorkflow('workflowA', depsA);
+  const workflowB = createWorkflow('workflowB', depsB);
 
   async function runA() {
     return await workflowA(async (step) => { ... });
@@ -400,6 +448,37 @@ The output of `renderStaticJSON(ir)` has this structure:
 - **Flow nodes** (discriminated by `type`): `"step"` (includes required `stepId` from the first argument), `"saga-step"`, `"sequence"`, `"parallel"`, `"race"`, `"conditional"`, `"switch"`, `"loop"`, `"stream"`, `"workflow-ref"`, `"unknown"`
 
 A JSON Schema for validation is available at `schema/static-workflow-ir.schema.json` in the awaitly-analyze package.
+
+### Interactive HTML renderer
+
+Generate a self-contained HTML file with an interactive Mermaid diagram and click-to-inspect panel. This is the same output produced by the `--html` CLI flag.
+
+The pipeline has two steps: extract metadata from the IR, then combine it with the Mermaid text into HTML:
+
+```typescript
+import {
+  analyze,
+  renderStaticMermaid,
+  extractNodeMetadata,
+  generateInteractiveHTML,
+} from 'awaitly-analyze';
+
+const ir = analyze('./checkout.ts').single();
+const mermaid = renderStaticMermaid(ir);
+const metadata = extractNodeMetadata(ir);
+const html = generateInteractiveHTML(mermaid, metadata, { theme: 'midnight' });
+```
+
+**`extractNodeMetadata(ir)`** walks the IR tree and returns a `WorkflowMetadata` object containing per-node metadata (step IDs, callees, retry/timeout config, types, source locations) keyed by the Mermaid node ID so the HTML click handler can look up details.
+
+**`generateInteractiveHTML(mermaidText, metadata, options?)`** returns a complete HTML string. Options:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `title` | `string` | workflow name | Page title |
+| `theme` | `string` | auto-detect | Initial theme (`midnight`, `ocean`, `ember`, `forest`, `daylight`, `paper`) |
+| `mermaidCdnUrl` | `string` | latest v11 | Mermaid CDN URL |
+| `direction` | `string` | `TB` | Diagram direction |
 
 ### Custom names
 

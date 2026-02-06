@@ -25,26 +25,27 @@ const processStandardOrder = async (
   return ok({ orderId, type: "standard" });
 };
 
-export const orderWorkflow = createWorkflow({
-  id: 'order-processing',
-  deps: { processOrder, applyDiscount, processStandardOrder },
+export const orderWorkflow = createWorkflow("orderWorkflow", {
+  processOrder,
+  applyDiscount,
+  processStandardOrder,
 });
 
 export async function processOrderWithDiscount(orderId: string, hasDiscount: boolean) {
-  return await orderWorkflow(async (step, ctx) => {
-    const order = await step('getOrder', () => ctx.deps.processOrder(orderId), {
+  return await orderWorkflow(async (step, deps) => {
+    const order = await step('getOrder', () => deps.processOrder(orderId), {
       errors: ['ORDER_NOT_FOUND'],
       out: 'order',
     });
 
     // Labelled conditional using step.label() (alias for step.if())
     if (step.label('discount-check', 'hasDiscount', () => hasDiscount)) {
-      const result = await step('applyDiscount', () => ctx.deps.applyDiscount(order.orderId, 10), {
+      const result = await step('applyDiscount', () => deps.applyDiscount(order.orderId, 10), {
         errors: ['DISCOUNT_ERROR'],
       });
       return { order, discount: result };
     } else {
-      const result = await step('processStandard', () => ctx.deps.processStandardOrder(order.orderId), {
+      const result = await step('processStandard', () => deps.processStandardOrder(order.orderId), {
         errors: ['PROCESS_ERROR'],
       });
       return { order, result };

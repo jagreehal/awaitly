@@ -102,7 +102,7 @@ describe("Workflows Documentation - Your First Workflow", () => {
     };
 
     // From docs: Compose them with a workflow
-    const checkout = createWorkflow({ chargePayment, reserveInventory, createOrder });
+    const checkout = createWorkflow("checkout", { chargePayment, reserveInventory, createOrder });
 
     const cartItems: CartItem[] = [{ productId: "prod_1", quantity: 2 }];
     const userId = "user_123";
@@ -131,7 +131,7 @@ describe("Workflows Documentation - Your First Workflow", () => {
     const reserveInventory = vi.fn().mockResolvedValue(ok({ id: "res_456", items: [] }));
     const createOrder = vi.fn();
 
-    const checkout = createWorkflow({ chargePayment, reserveInventory, createOrder });
+    const checkout = createWorkflow("checkout", { chargePayment, reserveInventory, createOrder });
 
     const result = await checkout(async (step, deps) => {
       const payment = await step('chargePayment', () => deps.chargePayment());
@@ -157,7 +157,7 @@ describe("Workflows Documentation - Your First Workflow", () => {
       throw new Error("Network timeout");
     };
 
-    const workflow = createWorkflow({ fetchData });
+    const workflow = createWorkflow("workflow", { fetchData });
 
     const result = await workflow(async (step, deps) => {
       return await step('fetchData', () => deps.fetchData());
@@ -207,7 +207,7 @@ describe("Workflows Documentation - Saga Pattern", () => {
     const cancelOrder = vi.fn();
 
     // From docs: Pass all operations to createSagaWorkflow
-    const sagaCheckout = createSagaWorkflow({
+    const sagaCheckout = createSagaWorkflow("checkout", {
       chargePayment,
       refundPayment,
       reserveInventory,
@@ -263,7 +263,7 @@ describe("Workflows Documentation - Saga Pattern", () => {
       return err("RESERVE_ERROR");
     };
 
-    const saga = createSagaWorkflow({ chargePayment, reserveInventory });
+    const saga = createSagaWorkflow("checkout", { chargePayment, reserveInventory });
 
     const result = await saga(async (ctx, deps) => {
       const payment = await ctx.step(
@@ -301,7 +301,7 @@ describe("Workflows Documentation - Saga Pattern", () => {
 
     const refundPayment = vi.fn();
 
-    const saga = createSagaWorkflow({ fetchUser, chargePayment, refundPayment });
+    const saga = createSagaWorkflow("checkout", { fetchUser, chargePayment, refundPayment });
 
     const result = await saga(async (ctx, deps) => {
       // No compensation needed for reads
@@ -350,7 +350,7 @@ describe("Workflows Documentation - Parallel Operations", () => {
     };
 
     // From docs: loadDashboard pattern
-    const loadDashboard = createWorkflow({ fetchProfile, fetchOrders, fetchRecommendations });
+    const loadDashboard = createWorkflow("loadDashboard", { fetchProfile, fetchOrders, fetchRecommendations });
 
     const result = await loadDashboard(async (step, deps) => {
       const userId = "user_123";
@@ -478,7 +478,7 @@ describe("Workflows Documentation - Parallel Operations", () => {
       return ok({ darkMode: true, notifications: false });
     };
 
-    const userDashboard = createWorkflow({ fetchUser, fetchPosts, fetchFriends, fetchSettings });
+    const userDashboard = createWorkflow("userDashboard", { fetchUser, fetchPosts, fetchFriends, fetchSettings });
 
     const result = await userDashboard(async (step, deps) => {
       // Fetch user first (sequential dependency)
@@ -641,7 +641,7 @@ describe("Workflows Documentation - Approval Workflows", () => {
     };
 
     // Include requireApproval in deps so its error types are part of the workflow's union
-    const refundWorkflow = createWorkflow({ calculateRefund, requireApproval });
+    const refundWorkflow = createWorkflow("refund", { calculateRefund, requireApproval });
 
     const result = await refundWorkflow(
       async (step, deps) => {
@@ -691,7 +691,7 @@ describe("Workflows Documentation - Approval Workflows", () => {
     });
 
     // Include requireApproval in deps for type safety
-    const refundWorkflow = createWorkflow({ calculateRefund, processRefund, requireApproval }, {
+    const refundWorkflow = createWorkflow("refund", { calculateRefund, processRefund, requireApproval }, {
       resumeState,
     });
 
@@ -771,7 +771,7 @@ describe("Workflows Documentation - Combining Patterns", () => {
     const notifyCustomer = vi.fn().mockResolvedValue(ok(undefined));
 
     // From docs: Combining patterns
-    const orderFulfillment = createSagaWorkflow({
+    const orderFulfillment = createSagaWorkflow("orderFulfillment", {
       validateOrder,
       reserveInventory,
       releaseInventory,
@@ -839,7 +839,7 @@ describe("Workflows Documentation - API Verification", () => {
   it("verifies createWorkflow callback receives (step, deps, ctx)", async () => {
     const fetchData = async (): AsyncResult<number, "ERROR"> => ok(42);
 
-    const workflow = createWorkflow({ fetchData });
+    const workflow = createWorkflow("workflow", { fetchData });
 
     // Verify the callback signature
     const result = await workflow(async (step, deps, ctx) => {
@@ -862,7 +862,7 @@ describe("Workflows Documentation - API Verification", () => {
   it("verifies createSagaWorkflow callback receives (saga, deps)", async () => {
     const fetchData = async (): AsyncResult<number, "ERROR"> => ok(42);
 
-    const saga = createSagaWorkflow({ fetchData });
+    const saga = createSagaWorkflow("saga", { fetchData });
 
     // Verify the callback signature
     const result = await saga(async (ctx, deps) => {
@@ -881,7 +881,7 @@ describe("Workflows Documentation - API Verification", () => {
   it("verifies step() requires function wrapper (thunk)", async () => {
     const fetchData = async (): AsyncResult<number, "ERROR"> => ok(42);
 
-    const workflow = createWorkflow({ fetchData });
+    const workflow = createWorkflow("workflow", { fetchData });
 
     // step() requires a thunk (function wrapper)
     const result = await workflow(async (step, deps) => {

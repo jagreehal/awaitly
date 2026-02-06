@@ -113,7 +113,7 @@ const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ...
 const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
 
 // Error types inferred from dependencies
-const workflow = createWorkflow({ fetchUser, sendEmail });
+const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
 const result = await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'));
@@ -382,7 +382,7 @@ const result = await workflow(async (step) => {
 
 ```typescript
 const controller = new AbortController();
-const workflow = createWorkflow({}, { signal: controller.signal });
+const workflow = createWorkflow('workflow', { }, { signal: controller.signal });
 
 const resultPromise = workflow(async (step) => {
   await step.sleep("long-sleep", "10s");
@@ -492,7 +492,7 @@ See [Visualization](/guides/visualization/) for details.
 Enable step caching to avoid re-executing completed steps:
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   cache: new Map(),
 });
 
@@ -512,7 +512,7 @@ The `key` option is required for caching. Steps without keys always execute.
 Resume a workflow from saved state:
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   resumeState: savedState, // From a previous run
 });
 
@@ -532,7 +532,7 @@ Enable streaming within workflows:
 ```typescript
 import { createMemoryStreamStore } from 'awaitly/streaming';
 
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   streamStore: createMemoryStreamStore(),
 });
 
@@ -552,7 +552,7 @@ See [Streaming](/guides/streaming/) for details.
 Subscribe to workflow events for logging or visualization:
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   onEvent: (event) => {
     switch (event.type) {
       case 'step_start':
@@ -581,7 +581,7 @@ Failed: Send email EMAIL_FAILED
 Workflow error unions are always closed; by default, thrown exceptions become `UnexpectedError`. To use a custom type for unexpected errors, pass `catchUnexpected`:
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   catchUnexpected: (thrown) => ({
     type: 'UNEXPECTED' as const,
     message: String(thrown),
@@ -598,7 +598,7 @@ Cancel workflows externally using an AbortSignal:
 import { isWorkflowCancelled } from 'awaitly/workflow';
 
 const controller = new AbortController();
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   signal: controller.signal,
 });
 
@@ -669,7 +669,7 @@ Override options for specific runs with `workflow.run()`:
 <Tabs>
   <TabItem label="workflow.run()">
 ```typescript
-const workflow = createWorkflow({ fetchUser }, {
+const workflow = createWorkflow('workflow', { fetchUser }, {
   onEvent: defaultLogger,  // Creation-time default
 });
 
@@ -716,7 +716,7 @@ const w = workflow
 Execution-time options override creation-time options:
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   onEvent: handlerA,        // Creation-time
   signal: signalA,
 });
@@ -766,7 +766,7 @@ await w2.run(fn, { onEvent: handlerC });
 Pass context through workflow execution:
 
 ```typescript
-const workflow = createWorkflow(deps);
+const workflow = createWorkflow('workflow', deps);
 
 const result = await workflow(
   async (step, context) => {
@@ -787,11 +787,10 @@ User ID: 123
 Workflows are just functions. Compose them naturally:
 
 ```typescript
-const validateInput = createWorkflow({ validateEmail, validatePassword });
-const processPayment = createWorkflow({ chargeCard, saveReceipt });
+const validateInput = createWorkflow('workflow', { validateEmail, validatePassword });
+const processPayment = createWorkflow('workflow', { chargeCard, saveReceipt });
 
-const checkout = createWorkflow({
-  validateEmail,
+const checkout = createWorkflow('workflow', { validateEmail,
   validatePassword,
   chargeCard,
   saveReceipt,
@@ -835,7 +834,7 @@ const fetchPosts = async (userId: string): AsyncResult<Post[], 'FETCH_ERROR'> =>
 const sendWelcome = async (email: string): AsyncResult<void, 'EMAIL_FAILED'> =>
   ok(undefined);
 
-const onboardUser = createWorkflow({ fetchUser, fetchPosts, sendWelcome });
+const onboardUser = createWorkflow('workflow', { fetchUser, fetchPosts, sendWelcome });
 
 const result = await onboardUser(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'));

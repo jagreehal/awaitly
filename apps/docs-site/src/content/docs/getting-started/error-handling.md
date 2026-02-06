@@ -12,7 +12,7 @@ const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { ... };
 const fetchPosts = async (id: string): AsyncResult<Post[], 'FETCH_ERROR'> => { ... };
 const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { ... };
 
-const workflow = createWorkflow({ fetchUser, fetchPosts, sendEmail });
+const workflow = createWorkflow('workflow', { fetchUser, fetchPosts, sendEmail });
 
 const result = await workflow(async (step) => { ... });
 // result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | UnexpectedError
@@ -29,7 +29,7 @@ const badOperation = async (): AsyncResult<string, 'KNOWN_ERROR'> => {
   throw new Error('Something broke'); // Throws instead of returning err()
 };
 
-const workflow = createWorkflow({ badOperation });
+const workflow = createWorkflow('workflow', { badOperation });
 const result = await workflow(async (step) => {
   return await step('badOperation', () => badOperation());
 });
@@ -115,8 +115,7 @@ TypeScript ensures you handle all known error cases.
 Workflow error unions are always closed. By default, thrown exceptions become `UnexpectedError`. To use a custom type for unexpected errors, pass `catchUnexpected`:
 
 ```typescript
-const workflow = createWorkflow(
-  { fetchUser, fetchPosts },
+const workflow = createWorkflow('workflow', { fetchUser, fetchPosts },
   {
     catchUnexpected: (thrown) => ({
       type: 'UNEXPECTED' as const,
@@ -137,7 +136,7 @@ const workflow = createWorkflow(
 
 ## Need help?
 
-Having issues with TypeScript narrowing or error handling? See [Troubleshooting/../guides/troubleshooting/).
+Having issues with TypeScript narrowing or error handling? See [Troubleshooting](/guides/troubleshooting/).
 
 ## Next
 

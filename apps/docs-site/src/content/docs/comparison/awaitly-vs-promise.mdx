@@ -136,7 +136,7 @@ try {
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 
-const workflow = createWorkflow({ fetchUser, validateOrder, chargeCard });
+const workflow = createWorkflow('workflow', { fetchUser, validateOrder, chargeCard });
 
 const result = await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('123'));
@@ -271,7 +271,7 @@ const fetchUserForApi = async (id: string) => {
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 
-const workflow = createWorkflow({ fetchData });
+const workflow = createWorkflow('workflow', { fetchData });
 
 const result = await workflow(async (step) => {
   // Built-in retry with exponential backoff

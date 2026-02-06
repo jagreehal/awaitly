@@ -271,27 +271,47 @@ import { SnapshotDecodeError } from "../persistence";
  * );
  * ```
  */
+// Overload: no deps (single argument); callback receives deps: unknown
+export function createWorkflow<
+  U = UnexpectedError,
+  C = void
+>(
+  workflowName: string
+): Workflow<never, U, unknown, C>;
+
+// Overload: with deps
 export function createWorkflow<
   const Deps extends Readonly<Record<string, AnyResultFn>>,
   U = UnexpectedError,
   C = void
 >(
+  workflowName: string,
   deps: Deps,
   options?: WorkflowOptions<ErrorsOfDeps<Deps>, U, C>
 ): Workflow<ErrorsOfDeps<Deps>, U, Deps, C>;
 
-// Implementation
+// Implementation (deps optional for 1-arg overload compatibility)
 export function createWorkflow<
   const Deps extends Readonly<Record<string, AnyResultFn>>,
   U = UnexpectedError,
   C = void
 >(
-  deps: Deps,
+  workflowName: string,
+  deps?: Deps,
   options?: WorkflowOptions<ErrorsOfDeps<Deps>, U, C>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): any {
   type E = ErrorsOfDeps<Deps>;
   type ExecOpts = ExecutionOptions<E, U, C>;
+
+  if (typeof workflowName !== "string" || workflowName.length === 0) {
+    throw new TypeError(
+      "createWorkflow(workflowName, deps, options?): first argument must be a non-empty string. Example: createWorkflow('checkout', { chargeCard, sendEmail })"
+    );
+  }
+
+  const depsActual = deps ?? ({} as Deps);
+  const optionsActual = options;
 
   // ===========================================================================
   // Helper: normalizeCall - extract args and fn from call signature
@@ -366,7 +386,7 @@ export function createWorkflow<
 
   // Snapshot options from workflow creation
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const snapshotOptions = options as any as {
+  const snapshotOptions = optionsActual as any as {
     serialization?: { encode?: (value: unknown) => JSONValue; decode?: (value: JSONValue) => unknown };
     snapshotSerialization?: { strict?: boolean };
     snapshot?: WorkflowSnapshot | null;
@@ -392,14 +412,14 @@ export function createWorkflow<
     if (
       onDefinitionChange !== "ignore" &&
       snapshot.metadata?.definitionHash !== undefined &&
-      (options as { definitionHash?: string }).definitionHash !== undefined &&
-      snapshot.metadata.definitionHash !== (options as { definitionHash?: string }).definitionHash
+      (optionsActual as { definitionHash?: string }).definitionHash !== undefined &&
+      snapshot.metadata.definitionHash !== (optionsActual as { definitionHash?: string }).definitionHash
     ) {
-      const message = `Snapshot definition hash "${snapshot.metadata.definitionHash}" does not match workflow definition hash "${(options as { definitionHash?: string }).definitionHash}"`;
+      const message = `Snapshot definition hash "${snapshot.metadata.definitionHash}" does not match workflow definition hash "${(optionsActual as { definitionHash?: string }).definitionHash}"`;
       if (onDefinitionChange === "error") {
         throw new SnapshotMismatchError(message, "definition_hash", {
           snapshotHash: snapshot.metadata.definitionHash as string,
-          expectedHash: (options as { definitionHash?: string }).definitionHash,
+          expectedHash: (optionsActual as { definitionHash?: string }).definitionHash,
         });
       } else {
         console.warn(`awaitly: ${message}`);
@@ -478,7 +498,7 @@ export function createWorkflow<
         }
       } catch (e) {
         if (strict) {
-          throw new Error(`Cannot serialize step "${stepId}" value: ${e}`);
+          throw new Error(`Cannot serialize step "${stepId}" value: ${e}`, { cause: e });
         }
         // Best-effort: store null and record warning
         value = null;
@@ -518,7 +538,7 @@ export function createWorkflow<
         }
       } catch (e) {
         if (strict) {
-          throw new Error(`Cannot serialize step "${stepId}" error: ${e}`);
+          throw new Error(`Cannot serialize step "${stepId}" error: ${e}`, { cause: e });
         }
         // Best-effort: store null and record warning
         errorValue = null;
@@ -777,7 +797,7 @@ export function createWorkflow<
           `awaitly: Detected workflow options (${matchedOptions.join(", ")}) ` +
           `passed to workflow executor. Options are ignored here.\n` +
           `Pass options to createWorkflow() instead:\n` +
-          `  const workflow = createWorkflow(deps, { ${matchedOptions.join(", ")} });\n` +
+          `  const workflow = createWorkflow('${workflowName}', deps, { ${matchedOptions.join(", ")} });\n` +
           `  await workflow(async (step) => { ... });`
         );
       }
@@ -794,36 +814,36 @@ export function createWorkflow<
 
     // Create context for this run (exec overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const createContextFn = exec?.createContext ?? (options as any)?.createContext;
+    const createContextFn = exec?.createContext ?? (optionsActual as any)?.createContext;
     const context = createContextFn ? await createContextFn() : undefined as C;
 
     // Get workflow-level signal (exec overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const workflowSignal = (exec?.signal ?? (options as any)?.signal) as AbortSignal | undefined;
+    const workflowSignal = (exec?.signal ?? (optionsActual as any)?.signal) as AbortSignal | undefined;
 
     // Get event handler (exec overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const onEventHandler = exec?.onEvent ?? (options as any)?.onEvent;
+    const onEventHandler = exec?.onEvent ?? (optionsActual as any)?.onEvent;
 
     // Get error handler (exec overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const onErrorHandler = exec?.onError ?? (options as any)?.onError;
+    const onErrorHandler = exec?.onError ?? (optionsActual as any)?.onError;
 
     // Get shouldRun hook (exec overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const shouldRunHook = (exec?.shouldRun ?? (options as any)?.shouldRun) as
+    const shouldRunHook = (exec?.shouldRun ?? (optionsActual as any)?.shouldRun) as
       | ((workflowId: string, context: C) => boolean | Promise<boolean>)
       | undefined;
 
     // Get onBeforeStart hook (exec overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const onBeforeStartHook = (exec?.onBeforeStart ?? (options as any)?.onBeforeStart) as
+    const onBeforeStartHook = (exec?.onBeforeStart ?? (optionsActual as any)?.onBeforeStart) as
       | ((workflowId: string, context: C) => boolean | Promise<boolean>)
       | undefined;
 
     // Get onAfterStep hook (exec overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const onAfterStepHook = (exec?.onAfterStep ?? (options as any)?.onAfterStep) as
+    const onAfterStepHook = (exec?.onAfterStep ?? (optionsActual as any)?.onAfterStep) as
       | ((
           stepKey: string,
           result: Result<unknown, unknown, unknown>,
@@ -834,7 +854,7 @@ export function createWorkflow<
 
     // Get resumeState (exec overrides options) - keep lazy, only evaluate when needed
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const resumeStateOption = (exec?.resumeState ?? (options as any)?.resumeState) as
+    const resumeStateOption = (exec?.resumeState ?? (optionsActual as any)?.resumeState) as
       | ResumeState
       | (() => ResumeState | Promise<ResumeState>)
       | undefined;
@@ -842,14 +862,14 @@ export function createWorkflow<
     // catchUnexpected: from creation-time options or default (legacy UnexpectedError shape).
     // When omitted, U = UnexpectedError and we use defaultCatchUnexpected.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const catchUnexpected = (options as any)?.catchUnexpected ?? defaultCatchUnexpected;
+    const catchUnexpected = (optionsActual as any)?.catchUnexpected ?? defaultCatchUnexpected;
 
     // Create workflow data store for step outputs
     const workflowData: Record<string, unknown> = {};
 
     // Check if dev warnings are enabled (exec overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const devWarnings = (exec?.devWarnings ?? (options as any)?.devWarnings) === true && process.env.NODE_ENV !== 'production';
+    const devWarnings = (exec?.devWarnings ?? (optionsActual as any)?.devWarnings) === true && process.env.NODE_ENV !== 'production';
     const ctxSetWarned = new Set<string>(); // Avoid duplicate warnings per key
     const ctxGetWarned = new Set<string>();
 
@@ -893,7 +913,11 @@ export function createWorkflow<
         event.context !== undefined || context === undefined
           ? event
           : ({ ...event, context: context as C } as WorkflowEvent<E | U, C>);
-      onEventHandler?.(eventWithContext, context);
+      const eventWithName =
+        eventWithContext.workflowName === undefined
+          ? ({ ...eventWithContext, workflowName } as WorkflowEvent<E | U, C>)
+          : eventWithContext;
+      onEventHandler?.(eventWithName, context);
     };
 
     // Helper to create cancellation result (always map through catchUnexpected)
@@ -999,9 +1023,9 @@ export function createWorkflow<
 
     // Get cache from options (cache is NOT overridable via exec - only from creation-time)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let cache = (options as any)?.cache as StepCache | undefined;
+    let cache = (optionsActual as any)?.cache as StepCache | undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const streamStore = (options as any)?.streamStore as StreamStore | undefined;
+    const streamStore = (optionsActual as any)?.streamStore as StreamStore | undefined;
 
     // If resumeState is provided but cache isn't, auto-create an in-memory cache
     if (resumeStateOption && !cache) {
@@ -1772,11 +1796,10 @@ export function createWorkflow<
             const writerKey = `${workflowId}:${namespace}`;
             const pollStart = Date.now();
             let hasSeenWriter = activeWriters.has(writerKey);
-            let hasSeenMetadata = false;
 
             // Check initial state
             const initialMetaResult = await streamStore.getMetadata(workflowId, namespace);
-            hasSeenMetadata = initialMetaResult.ok && initialMetaResult.value !== undefined;
+            let hasSeenMetadata = initialMetaResult.ok && initialMetaResult.value !== undefined;
 
             while (Date.now() - pollStart < pollTimeout) {
               const result = await streamStore.read<T>(workflowId, namespace, position, 100);
@@ -2103,8 +2126,8 @@ export function createWorkflow<
 
     // Wrap the user's callback to pass cached step, deps, args (when present), and workflow context
     const wrappedFn = hasArgs
-      ? (step: RunStep<E>) => (userFn as (step: RunStep<E>, deps: Deps, args: Args, ctx: WorkflowContext<C>) => T | Promise<T>)(createCachedStep(step), deps, args as Args, workflowContext)
-      : (step: RunStep<E>) => (userFn as (step: RunStep<E>, deps: Deps, ctx: WorkflowContext<C>) => T | Promise<T>)(createCachedStep(step), deps, workflowContext);
+      ? (step: RunStep<E>) => (userFn as (step: RunStep<E>, deps: Deps, args: Args, ctx: WorkflowContext<C>) => T | Promise<T>)(createCachedStep(step), depsActual, args as Args, workflowContext)
+      : (step: RunStep<E>) => (userFn as (step: RunStep<E>, deps: Deps, ctx: WorkflowContext<C>) => T | Promise<T>)(createCachedStep(step), depsActual, workflowContext);
 
     // Always use run() with catchUnexpected (default or user-provided). Closed error union E | U.
     let result: Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>;
@@ -2115,6 +2138,7 @@ export function createWorkflow<
         onEvent: onEventHandler as ((event: WorkflowEvent<E | U | UnexpectedError, C>, ctx: C) => void) | undefined,
         catchUnexpected: catchUnexpected as (cause: unknown) => U,
         workflowId,
+        workflowName,
         context,
         _workflowSignal: workflowSignal,
       });
@@ -2288,7 +2312,7 @@ export function createWorkflow<
     ...rest: unknown[]
   ): Promise<Result<T, E | U, unknown>> {
     // DX guard: users sometimes try `workflow(fn, { onEvent, resumeState, ... })`
-    // but exec options are only supported via `workflow.run(fn, exec)` (or creation-time `createWorkflow(deps, options)`).
+    // but exec options are only supported via `workflow.run(fn, exec)` (or creation-time `createWorkflow(name, deps, options)`).
     // Since JS allows extra args, detect and warn when an object that looks like options is passed.
     const argCount = 2 + rest.length;
     const a2 = maybeFn;
@@ -2330,7 +2354,7 @@ export function createWorkflow<
         `awaitly: Detected workflow options (${Object.keys(a2).join(", ")}) passed to the workflow executor.\n` +
           `This call signature ignores options. Use one of:\n` +
           `  - Per-run:   await workflow.run(fn, { ${Object.keys(a2).join(", ")} })\n` +
-          `  - Creation:  const workflow = createWorkflow(deps, { ${Object.keys(a2).join(", ")} })`
+          `  - Creation:  const workflow = createWorkflow('${workflowName}', deps, { ${Object.keys(a2).join(", ")} })`
       );
     }
 
@@ -2340,7 +2364,7 @@ export function createWorkflow<
         `awaitly: Detected workflow options (${Object.keys(a3).join(", ")}) passed to the workflow executor.\n` +
           `This call signature ignores options. Use:\n` +
           `  - Per-run:   await workflow.run(args, fn, { ${Object.keys(a3).join(", ")} })\n` +
-          `  - Creation:  const workflow = createWorkflow(deps, { ${Object.keys(a3).join(", ")} })`
+          `  - Creation:  const workflow = createWorkflow('${workflowName}', deps, { ${Object.keys(a3).join(", ")} })`
       );
     }
 

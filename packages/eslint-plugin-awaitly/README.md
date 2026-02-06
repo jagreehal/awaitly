@@ -93,7 +93,7 @@ await workflow({ cache: new Map() }, async (step) => { ... });
 await workflow({ onEvent: handler }, async (step) => { ... });
 
 // GOOD - options go to createWorkflow
-const workflow = createWorkflow(deps, { cache: new Map() });
+const workflow = createWorkflow('workflow', deps, { cache: new Map() });
 await workflow(async (step) => { ... });
 ```
 

@@ -1,6 +1,6 @@
 import { createWorkflow } from "awaitly/workflow";
 
-const workflow = createWorkflow({
+const workflow = createWorkflow("workflow", {
   fetchUser: async () => ({ id: "1" }),
   fetchPosts: async () => [],
 });

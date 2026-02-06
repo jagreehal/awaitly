@@ -13,10 +13,9 @@ describe("Workflow Strict Option", () => {
     it("extracts strict: true from workflow options", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({
+        const workflow = createWorkflow("workflow", {
           getUser: async () => ok({}),
-          strict: true,
-        });
+        }, { strict: true });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('getUser', () => deps.getUser('1'), { errors: [] });
@@ -32,10 +31,9 @@ describe("Workflow Strict Option", () => {
     it("extracts strict: false from workflow options", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({
+        const workflow = createWorkflow("workflow", {
           getUser: async () => ok({}),
-          strict: false,
-        });
+        }, { strict: false });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('getUser', () => deps.getUser('1'));
@@ -50,7 +48,7 @@ describe("Workflow Strict Option", () => {
     it("strict is undefined when not specified", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({
+        const workflow = createWorkflow("workflow", {
           getUser: async () => ok({}),
         });
         export async function run() {
@@ -69,11 +67,9 @@ describe("Workflow Strict Option", () => {
     it("extracts declared errors from workflow options", () => {
       const source = `
         import { createWorkflow, ok, tags } from "awaitly";
-        const workflow = createWorkflow({
+        const workflow = createWorkflow("workflow", {
           getUser: async () => ok({}),
-          errors: ['NOT_FOUND', 'UNAUTHORIZED'],
-          strict: true,
-        });
+        }, { errors: ['NOT_FOUND', 'UNAUTHORIZED'], strict: true });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('getUser', () => deps.getUser('1'), { errors: ['NOT_FOUND'] });
@@ -89,11 +85,9 @@ describe("Workflow Strict Option", () => {
       const source = `
         import { createWorkflow, ok, tags } from "awaitly";
         const workflowErrors = tags('ERROR_A', 'ERROR_B');
-        const workflow = createWorkflow({
+        const workflow = createWorkflow("workflow", {
           getUser: async () => ok({}),
-          errors: workflowErrors,
-          strict: true,
-        });
+        }, { errors: workflowErrors, strict: true });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('getUser', () => deps.getUser('1'), { errors: ['ERROR_A'] });

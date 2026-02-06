@@ -188,6 +188,7 @@ export function createVisualizer(
 
   const builder = createIRBuilder({ detectParallel });
   const updateCallbacks: Set<(ir: WorkflowIR) => void> = new Set();
+  let nameFromEvent: string | undefined;
 
   // Renderers
   const ascii = asciiRenderer();
@@ -221,10 +222,8 @@ export function createVisualizer(
 
     builder.handleEvent(event);
 
-    // Set workflow name if provided
-    if (event.type === "workflow_start" && workflowName) {
-      // Note: We'd need to extend the builder to support setting name
-      // For now, the name is passed in render options
+    if ("workflowName" in event && typeof (event as { workflowName?: string }).workflowName === "string") {
+      nameFromEvent = (event as { workflowName: string }).workflowName;
     }
 
     notifyUpdate();
@@ -244,9 +243,9 @@ export function createVisualizer(
 
   function getIR(): WorkflowIR {
     const ir = builder.getIR();
-    // Apply workflow name if provided
-    if (workflowName && !ir.root.name) {
-      ir.root.name = workflowName;
+    const name = workflowName ?? nameFromEvent ?? ir.root.name;
+    if (name) {
+      ir.root.name = name;
     }
     return ir;
   }

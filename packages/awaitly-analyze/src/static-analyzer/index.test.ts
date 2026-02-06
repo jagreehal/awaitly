@@ -55,11 +55,32 @@ describe("ts-morph Static Analyzer", () => {
   });
 
   describe("Basic Workflow Analysis", () => {
+    it("should find createWorkflow calls with name-only signature", () => {
+      const source = `
+        import { createWorkflow } from 'awaitly';
+
+        const myWorkflow = createWorkflow("myWorkflow");
+
+        export async function run() {
+          return await myWorkflow(async (step) => {
+            await step.sleep('pause', '10ms');
+            return 1;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("myWorkflow");
+      expect(results[0].root.dependencies).toEqual([]);
+    });
+
     it("should find createWorkflow calls", () => {
       const source = `
         import { createWorkflow } from 'awaitly';
 
-        const myWorkflow = createWorkflow({
+        const myWorkflow = createWorkflow("myWorkflow", {
           fetchUser: async () => ({ id: '1' }),
         });
 
@@ -84,7 +105,7 @@ describe("ts-morph Static Analyzer", () => {
       const source = `
         import * as Awaitly from 'awaitly';
 
-        const myWorkflow = Awaitly.createWorkflow({
+        const myWorkflow = Awaitly.createWorkflow("myWorkflow", {
           fetchUser: async () => ({ id: '1' }),
         });
 
@@ -111,7 +132,7 @@ describe("ts-morph Static Analyzer", () => {
       const source = `
         import Awaitly from 'awaitly';
 
-        const myWorkflow = Awaitly.createWorkflow({
+        const myWorkflow = Awaitly.createWorkflow("myWorkflow", {
           fetchUser: async () => ({ id: '1' }),
         });
 
@@ -138,7 +159,7 @@ describe("ts-morph Static Analyzer", () => {
       const source = `
         import { createWorkflow as cw } from 'awaitly';
 
-        const myWorkflow = cw({
+        const myWorkflow = cw("myWorkflow", {
           fetchUser: async () => ({ id: '1' }),
         });
 
@@ -180,7 +201,7 @@ describe("ts-morph Static Analyzer", () => {
 
     it("should extract step calls with key and name", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -216,7 +237,7 @@ describe("ts-morph Static Analyzer", () => {
 
     it("should detect parallel steps", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -252,7 +273,7 @@ describe("ts-morph Static Analyzer", () => {
 
     it("should detect if statements as conditionals", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -275,7 +296,7 @@ describe("ts-morph Static Analyzer", () => {
     });
 
     it("should include source locations", () => {
-      const source = `const workflow = createWorkflow({});
+      const source = `const workflow = createWorkflow("workflow", {});
 async function run() {
   return await workflow(async (step, deps) => {
     const user = await step(() => deps.fetchUser(), { key: 'user' });
@@ -303,10 +324,271 @@ async function run() {
       expect(stepNode?.location?.line).toBeGreaterThan(0);
     });
 
+    it("should infer workflowReturnType when workflow callback is passed by identifier", () => {
+      const source = `
+        const workflow = createWorkflow("workflow", {
+          fetchUser: async () => ({ id: "1" }),
+        });
+
+        const callback = async (step: unknown, deps: unknown) => {
+          return { ok: true as const };
+        };
+
+        async function run() {
+          return await workflow(callback);
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowReturnType).toBeDefined();
+    });
+
+    it("should infer workflowReturnType through one level of callback identifier alias", () => {
+      const source = `
+        const workflow = createWorkflow("workflow", {
+          fetchUser: async () => ({ id: "1" }),
+        });
+
+        const handler = async (step: unknown, deps: unknown) => {
+          return { ok: true as const };
+        };
+        const callback = handler;
+
+        async function run() {
+          return await workflow(callback);
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowReturnType).toBeDefined();
+    });
+
+    it("should include depLocation for step.retry when includeLocations is true", () => {
+      const source = `const workflow = createWorkflow("workflow", {
+  fetchUser: async () => ({ id: "1" })
+});
+async function run() {
+  return await workflow(async (step, deps) => {
+    await step.retry("fetch-user", () => deps.fetchUser(), { attempts: 3 });
+    return {};
+  });
+}`;
+
+      const results = analyzeWorkflowSource(source, undefined, {
+        includeLocations: true,
+        assumeImported: true,
+      });
+
+      const root = results[0]?.root;
+      const children = root?.children || [];
+      const firstChild = children[0];
+
+      let stepNode: StaticStepNode | undefined;
+      if (firstChild?.type === "sequence") {
+        stepNode = (firstChild as StaticSequenceNode).children[0] as StaticStepNode;
+      } else if (firstChild?.type === "step") {
+        stepNode = firstChild as StaticStepNode;
+      }
+
+      expect(stepNode?.callee).toBe("deps.fetchUser");
+      expect(stepNode?.depSource).toBe("fetchUser");
+      expect(stepNode?.depLocation).toBeDefined();
+      expect(stepNode?.depLocation?.line).toBeGreaterThan(0);
+    });
+
+    it("should include depLocation for step.withTimeout when includeLocations is true", () => {
+      const source = `const workflow = createWorkflow("workflow", {
+  fetchUser: async () => ({ id: "1" })
+});
+async function run() {
+  return await workflow(async (step, deps) => {
+    await step.withTimeout("fetch-user", () => deps.fetchUser(), { ms: 5000 });
+    return {};
+  });
+}`;
+
+      const results = analyzeWorkflowSource(source, undefined, {
+        includeLocations: true,
+        assumeImported: true,
+      });
+
+      const root = results[0]?.root;
+      const children = root?.children || [];
+      const firstChild = children[0];
+
+      let stepNode: StaticStepNode | undefined;
+      if (firstChild?.type === "sequence") {
+        stepNode = (firstChild as StaticSequenceNode).children[0] as StaticStepNode;
+      } else if (firstChild?.type === "step") {
+        stepNode = firstChild as StaticStepNode;
+      }
+
+      expect(stepNode?.callee).toBe("deps.fetchUser");
+      expect(stepNode?.depSource).toBe("fetchUser");
+      expect(stepNode?.depLocation).toBeDefined();
+      expect(stepNode?.depLocation?.line).toBeGreaterThan(0);
+    });
+
+    it("should infer outputType for step.retry operations", () => {
+      const source = `const workflow = createWorkflow("workflow", {
+  fetchUser: async () => ({ id: "1" as const })
+});
+async function run() {
+  return await workflow(async (step, deps) => {
+    await step.retry("fetch-user", () => deps.fetchUser(), { attempts: 3 });
+    return {};
+  });
+}`;
+
+      const results = analyzeWorkflowSource(source, undefined, {
+        assumeImported: true,
+      });
+
+      const root = results[0]?.root;
+      const children = root?.children || [];
+      const firstChild = children[0];
+
+      let stepNode: StaticStepNode | undefined;
+      if (firstChild?.type === "sequence") {
+        stepNode = (firstChild as StaticSequenceNode).children[0] as StaticStepNode;
+      } else if (firstChild?.type === "step") {
+        stepNode = firstChild as StaticStepNode;
+      }
+
+      expect(stepNode?.callee).toBe("deps.fetchUser");
+      expect(stepNode?.outputType).toBeDefined();
+    });
+
+    it("should extract callee and depSource for step.retry block-body callbacks", () => {
+      const source = `const workflow = createWorkflow("workflow", {
+  fetchUser: async () => ({ id: "1" as const })
+});
+async function run() {
+  return await workflow(async (step, deps) => {
+    await step.retry("fetch-user", () => {
+      return deps.fetchUser();
+    }, { attempts: 3 });
+    return {};
+  });
+}`;
+
+      const results = analyzeWorkflowSource(source, undefined, {
+        assumeImported: true,
+      });
+
+      const root = results[0]?.root;
+      const children = root?.children || [];
+      const firstChild = children[0];
+
+      let stepNode: StaticStepNode | undefined;
+      if (firstChild?.type === "sequence") {
+        stepNode = (firstChild as StaticSequenceNode).children[0] as StaticStepNode;
+      } else if (firstChild?.type === "step") {
+        stepNode = firstChild as StaticStepNode;
+      }
+
+      expect(stepNode?.callee).toBe("deps.fetchUser");
+      expect(stepNode?.depSource).toBe("fetchUser");
+    });
+
+    it("should extract callee and depSource for step.withTimeout block-body callbacks", () => {
+      const source = `const workflow = createWorkflow("workflow", {
+  fetchUser: async () => ({ id: "1" as const })
+});
+async function run() {
+  return await workflow(async (step, deps) => {
+    await step.withTimeout("fetch-user", () => {
+      return deps.fetchUser();
+    }, { ms: 5000 });
+    return {};
+  });
+}`;
+
+      const results = analyzeWorkflowSource(source, undefined, {
+        assumeImported: true,
+      });
+
+      const root = results[0]?.root;
+      const children = root?.children || [];
+      const firstChild = children[0];
+
+      let stepNode: StaticStepNode | undefined;
+      if (firstChild?.type === "sequence") {
+        stepNode = (firstChild as StaticSequenceNode).children[0] as StaticStepNode;
+      } else if (firstChild?.type === "step") {
+        stepNode = firstChild as StaticStepNode;
+      }
+
+      expect(stepNode?.callee).toBe("deps.fetchUser");
+      expect(stepNode?.depSource).toBe("fetchUser");
+    });
+
+    it("should extract depSource from step.dep wrapper in step.retry", () => {
+      const source = `const workflow = createWorkflow("workflow", {
+  fetchUser: async () => ({ id: "1" as const })
+});
+async function run() {
+  return await workflow(async (step, deps) => {
+    await step.retry("fetch-user", step.dep("userService", () => deps.fetchUser()), { attempts: 3 });
+    return {};
+  });
+}`;
+
+      const results = analyzeWorkflowSource(source, undefined, {
+        assumeImported: true,
+      });
+
+      const root = results[0]?.root;
+      const children = root?.children || [];
+      const firstChild = children[0];
+
+      let stepNode: StaticStepNode | undefined;
+      if (firstChild?.type === "sequence") {
+        stepNode = (firstChild as StaticSequenceNode).children[0] as StaticStepNode;
+      } else if (firstChild?.type === "step") {
+        stepNode = firstChild as StaticStepNode;
+      }
+
+      expect(stepNode?.callee).toBe("deps.fetchUser");
+      expect(stepNode?.depSource).toBe("userService");
+    });
+
+    it("should extract depSource from step.dep wrapper in step.withTimeout", () => {
+      const source = `const workflow = createWorkflow("workflow", {
+  fetchUser: async () => ({ id: "1" as const })
+});
+async function run() {
+  return await workflow(async (step, deps) => {
+    await step.withTimeout("fetch-user", step.dep("userService", () => deps.fetchUser()), { ms: 5000 });
+    return {};
+  });
+}`;
+
+      const results = analyzeWorkflowSource(source, undefined, {
+        assumeImported: true,
+      });
+
+      const root = results[0]?.root;
+      const children = root?.children || [];
+      const firstChild = children[0];
+
+      let stepNode: StaticStepNode | undefined;
+      if (firstChild?.type === "sequence") {
+        stepNode = (firstChild as StaticSequenceNode).children[0] as StaticStepNode;
+      } else if (firstChild?.type === "step") {
+        stepNode = firstChild as StaticStepNode;
+      }
+
+      expect(stepNode?.callee).toBe("deps.fetchUser");
+      expect(stepNode?.depSource).toBe("userService");
+    });
+
     it("should keep stats scoped to each workflow", () => {
       const source = `
-        const workflowA = createWorkflow({});
-        const workflowB = createWorkflow({});
+        const workflowA = createWorkflow("workflowA", {});
+        const workflowB = createWorkflow("workflowB", {});
 
         async function runA() {
           return await workflowA(async (step, deps) => {
@@ -335,7 +617,7 @@ async function run() {
   describe("Loop Analysis", () => {
     it("should detect for loops with step calls", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -355,7 +637,7 @@ async function run() {
 
     it("should detect for-of loops with step calls", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -391,7 +673,7 @@ async function run() {
 
     it("should detect while loops with step calls", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -413,7 +695,7 @@ async function run() {
 
     it("should not count loops without step calls", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -441,7 +723,7 @@ async function run() {
   describe("Parallel and Race Analysis", () => {
     it("should detect allAsync calls", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -463,7 +745,7 @@ async function run() {
 
     it("should detect allSettledAsync calls", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -500,7 +782,7 @@ async function run() {
 
     it("should detect anyAsync calls", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -523,7 +805,7 @@ async function run() {
   describe("Conditional Helpers", () => {
     it("should detect when() helper", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -541,7 +823,7 @@ async function run() {
 
     it("should detect unless() helper", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -561,7 +843,7 @@ async function run() {
   describe("IR Structure", () => {
     it("should produce compatible IR structure", () => {
       const source = `
-        const workflow = createWorkflow({
+        const workflow = createWorkflow("workflow", {
           fetchUser: async () => ({ id: '1' }),
         });
 
@@ -603,7 +885,7 @@ async function run() {
   describe("Edge Cases", () => {
     it("should handle workflows with no invocations", () => {
       const source = `
-        const workflow = createWorkflow({
+        const workflow = createWorkflow("workflow", {
           fetchUser: async () => ({ id: '1' }),
         });
         // No invocation
@@ -638,11 +920,30 @@ async function run() {
   });
 
   describe("Saga Workflow Analysis", () => {
+    it("should ignore createSagaWorkflow calls without deps", () => {
+      const source = `
+        import { createSagaWorkflow } from 'awaitly';
+
+        // Invalid runtime signature: deps argument is required for createSagaWorkflow
+        const orderSaga = createSagaWorkflow("orderSaga");
+
+        export async function run() {
+          return await orderSaga(async (saga) => {
+            await saga.step('noop', async () => ({ ok: true }));
+            return { ok: true };
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(0);
+    });
+
     it("should detect createSagaWorkflow calls", () => {
       const source = `
         import { createSagaWorkflow } from 'awaitly';
 
-        const orderSaga = createSagaWorkflow({
+        const orderSaga = createSagaWorkflow("orderSaga", {
           createOrder: async () => ({ id: '1' }),
           chargePayment: async () => ({ success: true }),
         });
@@ -667,7 +968,7 @@ async function run() {
 
     it("should detect saga.step() calls with compensation", () => {
       const source = `
-        const orderSaga = createSagaWorkflow({});
+        const orderSaga = createSagaWorkflow("saga", {});
 
         async function run() {
           return await orderSaga(async (saga, deps) => {
@@ -691,7 +992,7 @@ async function run() {
 
     it("should extract compensationCallee when compensate uses block body with return", () => {
       const source = `
-        const orderSaga = createSagaWorkflow({});
+        const orderSaga = createSagaWorkflow("saga", {});
 
         async function run() {
           return await orderSaga(async (saga, deps) => {
@@ -725,7 +1026,7 @@ async function run() {
 
     it("should extract description and markdown from saga.step options", () => {
       const source = `
-        const orderSaga = createSagaWorkflow({});
+        const orderSaga = createSagaWorkflow("saga", {});
 
         async function run() {
           return await orderSaga(async (saga, deps) => {
@@ -761,7 +1062,7 @@ async function run() {
 
     it("should set saga step name from first argument (string literal)", () => {
       const source = `
-        const orderSaga = createSagaWorkflow({});
+        const orderSaga = createSagaWorkflow("saga", {});
 
         async function run() {
           return await orderSaga(async (saga, deps) => {
@@ -790,7 +1091,7 @@ async function run() {
 
     it("should detect saga.tryStep() calls", () => {
       const source = `
-        const orderSaga = createSagaWorkflow({});
+        const orderSaga = createSagaWorkflow("saga", {});
 
         async function run() {
           return await orderSaga(async (saga, deps) => {
@@ -824,7 +1125,7 @@ async function run() {
 
     it("should detect destructured saga parameters", () => {
       const source = `
-        const orderSaga = createSagaWorkflow({});
+        const orderSaga = createSagaWorkflow("saga", {});
 
         async function run() {
           return await orderSaga(async ({ step, tryStep }, deps) => {
@@ -871,7 +1172,7 @@ async function run() {
   describe("Streaming Analysis", () => {
     it("should detect getWritable calls", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -901,7 +1202,7 @@ async function run() {
 
     it("should detect getReadable calls", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -919,7 +1220,7 @@ async function run() {
 
     it("should detect streamForEach calls", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -940,7 +1241,7 @@ async function run() {
   describe("Custom Step Parameters", () => {
     it("should respect custom step parameter names", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (s, deps) => {
@@ -958,7 +1259,7 @@ async function run() {
 
     it("should detect step calls wrapped in parentheses", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -976,7 +1277,7 @@ async function run() {
 
     it("should detect step when callback destructures with alias", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async ({ step: runStep }, deps) => {
@@ -1157,7 +1458,7 @@ async function run() {
   describe("Retry and Timeout", () => {
     it("should extract retry config from step options", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1193,7 +1494,7 @@ async function run() {
 
     it("should extract timeout config from step options", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1225,7 +1526,7 @@ async function run() {
   describe("False Positive Filtering", () => {
     it("should not match .step calls on non-step objects", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           const tracker = { step: (value) => value };
@@ -1245,7 +1546,7 @@ async function run() {
 
     it("should not match property access .parallel, .race, .retry on non-step objects", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1273,7 +1574,7 @@ async function run() {
   describe("Conditional Helpers - whenOr/unlessOr", () => {
     it("should detect whenOr() helper with default value", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1311,8 +1612,8 @@ async function run() {
   describe("Workflow Composition", () => {
     it("should detect calls to other workflows", () => {
       const source = `
-        const childWorkflow = createWorkflow({});
-        const parentWorkflow = createWorkflow({});
+        const childWorkflow = createWorkflow("childWorkflow", {});
+        const parentWorkflow = createWorkflow("parentWorkflow", {});
 
         async function runChild() {
           return await childWorkflow(async (step, deps) => {
@@ -1342,7 +1643,7 @@ async function run() {
 
     it("should detect workflow invocation when call is (await workflow)(callback)", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await (await workflow)(async (step, deps) => {
@@ -1358,7 +1659,7 @@ async function run() {
 
     it("should not count self-references as workflow refs", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1375,7 +1676,7 @@ async function run() {
 
     it("should not attribute shadowed workflow invocations to outer workflow", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function runOuter() {
           return await workflow(async (step) => {
@@ -1384,7 +1685,7 @@ async function run() {
         }
 
         async function runInner() {
-          const workflow = createWorkflow({});
+          const workflow = createWorkflow("workflow", {});
           return await workflow(async (step) => {
             await step(() => innerTask(), { key: 'inner' });
           });
@@ -1401,11 +1702,11 @@ async function run() {
 
     it("should treat var-shadowed workflow as function-scoped", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function runOuter() {
           if (true) {
-            var workflow = createWorkflow({});
+            var workflow = createWorkflow("workflow", {});
           }
           return await workflow(async (step) => {
             await step(() => innerTask(), { key: 'inner' });
@@ -1427,7 +1728,7 @@ async function run() {
 
     it("should not treat workflow calls as invocations when shadowed by parameters", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function runShadowed(workflow) {
           return await workflow(async (step) => {
@@ -1445,7 +1746,7 @@ async function run() {
 
     it("should not treat workflow calls as invocations when shadowed by destructured parameters", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function runShadowed({ workflow }) {
           return await workflow(async (step) => {
@@ -1461,7 +1762,7 @@ async function run() {
 
     it("should not treat workflow calls as invocations when shadowed by array destructuring", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function runShadowed([workflow]) {
           return await workflow(async (step) => {
@@ -1477,7 +1778,7 @@ async function run() {
 
     it("should not treat workflow calls as invocations when shadowed by method parameters", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         class Runner {
           async run(workflow) {
@@ -1495,7 +1796,7 @@ async function run() {
 
     it("should not treat workflow calls as invocations when shadowed by destructured variables", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function runShadowed() {
           const { workflow } = getWorkflows();
@@ -1512,7 +1813,7 @@ async function run() {
 
     it("should not treat workflow calls as invocations when shadowed by catch bindings", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function runShadowed() {
           try {
@@ -1532,7 +1833,7 @@ async function run() {
 
     it("should not treat workflow calls as invocations when shadowed by destructured catch bindings", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function runShadowed() {
           try {
@@ -1558,7 +1859,7 @@ async function run() {
           });
         }
 
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
       `;
 
       const results = analyzeWorkflowSource(source);
@@ -1568,7 +1869,7 @@ async function run() {
 
     it("should detect workflow calls when invoked via awaited reference", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await (await workflow)(async (step) => {
@@ -1584,7 +1885,7 @@ async function run() {
 
     it("should detect workflow calls when invoked with nested parentheses", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await ((workflow))(async (step) => {
@@ -1600,7 +1901,7 @@ async function run() {
 
     it("should not treat workflow calls as invocations when shadowed by function declarations", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function runShadowed() {
           function workflow() {
@@ -1622,7 +1923,7 @@ async function run() {
   describe("Parallel Helpers - allAsync", () => {
     it("should treat direct calls in allAsync as implicit steps", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1643,7 +1944,7 @@ async function run() {
 
     it("should preserve step metadata when allAsync includes step() calls", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1682,7 +1983,7 @@ async function run() {
 
     it("should keep multi-step branches grouped in allAsync()", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1721,7 +2022,7 @@ async function run() {
 
     it("should capture step.parallel name from name-first form", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1755,7 +2056,7 @@ async function run() {
   describe("step.sleep() Analysis", () => {
     it("should detect step.sleep with string duration", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1772,7 +2073,7 @@ async function run() {
 
     it("should detect step.sleep with options", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1804,7 +2105,7 @@ async function run() {
   describe("step.race() Analysis", () => {
     it("should detect step.race with array form", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1825,7 +2126,7 @@ async function run() {
 
     it("should detect step.race with object form", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1863,7 +2164,7 @@ async function run() {
   describe("step.retry() and step.withTimeout() Analysis", () => {
     it("should parse step.retry() with id-first signature", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1895,7 +2196,7 @@ async function run() {
 
     it("should parse step.withTimeout() with id-first signature", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -1995,7 +2296,7 @@ async function run() {
   describe("step.parallel Named Forms", () => {
     it("should apply step.parallel string name to callback form", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2057,7 +2358,7 @@ async function run() {
     describe("Promise.all with steps", () => {
       it("should detect steps inside Promise.all array", () => {
         const source = `
-          const myWorkflow = createWorkflow({});
+          const myWorkflow = createWorkflow("workflow", {});
 
           await myWorkflow(async (step) => {
             await Promise.all([
@@ -2074,7 +2375,7 @@ async function run() {
 
       it("should detect steps inside nested Promise.all", () => {
         const source = `
-          const myWorkflow = createWorkflow({});
+          const myWorkflow = createWorkflow("workflow", {});
 
           await myWorkflow(async (step) => {
             const results = await Promise.all([
@@ -2096,7 +2397,7 @@ async function run() {
     describe("Ternary expressions with steps", () => {
       it("should detect steps in ternary expression branches", () => {
         const source = `
-          const myWorkflow = createWorkflow({});
+          const myWorkflow = createWorkflow("workflow", {});
 
           await myWorkflow(async (step) => {
             const result = condition
@@ -2112,7 +2413,7 @@ async function run() {
 
       it("should detect nested ternary steps", () => {
         const source = `
-          const myWorkflow = createWorkflow({});
+          const myWorkflow = createWorkflow("workflow", {});
 
           await myWorkflow(async (step) => {
             const result = condA
@@ -2132,7 +2433,7 @@ async function run() {
     describe("Try-catch blocks with steps", () => {
       it("should detect steps inside try block", () => {
         const source = `
-          const myWorkflow = createWorkflow({});
+          const myWorkflow = createWorkflow("workflow", {});
 
           await myWorkflow(async (step) => {
             try {
@@ -2150,7 +2451,7 @@ async function run() {
 
       it("should detect steps in both try and catch blocks", () => {
         const source = `
-          const myWorkflow = createWorkflow({});
+          const myWorkflow = createWorkflow("workflow", {});
 
           await myWorkflow(async (step) => {
             try {
@@ -2168,7 +2469,7 @@ async function run() {
 
       it("should detect steps in finally block", () => {
         const source = `
-          const myWorkflow = createWorkflow({});
+          const myWorkflow = createWorkflow("workflow", {});
 
           await myWorkflow(async (step) => {
             try {
@@ -2189,7 +2490,7 @@ async function run() {
   describe("Workflow Documentation Extraction", () => {
     it("should extract description from createWorkflow options", () => {
       const source = `
-        const checkout = createWorkflow(deps, {
+        const checkout = createWorkflow("checkout", deps, {
           description: "Checkout workflow - handles orders"
         });
         checkout(async (step) => {
@@ -2202,7 +2503,7 @@ async function run() {
 
     it("should extract markdown from createWorkflow options", () => {
       const source = `
-        const checkout = createWorkflow(deps, {
+        const checkout = createWorkflow("checkout", deps, {
           markdown: "## Checkout\\n\\nHandles orders and payments."
         });
         checkout(async (step) => {
@@ -2217,7 +2518,7 @@ async function run() {
   describe("step.sleep() Additional Tests", () => {
     it("uses the first argument as the step ID and name", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2244,7 +2545,7 @@ async function run() {
 
     it("should detect step.sleep without options", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2273,7 +2574,7 @@ async function run() {
 
     it("should count step.sleep in totalSteps stat", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2293,7 +2594,7 @@ async function run() {
   describe("Fixture-based Integration Tests", () => {
     it("should handle sample workflow pattern", () => {
       const source = `
-        const sampleWorkflow = createWorkflow({
+        const sampleWorkflow = createWorkflow("sampleWorkflow", {
           fetchUser: async () => ({ id: '1', name: 'Alice', isPremium: true }),
           fetchPosts: async () => [{ id: '1', title: 'Hello' }],
           applyDiscount: async () => ({ discount: 10 }),
@@ -2336,7 +2637,7 @@ async function run() {
 
     it("should handle nested conditionals", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2362,8 +2663,8 @@ async function run() {
 
     it("should handle complex workflow with all features", () => {
       const source = `
-        const childWorkflow = createWorkflow({});
-        const mainWorkflow = createWorkflow({});
+        const childWorkflow = createWorkflow("childWorkflow", {});
+        const mainWorkflow = createWorkflow("mainWorkflow", {});
 
         async function runChild() {
           return await childWorkflow(async (step, deps) => {
@@ -2417,7 +2718,7 @@ async function run() {
 
     it("should handle empty workflow callback", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2435,7 +2736,7 @@ async function run() {
   describe("Array.map with steps", () => {
     it("should detect steps inside .map arrow function", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2454,7 +2755,7 @@ async function run() {
 
     it("should detect steps inside .map with block body", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2476,7 +2777,7 @@ async function run() {
   describe("Nested function expressions", () => {
     it("should detect steps in nested arrow functions", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2495,7 +2796,7 @@ async function run() {
 
     it("should detect steps in function expressions", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2516,7 +2817,7 @@ async function run() {
   describe("Complex real-world patterns", () => {
     it("should detect steps in AI SDK tool execute patterns", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2539,7 +2840,7 @@ async function run() {
 
     it("should detect steps in forEach-style callbacks", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2596,7 +2897,7 @@ async function run() {
   describe("Workflow Documentation Extraction", () => {
     it("should extract description from createWorkflow options", () => {
       const source = `
-        const workflow = createWorkflow({
+        const workflow = createWorkflow("workflow", {
           description: 'Handles user checkout process'
         });
       `;
@@ -2610,7 +2911,7 @@ async function run() {
 
     it("should extract markdown from createWorkflow options", () => {
       const source = `
-        const workflow = createWorkflow({
+        const workflow = createWorkflow("workflow", {
           markdown: '## Checkout Flow\\n\\n1. Validate cart\\n2. Process payment'
         });
       `;
@@ -2622,7 +2923,7 @@ async function run() {
 
     it("should extract both description and markdown", () => {
       const source = `
-        const workflow = createWorkflow({
+        const workflow = createWorkflow("workflow", {
           description: 'User onboarding',
           markdown: '# Onboarding Steps'
         });
@@ -2636,7 +2937,7 @@ async function run() {
 
     it("should handle workflow without options", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
       `;
 
       const results = analyzeWorkflowSource(source);
@@ -2649,7 +2950,7 @@ async function run() {
   describe("step.sleep() variations", () => {
     it("should detect step.sleep with Duration object", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2665,7 +2966,7 @@ async function run() {
 
     it("should detect step.sleep without options", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2681,7 +2982,7 @@ async function run() {
 
     it("should count step.sleep in totalSteps stat", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2701,7 +3002,7 @@ async function run() {
   describe("step.parallel array form", () => {
     it("should analyze step.parallel array form callbacks", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2722,7 +3023,7 @@ async function run() {
 
     it("should apply step.parallel name to array form", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2744,7 +3045,7 @@ async function run() {
   describe("Mermaid Rendering", () => {
     it("should render basic workflow diagram", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2765,7 +3066,7 @@ async function run() {
 
     it("should render parallel workflow diagram", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2794,7 +3095,7 @@ async function run() {
   describe("Block-bodied step callbacks", () => {
     it("should extract callee from block-bodied step callback", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2824,7 +3125,7 @@ async function run() {
     it("should extract callee when step callback has parenthesized expression body", () => {
       // step(() => (deps.fetchUser())) - body is ParenthesizedExpression, not CallExpression
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2853,7 +3154,7 @@ async function run() {
   describe("Step parameter destructuring", () => {
     it("should resolve step parameter when destructuring uses default and alias", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
         const fallback = () => null;
 
         async function run() {
@@ -2872,7 +3173,7 @@ async function run() {
 
     it("should detect step when destructuring provides a default value", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
         const defaultStep = () => null;
 
         async function run() {
@@ -2893,7 +3194,7 @@ async function run() {
   describe("Switch with createWorkflow", () => {
     it("should analyze switch with createWorkflow", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2921,7 +3222,7 @@ async function run() {
   describe("step.parallel with named operation", () => {
     it("should apply step.parallel name to array form with named operation", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2945,7 +3246,7 @@ async function run() {
   describe("step.retry and step.withTimeout calls", () => {
     it("should detect step.retry() call", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2967,7 +3268,7 @@ async function run() {
 
     it("should detect step.withTimeout() call", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -2991,7 +3292,7 @@ async function run() {
   describe("False positive method filtering", () => {
     it("should not match methods with similar names as step functions", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -3117,7 +3418,7 @@ async function run() {
       const source = `
         import { createWorkflow, run } from 'awaitly';
 
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function runWorkflow() {
           return await workflow(async (step, deps) => {
@@ -3140,7 +3441,7 @@ async function run() {
       const source = `
         import { createWorkflow, run } from 'awaitly';
 
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function runWorkflow() {
           return await workflow(async (step, deps) => {
@@ -3170,7 +3471,7 @@ async function run() {
       const source = `
         import { createWorkflow, run } from 'awaitly';
 
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function runWorkflow() {
           return await workflow(async (step, deps) => {
@@ -3198,8 +3499,8 @@ async function run() {
       const source = `
         import { createWorkflow, run, createSagaWorkflow } from 'awaitly';
 
-        const workflow = createWorkflow({});
-        const saga = createSagaWorkflow({});
+        const workflow = createWorkflow("workflow", {});
+        const saga = createSagaWorkflow("saga", {});
 
         async function runWorkflow() {
           return await workflow(async (step, deps) => {
@@ -3259,7 +3560,7 @@ async function run() {
   describe("step.sleep description extraction", () => {
     it("should extract description from step.sleep options", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -3285,7 +3586,7 @@ async function run() {
 
     it("should extract markdown from step.sleep options", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -3318,7 +3619,7 @@ async function run() {
   describe("step description and markdown extraction", () => {
     it("should extract description and markdown from step options", () => {
       const source = `
-        const workflow = createWorkflow({
+        const workflow = createWorkflow("workflow", {
           fetchUser: async (id: string) => ({ id, name: 'Alice' }),
         });
 
@@ -3419,7 +3720,7 @@ async function run() {
   describe("unlessOr helper", () => {
     it("should detect unlessOr() helper", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -3568,7 +3869,7 @@ async function run() {
   describe("Path generation", () => {
     it("should set pathLimitHit in statistics when maxPaths limit is hit", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -3598,7 +3899,7 @@ async function run() {
 
     it("should set pathLimitHit to false when workflow has exactly maxPaths paths (no truncation)", () => {
       const source = `
-        const workflow = createWorkflow({});
+        const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow(async (step, deps) => {
@@ -3704,6 +4005,218 @@ async function run() {
       expect(steps[0].jsdocDescription).toContain("Loads the user by ID");
     });
 
+    it("jsdoc-with-param: extracts structured @param and @returns tags", () => {
+      const source = loadJsdocFixture("jsdoc-with-param.ts");
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(1);
+      expect(steps[0].jsdocParams).toEqual([{ name: "id", description: "The user ID to fetch" }]);
+      expect(steps[0].jsdocReturns).toBe("The user object");
+    });
+
+    it("extracts @param name when JSDoc includes a type annotation", () => {
+      const source = `
+        import { createWorkflow } from "awaitly/workflow";
+        const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
+        async function run(id: string) {
+          return await workflow(async (step, deps) => {
+            /**
+             * Load user
+             * @param {string} id - User identifier
+             */
+            await step(() => deps.fetchUser(id));
+            return {};
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(1);
+      expect(steps[0].jsdocParams).toEqual([{ name: "id", description: "User identifier" }]);
+    });
+
+    it("extracts @returns text when JSDoc includes a return type annotation", () => {
+      const source = `
+        import { createWorkflow } from "awaitly/workflow";
+        type User = { id: string };
+        const workflow = createWorkflow("workflow", { fetchUser: async (id: string): Promise<User> => ({ id }) });
+        async function run(id: string) {
+          return await workflow(async (step, deps) => {
+            /**
+             * Load user
+             * @returns {User} Loaded user object
+             */
+            await step(() => deps.fetchUser(id));
+            return {};
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(1);
+      expect(steps[0].jsdocReturns).toBe("Loaded user object");
+    });
+
+    it("extracts optional @param names without square brackets", () => {
+      const source = `
+        import { createWorkflow } from "awaitly/workflow";
+        const workflow = createWorkflow("workflow", { fetchUser: async (id?: string) => ({ id }) });
+        async function run(id?: string) {
+          return await workflow(async (step, deps) => {
+            /**
+             * Load user
+             * @param {string} [id] - Optional user identifier
+             */
+            await step(() => deps.fetchUser(id));
+            return {};
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(1);
+      expect(steps[0].jsdocParams).toEqual([{ name: "id", description: "Optional user identifier" }]);
+    });
+
+    it("extracts optional @param names with defaults without default suffix", () => {
+      const source = `
+        import { createWorkflow } from "awaitly/workflow";
+        const workflow = createWorkflow("workflow", { fetchUser: async (id?: string) => ({ id }) });
+        async function run(id?: string) {
+          return await workflow(async (step, deps) => {
+            /**
+             * Load user
+             * @param {string} [id="guest"] - Optional user identifier
+             */
+            await step(() => deps.fetchUser(id));
+            return {};
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(1);
+      expect(steps[0].jsdocParams).toEqual([{ name: "id", description: "Optional user identifier" }]);
+    });
+
+    it("extracts clean @throws descriptions when JSDoc includes a throw type", () => {
+      const source = `
+        import { createWorkflow } from "awaitly/workflow";
+        const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
+        async function run(id: string) {
+          return await workflow(async (step, deps) => {
+            /**
+             * Load user
+             * @throws {NotFoundError} User not found
+             */
+            await step(() => deps.fetchUser(id));
+            return {};
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(1);
+      expect(steps[0].jsdocThrows).toEqual(["User not found"]);
+    });
+
+    it("extracts @param description when no dash separator is present", () => {
+      const source = `
+        import { createWorkflow } from "awaitly/workflow";
+        const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
+        async function run(id: string) {
+          return await workflow(async (step, deps) => {
+            /**
+             * Load user
+             * @param {string} id User identifier
+             */
+            await step(() => deps.fetchUser(id));
+            return {};
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(1);
+      expect(steps[0].jsdocParams).toEqual([{ name: "id", description: "User identifier" }]);
+    });
+
+    it("extracts structured JSDoc tags for step.retry nodes", () => {
+      const source = `
+        import { createWorkflow } from "awaitly/workflow";
+        const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
+        async function run(id: string) {
+          return await workflow(async (step, deps) => {
+            /**
+             * Retry loading user
+             * @param {string} id - User identifier
+             * @returns Loaded user
+             */
+            await step.retry("fetch-user", () => deps.fetchUser(id), { attempts: 3 });
+            return {};
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(1);
+      expect(steps[0].jsdocParams).toEqual([{ name: "id", description: "User identifier" }]);
+      expect(steps[0].jsdocReturns).toBe("Loaded user");
+    });
+
+    it("extracts structured JSDoc tags for step.sleep nodes", () => {
+      const source = `
+        import { createWorkflow } from "awaitly/workflow";
+        const workflow = createWorkflow("workflow", {});
+        async function run() {
+          return await workflow(async (step) => {
+            /**
+             * Pause before continuing
+             * @returns Sleep complete
+             */
+            await step.sleep("pause", "10ms");
+            return {};
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(1);
+      expect(steps[0].jsdocReturns).toBe("Sleep complete");
+    });
+
+    it("extracts clean @example text without the tag prefix", () => {
+      const source = `
+        import { createWorkflow } from "awaitly/workflow";
+        const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
+        async function run(id: string) {
+          return await workflow(async (step, deps) => {
+            /**
+             * Load user
+             * @example await step("fetch-user", () => deps.fetchUser(id))
+             */
+            await step("fetch-user", () => deps.fetchUser(id));
+            return {};
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(1);
+      expect(steps[0].jsdocExample).toBe('await step("fetch-user", () => deps.fetchUser(id))');
+    });
+
     it("no-jsdoc: jsdocDescription undefined everywhere", () => {
       const source = loadJsdocFixture("no-jsdoc.ts");
       const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
@@ -3746,7 +4259,7 @@ async function run() {
   describe("Dependency typeSignature extraction", () => {
     it("should extract dependency names from createWorkflow", () => {
       const source = `
-        const workflow = createWorkflow({
+        const workflow = createWorkflow("workflow", {
           fetchUser: async (id: string) => ({ id, name: 'Alice' }),
           sendEmail: async (to: string) => true,
         });
@@ -3773,7 +4286,7 @@ async function run() {
       const source = `
         const fetchUser = async (id: string) => ({ id, name: 'Alice' });
 
-        const workflow = createWorkflow({
+        const workflow = createWorkflow("workflow", {
           fetchUser,
         });
 
@@ -3794,7 +4307,7 @@ async function run() {
 
     it("should have errorTypes as empty array for dependencies", () => {
       const source = `
-        const workflow = createWorkflow({
+        const workflow = createWorkflow("workflow", {
           fetchUser: async (id: string) => ({ id }),
         });
 
@@ -3808,6 +4321,83 @@ async function run() {
       const results = analyzeWorkflowSource(source);
       const deps = results[0].root.dependencies;
       expect(deps[0].errorTypes).toEqual([]);
+    });
+
+    it("should infer errorTypes when Result success type contains a tuple", () => {
+      const source = `
+        type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
+
+        const workflow = createWorkflow("workflow", {
+          fetchPair: async (): Promise<Result<[number, string], "E_ONE" | "E_TWO">> => {
+            return { ok: true, value: [1, "x"] };
+          },
+        });
+
+        async function run() {
+          return await workflow(async (step, deps) => {
+            await step(() => deps.fetchPair());
+            return {};
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      const dep = results[0].root.dependencies.find((d) => d.name === "fetchPair");
+      expect(dep).toBeDefined();
+      expect(dep!.errorTypes).toEqual(["E_ONE", "E_TWO"]);
+    });
+
+    it("should extract dependencies when createWorkflow name is a variable", () => {
+      const source = `
+        const WORKFLOW_NAME = "checkout";
+        const workflow = createWorkflow(WORKFLOW_NAME, {
+          fetchUser: async (id: string) => ({ id, name: "Alice" }),
+          chargeCard: async (_id: string) => true,
+        });
+
+        async function run(id: string) {
+          return await workflow(async (step, deps) => {
+            const user = await step(() => deps.fetchUser(id));
+            await step(() => deps.chargeCard(user.id));
+            return user;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+
+      const deps = results[0].root.dependencies;
+      expect(deps).toHaveLength(2);
+      expect(deps.map((d) => d.name)).toContain("fetchUser");
+      expect(deps.map((d) => d.name)).toContain("chargeCard");
+    });
+
+    it("should extract saga dependencies when createSagaWorkflow name is a variable", () => {
+      const source = `
+        const WORKFLOW_NAME = "order-saga";
+        const workflow = createSagaWorkflow(WORKFLOW_NAME, {
+          createOrder: async () => ({ id: "o1" }),
+          cancelOrder: async () => true,
+        });
+
+        async function run() {
+          return await workflow(async (saga, deps) => {
+            return await saga.step("create-order", () => deps.createOrder(), {
+              compensate: () => deps.cancelOrder(),
+            });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+
+      const deps = results[0].root.dependencies;
+      expect(deps).toHaveLength(2);
+      expect(deps.map((d) => d.name)).toContain("createOrder");
+      expect(deps.map((d) => d.name)).toContain("cancelOrder");
     });
   });
 
@@ -4060,7 +4650,7 @@ describe("analyze() fluent API", () => {
   const singleWorkflowCode = `
     import { createWorkflow } from 'awaitly';
 
-    const testWorkflow = createWorkflow({});
+    const testWorkflow = createWorkflow("testWorkflow", {});
 
     async function run() {
       return await testWorkflow(async (step, deps) => {
@@ -4072,8 +4662,8 @@ describe("analyze() fluent API", () => {
   const multiWorkflowCode = `
     import { createWorkflow } from 'awaitly';
 
-    const workflowA = createWorkflow({});
-    const workflowB = createWorkflow({});
+    const workflowA = createWorkflow("workflowA", {});
+    const workflowB = createWorkflow("workflowB", {});
 
     async function runA() {
       return await workflowA(async (step, deps) => {

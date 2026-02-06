@@ -10,7 +10,7 @@ import type { CallExpression, Identifier, ObjectExpression, Property } from 'est
  * Options passed to the executor are silently ignored, which is a common mistake.
  *
  * BAD:  await workflow({ cache: new Map() }, async (step) => { ... })
- * GOOD: const workflow = createWorkflow(deps, { cache: new Map() });
+ * GOOD: const workflow = createWorkflow('workflow', deps, { cache: new Map() });
  *       await workflow(async (step) => { ... });
  */
 
@@ -112,7 +112,7 @@ const rule: Rule.RuleModule = {
     messages: {
       optionsOnExecutor:
         'Workflow options ({{ keys }}) passed to executor are ignored. Pass options to createWorkflow() instead:\n' +
-        '  const workflow = createWorkflow(deps, { {{ keys }} });\n' +
+        '  const workflow = createWorkflow(\'workflow\', deps, { {{ keys }} });\n' +
         '  await workflow(async (step) => { ... });',
     },
   },

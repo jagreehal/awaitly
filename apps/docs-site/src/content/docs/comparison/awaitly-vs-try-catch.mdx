@@ -197,7 +197,7 @@ With Result types, the possible errors are documented in the function signature.
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 
-const workflow = createWorkflow({ fetchUser, validateAge, createAccount });
+const workflow = createWorkflow('workflow', { fetchUser, validateAge, createAccount });
 
 const result = await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('123'));

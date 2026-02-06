@@ -46,7 +46,7 @@ const sendWelcome = async (
   return ok(undefined);
 };
 
-export const signupWorkflow = createWorkflow({
+export const signupWorkflow = createWorkflow("signup", {
   validateEmail,
   checkDuplicate,
   createUser,

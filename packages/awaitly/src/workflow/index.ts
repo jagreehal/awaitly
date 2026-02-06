@@ -74,3 +74,12 @@ export {
 } from "../persistence";
 
 export { createWorkflow } from "./execute";
+
+// Workflow Diagram DSL (for visualization; types shared with analyzer/visualizer)
+export type {
+  WorkflowDiagramDSL,
+  WorkflowDiagramState,
+  WorkflowDiagramStateType,
+  WorkflowDiagramTransition,
+  WorkflowDiagramSourceLocation,
+} from "./diagram-dsl";

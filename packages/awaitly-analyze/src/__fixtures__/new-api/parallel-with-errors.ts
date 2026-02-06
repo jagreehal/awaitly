@@ -19,21 +19,22 @@ const fetchNotifications = async (userId: string): AsyncResult<Array<{ message: 
   return ok([{ message: "Welcome!" }]);
 };
 
-export const userDashboardWorkflow = createWorkflow({
-  id: 'userDashboard',
-  deps: { fetchProfile, fetchActivity, fetchNotifications },
+export const userDashboardWorkflow = createWorkflow("userDashboardWorkflow", {
+  fetchProfile,
+  fetchActivity,
+  fetchNotifications,
 });
 
 export async function loadUserDashboard(userId: string) {
-  return await userDashboardWorkflow(async (step, ctx) => {
+  return await userDashboardWorkflow(async (step, deps) => {
     const { profile, activity } = await step.parallel('Fetch profile and activity', {
-      profile: () => ctx.deps.fetchProfile(userId),
-      activity: () => ctx.deps.fetchActivity(userId),
+      profile: () => deps.fetchProfile(userId),
+      activity: () => deps.fetchActivity(userId),
     });
 
     const { notifications } = await step.parallel('Fetch notifications', {
       notifications: {
-        fn: () => ctx.deps.fetchNotifications(userId),
+        fn: () => deps.fetchNotifications(userId),
         errors: ['NOTIFICATIONS_FETCH_FAILED'],
       },
     });

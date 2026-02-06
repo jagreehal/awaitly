@@ -85,7 +85,7 @@ describe("visualization", () => {
         processPayment,
       };
 
-      const workflow = createWorkflow(deps, {
+      const workflow = createWorkflow("checkout", deps, {
         onEvent: viz.handleEvent,
       });
 
@@ -105,6 +105,7 @@ describe("visualization", () => {
       const viz = createVisualizer({ workflowName: "test" });
 
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser },
         { onEvent: viz.handleEvent }
       );
@@ -122,6 +123,7 @@ describe("visualization", () => {
       const viz = createVisualizer({ workflowName: "test" });
 
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser },
         { onEvent: viz.handleEvent }
       );
@@ -142,6 +144,7 @@ describe("visualization", () => {
       const collector = createEventCollector({ workflowName: "checkout" });
 
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser, fetchOrders },
         { onEvent: collector.handleEvent }
       );
@@ -167,6 +170,7 @@ describe("visualization", () => {
       const collector = createEventCollector();
 
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser },
         { onEvent: collector.handleEvent }
       );
@@ -203,6 +207,7 @@ describe("visualization", () => {
       const collector = createEventCollector();
 
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser, applyDiscount },
         { onEvent: collector.handleEvent }
       );
@@ -234,6 +239,7 @@ describe("visualization", () => {
       const collector = createEventCollector();
 
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser, calculateTax },
         { onEvent: collector.handleEvent }
       );
@@ -273,6 +279,7 @@ describe("visualization", () => {
       const timeTravel = createTimeTravelController();
 
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser, fetchOrders },
         { onEvent: timeTravel.handleEvent }
       );
@@ -307,6 +314,7 @@ describe("visualization", () => {
       });
 
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser },
         { onEvent: timeTravel.handleEvent }
       );
@@ -331,6 +339,7 @@ describe("visualization", () => {
       for (let i = 0; i < 3; i++) {
         const collector = createEventCollector();
         const workflow = createWorkflow(
+          "workflow",
           { fetchUser, fetchOrders },
           { onEvent: collector.handleEvent }
         );
@@ -361,6 +370,7 @@ describe("visualization", () => {
       // Get heatmap data for visualization
       const collector = createEventCollector();
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser },
         { onEvent: collector.handleEvent }
       );
@@ -391,7 +401,7 @@ describe("visualization", () => {
         fetchSettings,
       };
 
-      const workflow = createWorkflow(deps, { onEvent: viz.handleEvent });
+      const workflow = createWorkflow("checkout", deps, { onEvent: viz.handleEvent });
 
       await workflow(
         async (step, { fetchUser, fetchOrders, fetchSettings }) => {
@@ -422,6 +432,7 @@ describe("visualization", () => {
       });
 
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser },
         { onEvent: live.handleEvent }
       );
@@ -446,6 +457,7 @@ describe("visualization", () => {
       const viz = createVisualizer({ workflowName: "test" });
 
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser },
         { onEvent: viz.handleEvent }
       );
@@ -475,6 +487,7 @@ describe("visualization", () => {
       });
 
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser },
         { onEvent: viz.handleEvent }
       );
@@ -494,6 +507,7 @@ describe("visualization", () => {
       const timeTravel = createTimeTravelController();
 
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser, fetchOrders },
         { onEvent: timeTravel.handleEvent }
       );
@@ -536,6 +550,7 @@ describe("visualization", () => {
     it("DO: Name your steps for readable output", async () => {
       const collector = createEventCollector();
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser, validateCart },
         { onEvent: collector.handleEvent }
       );
@@ -571,6 +586,7 @@ describe("visualization", () => {
     it("DO: Use the event collector for tests", async () => {
       const collector = createEventCollector();
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser, fetchOrders, fetchSettings },
         { onEvent: collector.handleEvent }
       );
@@ -603,6 +619,7 @@ describe("visualization", () => {
     it("DO: Track decisions that affect flow", async () => {
       const collector = createEventCollector();
       const workflow = createWorkflow(
+        "workflow",
         { fetchUser, applyDiscount },
         { onEvent: collector.handleEvent }
       );

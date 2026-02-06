@@ -393,7 +393,7 @@ describe('event assertions', () => {
   it('verifies event sequence', async () => {
     const events: WorkflowEvent<unknown>[] = [];
 
-    const workflow = createWorkflow(deps, {
+    const workflow = createWorkflow('workflow', deps, {
       onEvent: (e) => events.push(e),
     });
 
@@ -419,7 +419,7 @@ describe('event assertions', () => {
   it('verifies specific event was emitted', async () => {
     const events: WorkflowEvent<unknown>[] = [];
 
-    const workflow = createWorkflow(deps, {
+    const workflow = createWorkflow('workflow', deps, {
       onEvent: (e) => events.push(e),
     });
 
@@ -439,7 +439,7 @@ describe('event assertions', () => {
   it('verifies event was NOT emitted', async () => {
     const events: WorkflowEvent<unknown>[] = [];
 
-    const workflow = createWorkflow(deps, {
+    const workflow = createWorkflow('workflow', deps, {
       onEvent: (e) => events.push(e),
     });
 
@@ -507,7 +507,7 @@ console.log(formatEvents(events));
 ```typescript
 it('debugs failing workflow', async () => {
   const events: WorkflowEvent<unknown>[] = [];
-  const workflow = createWorkflow(deps, { onEvent: (e) => events.push(e) });
+  const workflow = createWorkflow('workflow', deps, { onEvent: (e) => events.push(e) });
 
   const result = await workflow(async (step) => {
     const user = await step('fetchUser', () => fetchUser('1'));

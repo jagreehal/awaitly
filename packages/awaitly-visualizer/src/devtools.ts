@@ -690,7 +690,7 @@ export function createConsoleLogger(options: { prefix?: string; colors?: boolean
 
   return (event: WorkflowEvent<unknown>) => {
     const timestamp = new Date().toISOString().slice(11, 23);
-    let message = "";
+    let message: string;
 
     switch (event.type) {
       case "workflow_start":

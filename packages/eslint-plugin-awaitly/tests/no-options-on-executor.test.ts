@@ -42,7 +42,7 @@ describe('no-options-on-executor', () => {
     });
 
     it('allows createWorkflow with options', () => {
-      const code = `const workflow = createWorkflow(deps, { cache: new Map() });`;
+      const code = `const workflow = createWorkflow('workflow', deps, { cache: new Map() });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });

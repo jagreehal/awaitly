@@ -24,14 +24,15 @@ const skipPayment = async (): AsyncResult<{ skipped: true }, never> => {
   return ok({ skipped: true });
 };
 
-export const checkoutWorkflow = createWorkflow({
-  id: 'checkout-with-branch',
-  deps: { getCart, chargeCard, skipPayment },
+export const checkoutWorkflow = createWorkflow("checkoutWorkflow", {
+  getCart,
+  chargeCard,
+  skipPayment,
 });
 
 export async function checkout(cartId: string) {
-  return await checkoutWorkflow(async (step, ctx) => {
-    const cart = await step('getCart', () => ctx.deps.getCart(cartId), {
+  return await checkoutWorkflow(async (step, deps) => {
+    const cart = await step('getCart', () => deps.getCart(cartId), {
       errors: ['CART_NOT_FOUND'],
       out: 'cart',
     });
@@ -41,9 +42,9 @@ export async function checkout(cartId: string) {
       conditionLabel: 'cart.total > 0',
       condition: () => cart.total > 0,
       out: 'charge',
-      then: () => ctx.deps.chargeCard(cart.total),
+      then: () => deps.chargeCard(cart.total),
       thenErrors: ['CARD_DECLINED', 'INSUFFICIENT_FUNDS'],
-      else: () => ctx.deps.skipPayment(),
+      else: () => deps.skipPayment(),
       elseErrors: [],
     });
 

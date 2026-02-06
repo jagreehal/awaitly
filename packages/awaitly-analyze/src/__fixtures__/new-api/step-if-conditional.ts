@@ -26,26 +26,27 @@ const loadFreeDashboard = async (
   return ok({ type: "free", features: ["basic"] });
 };
 
-export const dashboardWorkflow = createWorkflow({
-  id: 'dashboard',
-  deps: { fetchUser, loadPremiumDashboard, loadFreeDashboard },
+export const dashboardWorkflow = createWorkflow("dashboardWorkflow", {
+  fetchUser,
+  loadPremiumDashboard,
+  loadFreeDashboard,
 });
 
 export async function loadDashboard(userId: string) {
-  return await dashboardWorkflow(async (step, ctx) => {
-    const user = await step('getUser', () => ctx.deps.fetchUser(userId), {
+  return await dashboardWorkflow(async (step, deps) => {
+    const user = await step('getUser', () => deps.fetchUser(userId), {
       errors: ['NOT_FOUND'],
       out: 'user',
     });
 
     // Labelled conditional using step.if()
     if (step.if('user-type', 'user.isPremium', () => user.isPremium)) {
-      const dashboard = await step('loadPremium', () => ctx.deps.loadPremiumDashboard(user.id), {
+      const dashboard = await step('loadPremium', () => deps.loadPremiumDashboard(user.id), {
         errors: ['DASHBOARD_ERROR'],
       });
       return { user, dashboard };
     } else {
-      const dashboard = await step('loadFree', () => ctx.deps.loadFreeDashboard(user.id), {
+      const dashboard = await step('loadFree', () => deps.loadFreeDashboard(user.id), {
         errors: ['DASHBOARD_ERROR'],
       });
       return { user, dashboard };

@@ -139,7 +139,7 @@ const deps = {
   executeTransfer,
 };
 
-const transferMoney = createWorkflow(deps);
+const transferMoney = createWorkflow("transferMoney", deps);
 
 // Test workflow call
 async function testWorkflow() {

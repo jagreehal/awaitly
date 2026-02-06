@@ -14,7 +14,7 @@ describe("step.forEach() Detection", () => {
     it("detects step.forEach with simple run form", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ processItem: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { processItem: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step.forEach('process-items', items, {
@@ -43,7 +43,7 @@ describe("step.forEach() Detection", () => {
     it("extracts iteration source", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ processItem: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { processItem: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             const items = [1, 2, 3];
@@ -65,7 +65,7 @@ describe("step.forEach() Detection", () => {
     it("detects step.forEach with step.item form", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ validate: async () => ok({}), process: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { validate: async () => ok({}), process: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step.forEach('process-items', items, {
@@ -95,7 +95,7 @@ describe("step.forEach() Detection", () => {
     it("marks boundKnown as false when maxIterations not specified", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ processItem: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { processItem: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step.forEach('process', items, {
@@ -117,7 +117,7 @@ describe("step.forEach() Detection", () => {
     it("extracts out key for data flow", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ processItem: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { processItem: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step.forEach('process', items, {
@@ -137,7 +137,7 @@ describe("step.forEach() Detection", () => {
     it("extracts collect: array option", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ processItem: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { processItem: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step.forEach('process', items, {
@@ -159,7 +159,7 @@ describe("step.forEach() Detection", () => {
     it("extracts collect: last option", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ processItem: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { processItem: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step.forEach('process', items, {

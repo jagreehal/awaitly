@@ -11,12 +11,12 @@ When you persist workflow state (for resume/replay), changing your workflow code
 
 ```typescript
 // Version 1: Step key was 'user:fetch'
-const workflowV1 = createWorkflow({ fetchUser }, {
+const workflowV1 = createWorkflow('workflow', { fetchUser }, {
   resumeState: savedState // Contains 'user:fetch'
 });
 
 // Version 2: You renamed the step key to 'user:load'
-const workflowV2 = createWorkflow({ fetchUser }, {
+const workflowV2 = createWorkflow('workflow', { fetchUser }, {
   resumeState: savedState // ❌ Key mismatch!
 });
 ```
@@ -54,7 +54,7 @@ const versionedState = parseVersionedState(savedState);
 const migratedState = await loadVersionedState(versionedState);
 
 if (migratedState.ok) {
-  const workflow = createWorkflow(deps, {
+  const workflow = createWorkflow('workflow', deps, {
     resumeState: migratedState.value,
   });
   // ...
@@ -70,7 +70,7 @@ import { createResumeStateCollector } from 'awaitly/workflow';
 import { createVersionedState, stringifyVersionedState } from 'awaitly/persistence';
 
 const collector = createResumeStateCollector();
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   onEvent: collector.handleEvent,
 });
 
@@ -221,7 +221,7 @@ async function saveWorkflowState(workflowId: string, state: ResumeState) {
 }
 
 // Use in workflow
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   resumeState: await loadWorkflowState(workflowId),
   onEvent: (event) => {
     // Collect state for saving

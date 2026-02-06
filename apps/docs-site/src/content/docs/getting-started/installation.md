@@ -70,10 +70,10 @@ awaitly is fully platform-agnostic and works identically in Node.js and browser 
 import { ok, err, createWorkflow } from 'awaitly';
 ```
 
-For visualization in browsers, use the separate `awaitly-visualizer` package which has browser-specific builds that exclude Node-only features like terminal output:
+For visualization in browsers, use the **`awaitly-visualizer`** package; it has browser-specific exports that exclude Node-only features like live terminal output:
 
 ```typescript
-// awaitly-visualizer has browser-specific exports
+// awaitly-visualizer has browser-specific exports for createVisualizer, etc.
 import { createVisualizer } from 'awaitly-visualizer';
 
 const viz = createVisualizer({ workflowName: 'checkout' });

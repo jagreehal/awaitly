@@ -8,7 +8,7 @@ import { Aside, Tabs, TabItem, AnimatedWorkflowDiagram } from '~/components';
 awaitly can save workflow state and resume from where it left off. This enables crash recovery, long-running workflows, and idempotent operations.
 
 <Aside type="caution" title="Options go to createWorkflow">
-Options like `resumeState` and `cache` must be passed to `createWorkflow(deps, { resumeState })`, not when calling the workflow.
+Options like `resumeState` and `cache` must be passed to `createWorkflow('workflow', deps, { resumeState })`, not when calling the workflow.
 </Aside>
 
 ## Step Caching
@@ -41,7 +41,7 @@ Enable caching so steps don't re-execute:
 />
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   cache: new Map(),
 });
 
@@ -85,7 +85,7 @@ The cache persists across workflow runs:
 
 ```typescript
 const cache = new Map();
-const workflow = createWorkflow(deps, { cache });
+const workflow = createWorkflow('workflow', deps, { cache });
 
 // First run - fetches user
 await workflow(async (step) => {
@@ -109,8 +109,7 @@ import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 
 const collector = createResumeStateCollector();
 
-const workflow = createWorkflow(
-  { fetchUser, fetchPosts },
+const workflow = createWorkflow('workflow', { fetchUser, fetchPosts },
   { onEvent: collector.handleEvent }
 );
 
@@ -133,7 +132,7 @@ Only steps with `key` are saved. Steps without keys always execute. When you nee
 Workflow state is captured as a **WorkflowSnapshot** (JSON-serializable). Use `workflow.getSnapshot()` and pass it to a store:
 
 ```typescript
-const workflow = createWorkflow(deps);
+const workflow = createWorkflow('workflow', deps);
 await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
   return user;
@@ -149,8 +148,7 @@ To resume, load the snapshot and pass it to `createWorkflow`:
 ```typescript
 const snapshot = await store.load('wf-123');
 
-const workflow = createWorkflow(
-  { fetchUser, fetchPosts },
+const workflow = createWorkflow('workflow', { fetchUser, fetchPosts },
   { snapshot: snapshot ?? undefined }
 );
 
@@ -167,7 +165,7 @@ Load the snapshot before creating the workflow:
 
 ```typescript
 const snapshot = await store.load('wf-123');
-const workflow = createWorkflow(deps, { snapshot: snapshot ?? undefined });
+const workflow = createWorkflow('workflow', deps, { snapshot: snapshot ?? undefined });
 ```
 
 ## Crash Recovery Pattern
@@ -178,7 +176,7 @@ Save a snapshot after each critical step:
 const store = postgres(process.env.DATABASE_URL!);
 const snapshot = await store.load('wf-123');
 
-const workflow = createWorkflow(deps, { snapshot });
+const workflow = createWorkflow('workflow', deps, { snapshot });
 
 const result = await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
@@ -197,7 +195,7 @@ If the workflow crashes, resume from the last saved snapshot:
 ```typescript
 const snapshot = await store.load('wf-123');
 
-const workflow = createWorkflow(deps, { snapshot });
+const workflow = createWorkflow('workflow', deps, { snapshot });
 
 await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
@@ -235,7 +233,7 @@ await store.save('wf-123', workflow.getSnapshot());
 
 // Load and resume
 const snapshot = await store.load('wf-123');
-const workflow = createWorkflow(deps, { snapshot });
+const workflow = createWorkflow('workflow', deps, { snapshot });
 ```
 
 See [Persistence](/guides/persistence/) for the full interface and custom adapters (e.g. Redis).
@@ -249,7 +247,7 @@ import { createMemoryCache } from 'awaitly/persistence';
 
 const cache = createMemoryCache({ maxSize: 1000, ttl: 7 * 24 * 60 * 60 });
 
-const workflow = createWorkflow(deps, { cache });
+const workflow = createWorkflow('workflow', deps, { cache });
 ```
 
 ## Idempotency Keys
@@ -323,8 +321,7 @@ const store = postgres(process.env.DATABASE_URL!);
 async function runWithRecovery(workflowId: string) {
   const snapshot = await store.load(workflowId);
 
-  const workflow = createWorkflow(
-    { fetchUser, processPayment, sendConfirmation },
+  const workflow = createWorkflow('workflow', { fetchUser, processPayment, sendConfirmation },
     { snapshot }
   );
 

@@ -1,0 +1,737 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL for auth-workflow.ts 1`] = `
+[
+  {
+    "initialStateId": "start",
+    "states": [
+      {
+        "id": "start",
+        "label": "Start",
+        "type": "initial",
+      },
+      {
+        "id": "end",
+        "label": "End",
+        "type": "terminal",
+      },
+      {
+        "id": "validate",
+        "inputType": undefined,
+        "label": "<missing>",
+        "location": {
+          "column": 29,
+          "endColumn": 6,
+          "endLine": 29,
+          "filePath": "/workflow.ts",
+          "line": 26,
+        },
+        "outputType": "any",
+        "type": "step",
+      },
+      {
+        "id": "decision_1",
+        "label": "!validation.valid",
+        "location": {
+          "column": 4,
+          "endColumn": 5,
+          "endLine": 37,
+          "filePath": "/workflow.ts",
+          "line": 31,
+        },
+        "type": "decision",
+      },
+      {
+        "id": "refresh",
+        "inputType": undefined,
+        "label": "<missing>",
+        "location": {
+          "column": 30,
+          "endColumn": 8,
+          "endLine": 35,
+          "filePath": "/workflow.ts",
+          "line": 32,
+        },
+        "outputType": "any",
+        "type": "step",
+      },
+    ],
+    "terminalStateIds": [
+      "end",
+    ],
+    "transitions": [
+      {
+        "event": "true",
+        "fromStateId": "decision_1",
+        "toStateId": "refresh",
+      },
+      {
+        "event": "done",
+        "fromStateId": "validate",
+        "toStateId": "decision_1",
+      },
+      {
+        "event": "start",
+        "fromStateId": "start",
+        "toStateId": "validate",
+      },
+      {
+        "event": "done",
+        "fromStateId": "refresh",
+        "toStateId": "end",
+      },
+      {
+        "event": "done",
+        "fromStateId": "decision_1",
+        "toStateId": "end",
+      },
+    ],
+    "workflowName": "authWorkflow",
+    "workflowReturnType": "Promise<{ authenticated: boolean; token: any; }>",
+  },
+]
+`;
+
+exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL for conditional-helper-workflow.ts 1`] = `
+[
+  {
+    "initialStateId": "start",
+    "states": [
+      {
+        "id": "start",
+        "label": "Start",
+        "type": "initial",
+      },
+      {
+        "id": "end",
+        "label": "End",
+        "type": "terminal",
+      },
+      {
+        "id": "user",
+        "inputType": undefined,
+        "label": "<missing>",
+        "location": {
+          "column": 23,
+          "endColumn": 6,
+          "endLine": 30,
+          "filePath": "/workflow.ts",
+          "line": 27,
+        },
+        "outputType": "any",
+        "type": "step",
+      },
+      {
+        "id": "decision_1",
+        "label": "user.isAdmin",
+        "location": {
+          "column": 10,
+          "endColumn": 5,
+          "endLine": 37,
+          "filePath": "/workflow.ts",
+          "line": 32,
+        },
+        "type": "decision",
+      },
+      {
+        "id": "audit",
+        "inputType": undefined,
+        "label": "<missing>",
+        "location": {
+          "column": 6,
+          "endColumn": 8,
+          "endLine": 36,
+          "filePath": "/workflow.ts",
+          "line": 33,
+        },
+        "outputType": "any",
+        "type": "step",
+      },
+    ],
+    "terminalStateIds": [
+      "end",
+    ],
+    "transitions": [
+      {
+        "event": "true",
+        "fromStateId": "decision_1",
+        "toStateId": "audit",
+      },
+      {
+        "event": "done",
+        "fromStateId": "user",
+        "toStateId": "decision_1",
+      },
+      {
+        "event": "start",
+        "fromStateId": "start",
+        "toStateId": "user",
+      },
+      {
+        "event": "done",
+        "fromStateId": "audit",
+        "toStateId": "end",
+      },
+      {
+        "event": "done",
+        "fromStateId": "decision_1",
+        "toStateId": "end",
+      },
+    ],
+    "workflowName": "conditionalHelperWorkflow",
+    "workflowReturnType": "Promise<any>",
+  },
+]
+`;
+
+exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL for false-positive-workflow.ts 1`] = `
+[
+  {
+    "initialStateId": "start",
+    "states": [
+      {
+        "id": "start",
+        "label": "Start",
+        "type": "initial",
+      },
+      {
+        "id": "end",
+        "label": "End",
+        "type": "terminal",
+      },
+      {
+        "id": "<missing>",
+        "inputType": undefined,
+        "label": "<missing>",
+        "location": {
+          "column": 23,
+          "endColumn": 57,
+          "endLine": 37,
+          "filePath": "/workflow.ts",
+          "line": 37,
+        },
+        "outputType": "any",
+        "type": "step",
+      },
+    ],
+    "terminalStateIds": [
+      "end",
+    ],
+    "transitions": [
+      {
+        "event": "start",
+        "fromStateId": "start",
+        "toStateId": "<missing>",
+      },
+      {
+        "event": "done",
+        "fromStateId": "<missing>",
+        "toStateId": "end",
+      },
+    ],
+    "workflowName": "falsePositiveWorkflow",
+    "workflowReturnType": "Promise<any>",
+  },
+]
+`;
+
+exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL for main-workflow.ts 1`] = `
+[
+  {
+    "initialStateId": "start",
+    "states": [
+      {
+        "id": "start",
+        "label": "Start",
+        "type": "initial",
+      },
+      {
+        "id": "end",
+        "label": "End",
+        "type": "terminal",
+      },
+      {
+        "id": "workflow_ref_1",
+        "label": "[[authWorkflow]]",
+        "location": {
+          "column": 23,
+          "endColumn": 6,
+          "endLine": 34,
+          "filePath": "/workflow.ts",
+          "line": 29,
+        },
+        "type": "step",
+      },
+      {
+        "id": "user-data",
+        "inputType": undefined,
+        "label": "<missing>",
+        "location": {
+          "column": 27,
+          "endColumn": 6,
+          "endLine": 44,
+          "filePath": "/workflow.ts",
+          "line": 41,
+        },
+        "outputType": "any",
+        "type": "step",
+      },
+      {
+        "id": "notify",
+        "inputType": undefined,
+        "label": "<missing>",
+        "location": {
+          "column": 10,
+          "endColumn": 6,
+          "endLine": 50,
+          "filePath": "/workflow.ts",
+          "line": 47,
+        },
+        "outputType": "any",
+        "type": "step",
+      },
+    ],
+    "terminalStateIds": [
+      "end",
+    ],
+    "transitions": [
+      {
+        "event": "done",
+        "fromStateId": "workflow_ref_1",
+        "toStateId": "user-data",
+      },
+      {
+        "event": "done",
+        "fromStateId": "user-data",
+        "toStateId": "notify",
+      },
+      {
+        "event": "start",
+        "fromStateId": "start",
+        "toStateId": "workflow_ref_1",
+      },
+      {
+        "event": "done",
+        "fromStateId": "notify",
+        "toStateId": "end",
+      },
+    ],
+    "workflowName": "mainWorkflow",
+    "workflowReturnType": "Promise<any>",
+  },
+]
+`;
+
+exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL for parallel-callback-workflow.ts 1`] = `
+[
+  {
+    "initialStateId": "start",
+    "states": [
+      {
+        "id": "start",
+        "label": "Start",
+        "type": "initial",
+      },
+      {
+        "id": "end",
+        "label": "End",
+        "type": "terminal",
+      },
+      {
+        "id": "user",
+        "inputType": undefined,
+        "label": "<missing>",
+        "location": {
+          "column": 23,
+          "endColumn": 6,
+          "endLine": 36,
+          "filePath": "/workflow.ts",
+          "line": 33,
+        },
+        "outputType": "any",
+        "type": "step",
+      },
+      {
+        "id": "parallel_fork_1",
+        "label": "Fetch posts and friends (all)",
+        "type": "decision",
+      },
+      {
+        "id": "parallel_join_2",
+        "label": "Join",
+        "type": "join",
+      },
+      {
+        "id": "implicit:fetchPosts",
+        "inputType": undefined,
+        "label": "posts",
+        "location": {
+          "column": 19,
+          "endColumn": 43,
+          "endLine": 39,
+          "filePath": "/workflow.ts",
+          "line": 39,
+        },
+        "outputType": undefined,
+        "type": "step",
+      },
+      {
+        "id": "implicit:fetchFriends",
+        "inputType": undefined,
+        "label": "friends",
+        "location": {
+          "column": 21,
+          "endColumn": 47,
+          "endLine": 40,
+          "filePath": "/workflow.ts",
+          "line": 40,
+        },
+        "outputType": undefined,
+        "type": "step",
+      },
+    ],
+    "terminalStateIds": [
+      "end",
+    ],
+    "transitions": [
+      {
+        "event": "branch:0",
+        "fromStateId": "parallel_fork_1",
+        "toStateId": "implicit:fetchPosts",
+      },
+      {
+        "event": "done",
+        "fromStateId": "implicit:fetchPosts",
+        "toStateId": "parallel_join_2",
+      },
+      {
+        "event": "branch:1",
+        "fromStateId": "parallel_fork_1",
+        "toStateId": "implicit:fetchFriends",
+      },
+      {
+        "event": "done",
+        "fromStateId": "implicit:fetchFriends",
+        "toStateId": "parallel_join_2",
+      },
+      {
+        "event": "done",
+        "fromStateId": "user",
+        "toStateId": "parallel_fork_1",
+      },
+      {
+        "event": "start",
+        "fromStateId": "start",
+        "toStateId": "user",
+      },
+      {
+        "event": "done",
+        "fromStateId": "parallel_join_2",
+        "toStateId": "end",
+      },
+    ],
+    "workflowName": "parallelCallbackWorkflow",
+    "workflowReturnType": "Promise<{ user: any; results: any; }>",
+  },
+]
+`;
+
+exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL for parallel-workflow.ts 1`] = `
+[
+  {
+    "initialStateId": "start",
+    "states": [
+      {
+        "id": "start",
+        "label": "Start",
+        "type": "initial",
+      },
+      {
+        "id": "end",
+        "label": "End",
+        "type": "terminal",
+      },
+      {
+        "id": "user",
+        "inputType": undefined,
+        "label": "<missing>",
+        "location": {
+          "column": 23,
+          "endColumn": 6,
+          "endLine": 47,
+          "filePath": "/workflow.ts",
+          "line": 44,
+        },
+        "outputType": "any",
+        "type": "step",
+      },
+      {
+        "id": "parallel_fork_1",
+        "label": "Parallel (all)",
+        "type": "decision",
+      },
+      {
+        "id": "parallel_join_2",
+        "label": "Join",
+        "type": "join",
+      },
+      {
+        "id": "implicit:fetchPosts",
+        "inputType": undefined,
+        "label": "fetchPosts",
+        "location": {
+          "column": 6,
+          "endColumn": 30,
+          "endLine": 52,
+          "filePath": "/workflow.ts",
+          "line": 52,
+        },
+        "outputType": undefined,
+        "type": "step",
+      },
+      {
+        "id": "implicit:fetchFriends",
+        "inputType": undefined,
+        "label": "fetchFriends",
+        "location": {
+          "column": 6,
+          "endColumn": 32,
+          "endLine": 53,
+          "filePath": "/workflow.ts",
+          "line": 53,
+        },
+        "outputType": undefined,
+        "type": "step",
+      },
+      {
+        "id": "implicit:fetchSettings",
+        "inputType": undefined,
+        "label": "fetchSettings",
+        "location": {
+          "column": 6,
+          "endColumn": 33,
+          "endLine": 54,
+          "filePath": "/workflow.ts",
+          "line": 54,
+        },
+        "outputType": undefined,
+        "type": "step",
+      },
+    ],
+    "terminalStateIds": [
+      "end",
+    ],
+    "transitions": [
+      {
+        "event": "branch:0",
+        "fromStateId": "parallel_fork_1",
+        "toStateId": "implicit:fetchPosts",
+      },
+      {
+        "event": "done",
+        "fromStateId": "implicit:fetchPosts",
+        "toStateId": "parallel_join_2",
+      },
+      {
+        "event": "branch:1",
+        "fromStateId": "parallel_fork_1",
+        "toStateId": "implicit:fetchFriends",
+      },
+      {
+        "event": "done",
+        "fromStateId": "implicit:fetchFriends",
+        "toStateId": "parallel_join_2",
+      },
+      {
+        "event": "branch:2",
+        "fromStateId": "parallel_fork_1",
+        "toStateId": "implicit:fetchSettings",
+      },
+      {
+        "event": "done",
+        "fromStateId": "implicit:fetchSettings",
+        "toStateId": "parallel_join_2",
+      },
+      {
+        "event": "done",
+        "fromStateId": "user",
+        "toStateId": "parallel_fork_1",
+      },
+      {
+        "event": "start",
+        "fromStateId": "start",
+        "toStateId": "user",
+      },
+      {
+        "event": "done",
+        "fromStateId": "parallel_join_2",
+        "toStateId": "end",
+      },
+    ],
+    "workflowName": "parallelWorkflow",
+    "workflowReturnType": "Promise<any>",
+  },
+]
+`;
+
+exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL for sample-workflow.ts 1`] = `
+[
+  {
+    "initialStateId": "start",
+    "states": [
+      {
+        "id": "start",
+        "label": "Start",
+        "type": "initial",
+      },
+      {
+        "id": "end",
+        "label": "End",
+        "type": "terminal",
+      },
+      {
+        "id": "user",
+        "inputType": undefined,
+        "label": "Fetch User",
+        "location": {
+          "column": 23,
+          "endColumn": 6,
+          "endLine": 39,
+          "filePath": "/workflow.ts",
+          "line": 37,
+        },
+        "outputType": "any",
+        "type": "step",
+      },
+      {
+        "id": "decision_1",
+        "label": "user.isPremium",
+        "location": {
+          "column": 4,
+          "endColumn": 5,
+          "endLine": 46,
+          "filePath": "/workflow.ts",
+          "line": 42,
+        },
+        "type": "decision",
+      },
+      {
+        "id": "discount",
+        "inputType": undefined,
+        "label": "Apply Discount",
+        "location": {
+          "column": 12,
+          "endColumn": 8,
+          "endLine": 45,
+          "filePath": "/workflow.ts",
+          "line": 43,
+        },
+        "outputType": "any",
+        "type": "step",
+      },
+      {
+        "id": "posts",
+        "inputType": undefined,
+        "label": "Fetch Posts",
+        "location": {
+          "column": 24,
+          "endColumn": 6,
+          "endLine": 51,
+          "filePath": "/workflow.ts",
+          "line": 49,
+        },
+        "outputType": "any",
+        "type": "step",
+      },
+    ],
+    "terminalStateIds": [
+      "end",
+    ],
+    "transitions": [
+      {
+        "event": "true",
+        "fromStateId": "decision_1",
+        "toStateId": "discount",
+      },
+      {
+        "event": "done",
+        "fromStateId": "user",
+        "toStateId": "decision_1",
+      },
+      {
+        "event": "done",
+        "fromStateId": "discount",
+        "toStateId": "posts",
+      },
+      {
+        "event": "done",
+        "fromStateId": "decision_1",
+        "toStateId": "posts",
+      },
+      {
+        "event": "start",
+        "fromStateId": "start",
+        "toStateId": "user",
+      },
+      {
+        "event": "done",
+        "fromStateId": "posts",
+        "toStateId": "end",
+      },
+    ],
+    "workflowName": "sampleWorkflow",
+    "workflowReturnType": "Promise<{ user: any; posts: any; }>",
+  },
+]
+`;
+
+exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL for unused-helper-workflow.ts 1`] = `
+[
+  {
+    "initialStateId": "start",
+    "states": [
+      {
+        "id": "start",
+        "label": "Start",
+        "type": "initial",
+      },
+      {
+        "id": "end",
+        "label": "End",
+        "type": "terminal",
+      },
+      {
+        "id": "user",
+        "inputType": undefined,
+        "label": "<missing>",
+        "location": {
+          "column": 6,
+          "endColumn": 8,
+          "endLine": 23,
+          "filePath": "/workflow.ts",
+          "line": 20,
+        },
+        "outputType": "any",
+        "type": "step",
+      },
+    ],
+    "terminalStateIds": [
+      "end",
+    ],
+    "transitions": [
+      {
+        "event": "start",
+        "fromStateId": "start",
+        "toStateId": "user",
+      },
+      {
+        "event": "done",
+        "fromStateId": "user",
+        "toStateId": "end",
+      },
+    ],
+    "workflowName": "unusedHelperWorkflow",
+    "workflowReturnType": "Promise<() => any>",
+  },
+]
+`;

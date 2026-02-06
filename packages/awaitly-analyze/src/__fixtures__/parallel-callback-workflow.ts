@@ -22,7 +22,7 @@ const fetchFriends = async (
   return ok([{ id: "2" }]);
 };
 
-export const parallelCallbackWorkflow = createWorkflow({
+export const parallelCallbackWorkflow = createWorkflow("parallelCallbackWorkflow", {
   fetchUser,
   fetchPosts,
   fetchFriends,

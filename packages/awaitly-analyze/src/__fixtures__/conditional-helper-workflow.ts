@@ -17,7 +17,7 @@ const auditAdmin = async (
   return ok({ audited: true });
 };
 
-export const conditionalHelperWorkflow = createWorkflow({
+export const conditionalHelperWorkflow = createWorkflow("conditionalHelperWorkflow", {
   fetchUser,
   auditAdmin,
 });

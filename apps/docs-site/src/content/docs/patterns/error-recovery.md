@@ -22,7 +22,7 @@ Different error recovery patterns solve different problems. Choosing the wrong o
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 
-const workflow = createWorkflow(deps);
+const workflow = createWorkflow('workflow', deps);
 const result = await workflow(async (step) => {
   const data = await step.retry(
     'fetchFromAPI',
@@ -92,7 +92,7 @@ if (!result.ok && isCircuitOpenError(result.error)) {
 ```typescript
 import { createSagaWorkflow } from 'awaitly/workflow';
 
-const checkout = createSagaWorkflow(deps);
+const checkout = createSagaWorkflow('saga', deps);
 const result = await checkout(async (saga) => {
   const payment = await saga.step(
     'charge',
@@ -248,7 +248,7 @@ import { createSagaWorkflow } from 'awaitly/workflow';
 const paymentBreaker = createCircuitBreaker('payment-api', { failureThreshold: 5 });
 const paymentLimiter = createRateLimiter('payment-api', { maxRequests: 100, windowMs: 60000 });
 
-const checkout = createSagaWorkflow(deps);
+const checkout = createSagaWorkflow('saga', deps);
 
 const result = await checkout(async (saga) => {
   // Step 1: Charge with retry + circuit breaker + rate limiting

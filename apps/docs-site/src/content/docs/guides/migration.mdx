@@ -65,8 +65,7 @@ async function sendConfirmation(email: string): AsyncResult<void, 'EMAIL_FAILED'
 }
 
 // Compose in a workflow
-const processOrder = createWorkflow({
-  findOrder,
+const processOrder = createWorkflow('workflow', { findOrder,
   chargeOrder,
   sendConfirmation,
 });
@@ -140,7 +139,7 @@ async function wrappedLegacy(): AsyncResult<Data, 'LEGACY_FAILED'> {
 }
 
 // Use in new workflow
-const workflow = createWorkflow({ wrappedLegacy, newFunction });
+const workflow = createWorkflow('workflow', { wrappedLegacy, newFunction });
 ```
 
 ## From neverthrow
@@ -327,7 +326,7 @@ const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
 };
 
 // Workflow with dependency injection
-const workflow = createWorkflow({ getUser });
+const workflow = createWorkflow('workflow', { getUser });
 
 const result = await workflow(async (step) => {
   const user = await step('getUser', () => deps.getUser('1'));
@@ -435,7 +434,7 @@ const result = await workflow(async (step) => {
 const getUser = wrapEffect(legacyEffectService.getUser);
 const getPosts = wrapEffect(legacyEffectService.getPosts);
 
-const workflow = createWorkflow({ getUser, getPosts });
+const workflow = createWorkflow('workflow', { getUser, getPosts });
 
 const result = await workflow(async (step) => {
   const user = await step('getUser', () => deps.getUser('1'));
@@ -463,8 +462,7 @@ export const processPayment = (input: PaymentInput) =>
 import { wrapEffect } from '@/lib/effect-interop';
 import { processPayment } from '@/services/legacy-payment';
 
-const checkoutWorkflow = createWorkflow({
-  validateCart,
+const checkoutWorkflow = createWorkflow('workflow', { validateCart,
   processPayment: wrapEffect(processPayment), // Bridge to Effect
   sendConfirmation,
 });
@@ -633,7 +631,7 @@ const deps = {
 };
 
 const createPaymentWorkflow = (db: Db, provider: Provider, raw: unknown, actorEmail: string) => {
-  const workflow = createWorkflow(deps);
+  const workflow = createWorkflow('workflow', deps);
 
   return workflow(async (step, d) => {
     const input = await step('validateInput', () => d.validateInput(raw), { key: 'validate' });
@@ -708,7 +706,7 @@ async function wrappedLegacy(id: string): AsyncResult<User, 'NOT_FOUND'> {
 }
 
 // Use in workflow
-const workflow = createWorkflow({ wrappedLegacy });
+const workflow = createWorkflow('workflow', { wrappedLegacy });
 ```
 
 ## Migration checklist

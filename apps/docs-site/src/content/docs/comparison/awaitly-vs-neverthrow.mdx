@@ -622,7 +622,7 @@ neverthrow provides `safeTry` for generator-based composition. awaitly uses stan
 import { createWorkflow } from 'awaitly/workflow';
 
 // awaitly uses familiar async/await - no generators needed
-const workflow = createWorkflow({ parseId, fetchUser, sendEmail });
+const workflow = createWorkflow('workflow', { parseId, fetchUser, sendEmail });
 
 const result = await workflow(async (step) => {
   const id = await step('parseId', () => parseId('42'));
@@ -676,7 +676,7 @@ const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* 
 const chargeCard = async (amount: number): AsyncResult<Receipt, 'PAYMENT_DECLINED'> => { /* ... */ };
 
 // Error types automatically inferred from all dependencies
-const workflow = createWorkflow({ fetchUser, sendEmail, chargeCard });
+const workflow = createWorkflow('workflow', { fetchUser, sendEmail, chargeCard });
 
 const result = await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('123'));
@@ -715,7 +715,7 @@ const result = await workflow(async (step) => {
 
 ```typescript
 // Option 1: In-memory (simple)
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   cache: new Map(),
   resumeState: savedState, // Resume from previous run
 });
@@ -726,7 +726,7 @@ import { mongo } from 'awaitly-mongo';
 
 const store = mongo(process.env.MONGODB_URI!);
 
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   snapshot: await store.load('wf-1'), // Resume from saved snapshot (or null)
 });
 

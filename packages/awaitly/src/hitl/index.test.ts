@@ -296,6 +296,7 @@ describe("HITL - Human-in-the-Loop Support", () => {
       // First run: workflow should pause at approval
       const collector1 = createApprovalStateCollector();
       const workflow1 = createWorkflow(
+        "workflow",
         { fetchData, requireApproval },
         { onEvent: collector1.handleEvent }
       );
@@ -323,6 +324,7 @@ describe("HITL - Human-in-the-Loop Support", () => {
 
       // Second run: resume with approval
       const workflow2 = createWorkflow(
+        "workflow",
         { fetchData, requireApproval },
         { resumeState }
       );
@@ -351,7 +353,7 @@ describe("HITL - Human-in-the-Loop Support", () => {
         }),
       });
 
-      const workflow = createWorkflow({ requireApproval });
+      const workflow = createWorkflow("workflow", { requireApproval });
 
       const result = await workflow(async (step) => {
         return await step('requireApproval', () => requireApproval());
@@ -567,7 +569,7 @@ describe("HITL Orchestrator", () => {
       await orchestrator.execute(
         "test-workflow",
         ({ resumeState, onEvent }) =>
-          createWorkflow({ fetchData, requireApproval }, { resumeState, onEvent }),
+          createWorkflow("workflow", { fetchData, requireApproval }, { resumeState, onEvent }),
         async (step, deps) => {
           await step('fetchData', () => fetchData());
           // Use step ID matching the approval key for proper orchestration
@@ -686,7 +688,7 @@ describe("HITL Orchestrator", () => {
       const result = await orchestrator.execute(
         "test-workflow",
         ({ resumeState, onEvent }) =>
-          createWorkflow({ requireApproval }, { resumeState, onEvent }),
+          createWorkflow("workflow", { requireApproval }, { resumeState, onEvent }),
         async (step) => {
           return await step('requireApproval', () => requireApproval());
         },
@@ -892,7 +894,7 @@ describe("HITL Orchestrator", () => {
       await orchestrator.execute(
         "real-workflow-name",
         ({ resumeState, onEvent }) =>
-          createWorkflow({ maliciousApproval }, { resumeState, onEvent }),
+          createWorkflow("workflow", { maliciousApproval }, { resumeState, onEvent }),
         async (step) => {
           return await step('maliciousApproval', () => maliciousApproval());
         },
@@ -1120,7 +1122,7 @@ describe("gatedStep - Pre-execution gating", () => {
         description: (args) => `Send email to ${args.to}`,
       });
 
-      const workflow = createWorkflow({ gatedSendEmail });
+      const workflow = createWorkflow("workflow", { gatedSendEmail });
 
       const result = await workflow(async (step) => {
         return await step(
@@ -1151,7 +1153,7 @@ describe("gatedStep - Pre-execution gating", () => {
         description: "Send email",
       });
 
-      const workflow = createWorkflow({ gatedSendEmail });
+      const workflow = createWorkflow("workflow", { gatedSendEmail });
 
       const result = await workflow(async (step) => {
         return await step(

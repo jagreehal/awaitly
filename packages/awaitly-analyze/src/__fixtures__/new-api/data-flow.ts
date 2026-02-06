@@ -28,36 +28,38 @@ const generateReport = async (
   return ok({ reportId: "report1", content: `Report for ${userName}` });
 };
 
-export const userReportWorkflow = createWorkflow({
-  id: 'userReport',
-  deps: { fetchUser, fetchPreferences, fetchOrders, generateReport },
+export const userReportWorkflow = createWorkflow("userReportWorkflow", {
+  fetchUser,
+  fetchPreferences,
+  fetchOrders,
+  generateReport,
 });
 
 export async function generateUserReport(userId: string) {
-  return await userReportWorkflow(async (step, ctx) => {
+  return await userReportWorkflow(async (step, deps) => {
     // Step writes to 'user' key
-    await step('fetchUser', () => ctx.deps.fetchUser(userId), {
+    const user = await step('fetchUser', () => deps.fetchUser(userId), {
       errors: ['USER_NOT_FOUND'],
       out: 'user',
     });
 
     // Step writes to 'prefs' key, reads 'user'
-    await step('fetchPreferences', () => ctx.deps.fetchPreferences(ctx.ref('user').id), {
+    const prefs = await step('fetchPreferences', () => deps.fetchPreferences(user.id), {
       errors: ['PREFS_NOT_FOUND'],
       out: 'prefs',
     });
 
     // Step writes to 'orders' key, reads 'user'
-    await step('fetchOrders', () => ctx.deps.fetchOrders(ctx.ref('user').id), {
+    const orders = await step('fetchOrders', () => deps.fetchOrders(user.id), {
       errors: ['ORDERS_FETCH_FAILED'],
       out: 'orders',
     });
 
     // Step reads 'user', 'orders', and 'prefs'
-    const report = await step('generateReport', () => ctx.deps.generateReport(
-      ctx.ref('user').name,
-      ctx.ref('orders').length,
-      ctx.ref('prefs').theme
+    const report = await step('generateReport', () => deps.generateReport(
+      user.name,
+      orders.length,
+      prefs.theme
     ), {
       errors: ['REPORT_FAILED'],
       out: 'report',

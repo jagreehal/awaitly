@@ -113,7 +113,7 @@ const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ...
 const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
 
 // Error types automatically inferred from dependencies
-const workflow = createWorkflow({ fetchUser, sendEmail });
+const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
 const result = await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'));
@@ -360,8 +360,7 @@ Both libraries can rate limit by start-time. awaitly also includes a separate co
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 
-const workflow = createWorkflow({
-  fetchUser,
+const workflow = createWorkflow('workflow', { fetchUser,
   validateOrder,
   chargeCard,
   sendConfirmation,
@@ -450,7 +449,7 @@ const program = Effect.all([
   <TabItem label="awaitly">
 ```typescript
 // Option 1: In-memory (simple)
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   cache: new Map(),
   resumeState: savedState, // Resume from previous run
 });
@@ -461,7 +460,7 @@ import { mongo } from 'awaitly-mongo';
 
 const store = mongo(process.env.MONGODB_URI!);
 
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   snapshot: await store.load('wf-1'), // Resume from saved snapshot (or null)
 });
 
@@ -587,7 +586,7 @@ Effect has a sophisticated resource management system with `Scope` and `Resource
 import { createWorkflow } from 'awaitly/workflow';
 
 // awaitly uses standard try/finally patterns
-const workflow = createWorkflow({ openConnection, query });
+const workflow = createWorkflow('workflow', { openConnection, query });
 
 const result = await workflow(async (step) => {
   const conn = await step('openConnection', () => openConnection());

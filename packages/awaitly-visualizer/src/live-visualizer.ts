@@ -100,6 +100,7 @@ export function createLiveVisualizer(
 
   const builder = createIRBuilder({ detectParallel });
   const renderer = asciiRenderer();
+  let nameFromEvent: string | undefined;
 
   // Render options
   const renderOptions: RenderOptions = {
@@ -185,6 +186,10 @@ export function createLiveVisualizer(
 
     builder.handleEvent(event);
 
+    if ("workflowName" in event && typeof (event as { workflowName?: string }).workflowName === "string") {
+      nameFromEvent = (event as { workflowName: string }).workflowName;
+    }
+
     if (isRunning) {
       // Immediate redraw for start/end events, throttled for others
       if (
@@ -226,8 +231,9 @@ export function createLiveVisualizer(
    */
   function getIR(): WorkflowIR {
     const ir = builder.getIR();
-    if (workflowName && !ir.root.name) {
-      ir.root.name = workflowName;
+    const name = workflowName ?? nameFromEvent ?? ir.root.name;
+    if (name) {
+      ir.root.name = name;
     }
     return ir;
   }

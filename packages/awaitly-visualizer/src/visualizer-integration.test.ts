@@ -220,6 +220,7 @@ describe("createVisualizer", () => {
   it("renders ASCII output for simple workflow", async () => {
     const viz = createVisualizer({ workflowName: "test-workflow" });
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser },
       { onEvent: viz.handleEvent }
     );
@@ -239,6 +240,7 @@ describe("createVisualizer", () => {
   it("renders error states correctly", async () => {
     const viz = createVisualizer({ workflowName: "error-workflow" });
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser },
       { onEvent: viz.handleEvent }
     );
@@ -257,6 +259,7 @@ describe("createVisualizer", () => {
   it("supports multiple output formats", async () => {
     const viz = createVisualizer({ workflowName: "format-test" });
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser },
       { onEvent: viz.handleEvent }
     );
@@ -288,6 +291,7 @@ describe("createVisualizer", () => {
     });
 
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser },
       { onEvent: viz.handleEvent }
     );
@@ -319,6 +323,7 @@ describe("createEventCollector", () => {
   it("collects events during workflow execution", async () => {
     const collector = createEventCollector();
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser, fetchPosts },
       { onEvent: collector.handleEvent }
     );
@@ -339,6 +344,7 @@ describe("createEventCollector", () => {
   it("visualizes collected events", async () => {
     const collector = createEventCollector({ workflowName: "collected" });
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser },
       { onEvent: collector.handleEvent }
     );
@@ -354,6 +360,7 @@ describe("createEventCollector", () => {
   it("clears collected events", async () => {
     const collector = createEventCollector();
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser },
       { onEvent: collector.handleEvent }
     );
@@ -382,6 +389,7 @@ describe("Mermaid renderer", () => {
     });
 
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser, fetchPosts },
       { onEvent: viz.handleEvent }
     );
@@ -412,6 +420,7 @@ describe("Mermaid renderer", () => {
     });
 
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser, fetchPosts },
       { onEvent: viz.handleEvent }
     );
@@ -474,6 +483,7 @@ describe("scope events", () => {
   it("emits scope events for step.parallel", async () => {
     const events: WorkflowEvent<unknown>[] = [];
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser, fetchPosts },
       { onEvent: (e) => events.push(e) }
     );
@@ -498,6 +508,7 @@ describe("scope events", () => {
   it("emits scope events for step.race", async () => {
     const events: WorkflowEvent<unknown>[] = [];
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser, slowOperation },
       { onEvent: (e) => events.push(e) }
     );
@@ -521,6 +532,7 @@ describe("scope events", () => {
   it("handles errors in parallel operations", async () => {
     const events: WorkflowEvent<unknown>[] = [];
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser },
       { onEvent: (e) => events.push(e) }
     );
@@ -551,6 +563,7 @@ describe("parallel detection", () => {
     });
 
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser, fetchPosts },
       { onEvent: viz.handleEvent }
     );
@@ -576,6 +589,7 @@ describe("parallel detection", () => {
     });
 
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser, fetchPosts },
       { onEvent: viz.handleEvent }
     );
@@ -614,6 +628,7 @@ describe("createLiveVisualizer", () => {
     });
 
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser },
       { onEvent: live.handleEvent }
     );
@@ -635,6 +650,7 @@ describe("createLiveVisualizer", () => {
     });
 
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser },
       { onEvent: live.handleEvent }
     );
@@ -652,6 +668,7 @@ describe("createLiveVisualizer", () => {
     const live = createLiveVisualizer();
 
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser },
       { onEvent: live.handleEvent }
     );
@@ -677,6 +694,7 @@ describe("integration", () => {
     });
 
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser, fetchPosts },
       { onEvent: viz.handleEvent }
     );
@@ -713,6 +731,7 @@ describe("combineEventHandlers", () => {
 
     const combined = combineEventHandlers(handler1, handler2, handler3);
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser },
       { onEvent: combined }
     );
@@ -737,6 +756,7 @@ describe("combineEventHandlers", () => {
     );
 
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser },
       { onEvent: combined }
     );
@@ -764,6 +784,7 @@ describe("combineEventHandlers", () => {
     );
 
     const workflow = createWorkflow(
+      "workflow",
       { fetchUser },
       { onEvent: combined }
     );

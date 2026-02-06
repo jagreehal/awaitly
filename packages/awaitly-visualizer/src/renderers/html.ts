@@ -207,7 +207,6 @@ function layoutFlowNode(
 
     let innerX = x + CONTAINER_PADDING;
     const innerY = y + CONTAINER_PADDING + 20; // Extra space for label
-    let innerMaxWidth = 0;
     let innerMaxHeight = 0;
 
     // Layout children horizontally in parallel
@@ -218,7 +217,7 @@ function layoutFlowNode(
       innerMaxHeight = Math.max(innerMaxHeight, result.height);
     }
 
-    innerMaxWidth = innerX - x - CONTAINER_PADDING;
+    const innerMaxWidth = innerX - x - CONTAINER_PADDING;
     const containerWidth = Math.max(
       innerMaxWidth + CONTAINER_PADDING,
       NODE_WIDTH + CONTAINER_PADDING * 2

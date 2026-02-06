@@ -51,7 +51,7 @@ const requireApproval = createApprovalStep({
 ## Use in workflow
 
 ```typescript
-const refundWorkflow = createWorkflow({ calculateRefund, processRefund, requireApproval });
+const refundWorkflow = createWorkflow('workflow', { calculateRefund, processRefund, requireApproval });
 
 const result = await refundWorkflow(async (step) => {
   const refund = await step('calculateRefund', () => calculateRefund(orderId));
@@ -86,8 +86,7 @@ await db.approvals.upsert({
 
 // Load snapshot and resume
 const snapshot = await store.load(orderId);
-const workflow = createWorkflow(
-  { calculateRefund, processRefund, requireApproval },
+const workflow = createWorkflow('workflow', { calculateRefund, processRefund, requireApproval },
   { snapshot }
 );
 
@@ -136,7 +135,7 @@ const orchestrator = createHITLOrchestrator({
   approvalStore: createMemoryApprovalStore(),
   workflowStateStore: createMemoryWorkflowStateStore(),
   createWorkflow: (resumeState) =>
-    createWorkflow(deps, { resumeState }),
+    createWorkflow('workflow', deps, { resumeState }),
 });
 
 // Start workflow
@@ -205,13 +204,12 @@ const requireManagerApproval = createApprovalStep({
 });
 
 // Workflow
-const expenseWorkflow = createWorkflow({
-  validateExpense,
+const expenseWorkflow = createWorkflow('workflow', { validateExpense,
   processPayment,
   requireManagerApproval,
 });
 
-const workflow = createWorkflow(deps);
+const workflow = createWorkflow('workflow', deps);
 
 const result = await workflow(async (step) => {
   const expense = await step('validateExpense', () => validateExpense(data));
@@ -385,8 +383,7 @@ const ceoApproval = createApprovalStep({
 });
 
 // Workflow with conditional approval chain
-const expenseWorkflow = createWorkflow({
-  validateExpense,
+const expenseWorkflow = createWorkflow('workflow', { validateExpense,
   processExpense,
   managerApproval,
   financeApproval,
@@ -534,7 +531,7 @@ const workflowStateStore = createPostgresWorkflowStateStore(db);
 const orchestrator = createHITLOrchestrator({
   approvalStore,
   workflowStateStore,
-  createWorkflow: (resumeState) => createWorkflow(deps, { resumeState }),
+  createWorkflow: (resumeState) => createWorkflow('workflow', deps, { resumeState }),
 });
 
 // On startup, recover incomplete workflows

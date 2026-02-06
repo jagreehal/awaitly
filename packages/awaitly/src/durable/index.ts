@@ -646,7 +646,7 @@ export const durable = {
 
       // Create workflow instance (U = UnexpectedError by default)
       try {
-        workflowInstance = createWorkflow<Deps, UnexpectedError, C>(deps, workflowOptions);
+        workflowInstance = createWorkflow<Deps, UnexpectedError, C>(id, deps, workflowOptions);
       } catch (createError) {
         if (createError instanceof SnapshotFormatError) {
           const error: PersistenceError = {

@@ -41,8 +41,7 @@ const zodToResult = <T>(
 };
 
 // Use in a workflow
-const workflow = createWorkflow({
-  validate: (data: unknown) => Promise.resolve(zodToResult(UserSchema, data)),
+const workflow = createWorkflow('workflow', { validate: (data: unknown) => Promise.resolve(zodToResult(UserSchema, data)),
 });
 
 const result = await workflow(async (step) => {
@@ -106,7 +105,7 @@ const deps = {
   sendWelcomeEmail,
 };
 
-const createUserWorkflow = createWorkflow(deps);
+const createUserWorkflow = createWorkflow('workflow', deps);
 
 const createUser = async (rawInput: unknown) => {
   return createUserWorkflow(async (step, d) => {
@@ -189,7 +188,7 @@ const deps = {
   createPost,
 };
 
-const workflow = createWorkflow(deps);
+const workflow = createWorkflow('workflow', deps);
 
 // API handler
 export const POST = async (request: Request) => {
@@ -302,7 +301,7 @@ const deps = {
 };
 
 // Registration workflow
-const registerWorkflow = createWorkflow(deps);
+const registerWorkflow = createWorkflow('workflow', deps);
 
 const register = async (rawInput: unknown) => {
   return registerWorkflow(async (step, d) => {

@@ -226,6 +226,30 @@ export {
 } from "./output/json";
 export type { JSONRenderOptions } from "./output/json";
 
+// Interactive HTML (Mermaid CDN + click-to-inspect)
+export {
+  extractNodeMetadata,
+  generateInteractiveHTML,
+} from "./output/html";
+export type {
+  NodeMetadata,
+  WorkflowMetadata,
+  InteractiveHTMLOptions,
+} from "./output/html";
+
+// Workflow Diagram DSL (for xstate-style visualization; types from awaitly/workflow)
+export { renderWorkflowDSL } from "./output/dsl";
+
+// .awaitly folder write (optional DSL cache)
+export {
+  writeDSLToAwaitlyDir,
+  writeDSLToAwaitlyDirSync,
+  AWAITLY_DIR_NAME,
+  AWAITLY_DSL_SUBDIR,
+  DEFAULT_DSL_OUTPUT_FOLDER,
+} from "./awaitly-dir";
+export type { WriteDSLToAwaitlyDirOptions } from "./awaitly-dir";
+
 // Documentation generator
 export { generateDocs } from "./output/docs";
 export type { DocsOptions } from "./output/docs";

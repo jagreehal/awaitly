@@ -16,7 +16,7 @@ const refreshToken = async (
   return ok({ newToken: "new-token" });
 };
 
-export const authWorkflow = createWorkflow({
+export const authWorkflow = createWorkflow("authWorkflow", {
   validateToken,
   refreshToken,
 });

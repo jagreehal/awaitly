@@ -195,7 +195,7 @@ describe("policies", () => {
   describe("The Solution: Policies", () => {
     it("applies policy consistently across multiple steps", async () => {
       const deps = { fetchUser, fetchOrders };
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step, { fetchUser, fetchOrders }) => {
         // ✓ One policy, used everywhere
@@ -354,7 +354,7 @@ describe("policies", () => {
       policies.register("cache", servicePolicies.cache);
 
       const deps = { fetchUser, checkCache };
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step, { fetchUser, checkCache }) => {
         const user = await step(
@@ -532,7 +532,7 @@ describe("policies", () => {
       const dbStep = createPolicyApplier(servicePolicies.database);
 
       const deps = { fetchUser, queryOrders };
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step, { fetchUser, queryOrders }) => {
         const user = await step("fetch-user", () => fetchUser("123"), apiStep());
@@ -577,7 +577,7 @@ describe("policies", () => {
       policies.register("db", retryPolicies.none);
 
       const deps = { fetchUser, queryOrders };
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step, { fetchUser, queryOrders }) => {
         const user = await step(
@@ -600,7 +600,7 @@ describe("policies", () => {
 
     it("works with withPolicy helper", async () => {
       const deps = { fetchUser, checkCache };
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step, { fetchUser, checkCache }) => {
         // Use simple policy without timeout for test reliability
@@ -624,7 +624,7 @@ describe("policies", () => {
 
     it("works with fluent builder", async () => {
       const deps = { fetchUser };
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step, { fetchUser }) => {
         // Build simple options using fluent API

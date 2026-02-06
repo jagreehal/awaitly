@@ -12,7 +12,7 @@
  * const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
  *   id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND');
  *
- * const workflow = createWorkflow({ fetchUser });
+ * const workflow = createWorkflow('fetch-user', { fetchUser });
  *
  * const result = await workflow(async (step) => {
  *   const user = await step(fetchUser('1'));
@@ -103,6 +103,17 @@ export {
   SnapshotMismatchError,
   SnapshotDecodeError,
 } from "./persistence";
+
+// =============================================================================
+// Workflow Diagram DSL (for visualization)
+// =============================================================================
+export type {
+  WorkflowDiagramDSL,
+  WorkflowDiagramState,
+  WorkflowDiagramStateType,
+  WorkflowDiagramTransition,
+  WorkflowDiagramSourceLocation,
+} from "./workflow";
 
 // =============================================================================
 // Duration - Re-exported for convenience (timeouts/delays)

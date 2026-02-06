@@ -112,8 +112,9 @@ export function createTimeTravelController(
 
   // Create IR builder with snapshots enabled
   const builder = createIRBuilder({
+    detectParallel: false,
     ...builderOptions,
-    enableSnapshots: true,
+    enableSnapshots: autoRecord,
     maxSnapshots,
   });
 

@@ -21,7 +21,7 @@ async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 
-const workflow = createWorkflow({ fetchUser, chargeCard });
+const workflow = createWorkflow('workflow', { fetchUser, chargeCard });
 const result = await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'));
   const charge = await step('chargeCard', () => chargeCard(user.id, 100));
@@ -74,7 +74,7 @@ const dashboard = andThen(
 ```typescript
 import { createSagaWorkflow } from 'awaitly/workflow';
 
-const saga = createSagaWorkflow({ charge, refund, reserve, release });
+const saga = createSagaWorkflow('saga', { charge, refund, reserve, release });
 const result = await saga(async (s) => {
   const payment = await s.step(
     () => charge({ amount: 100 }),
@@ -128,7 +128,7 @@ await store.save(workflowId, workflow.getSnapshot());
 
 // Resume later
 const snapshot = await store.load(workflowId);
-const workflow = createWorkflow(deps, { snapshot: snapshot ?? undefined });
+const workflow = createWorkflow('workflow', deps, { snapshot: snapshot ?? undefined });
 ```
 
 ### Retry failed operations
@@ -136,7 +136,7 @@ const workflow = createWorkflow(deps, { snapshot: snapshot ?? undefined });
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 
-const workflow = createWorkflow(deps);
+const workflow = createWorkflow('workflow', deps);
 const result = await workflow(async (step) => {
   // Retry up to 3 times with exponential backoff
   const data = await step.retry(
@@ -184,7 +184,7 @@ const result = await workflow(async (step) => {
 import { createWorkflow, isWorkflowCancelled } from 'awaitly/workflow';
 
 const controller = new AbortController();
-const workflow = createWorkflow(deps, { signal: controller.signal });
+const workflow = createWorkflow('workflow', deps, { signal: controller.signal });
 
 const resultPromise = workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'), { key: 'user' });
@@ -285,7 +285,7 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 | Rate limiting | `awaitly/ratelimit` |
 | Singleflight (`singleflight`, `createSingleflightGroup`) | `awaitly/singleflight` |
 | Testing utilities | `awaitly/testing` |
-| Visualization | `awaitly-visualizer` (separate package) |
+| Visualization | `awaitly-visualizer` (createVisualizer, Mermaid/ASCII/JSON); `awaitly-visualizer` (optional React UI) |
 | Duration helpers | `awaitly/workflow` |
 | Tagged errors | `awaitly` |
 | Pattern matching | `awaitly` |
@@ -338,7 +338,7 @@ type UserError = 'NOT_FOUND' | 'SUSPENDED';
 type PaymentError = 'DECLINED' | 'EXPIRED' | 'LIMIT_EXCEEDED';
 
 // Workflows automatically union all possible errors
-const workflow = createWorkflow({ fetchUser, chargeCard });
+const workflow = createWorkflow('workflow', { fetchUser, chargeCard });
 // result.error is: UserError | PaymentError | UnexpectedError
 ```
 
@@ -416,7 +416,7 @@ if (isAwaitlyError(error)) {
 
 | Topic | Guide |
 |-------|-------|
-| Common issues | [Troubleshooting/../guides/troubleshooting/) |
-| Framework setup | [Framework Integrations/../guides/framework-integrations/) |
-| Production best practices | [Production Deployment/../advanced/production-deployment/) |
-| Complete API | [API Reference/api/) |
+| Common issues | [Troubleshooting](/guides/troubleshooting/) |
+| Framework setup | [Framework Integrations](/guides/framework-integrations/) |
+| Production best practices | [Production Deployment](/advanced/production-deployment/) |
+| Complete API | [API Reference](/reference/api/) |

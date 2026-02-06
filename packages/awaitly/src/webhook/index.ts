@@ -258,7 +258,7 @@ export function defaultUnexpectedErrorMapper(
  *
  * @example
  * ```typescript
- * const checkoutWorkflow = createWorkflow({ chargeCard, sendEmail });
+ * const checkoutWorkflow = createWorkflow('checkout', { chargeCard, sendEmail });
  *
  * const handler = createWebhookHandler(
  *   checkoutWorkflow,
@@ -294,6 +294,41 @@ export function defaultUnexpectedErrorMapper(
  * });
  * ```
  */
+// Overload 1: TUnexpected inferred from workflow (enables 3-arg calls with custom catchUnexpected)
+export function createWebhookHandler<
+  TInput,
+  TOutput,
+  TError,
+  TUnexpected,
+  TBody = unknown,
+  TDeps = unknown
+>(
+  workflow: Workflow<TError, TUnexpected, TDeps>,
+  workflowFn: (
+    step: RunStep<TError | TUnexpected>,
+    deps: TDeps,
+    input: TInput
+  ) => TOutput | Promise<TOutput>,
+  config: WebhookHandlerConfig<TInput, TOutput, TError, TBody, TUnexpected>
+): WebhookHandler<TBody>;
+
+// Overload 2: default UnexpectedError (when workflow has no custom catchUnexpected)
+export function createWebhookHandler<
+  TInput,
+  TOutput,
+  TError,
+  TBody = unknown,
+  TDeps = unknown
+>(
+  workflow: Workflow<TError, UnexpectedError, TDeps>,
+  workflowFn: (
+    step: RunStep<TError | UnexpectedError>,
+    deps: TDeps,
+    input: TInput
+  ) => TOutput | Promise<TOutput>,
+  config: WebhookHandlerConfig<TInput, TOutput, TError, TBody, UnexpectedError>
+): WebhookHandler<TBody>;
+
 export function createWebhookHandler<
   TInput,
   TOutput,

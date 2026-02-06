@@ -1,13 +1,13 @@
 /**
  * CLI for awaitly-analyze
  *
- * Analyzes TypeScript workflow files and outputs Mermaid diagrams or JSON.
+ * Analyzes TypeScript workflow files and outputs Mermaid diagrams, JSON, or interactive HTML.
  *
  * Usage:
  *   npx awaitly-analyze ./src/workflows/checkout.ts
  *   npx awaitly-analyze ./src/workflows/checkout.ts --format=json
- *   npx awaitly-analyze ./src/workflows/checkout.ts --keys
- *   npx awaitly-analyze ./src/workflows/checkout.ts --direction=LR
+ *   npx awaitly-analyze ./src/workflows/checkout.ts --html -o
+ *   npx awaitly-analyze ./src/workflows/checkout.ts --keys --direction=LR
  */
 
 import { resolve, dirname, basename, extname, join } from "path";
@@ -15,9 +15,15 @@ import { writeFileSync } from "fs";
 import { analyze } from "./analyze";
 import { renderStaticMermaid } from "./output/mermaid";
 import { renderMultipleStaticJSON } from "./output/json";
+import { renderWorkflowDSL } from "./output/dsl";
+import { extractNodeMetadata, generateInteractiveHTML } from "./output/html";
+import { writeDSLToAwaitlyDirSync, DEFAULT_DSL_OUTPUT_FOLDER } from "./awaitly-dir";
 
 type Direction = "TB" | "LR" | "BT" | "RL";
 type Format = "mermaid" | "json";
+
+/** "off" = don't write; ".awaitly" = write to .awaitly/dsl/; or custom path */
+type DslOutputOption = "off" | ".awaitly" | string;
 
 interface CliOptions {
   filePath: string;
@@ -28,6 +34,9 @@ interface CliOptions {
   outputAdjacent: boolean;
   suffix: string;
   noStdout: boolean;
+  dslOutput: DslOutputOption;
+  html: boolean;
+  htmlOutput: string;
 }
 
 function printHelp(): void {
@@ -42,21 +51,29 @@ Arguments:
 
 Options:
   --format=<format>     Output format: mermaid (default) or json
+  --html                Generate interactive HTML file (Mermaid CDN + click-to-inspect)
+  --html-output=<path>  Output path for HTML file (default: <basename>.html)
   --keys                Show step cache keys in diagram
   --direction=<dir>     Diagram direction: TB (default), LR, BT, RL
   --output-adjacent, -o Write output file next to source file
   --suffix=<value>      Configurable suffix for output file (default: workflow)
   --no-stdout           Suppress stdout when writing to file (requires -o)
-  --help, -h            Show this help message
+  --dsl-output=<value>  Write DSL: off (default), .awaitly, or custom path
+  --write-dsl           Shorthand for --dsl-output=.awaitly
+  --help, -h             Show this help message
 
 Examples:
   awaitly-analyze ./src/workflows/checkout.ts
   awaitly-analyze ./src/workflows/checkout.ts --format=json
+  awaitly-analyze ./src/workflows/checkout.ts --html
+  awaitly-analyze ./src/workflows/checkout.ts --html --html-output=docs/checkout.html
   awaitly-analyze ./src/workflows/checkout.ts --keys --direction=LR
   awaitly-analyze ./src/workflows/checkout.ts --output-adjacent
   awaitly-analyze ./src/workflows/checkout.ts -o --suffix=diagram
   awaitly-analyze ./src/workflows/checkout.ts -o --suffix=analysis --format=json
   awaitly-analyze ./src/workflows/checkout.ts -o --no-stdout
+  awaitly-analyze ./src/workflows/checkout.ts --dsl-output=.awaitly
+  awaitly-analyze ./src/workflows/checkout.ts --dsl-output=dist/dsl
 `);
 }
 
@@ -70,17 +87,40 @@ function parseArgs(args: string[]): CliOptions {
     outputAdjacent: false,
     suffix: "workflow",
     noStdout: false,
+    dslOutput: "off",
+    html: false,
+    htmlOutput: "",
   };
 
   for (const arg of args) {
     if (arg === "--help" || arg === "-h") {
       options.help = true;
+    } else if (arg === "--html") {
+      options.html = true;
+    } else if (arg.startsWith("--html-output=")) {
+      const value = arg.slice("--html-output=".length).trim();
+      if (value.length === 0) {
+        console.error("Error: --html-output requires a non-empty path.");
+        process.exit(1);
+      }
+      options.htmlOutput = value;
+      options.html = true;
     } else if (arg === "--keys") {
       options.showKeys = true;
     } else if (arg === "--output-adjacent" || arg === "-o") {
       options.outputAdjacent = true;
     } else if (arg === "--no-stdout") {
       options.noStdout = true;
+    } else if (arg === "--write-dsl") {
+      options.dslOutput = DEFAULT_DSL_OUTPUT_FOLDER;
+    } else if (arg.startsWith("--dsl-output=")) {
+      const value = arg.slice("--dsl-output=".length).trim();
+      if (value === "off" || value === ".awaitly" || value.length > 0) {
+        options.dslOutput = value;
+      } else {
+        console.error("Error: --dsl-output requires a value (off, .awaitly, or a path).");
+        process.exit(1);
+      }
     } else if (arg.startsWith("--format=")) {
       const format = arg.slice("--format=".length).toLowerCase();
       if (format === "json" || format === "mermaid") {
@@ -158,6 +198,39 @@ function main(): void {
       process.exit(1);
     }
 
+    // Generate interactive HTML if --html
+    if (options.html) {
+      if (options.htmlOutput && workflows.length > 1) {
+        console.error("Error: cannot use --html-output with multiple workflows; each workflow needs its own file.");
+        process.exit(1);
+      }
+      for (const ir of workflows) {
+        const mermaidText = renderStaticMermaid(ir, {
+          direction: options.direction,
+          showKeys: options.showKeys,
+        });
+        const metadata = extractNodeMetadata(ir);
+        const htmlContent = generateInteractiveHTML(mermaidText, metadata, {
+          direction: options.direction,
+        });
+
+        // Determine output path
+        let htmlPath: string;
+        if (options.htmlOutput) {
+          htmlPath = resolve(options.htmlOutput);
+        } else {
+          const dir = dirname(filePath);
+          const ext = extname(filePath);
+          const base = basename(filePath, ext);
+          const suffix = workflows.length > 1 ? `.${ir.root.workflowName}` : "";
+          htmlPath = join(dir, `${base}${suffix}.html`);
+        }
+
+        writeFileSync(htmlPath, htmlContent, "utf-8");
+        console.error(`Wrote HTML: ${htmlPath}`);
+      }
+    }
+
     let output: string;
 
     if (options.format === "json") {
@@ -186,6 +259,20 @@ function main(): void {
           parts.push("");
         }
         output = parts.join("\n");
+      }
+    }
+
+    // Write DSL if --dsl-output is not off
+    if (options.dslOutput !== "off") {
+      const rootDir = process.cwd();
+      const writeOpts =
+        options.dslOutput === ".awaitly"
+          ? { rootDir }
+          : { rootDir, outputDir: options.dslOutput };
+      for (const ir of workflows) {
+        const dsl = renderWorkflowDSL(ir);
+        const written = writeDSLToAwaitlyDirSync(dsl, writeOpts);
+        console.error(`Wrote DSL: ${written}`);
       }
     }
 

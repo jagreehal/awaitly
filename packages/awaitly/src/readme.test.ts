@@ -106,7 +106,7 @@ describe("README Examples", () => {
         },
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const userId = "user-1";
       const orderId = "order-1";
@@ -138,7 +138,7 @@ describe("README Examples", () => {
       };
 
       // 2. Create and run a workflow
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step, deps) => {
         return await step('loadTask', () => deps.loadTask("t-1"));
@@ -177,7 +177,7 @@ describe("README Examples", () => {
         },
       };
 
-      const transfer = createWorkflow(deps);
+      const transfer = createWorkflow("transfer", deps);
 
       // In an HTTP handler
       async function handler(fromUserId: string, toUserId: string, amount: number) {
@@ -221,7 +221,7 @@ describe("README Examples", () => {
         },
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
       const result = await workflow(async (step, deps) => {
         return await step('loadTask', () => deps.loadTask("missing"));
       });
@@ -255,7 +255,7 @@ describe("README Examples", () => {
         },
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
       const result = await workflow(async (step, deps) => {
         // Retry 3 times with exponential backoff, timeout after 5 seconds
         const task = await step.retry(
@@ -280,7 +280,7 @@ describe("README Examples", () => {
         return ok(undefined);
       };
 
-      const processPayment = createWorkflow({ chargeCard, saveToDatabase });
+      const processPayment = createWorkflow("processPayment", { chargeCard, saveToDatabase });
 
       const order = { idempotencyKey: "key-123" };
       const amount = 100;
@@ -309,7 +309,7 @@ describe("README Examples", () => {
         return ok({ id });
       };
 
-      const workflow = createWorkflow({ fetchUser });
+      const workflow = createWorkflow("workflow", { fetchUser });
 
       await workflow(async (step, deps) => {
         await step('fetchUser', () => deps.fetchUser("1"), { key: "user:1" });
@@ -348,7 +348,7 @@ describe("README Examples", () => {
       };
 
       // First run - execute workflow
-      const workflow1 = createWorkflow({ fetchUser, fetchPosts });
+      const workflow1 = createWorkflow("workflow", { fetchUser, fetchPosts });
 
       await workflow1(async (step, deps) => {
         await step('fetchUser', () => deps.fetchUser("1"), { key: "user:1" });
@@ -364,7 +364,7 @@ describe("README Examples", () => {
       const loadedSnapshot = JSON.parse(saved.state) as WorkflowSnapshot;
 
       // Resume workflow with snapshot option (new API)
-      const workflow2 = createWorkflow({ fetchUser, fetchPosts }, {
+      const workflow2 = createWorkflow("workflow", { fetchUser, fetchPosts }, {
         snapshot: loadedSnapshot, // Pre-populates cache from saved snapshot
       });
 
@@ -402,7 +402,7 @@ describe("README Examples", () => {
         return ok({ id: "refund-123" });
       };
 
-      const refundWorkflow = createWorkflow({ calculateRefund, processRefund, requireApproval });
+      const refundWorkflow = createWorkflow("refund", { calculateRefund, processRefund, requireApproval });
 
       // First run - should be pending
       const result1 = await refundWorkflow(async (step, deps) => {
@@ -437,7 +437,7 @@ describe("README Examples", () => {
 
   describe("Common Patterns", () => {
     it("should work with step.try as shown in README", async () => {
-      const workflow = createWorkflow({});
+      const workflow = createWorkflow("workflow", {});
       const result = await workflow(async (step) => {
         // Wrap throwing code
         const data = await step.try("httpFetch", () => Promise.resolve({ foo: "bar" }), { error: "HTTP_FAILED" as const });
@@ -455,7 +455,7 @@ describe("README Examples", () => {
         return ok({ id });
       };
 
-      const workflow = createWorkflow({ fetchUser });
+      const workflow = createWorkflow("workflow", { fetchUser });
       const result = await workflow(async (step, deps) => {
         // Retries with backoff
         const user = await step.retry("fetchUser", () => deps.fetchUser("id"), { attempts: 3, backoff: "exponential" });
@@ -470,7 +470,7 @@ describe("README Examples", () => {
         return ok("done");
       };
 
-      const workflow = createWorkflow({ slowOperation });
+      const workflow = createWorkflow("workflow", { slowOperation });
       const result = await workflow(async (step, deps) => {
         // Timeout protection
         const result = await step.withTimeout("slowOperation", () => deps.slowOperation(), { ms: 5000 });
@@ -485,7 +485,7 @@ describe("README Examples", () => {
         return ok({ id });
       };
 
-      const workflow = createWorkflow({ fetchUser });
+      const workflow = createWorkflow("workflow", { fetchUser });
       const result = await workflow(async (step, deps) => {
         // Caching (use thunk + key)
         const user = await step('fetchUser', () => deps.fetchUser("id"), { key: "user:id" });
@@ -546,7 +546,7 @@ describe("README Examples", () => {
         },
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
       const result = await workflow(async (step, deps) => {
         return await step('getUser', () => deps.getUser("1"));
       });

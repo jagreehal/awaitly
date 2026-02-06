@@ -13,6 +13,8 @@ describe("createTimeTravelController", () => {
 
     const controller = createTimeTravelController({ autoRecord: false });
 
+    controller.startRecording();
+
     const events: WorkflowEvent<unknown>[] = [
       { type: "workflow_start", workflowId: "wf-1", ts: 0 },
       { type: "workflow_success", workflowId: "wf-1", ts: 10, durationMs: 10 },
@@ -28,6 +30,8 @@ describe("createTimeTravelController", () => {
 
   it("syncs currentIndex to latest snapshot when recording is started", () => {
     const controller = createTimeTravelController({ autoRecord: false });
+
+    controller.startRecording();
 
     controller.handleEvent({ type: "workflow_start", workflowId: "wf-2", ts: 0 });
     controller.handleEvent({

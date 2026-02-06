@@ -3,7 +3,7 @@ import { createSagaWorkflow } from "awaitly/workflow";
 /**
  * Order saga - create order with compensation.
  */
-const orderSaga = createSagaWorkflow({
+const orderSaga = createSagaWorkflow("orderSaga", {
   createOrder: async () => ({ id: "1" }),
   cancelOrder: async () => {},
 });

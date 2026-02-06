@@ -201,7 +201,7 @@ const fetchUser = async (id: string): AsyncResult<User, NotFoundError | Unauthor
 `TaggedError.match` forces exhaustive handling:
 
 ```typescript
-const workflow = createWorkflow({ fetchUser, updateProfile });
+const workflow = createWorkflow('workflow', { fetchUser, updateProfile });
 
 const result = await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('123'));

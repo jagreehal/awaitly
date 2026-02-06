@@ -30,7 +30,7 @@ import { createWorkflow } from 'awaitly';
 
 const fetchUser = async (id: string) => ({ id, name: 'Alice' });
 
-export const testWorkflow = createWorkflow({ fetchUser });
+export const testWorkflow = createWorkflow('testWorkflow', { fetchUser });
 
 export async function run(userId: string) {
   return await testWorkflow(async (step, deps) => {
@@ -40,20 +40,56 @@ export async function run(userId: string) {
 }
 `;
 
+const MULTI_WORKFLOW = `
+import { createWorkflow } from 'awaitly';
+
+const deps = {
+  a: async () => ({ ok: true }),
+  b: async () => ({ ok: true }),
+};
+
+export const workflowA = createWorkflow('workflowA', deps);
+export const workflowB = createWorkflow('workflowB', deps);
+
+export async function runA() {
+  return workflowA(async (step, d) => {
+    await step('a', () => d.a());
+    return {};
+  });
+}
+
+export async function runB() {
+  return workflowB(async (step, d) => {
+    await step('b', () => d.b());
+    return {};
+  });
+}
+`;
+
 describe("CLI", () => {
   const testFilePath = join(FIXTURES_DIR, "cli-test-workflow.ts");
+  const multiWorkflowFilePath = join(FIXTURES_DIR, "cli-test-multi-workflow.ts");
   const outputMdPath = join(FIXTURES_DIR, "cli-test-workflow.workflow.md");
   const outputJsonPath = join(FIXTURES_DIR, "cli-test-workflow.analysis.json");
   const customSuffixPath = join(FIXTURES_DIR, "cli-test-workflow.diagram.md");
+  const htmlOutputPath = join(FIXTURES_DIR, "cli-test-workflow.html");
 
   beforeEach(() => {
     // Create test workflow file
     writeFileSync(testFilePath, TEST_WORKFLOW);
+    writeFileSync(multiWorkflowFilePath, MULTI_WORKFLOW);
   });
 
   afterEach(() => {
     // Clean up test files
-    for (const file of [testFilePath, outputMdPath, outputJsonPath, customSuffixPath]) {
+    for (const file of [
+      testFilePath,
+      multiWorkflowFilePath,
+      outputMdPath,
+      outputJsonPath,
+      customSuffixPath,
+      htmlOutputPath,
+    ]) {
       if (existsSync(file)) {
         unlinkSync(file);
       }
@@ -144,6 +180,25 @@ describe("CLI", () => {
       const { stderr, exitCode } = runCli([testFilePath, "--suffix=foo\\bar"]);
       expect(exitCode).toBe(1);
       expect(stderr).toContain("suffix cannot contain path separators");
+    });
+  });
+
+  describe("--html-output validation", () => {
+    it("should reject empty html-output value", () => {
+      const { stderr, exitCode } = runCli([testFilePath, "--html", "--html-output="]);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("--html-output requires a non-empty path");
+    });
+
+    it("should fail when html-output is a single file path but the source has multiple workflows", () => {
+      const { stderr, exitCode } = runCli([
+        multiWorkflowFilePath,
+        "--html",
+        `--html-output=${htmlOutputPath}`,
+      ]);
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("cannot use --html-output with multiple workflows");
     });
   });
 });
