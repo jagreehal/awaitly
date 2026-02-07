@@ -1,5 +1,11 @@
 # awaitly-analyze
 
+## 0.10.1
+
+### Patch Changes
+
+- 226b841: Publish awaitly-analyze as a public package (remove private flag).
+
 ## 0.10.0
 
 ### Minor Changes
