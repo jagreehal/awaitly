@@ -1,5 +1,19 @@
 # awaitly-analyze
 
+## 0.10.0
+
+### Minor Changes
+
+- 34022b8: - **Workflow naming:** `createWorkflow` now takes a required workflow name as the first argument (e.g. `createWorkflow('checkout', deps, options)`). The name is used in visualization, static analysis, and error messages.
+  - **Docs:** Updated error-handling, ESLint plugin, functional utilities, visualization, parallel operations, and quick reference to use the new signature and to document event capture and library workflow options.
+  - **awaitly-visualizer:** Added `event-capture` test suite and kitchen-sink workflow for event-to-IR and visualization pipelines.
+
+### Patch Changes
+
+- Updated dependencies [34022b8]
+  - awaitly-visualizer@8.0.0
+  - awaitly@1.19.0
+
 ## 0.9.0
 
 ### Minor Changes
