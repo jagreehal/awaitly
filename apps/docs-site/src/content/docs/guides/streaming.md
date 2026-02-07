@@ -4,7 +4,7 @@ description: Result-aware streaming for real-time data and AI token streaming
 ---
 
 :::caution[Options go to createWorkflow]
-The `streamStore` option must be passed to `createWorkflow(deps, { streamStore })`, not when calling the workflow.
+The `streamStore` option must be passed to `createWorkflow('workflow', deps, { streamStore })`, not when calling the workflow.
 :::
 
 Stream data in real-time within workflows. Perfect for AI token streaming, live updates, and processing large datasets incrementally.
@@ -19,7 +19,7 @@ import { createMemoryStreamStore, toAsyncIterable } from 'awaitly/streaming';
 const streamStore = createMemoryStreamStore();
 
 // 2. Pass it to createWorkflow
-const workflow = createWorkflow(deps, { streamStore });
+const workflow = createWorkflow('workflow', deps, { streamStore });
 
 // 3. Write to streams
 const result = await workflow(async (step) => {
@@ -382,7 +382,7 @@ const result = await workflow(async (step) => {
 Stream operations emit events for observability:
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   streamStore,
   onEvent: (event) => {
     switch (event.type) {

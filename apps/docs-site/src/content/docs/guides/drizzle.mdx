@@ -39,7 +39,7 @@ const findUser = async (id: string): AsyncResult<typeof users.$inferSelect, DbEr
 };
 
 // Use in a workflow
-const workflow = createWorkflow({ findUser });
+const workflow = createWorkflow('workflow', { findUser });
 
 const result = await workflow(async (step) => {
   const user = await step('findUser', () => deps.findUser('user-123'));
@@ -220,7 +220,7 @@ const deps = {
   createUser: userRepository.create,
 };
 
-const createUserWorkflow = createWorkflow(deps);
+const createUserWorkflow = createWorkflow('workflow', deps);
 
 const createUser = async (rawInput: unknown) => {
   return createUserWorkflow(async (step, d) => {
@@ -457,7 +457,7 @@ const deps = {
 };
 
 // Workflow
-const signUpWorkflow = createWorkflow(deps);
+const signUpWorkflow = createWorkflow('workflow', deps);
 
 const signUp = async (rawInput: unknown) => {
   return signUpWorkflow(async (step, d) => {

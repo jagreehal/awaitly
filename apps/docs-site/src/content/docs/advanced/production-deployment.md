@@ -27,7 +27,7 @@ sdk.start();
 const otel = createAutotelAdapter({ serviceName: 'checkout-service' });
 
 // Use in workflow
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   onEvent: otel.handleEvent,
 });
 ```
@@ -123,7 +123,7 @@ function handleWorkflowEvent(event: WorkflowEvent) {
   }
 }
 
-const workflow = createWorkflow(deps, { onEvent: handleWorkflowEvent });
+const workflow = createWorkflow('workflow', deps, { onEvent: handleWorkflowEvent });
 ```
 
 ## Error Tracking with Sentry
@@ -173,7 +173,7 @@ function handleWorkflowEvent(event: WorkflowEvent) {
   }
 }
 
-const workflow = createWorkflow(deps, { onEvent: handleWorkflowEvent });
+const workflow = createWorkflow('workflow', deps, { onEvent: handleWorkflowEvent });
 ```
 
 ### Structured error context
@@ -222,7 +222,7 @@ import { postgres } from 'awaitly-postgres';
 
 const store = postgres(process.env.DATABASE_URL!);
 
-const workflow = createWorkflow(deps);
+const workflow = createWorkflow('workflow', deps);
 await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
   return user;
@@ -232,7 +232,7 @@ await store.save('run-123', workflow.getSnapshot());
 
 // Resume later
 const snapshot = await store.load('run-123');
-const resumed = createWorkflow(deps, { snapshot });
+const resumed = createWorkflow('workflow', deps, { snapshot });
 await resumed(/* same workflow fn */);
 ```
 
@@ -271,7 +271,7 @@ const store: SnapshotStore = {
 
 await store.save('run-123', workflow.getSnapshot());
 const snapshot = await store.load('run-123');
-const resumed = createWorkflow(deps, { snapshot });
+const resumed = createWorkflow('workflow', deps, { snapshot });
 ```
 
 ### PostgreSQL (custom schema)
@@ -476,7 +476,7 @@ function createHealthTracker() {
 
 const healthTracker = createHealthTracker();
 
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   onEvent: (event) => {
     healthTracker.handleEvent(event);
     otel.handleEvent(event);
@@ -495,8 +495,7 @@ app.get('/health/workflows', (req, res) => {
 
 ```typescript
 // Stateless workflow - no shared state between instances
-const workflow = createWorkflow({
-  fetchUser,
+const workflow = createWorkflow('workflow', { fetchUser,
   processPayment,
   sendNotification,
 });
@@ -525,7 +524,7 @@ async function startDistributedWorkflow(workflowId: string, input: WorkflowInput
   // Check if workflow already started (resume)
   const existingState = await persistence.load(workflowId);
 
-  const workflow = createWorkflow(deps, {
+  const workflow = createWorkflow('workflow', deps, {
     onEvent: collector.handleEvent,
     resumeState: existingState ?? undefined,
   });
@@ -573,7 +572,7 @@ const emailLimit = createRateLimiter('email', {
   windowMs: 1000, // 10 emails per second
 });
 
-const workflow = createWorkflow(deps);
+const workflow = createWorkflow('workflow', deps);
 
 const result = await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'));
@@ -606,7 +605,7 @@ const paymentBreaker = createCircuitBreaker('payment-service', {
   halfOpenRequests: 3,      // Allow 3 test requests when half-open
 });
 
-const workflow = createWorkflow(deps);
+const workflow = createWorkflow('workflow', deps);
 
 const result = await workflow(async (step) => {
   const order = await step('fetchOrder', () => fetchOrder(orderId));
@@ -671,7 +670,7 @@ const featureFlags = {
   enableCircuitBreakers: process.env.ENABLE_CIRCUIT_BREAKERS !== 'false',
 };
 
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   onEvent: featureFlags.enableCircuitBreakers ? otel.handleEvent : undefined,
 });
 

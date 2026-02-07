@@ -229,8 +229,7 @@ type ToolName = keyof typeof toolImplementations;
 type AppError = 'SEARCH_ERROR' | 'WEATHER_ERROR' | 'AI_ERROR';
 
 // Create workflow with dependencies
-const chatWorkflow = createWorkflow({
-  ...toolImplementations,
+const chatWorkflow = createWorkflow('workflow', { ...toolImplementations,
   chat: async (messages: Message[]): AsyncResult<ChatResponse, 'AI_ERROR'> => {
     // Your AI SDK call
     return ok({ content: '', finishReason: 'stop', toolCalls: [] });
@@ -309,8 +308,7 @@ When using the Vercel AI SDK with awaitly:
 import { streamText, tool } from 'ai';
 import { createWorkflow, ok, err } from 'awaitly';
 
-const aiWorkflow = createWorkflow({
-  generateText: async (prompt: string): AsyncResult<string, 'AI_ERROR'> => {
+const aiWorkflow = createWorkflow('workflow', { generateText: async (prompt: string): AsyncResult<string, 'AI_ERROR'> => {
     try {
       const { text } = await generateText({
         model: openai('gpt-4o'),

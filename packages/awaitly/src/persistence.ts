@@ -71,7 +71,11 @@ export interface WorkflowSnapshot {
     lastUpdated: string;
     /** ISO timestamp if finished */
     completedAt?: string;
-    /** For paused workflows */
+    /**
+     * For paused/running workflows: the step key of the current step.
+     * Aligns with Workflow Diagram DSL step state ids (see awaitly/workflow diagram-dsl)
+     * so visualizers can highlight the current node.
+     */
     currentStepId?: string;
   };
   /** Optional metadata for workflow identification and replay */

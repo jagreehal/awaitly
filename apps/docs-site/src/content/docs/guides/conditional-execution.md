@@ -19,7 +19,7 @@ const sendEmail = async (to: string): AsyncResult<void, 'SEND_FAILED'> => {
   // ...
 };
 
-const workflow = createWorkflow({ fetchUser, sendEmail });
+const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
 const result = await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('123'));
@@ -118,7 +118,7 @@ const result = await workflow(async (step) => {
 Conditional helpers automatically emit `step_skipped` events when steps are skipped:
 
 ```typescript
-const workflow = createWorkflow({ fetchUser }, {
+const workflow = createWorkflow('workflow', { fetchUser }, {
   onEvent: (event) => {
     if (event.type === 'step_skipped') {
       console.log(`Step ${event.name} skipped: ${event.reason}`);
@@ -135,7 +135,7 @@ Use `createConditionalHelpers` to bind helpers to workflow context for automatic
 ```typescript
 import { createConditionalHelpers, createWorkflow } from 'awaitly/workflow';
 
-const workflow = createWorkflow({ fetchUser }, {
+const workflow = createWorkflow('workflow', { fetchUser }, {
   onEvent: (event, ctx) => {
     // ctx is available here
   }
@@ -219,7 +219,7 @@ Skipped steps appear in workflow visualizations:
 import { createVisualizer } from 'awaitly-visualizer';
 
 const viz = createVisualizer();
-const workflow = createWorkflow(deps, { onEvent: viz.handleEvent });
+const workflow = createWorkflow('workflow', deps, { onEvent: viz.handleEvent });
 
 await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('123'));
@@ -240,7 +240,7 @@ console.log(viz.render());
 ## Real-world example
 
 ```typescript
-const processOrder = createWorkflow({ fetchOrder, chargeCard, sendEmail, applyDiscount });
+const processOrder = createWorkflow('workflow', { fetchOrder, chargeCard, sendEmail, applyDiscount });
 
 const result = await processOrder(async (step) => {
   const order = await step('fetchOrder', () => fetchOrder(orderId));

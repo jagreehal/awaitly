@@ -37,7 +37,7 @@ const processPayment = async (amount: number, cardId: string): AsyncResult<Payme
 };
 
 // Create workflow
-const checkoutWorkflow = createWorkflow({ fetchCart, validateStock, processPayment });
+const checkoutWorkflow = createWorkflow('workflow', { fetchCart, validateStock, processPayment });
 
 // Server Action
 export async function checkout(userId: string, cardId: string) {
@@ -146,7 +146,7 @@ const sendWelcome = async (email: string): AsyncResult<void, 'EMAIL_FAILED'> => 
   }
 };
 
-const signupWorkflow = createWorkflow({ validateEmail, checkDuplicate, createUser, sendWelcome });
+const signupWorkflow = createWorkflow('workflow', { validateEmail, checkDuplicate, createUser, sendWelcome });
 
 export async function POST(req: NextRequest) {
   const { email, password } = await req.json();
@@ -195,7 +195,7 @@ const checkOwnership = async (order: Order, userId: string): AsyncResult<void, '
   return order.userId === userId ? ok(undefined) : err('FORBIDDEN');
 };
 
-const orderWorkflow = createWorkflow({ fetchOrder, checkOwnership });
+const orderWorkflow = createWorkflow('workflow', { fetchOrder, checkOwnership });
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { id } = req.query;
@@ -297,8 +297,7 @@ const createOrder = async (cart: Cart, payment: Payment): AsyncResult<Order, 'OR
   }
 };
 
-const checkoutWorkflow = createWorkflow({
-  fetchCart, reserveInventory, processPayment, createOrder
+const checkoutWorkflow = createWorkflow('workflow', { fetchCart, reserveInventory, processPayment, createOrder
 });
 
 // Route handler
@@ -332,8 +331,7 @@ export default router;
 // routes/transfer.ts
 import { createSagaWorkflow } from 'awaitly/saga';
 
-const transferWorkflow = createSagaWorkflow({
-  debitAccount: async (accountId: string, amount: number) => {
+const transferWorkflow = createSagaWorkflow('saga', { debitAccount: async (accountId: string, amount: number) => {
     return await accountService.debit(accountId, amount);
   },
   creditAccount: async (accountId: string, amount: number) => {
@@ -407,8 +405,8 @@ const workflowPlugin: FastifyPluginAsync = async (fastify) => {
 
   // Register workflows
   fastify.decorate('workflows', {
-    checkout: createWorkflow({ fetchUser, fetchCart, processPayment }),
-    signup: createWorkflow({ /* ... */ }),
+    checkout: createWorkflow('workflow', { fetchUser, fetchCart, processPayment }),
+    signup: createWorkflow('workflow', { /* ... */ }),
   });
 };
 
@@ -484,7 +482,7 @@ const refundPayment = async (paymentId: string): AsyncResult<void, 'REFUND_FAILE
   return refund.status === 'succeeded' ? ok(undefined) : err('REFUND_FAILED');
 };
 
-const orderWorkflow = createWorkflow({ fetchOrder, cancelOrder, refundPayment });
+const orderWorkflow = createWorkflow('workflow', { fetchOrder, cancelOrder, refundPayment });
 
 // Helper to convert Result errors to TRPCError
 function toTRPCError(error: string | { type: string }): TRPCError {
@@ -609,7 +607,7 @@ const createUser = async (email: string): AsyncResult<User, 'USER_EXISTS'> => {
   return ok(user);
 };
 
-const signupWorkflow = createWorkflow({ validateEmail, createUser });
+const signupWorkflow = createWorkflow('workflow', { validateEmail, createUser });
 
 app.post('/signup', async (c) => {
   const { email } = await c.req.json();
@@ -656,8 +654,7 @@ export const fetchUser = async (id: string): AsyncResult<User, 'USER_NOT_FOUND'>
 // workflows/checkout.ts
 import { fetchUser } from './shared';
 
-const checkoutWorkflow = createWorkflow({
-  fetchUser,
+const checkoutWorkflow = createWorkflow('workflow', { fetchUser,
   fetchCart,
   processPayment,
 });
@@ -665,8 +662,7 @@ const checkoutWorkflow = createWorkflow({
 // workflows/profile.ts
 import { fetchUser } from './shared';
 
-const profileWorkflow = createWorkflow({
-  fetchUser,
+const profileWorkflow = createWorkflow('workflow', { fetchUser,
   updateProfile,
 });
 ```

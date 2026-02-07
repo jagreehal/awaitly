@@ -33,7 +33,7 @@ export function useWorkflow<T, E, Deps extends Record<string, unknown>>(
   const run = useCallback(async () => {
     setState({ status: 'loading' });
 
-    const workflow = createWorkflow(deps);
+    const workflow = createWorkflow('workflow', deps);
     const result = await workflow(workflowFn);
 
     if (result.ok) {
@@ -144,8 +144,7 @@ type CheckoutError = 'INVALID_CART' | 'PAYMENT_FAILED' | 'EMAIL_FAILED';
 export async function checkout(
   cartId: string
 ): Promise<AsyncResult<CheckoutResult, CheckoutError>> {
-  const workflow = createWorkflow({
-    validateCart,
+  const workflow = createWorkflow('workflow', { validateCart,
     processPayment,
     sendEmail,
   });
@@ -212,7 +211,7 @@ import { createWorkflow } from 'awaitly';
 export async function POST(request: Request) {
   const body = await request.json();
 
-  const workflow = createWorkflow({ validateOrder, chargeCard, createOrder });
+  const workflow = createWorkflow('workflow', { validateOrder, chargeCard, createOrder });
   const result = await workflow(async (step) => {
     const validated = await step('validateOrder', () => validateOrder(body));
     const charge = await step('chargeCard', () => chargeCard(validated.amount));
@@ -275,7 +274,7 @@ function resultHandler<T, E>(
 const app = express();
 
 app.post('/api/orders', resultHandler(async (req) => {
-  const workflow = createWorkflow({ validateOrder, processPayment });
+  const workflow = createWorkflow('workflow', { validateOrder, processPayment });
   return await workflow(async (step) => {
     const order = await step('validateOrder', () => validateOrder(req.body));
     const payment = await step('processPayment', () => processPayment(order.total));
@@ -294,7 +293,7 @@ const router = Router();
 
 // POST /users
 router.post('/users', async (req, res) => {
-  const workflow = createWorkflow({ validateUser, createUser, sendWelcome });
+  const workflow = createWorkflow('workflow', { validateUser, createUser, sendWelcome });
 
   const result = await workflow(async (step) => {
     const validated = await step('validateUser', () => validateUser(req.body));
@@ -345,7 +344,7 @@ fastify.addHook('preHandler', async (request) => {
     deps: Deps,
     fn: (step: any, deps: Deps) => Promise<T>
   ) => {
-    const workflow = createWorkflow(deps);
+    const workflow = createWorkflow('workflow', deps);
     return workflow(fn);
   };
 });
@@ -388,7 +387,7 @@ fastify.post('/orders', {
   },
 }, async (request, reply) => {
   // Body is already validated by Fastify
-  const result = await createWorkflow({ processOrder })(async (step) => {
+  const result = await createWorkflow('workflow', { processOrder })(async (step) => {
     return await step('processOrder', () => processOrder(request.body));
   });
 
@@ -408,8 +407,7 @@ Define workflows in dedicated files for better testing and reuse:
 
 ```typescript
 // workflows/checkout.ts
-export const checkout = createWorkflow({
-  validateCart,
+export const checkout = createWorkflow('workflow', { validateCart,
   processPayment,
   sendConfirmation,
 });
@@ -444,7 +442,7 @@ export function mapErrorToResponse(error: unknown) {
 Pass request context through workflows:
 
 ```typescript
-const workflow = createWorkflow({ fetchUser, logAction });
+const workflow = createWorkflow('workflow', { fetchUser, logAction });
 
 const result = await workflow(
   async (step, deps, ctx) => {

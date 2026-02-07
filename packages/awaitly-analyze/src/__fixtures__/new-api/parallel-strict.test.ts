@@ -14,7 +14,7 @@ describe("step.parallel() Strict Mode", () => {
     it("extracts errors from strict parallel form", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ fetchUser: async () => ok({}), fetchPosts: async () => ok([]) });
+        const workflow = createWorkflow("workflow", { fetchUser: async () => ok({}), fetchPosts: async () => ok([]) });
         export async function run() {
           return await workflow(async (step, deps) => {
             const { user, posts } = await step.parallel("Fetch user and posts", {
@@ -45,7 +45,7 @@ describe("step.parallel() Strict Mode", () => {
       const source = `
         import { createWorkflow, ok, tags } from "awaitly";
         const userErrors = tags('NOT_FOUND', 'UNAUTHORIZED');
-        const workflow = createWorkflow({ fetchUser: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { fetchUser: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             const { user } = await step.parallel("Fetch user", {
@@ -67,7 +67,7 @@ describe("step.parallel() Strict Mode", () => {
     it("handles shorthand form without errors", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ fetchUser: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { fetchUser: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             const { user } = await step.parallel("Fetch user", {
@@ -90,7 +90,7 @@ describe("step.parallel() Strict Mode", () => {
     it("extracts parallel name from options", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ a: async () => ok({}), b: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { a: async () => ok({}), b: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step.parallel("Fetch user data", {

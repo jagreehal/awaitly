@@ -64,6 +64,24 @@ step('fetchUser', () => fetchUser('1'));
 step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 ```
 
+### `awaitly/require-step-id`
+
+**Severity**: error | **Autofix**: No
+
+Requires a string literal as the first argument to `step()` and step helpers (`step.sleep`, `step.retry`, `step.parallel`, `step.race`, etc.). Ensures stable step IDs for visualization and static analysis.
+
+```typescript
+// Bad - missing step ID
+step(() => fetchUser('1'));
+step.parallel({ a: () => fetchA(), b: () => fetchB() });
+saga.step(() => deps.createOrder(), { compensate: () => {} });
+
+// Good - string ID as first argument
+step('fetchUser', () => fetchUser('1'));
+step.parallel('Fetch data', () => allAsync([fetchA(), fetchB()]));
+saga.step('createOrder', () => deps.createOrder(), { compensate: () => {} });
+```
+
 ### `awaitly/require-thunk-for-key`
 
 **Severity**: error | **Autofix**: Yes
@@ -161,8 +179,30 @@ Detects when workflow options (`cache`, `onEvent`, `resumeState`, etc.) are pass
 await workflow({ cache: new Map() }, async (step) => { ... });
 
 // Good - options passed to createWorkflow
-const workflow = createWorkflow(deps, { cache: new Map() });
+const workflow = createWorkflow('workflow', deps, { cache: new Map() });
 await workflow(async (step) => { ... });
+```
+
+### `awaitly/no-double-wrap-result`
+
+**Severity**: error | **Autofix**: No
+
+Detects returning `ok()` or `err()` from workflow executor functions. Executors should return raw values; awaitly wraps them automatically.
+
+```typescript
+// Bad - double-wrapped Result
+run(async (step) => {
+  const user = await step('fetchUser', () => fetchUser('1'));
+  return ok({ user });
+});
+createWorkflow('workflow', deps)(async (step) => err({ type: 'FAILED' }));
+
+// Good - return raw value
+run(async (step) => {
+  const user = await step('fetchUser', () => fetchUser('1'));
+  return { user };
+});
+createWorkflow('workflow', deps)(async (step) => value);
 ```
 
 ## Why these rules?
@@ -202,6 +242,7 @@ export default [
       awaitly,
     },
     rules: {
+      'awaitly/require-step-id': 'error',
       'awaitly/no-immediate-execution': 'error',
       'awaitly/require-thunk-for-key': 'error',
       'awaitly/stable-cache-keys': 'error',
@@ -209,6 +250,7 @@ export default [
       'awaitly/no-floating-result': 'error',
       'awaitly/require-result-handling': 'warn',
       'awaitly/no-options-on-executor': 'error',
+      'awaitly/no-double-wrap-result': 'error',
     },
   },
 ];

@@ -43,7 +43,7 @@ type TestDeps = typeof testDeps;
 const testDeps = { fetchUser, chargeCard };
 
 // Create test workflow
-const testWorkflow = createWorkflow(testDeps);
+const testWorkflow = createWorkflow("testWorkflow", testDeps);
 
 // Helper to create mock requests
 const mockRequest = <T>(overrides: Partial<WebhookRequest<T>> = {}): WebhookRequest<T> => ({

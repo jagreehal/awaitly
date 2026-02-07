@@ -76,8 +76,7 @@ const createOrder = async (
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 
-const checkout = createWorkflow({
-  validateCart,
+const checkout = createWorkflow('workflow', { validateCart,
   checkInventory,
   calculateTotal,
   processPayment,
@@ -140,7 +139,7 @@ import { createVisualizer } from 'awaitly-visualizer';
 
 const viz = createVisualizer({ workflowName: 'checkout' });
 
-const checkout = createWorkflow(deps, {
+const checkout = createWorkflow('workflow', deps, {
   onEvent: viz.handleEvent,
 });
 

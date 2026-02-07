@@ -3,7 +3,7 @@ import { createWorkflow } from "awaitly/workflow";
 /**
  * Checkout workflow - handles cart and payment.
  */
-const checkoutWorkflow = createWorkflow({});
+const checkoutWorkflow = createWorkflow("checkoutWorkflow", {});
 
 async function run() {
   return await checkoutWorkflow(async (step) => {

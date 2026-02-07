@@ -41,7 +41,7 @@ Choose awaitly when you want typed error handling, platform flexibility, and exp
 | Saga Pattern | Manual try/catch rollback | `createSagaWorkflow` with auto-compensation |
 | Static Analysis | Limited | `awaitly-analyze` with Mermaid diagrams |
 | ESLint Plugin | None | `eslint-plugin-awaitly` with autofixes |
-| Runtime Visualization | Limited | `awaitly-visualizer` with multiple formats |
+| Runtime Visualization | Limited | `awaitly-visualizer` with multiple formats (Mermaid, ASCII, JSON) |
 | Platform Lock-in | Vercel only | Any Node.js environment |
 | Durability | Built-in (Vercel platform) | Configurable (PostgreSQL, Redis, etc.) |
 | Compiler Required | Yes (custom compiler) | No (standard TypeScript) |
@@ -94,8 +94,7 @@ async function fetchUser(id: string): Promise<User> {
 ```typescript
 import { createWorkflow } from "awaitly/workflow";
 
-export const userWorkflow = createWorkflow(
-  { fetchUser },
+export const userWorkflow = createWorkflow('workflow', { fetchUser },
   { description: "Fetch user workflow" }
 );
 
@@ -181,8 +180,7 @@ awaitly's tagged errors are type-safe. You can't accidentally forget to handle a
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-export const parallelWorkflow = createWorkflow(
-  { fetchUser, fetchPosts, fetchComments },
+export const parallelWorkflow = createWorkflow('workflow', { fetchUser, fetchPosts, fetchComments },
   { description: "Parallel fetch workflow" }
 );
 
@@ -224,8 +222,7 @@ export async function parallelWorkflow() {
 ```typescript
 import { anyAsync } from "awaitly";
 
-export const raceWorkflow = createWorkflow(
-  { fetchFromPrimary, fetchFromFallback },
+export const raceWorkflow = createWorkflow('workflow', { fetchFromPrimary, fetchFromFallback },
   { description: "Race workflow" }
 );
 
@@ -258,8 +255,7 @@ export async function raceWorkflow() {
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-export const myWorkflow = createWorkflow(
-  { myStep },
+export const myWorkflow = createWorkflow('workflow', { myStep },
   {
     description: "Workflow with context",
     onEvent: (event) => {
@@ -322,9 +318,7 @@ This is where awaitly shines. Compare manual rollback with automatic compensatio
 ```typescript
 import { createSagaWorkflow } from "awaitly/saga";
 
-export const orderProcessingSaga = createSagaWorkflow(
-  {
-    reserveInventory,
+export const orderProcessingSaga = createSagaWorkflow('saga', { reserveInventory,
     releaseInventory,
     processPayment,
     refundPayment,
@@ -429,8 +423,7 @@ import { createMemoryStreamStore } from "awaitly/streaming";
 
 const streamStore = createMemoryStreamStore();
 
-export const aiWorkflow = createWorkflow(
-  {},
+export const aiWorkflow = createWorkflow('workflow', { },
   { description: "AI workflow", streamStore }
 );
 
@@ -509,8 +502,7 @@ import { createVisualizer } from "awaitly-visualizer";
 
 const viz = createVisualizer({ workflowName: "my-workflow" });
 
-const workflow = createWorkflow(
-  { myDeps },
+const workflow = createWorkflow('workflow', { myDeps },
   {
     onEvent: viz.handleEvent,
   }
@@ -547,8 +539,7 @@ async function add(a: number, b: number): AsyncResult<number, never> {
   return ok(a + b);
 }
 
-export const simpleWorkflow = createWorkflow(
-  { add },
+export const simpleWorkflow = createWorkflow('workflow', { add },
   { description: "Simple workflow" }
 );
 
@@ -585,8 +576,7 @@ export async function simple(i: number) {
 ```typescript
 import { processInBatches } from "awaitly/batch";
 
-export const batchWorkflow = createWorkflow(
-  { processItem },
+export const batchWorkflow = createWorkflow('workflow', { processItem },
   { description: "Batch processing workflow" }
 );
 

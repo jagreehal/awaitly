@@ -53,7 +53,7 @@ describe("Skill Examples", () => {
         },
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step, deps) => {
         // Explicit ID form - step('id', () => deps.fn())
@@ -81,7 +81,7 @@ describe("Skill Examples", () => {
         },
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step, deps) => {
         const user = await step('getUser', () => deps.getUser("1"));
@@ -104,7 +104,7 @@ describe("Skill Examples", () => {
         getUser: async (): AsyncResult<{ id: string }, "NOT_FOUND"> => err("NOT_FOUND"),
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
       const result = await workflow(async (step, deps) => {
         return await step('getUser', () => deps.getUser());
       });
@@ -124,7 +124,7 @@ describe("Skill Examples", () => {
           err({ type: "NOT_FOUND", userId: id }),
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
       const result = await workflow(async (step, deps) => {
         return await step('getUser', () => deps.getUser("123"));
       });
@@ -145,7 +145,7 @@ describe("Skill Examples", () => {
         },
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
       const result = await workflow(async (step, deps) => {
         return await step('badOperation', () => deps.badOperation());
       });
@@ -161,7 +161,7 @@ describe("Skill Examples", () => {
   describe("R5: All async work inside workflows must go through step()", () => {
     it("step.try converts throwing functions to typed errors", async () => {
       const deps = {};
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step) => {
         const data = await step.try(
@@ -178,7 +178,7 @@ describe("Skill Examples", () => {
 
     it("step.try returns error on throw", async () => {
       const deps = {};
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step) => {
         const data = await step.try(
@@ -195,7 +195,7 @@ describe("Skill Examples", () => {
 
     it("step.try returns unwrapped value, not Result (same control-flow as step)", async () => {
       const deps = {};
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step) => {
         // step.try returns the unwrapped value directly, NOT a Result
@@ -412,7 +412,7 @@ describe("Skill Examples", () => {
         },
       };
 
-      const processOrder = createWorkflow(deps);
+      const processOrder = createWorkflow("processOrder", deps);
 
       // Simulate HTTP handler with complete boundary error handling
       async function handleRequest(userId: string, useTimeout = false) {
@@ -471,7 +471,7 @@ describe("Skill Examples", () => {
         },
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step, deps) => {
         return await step.retry('fetchData', () => deps.fetchData(), { attempts: 3 });
@@ -489,7 +489,7 @@ describe("Skill Examples", () => {
         },
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step, deps) => {
         return await step.withTimeout('fastOperation', () => deps.fastOperation(), { ms: 5000 });
@@ -507,7 +507,7 @@ describe("Skill Examples", () => {
         },
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step, deps) => {
         return await step.withTimeout('slowOperation', () => deps.slowOperation(), { ms: 50 });
@@ -527,7 +527,7 @@ describe("Skill Examples", () => {
         op: async (): AsyncResult<void, "NOT_FOUND" | "FORBIDDEN"> => err("FORBIDDEN"),
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
       const result = await workflow(async (step, deps) => step('op', () => deps.op()));
 
       const error = unwrapErr(result);
@@ -541,7 +541,7 @@ describe("Skill Examples", () => {
         op: async (): AsyncResult<void, MyError> => err({ type: "NOT_FOUND", userId: "123" }),
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
       const result = await workflow(async (step, deps) => step('op', () => deps.op()));
 
       const error = unwrapErr(result);
@@ -555,7 +555,7 @@ describe("Skill Examples", () => {
         getData: async (): AsyncResult<number[], never> => ok([1, 2, 3, 4, 5]),
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step, deps) => {
         const numbers = await step('getData', () => deps.getData());
@@ -584,7 +584,7 @@ describe("Skill Examples", () => {
         },
       };
 
-      const workflow = createWorkflow(deps);
+      const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow(async (step, deps) => {
         const [user, posts] = await step('fetchUserAndPosts', () => allAsync([

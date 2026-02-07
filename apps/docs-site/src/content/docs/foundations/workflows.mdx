@@ -35,7 +35,7 @@ const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ...
 const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
 
 // Error types inferred from dependencies
-const workflow = createWorkflow({ fetchUser, sendEmail });
+const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
 const result = await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'));
@@ -77,8 +77,7 @@ See [Troubleshooting: Double-wrapping](/guides/troubleshooting/#returning-ok-fro
 ### With options
 
 ```typescript
-const workflow = createWorkflow(
-  { fetchUser, sendEmail },
+const workflow = createWorkflow('workflow', { fetchUser, sendEmail },
   {
     cache: new Map(),                    // Enable step caching
     onEvent: (event) => console.log(event), // Event stream
@@ -119,8 +118,7 @@ const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED'>(
   <TabItem label="Example: createWorkflow">
 ```typescript
 // Production: dependencies known ahead of time
-const checkout = createWorkflow({
-  validateOrder,
+const checkout = createWorkflow('workflow', { validateOrder,
   processPayment,
   sendConfirmation,
 });
@@ -149,7 +147,7 @@ const result = await run<User, 'NOT_FOUND'>(async (step) => {
 Enable step caching to avoid re-executing completed steps:
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   cache: new Map(),
 });
 
@@ -173,7 +171,7 @@ The `key` option is required for caching. Steps without keys always execute.
 Resume a workflow from saved state:
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   resumeState: savedState, // From a previous run
 });
 
@@ -193,7 +191,7 @@ Enable streaming within workflows:
 ```typescript
 import { createMemoryStreamStore } from 'awaitly/streaming';
 
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   streamStore: createMemoryStreamStore(),
 });
 
@@ -213,7 +211,7 @@ See [Streaming](/guides/streaming/) for details.
 Subscribe to workflow events for logging, visualization, or debugging:
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   onEvent: (event) => {
     switch (event.type) {
       case 'step_start':
@@ -245,7 +243,7 @@ Workflow error unions are always closed. By default, thrown exceptions become `U
   <TabItem label="Default (UnexpectedError)">
 ```typescript
 // Default - error union is E | UnexpectedError
-const workflow = createWorkflow(deps);
+const workflow = createWorkflow('workflow', deps);
 
 const result = await workflow(async (step) => { /* ... */ });
 // result.error: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
@@ -254,7 +252,7 @@ const result = await workflow(async (step) => { /* ... */ });
   <TabItem label="Custom unexpected type">
 ```typescript
 // Custom unexpected - closed union with your shape
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   catchUnexpected: (cause) => ({
     type: 'UNEXPECTED' as const,
     cause
@@ -283,7 +281,7 @@ Cancel workflows externally using an AbortSignal:
 import { isWorkflowCancelled } from 'awaitly/workflow';
 
 const controller = new AbortController();
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   signal: controller.signal,
 });
 
@@ -354,7 +352,7 @@ While `createWorkflow` accepts options at creation time, you may need different 
 <Tabs>
   <TabItem label="workflow.run()">
 ```typescript
-const workflow = createWorkflow({ fetchUser }, {
+const workflow = createWorkflow('workflow', { fetchUser }, {
   onEvent: defaultLogger,  // Creation-time default
 });
 
@@ -401,7 +399,7 @@ const w = workflow
 Execution-time options override creation-time options:
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   onEvent: handlerA,        // Creation-time
   signal: signalA,
 });
@@ -451,11 +449,10 @@ await w2.run(fn, { onEvent: handlerC });
 Workflows are just functions. Compose them naturally:
 
 ```typescript
-const validateInput = createWorkflow({ validateEmail, validatePassword });
-const processPayment = createWorkflow({ chargeCard, saveReceipt });
+const validateInput = createWorkflow('workflow', { validateEmail, validatePassword });
+const processPayment = createWorkflow('workflow', { chargeCard, saveReceipt });
 
-const checkout = createWorkflow({
-  validateEmail,
+const checkout = createWorkflow('workflow', { validateEmail,
   validatePassword,
   chargeCard,
   saveReceipt,
@@ -475,7 +472,7 @@ const result = await checkout(async (step) => {
 Pass context through workflow execution:
 
 ```typescript
-const workflow = createWorkflow(deps);
+const workflow = createWorkflow('workflow', deps);
 
 const result = await workflow(
   async (step, context) => {

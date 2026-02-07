@@ -18,7 +18,7 @@ This usually happens when error types don't match what the workflow expects.
   <TabItem label="Problem">
 ```typescript
 // Error: Type '"UNKNOWN"' is not assignable to type '"NOT_FOUND" | "EMAIL_FAILED"'
-const workflow = createWorkflow({ fetchUser, sendEmail });
+const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
 const result = await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'));
@@ -35,7 +35,7 @@ const result = await workflow(async (step) => {
 ```typescript
 // Option 1: Add the error type to a dependency
 async function riskyOp(): AsyncResult<void, 'UNKNOWN'> { ... }
-const workflow = createWorkflow({ fetchUser, sendEmail, riskyOp });
+const workflow = createWorkflow('workflow', { fetchUser, sendEmail, riskyOp });
 
 // Option 2: Use run() with explicit error types
 const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED' | 'UNKNOWN'>(
@@ -81,7 +81,7 @@ Your operation doesn't return a `Result` type.
 <Tabs>
   <TabItem label="Problem">
 ```typescript
-const workflow = createWorkflow({});
+const workflow = createWorkflow('workflow', { });
 
 const result = await workflow(async (step) => {
   // Error: fetch returns Promise<Response>, not Result
@@ -202,7 +202,7 @@ const result = await workflow(async (step) => {
 const controller = new AbortController();
 setTimeout(() => controller.abort('timeout'), 60000);
 
-const workflow = createWorkflow(deps, { signal: controller.signal });
+const workflow = createWorkflow('workflow', deps, { signal: controller.signal });
 ```
   </TabItem>
 </Tabs>
@@ -213,11 +213,11 @@ Usually caused by circular dependencies or infinite recursion.
 
 ```typescript
 // Problem: Circular dependency between workflows
-const workflowA = createWorkflow({ workflowB });  // workflowB depends on workflowA!
+const workflowA = createWorkflow('workflow', { workflowB });  // workflowB depends on workflowA!
 
 // Solution: Break the cycle
-const workflowA = createWorkflow({ fetchData });
-const workflowB = createWorkflow({ processData });
+const workflowA = createWorkflow('workflow', { fetchData });
+const workflowB = createWorkflow('workflow', { processData });
 // Call them sequentially, not as dependencies
 ```
 
@@ -228,7 +228,7 @@ const workflowB = createWorkflow({ processData });
 Use the `onEvent` option to log what's happening:
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   onEvent: (event) => {
     switch (event.type) {
       case 'step_start':
@@ -253,8 +253,8 @@ const workflow = createWorkflow(deps, {
 ```typescript
 import { createVisualizer } from 'awaitly-visualizer';
 
-const viz = createVisualizer();
-const workflow = createWorkflow(deps, { onEvent: viz.handleEvent });
+const viz = createVisualizer({ workflowName: 'my-workflow' });
+const workflow = createWorkflow('workflow', deps, { onEvent: viz.handleEvent });
 
 const result = await workflow(async (step) => { ... });
 
@@ -262,10 +262,18 @@ const result = await workflow(async (step) => { ... });
 console.log(viz.renderAs('mermaid'));
 ```
 
+### Visualizer not capturing events (empty or only "workflow_start")
+
+If your diagram is empty or only shows the start node, events are not reaching the visualizer. Ensure:
+
+1. **You pass `onEvent`** — The workflow only emits events to a callback you provide. Pass `onEvent: viz.handleEvent` (or `collector.handleEvent`) when creating the workflow or when calling the function that runs it.
+2. **Library workflows** — If you call a function like `processOnePayment(..., deps)` that creates the workflow internally, that function must accept optional workflow options (e.g. `{ onEvent }`) and forward them to `createWorkflow`. Otherwise your visualizer never receives events. See [Visualization: Library workflows](/docs/guides/visualization/#library-workflows).
+3. **Steps actually run** — The workflow must execute at least one `step(...)` so that `step_start` / `step_complete` events are emitted. If the workflow exits early or throws before any step, you may only see `workflow_start`.
+
 ### Inspect step results
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   onEvent: (event) => {
     if (event.type === 'step_complete') {
       console.log('Step result:', event.result);

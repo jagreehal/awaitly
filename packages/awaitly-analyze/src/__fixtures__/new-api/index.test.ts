@@ -13,7 +13,7 @@ describe("New API patterns", () => {
     it("extracts stepId from first argument", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ fetchUser: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { fetchUser: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('getUser', () => deps.fetchUser('1'), { errors: ['NOT_FOUND'] });
@@ -35,7 +35,7 @@ describe("New API patterns", () => {
     it("extracts errors array from options", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ fetchUser: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { fetchUser: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('getUser', () => deps.fetchUser('1'), {
@@ -58,7 +58,7 @@ describe("New API patterns", () => {
     it("extracts out key for data flow", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ fetchUser: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { fetchUser: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('getUser', () => deps.fetchUser('1'), {
@@ -82,7 +82,7 @@ describe("New API patterns", () => {
     it("extracts ctx.ref() reads", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ fetchPosts: async () => ok([]) });
+        const workflow = createWorkflow("workflow", { fetchPosts: async () => ok([]) });
         export async function run() {
           return await workflow(async (step, deps, ctx) => {
             await step('getPosts', () => deps.fetchPosts(ctx.ref('user').id), {
@@ -105,7 +105,7 @@ describe("New API patterns", () => {
     it("treats non-literal stepId as dynamic but still parses operation", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ fetchUser: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { fetchUser: async () => ok({}) });
         const stepId = "getUser";
         export async function run() {
           return await workflow(async (step, deps) => {
@@ -128,7 +128,7 @@ describe("New API patterns", () => {
     it("accepts no-substitution template literal as stepId", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ fetchUser: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { fetchUser: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step(\`getUser\`, () => deps.fetchUser('1'), { errors: ['NOT_FOUND'] });
@@ -152,7 +152,7 @@ describe("New API patterns", () => {
     it("extracts decision node with id and conditionLabel", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ fetchUser: async () => ok({ isPremium: true }) });
+        const workflow = createWorkflow("workflow", { fetchUser: async () => ok({ isPremium: true }) });
         export async function run() {
           return await workflow(async (step, deps) => {
             const user = { isPremium: true };
@@ -185,7 +185,7 @@ describe("New API patterns", () => {
     it("extracts decision node with id and conditionLabel using step.label", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ fetchUser: async () => ok({ isPremium: true }) });
+        const workflow = createWorkflow("workflow", { fetchUser: async () => ok({ isPremium: true }) });
         export async function run() {
           return await workflow(async (step, deps) => {
             const user = { isPremium: true };
@@ -218,7 +218,7 @@ describe("New API patterns", () => {
     it("extracts decision node with conditionLabel and branches", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ chargeCard: async () => ok({}), skipPayment: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { chargeCard: async () => ok({}), skipPayment: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             const cart = { total: 100 };
@@ -262,7 +262,7 @@ describe("New API patterns", () => {
     it("extracts out key for data flow from step.branch", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ process: async () => ok(1), skip: async () => ok(0) });
+        const workflow = createWorkflow("workflow", { process: async () => ok(1), skip: async () => ok(0) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step.branch('decide', {
@@ -299,7 +299,7 @@ describe("New API patterns", () => {
       const source = `
         import { createWorkflow, ok, tags } from "awaitly";
         const cartErrors = tags('CART_NOT_FOUND', 'CART_EMPTY');
-        const workflow = createWorkflow({ getCart: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { getCart: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('getCart', () => deps.getCart('1'), { errors: cartErrors });
@@ -322,7 +322,7 @@ describe("New API patterns", () => {
     it("extracts stepId from step(id, fn, opts?) signature", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ fetchUser: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { fetchUser: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             // New API: step(id, fn, opts?)

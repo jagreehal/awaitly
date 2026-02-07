@@ -226,6 +226,7 @@ function resolveWorkflowRecursively(
         ref.resolved = true;
         ref.resolvedPath = resolved.filePath;
         ref.inlinedIR = resolved.ir;
+        if (resolved.ir.root.location) ref.definitionLocation = resolved.ir.root.location;
       }
 
       // Update calledBy for the target

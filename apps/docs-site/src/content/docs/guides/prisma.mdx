@@ -39,7 +39,7 @@ const findUser = async (id: string): AsyncResult<User, DbError> => {
 };
 
 // Use in a workflow
-const workflow = createWorkflow({ findUser });
+const workflow = createWorkflow('workflow', { findUser });
 
 const result = await workflow(async (step) => {
   const user = await step('findUser', () => deps.findUser('user-123'));
@@ -185,8 +185,7 @@ const zodToResult = <T>(schema: z.ZodSchema<T>, data: unknown) => {
     : err({ type: 'VALIDATION' as const, issues: parsed.error.issues });
 };
 
-const workflow = createWorkflow({
-  validateInput: (raw: unknown) => zodToResult(CreateUserSchema, raw),
+const workflow = createWorkflow('workflow', { validateInput: (raw: unknown) => zodToResult(CreateUserSchema, raw),
   createUser: userRepository.create,
 });
 
@@ -209,8 +208,7 @@ Use awaitly's saga pattern for transactions that need compensation:
 ```typescript
 import { createSagaWorkflow } from 'awaitly/saga';
 
-const transferFunds = createSagaWorkflow({
-  debitAccount: async (accountId: string, amount: number) => {
+const transferFunds = createSagaWorkflow('saga', { debitAccount: async (accountId: string, amount: number) => {
     return prismaToResult(() =>
       prisma.account.update({
         where: { id: accountId },
@@ -364,7 +362,7 @@ const deps = {
 };
 
 // Sign up workflow
-const signUpWorkflow = createWorkflow(deps);
+const signUpWorkflow = createWorkflow('workflow', deps);
 
 const signUp = async (rawInput: unknown) => {
   return signUpWorkflow(async (step, d) => {

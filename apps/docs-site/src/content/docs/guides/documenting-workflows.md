@@ -20,14 +20,13 @@ Set `description` and `markdown` when creating the workflow (in the options obje
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 
-const checkoutWorkflow = createWorkflow(deps, {
+const checkoutWorkflow = createWorkflow('workflow', deps, {
   description: 'Checkout workflow - handles orders and payments',
   markdown: '## Checkout\n\n1. Validate cart\n2. Process payment\n3. Send confirmation',
 });
 
 // Or on the deps object when it's the only config
-const simpleWorkflow = createWorkflow({
-  ...deps,
+const simpleWorkflow = createWorkflow('workflow', { ...deps,
   description: 'Simple order flow',
   markdown: '# Order Flow',
 });

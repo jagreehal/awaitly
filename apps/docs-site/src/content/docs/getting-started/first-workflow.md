@@ -41,7 +41,7 @@ Pass your operations to `createWorkflow`. Error types are inferred automatically
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 
-const loadUserData = createWorkflow({ fetchUser, fetchPosts });
+const loadUserData = createWorkflow('workflow', { fetchUser, fetchPosts });
 ```
 
 ## Adding workflow options
@@ -50,14 +50,14 @@ Options like caching, events, and resume state are passed to `createWorkflow`, n
 
 ```typescript
 // Correct: Options go to createWorkflow
-const workflow = createWorkflow({ fetchUser }, {
+const workflow = createWorkflow('workflow', { fetchUser }, {
   cache: new Map(),
   onEvent: (e) => console.log(e)
 });
 await workflow(async (step) => { ... });
 
 // Wrong: Options passed here are ignored
-const workflow = createWorkflow({ fetchUser });
+const workflow = createWorkflow('workflow', { fetchUser });
 await workflow({ cache: new Map() }, async (step) => { ... }); // Ignored!
 ```
 
@@ -112,7 +112,7 @@ const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
 const fetchPosts = async (userId: string): AsyncResult<Post[], 'FETCH_ERROR'> =>
   ok([{ id: 1, title: 'Hello World' }]);
 
-const loadUserData = createWorkflow({ fetchUser, fetchPosts });
+const loadUserData = createWorkflow('workflow', { fetchUser, fetchPosts });
 
 const result = await loadUserData(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'));

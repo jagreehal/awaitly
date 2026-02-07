@@ -360,7 +360,7 @@ const sendNotification = async (
   }
 };
 
-const notifyUsers = createWorkflow({ fetchUser, sendNotification });
+const notifyUsers = createWorkflow('workflow', { fetchUser, sendNotification });
 
 const result = await notifyUsers(async (step) => {
   const userIds = ['1', '2', '3', '4', '5'];

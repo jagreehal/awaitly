@@ -6,7 +6,7 @@ description: Cache step results to avoid duplicate work
 import { AnimatedWorkflowDiagram } from '~/components';
 
 ::::caution[Options go to createWorkflow]
-Cache options must be passed to `createWorkflow(deps, { cache })`, not when calling the workflow. Options passed to the executor are silently ignored.
+Cache options must be passed to `createWorkflow('workflow', deps, { cache })`, not when calling the workflow. Options passed to the executor are silently ignored.
 ::::
 
 Cache step results so they don't re-execute if the workflow runs again.
@@ -41,7 +41,7 @@ Cache step results so they don't re-execute if the workflow runs again.
 Pass a cache to the workflow:
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   cache: new Map(),
 });
 ```
@@ -103,7 +103,7 @@ The cache persists across workflow runs:
 
 ```typescript
 const cache = new Map();
-const workflow = createWorkflow(deps, { cache });
+const workflow = createWorkflow('workflow', deps, { cache });
 
 // First run - fetches user
 await workflow(async (step) => {
@@ -154,7 +154,7 @@ const redisCache = {
   },
 };
 
-const workflow = createWorkflow(deps, { cache: redisCache });
+const workflow = createWorkflow('workflow', deps, { cache: redisCache });
 ```
 
 ## Caching and errors

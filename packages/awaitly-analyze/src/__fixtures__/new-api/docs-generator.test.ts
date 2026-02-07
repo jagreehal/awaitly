@@ -14,7 +14,7 @@ describe("Markdown Documentation Generator", () => {
     it("generates basic documentation", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ getUser: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { getUser: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('getUser', () => deps.getUser('1'), {
@@ -39,7 +39,7 @@ describe("Markdown Documentation Generator", () => {
     it("includes data flow section", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ a: async () => ok({}), b: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { a: async () => ok({}), b: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps, ctx) => {
             await step('getUser', () => deps.a(), { out: 'user' });
@@ -60,7 +60,7 @@ describe("Markdown Documentation Generator", () => {
     it("includes error flow section", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ a: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { a: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('step1', () => deps.a(), { errors: ['ERROR_A', 'ERROR_B'] });
@@ -79,7 +79,7 @@ describe("Markdown Documentation Generator", () => {
     it("includes Mermaid diagram", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ a: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { a: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('step1', () => deps.a());
@@ -98,7 +98,7 @@ describe("Markdown Documentation Generator", () => {
     it("can use custom title", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ a: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { a: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('step1', () => deps.a());
@@ -115,7 +115,7 @@ describe("Markdown Documentation Generator", () => {
     it("can disable sections", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ a: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { a: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('step1', () => deps.a());
@@ -138,7 +138,7 @@ describe("Markdown Documentation Generator", () => {
     it("shows dependencies section", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ getUser: async () => ok({}), getPosts: async () => ok([]) });
+        const workflow = createWorkflow("workflow", { getUser: async () => ok({}), getPosts: async () => ok([]) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('step1', () => deps.getUser());

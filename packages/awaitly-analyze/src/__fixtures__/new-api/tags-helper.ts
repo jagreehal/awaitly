@@ -30,27 +30,28 @@ const sendConfirmation = async (
   return ok({ sent: true });
 };
 
-export const orderWorkflow = createWorkflow({
-  id: 'order',
-  deps: { getCart, processPayment, sendConfirmation },
+export const orderWorkflow = createWorkflow("orderWorkflow", {
+  getCart,
+  processPayment,
+  sendConfirmation,
 });
 
 export async function processOrder(cartId: string, email: string) {
-  return await orderWorkflow(async (step, ctx) => {
+  return await orderWorkflow(async (step, deps) => {
     // Using tags() const for errors
-    const cart = await step('getCart', () => ctx.deps.getCart(cartId), {
+    const cart = await step('getCart', () => deps.getCart(cartId), {
       errors: cartErrors,
       out: 'cart',
     });
 
     // Using tags() const for errors
-    const payment = await step('processPayment', () => ctx.deps.processPayment(cart.total), {
+    const payment = await step('processPayment', () => deps.processPayment(cart.total), {
       errors: paymentErrors,
       out: 'payment',
     });
 
     // Inline errors array
-    await step('sendConfirmation', () => ctx.deps.sendConfirmation(email), {
+    await step('sendConfirmation', () => deps.sendConfirmation(email), {
       errors: ['EMAIL_FAILED'],
     });
 

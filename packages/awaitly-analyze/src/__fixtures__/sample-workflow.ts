@@ -24,7 +24,7 @@ const applyDiscount = async (
 };
 
 // Create the workflow
-export const sampleWorkflow = createWorkflow({
+export const sampleWorkflow = createWorkflow("sampleWorkflow", {
   fetchUser,
   fetchPosts,
   applyDiscount,

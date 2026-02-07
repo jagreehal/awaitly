@@ -7,7 +7,7 @@
  * ```typescript
  * import { createSagaWorkflow, runSaga } from 'awaitly/saga';
  *
- * const bookingWorkflow = createSagaWorkflow({
+ * const bookingWorkflow = createSagaWorkflow('booking', {
  *   reserveFlight: { execute: reserveFlight, compensate: cancelFlight },
  *   reserveHotel: { execute: reserveHotel, compensate: cancelHotel },
  *   chargeCard: { execute: chargeCard, compensate: refundCard },

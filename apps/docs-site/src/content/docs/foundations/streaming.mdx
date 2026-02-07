@@ -8,7 +8,7 @@ import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 Stream data in real-time within workflows. Perfect for AI token streaming, live updates, and processing large datasets incrementally.
 
 <Aside type="caution" title="Options go to createWorkflow">
-The `streamStore` option must be passed to `createWorkflow(deps, { streamStore })`, not when calling the workflow.
+The `streamStore` option must be passed to `createWorkflow('workflow', deps, { streamStore })`, not when calling the workflow.
 </Aside>
 
 ## Quick Start
@@ -21,7 +21,7 @@ import { createMemoryStreamStore, toAsyncIterable } from 'awaitly/streaming';
 const streamStore = createMemoryStreamStore();
 
 // 2. Pass it to createWorkflow
-const workflow = createWorkflow(deps, { streamStore });
+const workflow = createWorkflow('workflow', deps, { streamStore });
 
 // 3. Write to streams
 const result = await workflow(async (step) => {
@@ -363,7 +363,7 @@ for (const item of largeDataset) {
 Stream operations emit events:
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   streamStore,
   onEvent: (event) => {
     switch (event.type) {
@@ -438,8 +438,7 @@ import {
 
 const streamStore = createMemoryStreamStore();
 
-const workflow = createWorkflow(
-  { generateTokens },
+const workflow = createWorkflow('workflow', { generateTokens },
   { streamStore }
 );
 

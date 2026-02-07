@@ -503,7 +503,7 @@ export interface HITLOrchestrator {
  * // Execute workflow - IMPORTANT: pass onEvent to createWorkflow!
  * const result = await orchestrator.execute(
  *   'order-approval',
- *   ({ resumeState, onEvent }) => createWorkflow(deps, { resumeState, onEvent }),
+ *   ({ resumeState, onEvent }) => createWorkflow('order-approval', deps, { resumeState, onEvent }),
  *   async (step, deps, input) => {
  *     const order = await step(() => deps.createOrder(input));
  *     const approval = await step(() => deps.requireApproval(order.id), { key: `approval:${order.id}` });

@@ -38,7 +38,7 @@ import { AnimatedWorkflowDiagram } from '~/components';
 import { createWorkflow } from 'awaitly/workflow';
 
 // Execute workflow
-const workflow = createWorkflow({ fetchUser, fetchPosts });
+const workflow = createWorkflow('workflow', { fetchUser, fetchPosts });
 
 await workflow(async (step, deps) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
@@ -54,7 +54,7 @@ await db.save('wf-123', JSON.stringify(snapshot));
 const saved = await db.load('wf-123');
 const restoredSnapshot = JSON.parse(saved);
 
-const workflow2 = createWorkflow({ fetchUser, fetchPosts }, {
+const workflow2 = createWorkflow('workflow', { fetchUser, fetchPosts }, {
   snapshot: restoredSnapshot,
 });
 
@@ -88,13 +88,13 @@ Then use the store:
 
 ```typescript
 // Execute + persist
-const workflow = createWorkflow({ fetchUser });
+const workflow = createWorkflow('workflow', { fetchUser });
 await workflow(myWorkflowFn);
 await store.save('wf-123', workflow.getSnapshot());
 
 // Restore + resume
 const snapshot = await store.load('wf-123');
-const workflow2 = createWorkflow({ fetchUser }, { snapshot });
+const workflow2 = createWorkflow('workflow', { fetchUser }, { snapshot });
 await workflow2(myWorkflowFn);
 ```
 
@@ -139,7 +139,7 @@ You can use `JSON.stringify()` and `JSON.parse()` directly - no special serializ
 Use `subscribe()` to automatically save after each step:
 
 ```typescript
-const workflow = createWorkflow({ fetchUser });
+const workflow = createWorkflow('workflow', { fetchUser });
 
 // Auto-save on every step completion
 const unsubscribe = workflow.subscribe(async (event) => {
@@ -170,7 +170,7 @@ workflow.subscribe(listener, {
 Configure snapshot behavior:
 
 ```typescript
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   snapshot: loadedSnapshot,      // null = fresh start
   onUnknownSteps: 'warn',        // 'warn' | 'error' | 'ignore'
   onDefinitionChange: 'warn',    // 'warn' | 'error' | 'ignore'

@@ -1,6 +1,6 @@
 import { createSagaWorkflow } from "awaitly/workflow";
 
-const saga = createSagaWorkflow({
+const saga = createSagaWorkflow("saga", {
   createOrder: async () => ({ id: "1" }),
   cancelOrder: async () => {},
 });

@@ -42,7 +42,7 @@ const autotel = createAutotelAdapter({
 });
 
 // Use with workflow
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   onEvent: autotel.handleEvent,
 });
 
@@ -75,7 +75,7 @@ For debug logging without full metrics collection:
 import { createWorkflow } from 'awaitly/workflow';
 import { createAutotelEventHandler } from 'awaitly/otel';
 
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   onEvent: createAutotelEventHandler({
     serviceName: 'checkout',
     includeStepDetails: true,
@@ -146,11 +146,11 @@ const inventoryTelemetry = createAutotelAdapter({
   defaultAttributes: { workflow: 'inventory' },
 });
 
-const checkoutWorkflow = createWorkflow(checkoutDeps, {
+const checkoutWorkflow = createWorkflow('checkout', checkoutDeps, {
   onEvent: checkoutTelemetry.handleEvent,
 });
 
-const inventoryWorkflow = createWorkflow(inventoryDeps, {
+const inventoryWorkflow = createWorkflow('inventory', inventoryDeps, {
   onEvent: inventoryTelemetry.handleEvent,
 });
 ```
@@ -165,7 +165,7 @@ import { createVisualizer } from 'awaitly-visualizer';
 const autotel = createAutotelAdapter({ serviceName: 'checkout' });
 const viz = createVisualizer({ workflowName: 'checkout' });
 
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   onEvent: (event) => {
     autotel.handleEvent(event);
     viz.handleEvent(event);
@@ -180,7 +180,7 @@ Extend the adapter output with your own metrics:
 ```typescript
 const autotel = createAutotelAdapter({ serviceName: 'checkout' });
 
-const workflow = createWorkflow(deps, {
+const workflow = createWorkflow('workflow', deps, {
   onEvent: (event) => {
     autotel.handleEvent(event);
 

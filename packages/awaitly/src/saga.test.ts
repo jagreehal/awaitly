@@ -13,7 +13,7 @@ describe("Saga / Compensation Pattern", () => {
       const step1 = vi.fn().mockResolvedValue(ok({ id: "1" }));
       const step2 = vi.fn().mockResolvedValue(ok({ id: "2" }));
 
-      const saga = createSagaWorkflow({ step1, step2 });
+      const saga = createSagaWorkflow("saga", { step1, step2 });
 
       const result = await saga(async (ctx) => {
         const r1 = await ctx.step('step1', () => step1());
@@ -47,7 +47,7 @@ describe("Saga / Compensation Pattern", () => {
         compensationOrder.push("refund-payment");
       });
 
-      const saga = createSagaWorkflow({ reserveInventory, chargeCard, sendEmail });
+      const saga = createSagaWorkflow("checkout", { reserveInventory, chargeCard, sendEmail });
 
       const result = await saga(async (ctx) => {
         const reservation = await ctx.step('reserveInventory', () => reserveInventory(), {
@@ -83,7 +83,7 @@ describe("Saga / Compensation Pattern", () => {
 
       const compensate1 = vi.fn().mockRejectedValue(new Error("Compensation failed!"));
 
-      const saga = createSagaWorkflow({ reserveInventory, chargeCard });
+      const saga = createSagaWorkflow("checkout", { reserveInventory, chargeCard });
 
       const result = await saga(async (ctx) => {
         const reservation = await ctx.step("reserve", () => reserveInventory(), {
@@ -110,7 +110,7 @@ describe("Saga / Compensation Pattern", () => {
       const step1 = vi.fn().mockResolvedValue(ok({ id: "1" }));
       const step2 = vi.fn().mockResolvedValue(ok({ id: "2" }));
 
-      const saga = createSagaWorkflow({ step1, step2 });
+      const saga = createSagaWorkflow("saga", { step1, step2 });
 
       let recordedCompensations: Array<{ name?: string; hasValue: boolean }> = [];
 
@@ -138,6 +138,7 @@ describe("Saga / Compensation Pattern", () => {
       const step1 = vi.fn().mockResolvedValue(ok({ id: "1" }));
 
       const saga = createSagaWorkflow(
+        "saga",
         { step1 },
         { onEvent: (e) => events.push(e as SagaEvent) }
       );
@@ -158,6 +159,7 @@ describe("Saga / Compensation Pattern", () => {
       const compensate = vi.fn();
 
       const saga = createSagaWorkflow(
+        "saga",
         { step1, step2 },
         { onEvent: (e) => events.push(e as SagaEvent) }
       );

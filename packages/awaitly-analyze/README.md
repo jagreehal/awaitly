@@ -25,6 +25,12 @@ awaitly-analyze ./src/workflows/checkout.ts -o --suffix=analysis --format=json
 
 # Write to file only, suppress stdout
 awaitly-analyze ./src/workflows/checkout.ts -o --no-stdout
+
+# Generate interactive HTML with click-to-inspect
+awaitly-analyze ./src/workflows/checkout.ts --html
+
+# Custom HTML output path
+awaitly-analyze ./src/workflows/checkout.ts --html --html-output=./docs/checkout.html
 ```
 
 ### CLI Options
@@ -32,11 +38,15 @@ awaitly-analyze ./src/workflows/checkout.ts -o --no-stdout
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--format=<format>` | `mermaid` | Output format: `mermaid` or `json` |
+| `--html` | - | Generate interactive HTML file (Mermaid CDN + click-to-inspect) |
+| `--html-output=<path>` | `<basename>.html` | Output path for the HTML file |
 | `--keys` | - | Show step cache keys in diagram |
 | `--direction=<dir>` | `TB` | Diagram direction: `TB`, `LR`, `BT`, `RL` |
 | `--output-adjacent`, `-o` | - | Write output file next to source file |
 | `--suffix=<value>` | `workflow` | Configurable suffix for output file |
 | `--no-stdout` | - | Suppress stdout when writing to file (requires `-o`) |
+| `--dsl-output=<value>` | `off` | Write DSL: `off`, `.awaitly`, or custom path (for visualization) |
+| `--write-dsl` | - | Shorthand for `--dsl-output=.awaitly` |
 | `--help`, `-h` | - | Show help message |
 
 ### Output File Naming
@@ -284,6 +294,77 @@ console.log('Execution order:', order.map(n => n.name).join(' -> '));
 const diagram = renderGraphMermaid(graph);
 ```
 
+### Interactive HTML
+
+Generate a self-contained HTML file with an interactive Mermaid diagram and a click-to-inspect panel. The output includes 6 color themes, system preference auto-detection, and localStorage persistence.
+
+#### `extractNodeMetadata(ir)`
+
+Walk the IR tree and produce a `WorkflowMetadata` object with per-node details (step IDs, callees, retry/timeout config, types, source locations) keyed by Mermaid node ID.
+
+```typescript
+import { analyze, extractNodeMetadata } from 'awaitly-analyze';
+import type { WorkflowMetadata } from 'awaitly-analyze';
+
+const ir = analyze('./checkout.ts').single();
+const metadata: WorkflowMetadata = extractNodeMetadata(ir);
+```
+
+#### `generateInteractiveHTML(mermaidText, metadata, options?)`
+
+Combine Mermaid text from `renderStaticMermaid()` with metadata from `extractNodeMetadata()` into a complete HTML string.
+
+```typescript
+import {
+  analyze,
+  renderStaticMermaid,
+  extractNodeMetadata,
+  generateInteractiveHTML,
+} from 'awaitly-analyze';
+import type { InteractiveHTMLOptions } from 'awaitly-analyze';
+
+const ir = analyze('./checkout.ts').single();
+const mermaid = renderStaticMermaid(ir);
+const metadata = extractNodeMetadata(ir);
+const html = generateInteractiveHTML(mermaid, metadata, {
+  theme: 'midnight',          // 'midnight' | 'ocean' | 'ember' | 'forest' | 'daylight' | 'paper'
+  title: 'Checkout Workflow', // defaults to workflow name
+  direction: 'TB',            // diagram direction
+});
+
+import { writeFileSync } from 'node:fs';
+writeFileSync('checkout.html', html);
+```
+
+**`InteractiveHTMLOptions`:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `title` | `string` | workflow name | Page title |
+| `theme` | `string` | auto-detect | Initial color theme |
+| `mermaidCdnUrl` | `string` | latest v11 | Mermaid CDN URL |
+| `direction` | `"TB" \| "LR" \| "BT" \| "RL"` | `"TB"` | Diagram direction |
+
+### Workflow Diagram DSL
+
+#### `renderWorkflowDSL(ir)`
+
+Produce a state-machine-like DSL for xstate-style visualization (states and transitions with event labels). Types are defined in `awaitly/workflow`; the analyzer emits DSL that conforms to them.
+
+```typescript
+import { analyze, renderWorkflowDSL, writeDSLToAwaitlyDir } from 'awaitly-analyze';
+import type { WorkflowDiagramDSL } from 'awaitly/workflow';
+
+const ir = analyze('./checkout.ts').single();
+const dsl: WorkflowDiagramDSL = renderWorkflowDSL(ir);
+
+// Optional: write to .awaitly/dsl/ (default) or a custom folder
+await writeDSLToAwaitlyDir(dsl, { rootDir: process.cwd() });
+// Custom folder: await writeDSLToAwaitlyDir(dsl, { rootDir: process.cwd(), outputDir: 'dist/dsl' });
+```
+
+**Snapshot alignment:** When a workflow is running, `WorkflowSnapshot.execution.currentStepId` holds the step key. DSL step state ids use the same step key so a visualizer can highlight the current node. See `awaitly/workflow` diagram-dsl types for details.
+
 ### JSON Output
 
 #### `renderStaticJSON(ir, options?)`
@@ -370,6 +451,11 @@ import type {
   // Graph
   WorkflowGraph,
   WorkflowGraphNode,
+
+  // Interactive HTML
+  NodeMetadata,
+  WorkflowMetadata,
+  InteractiveHTMLOptions,
 } from 'awaitly-analyze';
 ```
 

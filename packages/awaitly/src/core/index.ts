@@ -1590,23 +1590,24 @@ export interface StreamEndedMarkerType {
 export type ScopeType = "parallel" | "race" | "allSettled";
 
 export type WorkflowEvent<E, C = unknown> =
-  | { type: "workflow_start"; workflowId: string; ts: number; context?: C }
-  | { type: "workflow_success"; workflowId: string; ts: number; durationMs: number; context?: C }
-  | { type: "workflow_error"; workflowId: string; ts: number; durationMs: number; error: E; context?: C }
-  | { type: "step_start"; workflowId: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; context?: C }
-  | { type: "step_success"; workflowId: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; context?: C }
-  | { type: "step_error"; workflowId: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; error: E; context?: C }
-  | { type: "step_aborted"; workflowId: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; context?: C }
-  | { type: "step_complete"; workflowId: string; stepKey: string; name?: string; description?: string; ts: number; durationMs: number; result: Result<unknown, unknown, unknown>; meta?: StepFailureMeta; context?: C }
-  | { type: "step_cache_hit"; workflowId: string; stepKey: string; name?: string; ts: number; context?: C }
-  | { type: "step_cache_miss"; workflowId: string; stepKey: string; name?: string; ts: number; context?: C }
-  | { type: "step_skipped"; workflowId: string; stepKey?: string; name?: string; reason?: string; decisionId?: string; ts: number; context?: C }
-  | { type: "scope_start"; workflowId: string; scopeId: string; scopeType: ScopeType; name?: string; ts: number; context?: C }
-  | { type: "scope_end"; workflowId: string; scopeId: string; ts: number; durationMs: number; winnerId?: string; context?: C }
+  | { type: "workflow_start"; workflowId: string; workflowName?: string; ts: number; context?: C }
+  | { type: "workflow_success"; workflowId: string; workflowName?: string; ts: number; durationMs: number; context?: C }
+  | { type: "workflow_error"; workflowId: string; workflowName?: string; ts: number; durationMs: number; error: E; context?: C }
+  | { type: "step_start"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; context?: C }
+  | { type: "step_success"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; context?: C }
+  | { type: "step_error"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; error: E; context?: C }
+  | { type: "step_aborted"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; context?: C }
+  | { type: "step_complete"; workflowId: string; workflowName?: string; stepKey: string; name?: string; description?: string; ts: number; durationMs: number; result: Result<unknown, unknown, unknown>; meta?: StepFailureMeta; context?: C }
+  | { type: "step_cache_hit"; workflowId: string; workflowName?: string; stepKey: string; name?: string; ts: number; context?: C }
+  | { type: "step_cache_miss"; workflowId: string; workflowName?: string; stepKey: string; name?: string; ts: number; context?: C }
+  | { type: "step_skipped"; workflowId: string; workflowName?: string; stepKey?: string; name?: string; reason?: string; decisionId?: string; ts: number; context?: C }
+  | { type: "scope_start"; workflowId: string; workflowName?: string; scopeId: string; scopeType: ScopeType; name?: string; ts: number; context?: C }
+  | { type: "scope_end"; workflowId: string; workflowName?: string; scopeId: string; ts: number; durationMs: number; winnerId?: string; context?: C }
   // Retry events
   | {
       type: "step_retry";
       workflowId: string;
+      workflowName?: string;
       stepId: string;
       stepKey?: string;
       name?: string;
@@ -1620,6 +1621,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "step_retries_exhausted";
       workflowId: string;
+      workflowName?: string;
       stepId: string;
       stepKey?: string;
       name?: string;
@@ -1633,6 +1635,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "step_timeout";
       workflowId: string;
+      workflowName?: string;
       stepId: string;
       stepKey?: string;
       name?: string;
@@ -1645,6 +1648,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "hook_should_run";
       workflowId: string;
+      workflowName?: string;
       ts: number;
       durationMs: number;
       result: boolean;
@@ -1654,6 +1658,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "hook_should_run_error";
       workflowId: string;
+      workflowName?: string;
       ts: number;
       durationMs: number;
       error: E;
@@ -1662,6 +1667,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "hook_before_start";
       workflowId: string;
+      workflowName?: string;
       ts: number;
       durationMs: number;
       result: boolean;
@@ -1671,6 +1677,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "hook_before_start_error";
       workflowId: string;
+      workflowName?: string;
       ts: number;
       durationMs: number;
       error: E;
@@ -1679,6 +1686,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "hook_after_step";
       workflowId: string;
+      workflowName?: string;
       stepKey: string;
       ts: number;
       durationMs: number;
@@ -1687,6 +1695,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "hook_after_step_error";
       workflowId: string;
+      workflowName?: string;
       stepKey: string;
       ts: number;
       durationMs: number;
@@ -1697,6 +1706,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "stream_created";
       workflowId: string;
+      workflowName?: string;
       namespace: string;
       ts: number;
       context?: C;
@@ -1704,6 +1714,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "stream_write";
       workflowId: string;
+      workflowName?: string;
       namespace: string;
       position: number;
       ts: number;
@@ -1712,6 +1723,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "stream_read";
       workflowId: string;
+      workflowName?: string;
       namespace: string;
       position: number;
       ts: number;
@@ -1720,6 +1732,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "stream_close";
       workflowId: string;
+      workflowName?: string;
       namespace: string;
       finalPosition: number;
       ts: number;
@@ -1728,6 +1741,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "stream_error";
       workflowId: string;
+      workflowName?: string;
       namespace: string;
       error: unknown;
       position: number;
@@ -1737,6 +1751,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "stream_backpressure";
       workflowId: string;
+      workflowName?: string;
       namespace: string;
       bufferedCount: number;
       state: "paused" | "flowing";
@@ -1747,6 +1762,7 @@ export type WorkflowEvent<E, C = unknown> =
   | {
       type: "workflow_cancelled";
       workflowId: string;
+      workflowName?: string;
       ts: number;
       durationMs: number;
       /** Reason from AbortSignal.reason (if provided) */
@@ -1786,6 +1802,11 @@ export type RunOptionsWithCatch<E, C = void> = {
    */
   workflowId?: string;
   /**
+   * Human-readable workflow name included on emitted events.
+   * Useful for observability and visualization.
+   */
+  workflowName?: string;
+  /**
    * Arbitrary context object passed to onEvent and onError.
    * Useful for passing request IDs, user IDs, or loggers.
    */
@@ -1812,6 +1833,11 @@ export type RunOptionsWithoutCatch<E, C = void> = {
   onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
   catchUnexpected?: undefined;
   workflowId?: string;
+  /**
+   * Human-readable workflow name included on emitted events.
+   * Useful for observability and visualization.
+   */
+  workflowName?: string;
   context?: C;
   /**
    * @internal External signal for workflow-level cancellation.
@@ -2188,6 +2214,7 @@ export function run<T, E, C = void>(
     onError: (error: E | UnexpectedError, stepName?: string, ctx?: C) => void;
     onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
     workflowId?: string;
+    workflowName?: string;
     context?: C;
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
@@ -2203,6 +2230,7 @@ export function run<T, C = void>(
   options?: {
     onEvent?: (event: WorkflowEvent<UnexpectedError, C>, ctx: C) => void;
     workflowId?: string;
+    workflowName?: string;
     context?: C;
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
@@ -2219,6 +2247,7 @@ export async function run<T, E, C = void>(
     onEvent,
     catchUnexpected,
     workflowId: providedWorkflowId,
+    workflowName,
     context,
     _workflowSignal,
   } = options && typeof options === "object"
@@ -2247,15 +2276,20 @@ export async function run<T, E, C = void>(
     // Add context to event only if:
     // 1. Event doesn't already have context (preserves replayed events or per-step overrides)
     // 2. Workflow actually has a context (don't add context: undefined property)
-    const eventWithContext = 
+    const eventWithContext =
       event.context !== undefined || context === undefined
         ? event
         : ({ ...event, context: context as C } as WorkflowEvent<E | UnexpectedError, C>);
+
+    const eventWithName =
+      workflowName !== undefined && eventWithContext.workflowName === undefined
+        ? ({ ...eventWithContext, workflowName } as WorkflowEvent<E | UnexpectedError, C>)
+        : eventWithContext;
     
     // Track first successful step in the innermost race scope for winnerId
-    if (eventWithContext.type === "step_success") {
+    if (eventWithName.type === "step_success") {
       // Use the stepId from the event (already generated at step start)
-      const stepId = eventWithContext.stepId;
+      const stepId = eventWithName.stepId;
 
       // Find innermost race scope (search from end of stack)
       for (let i = activeScopeStack.length - 1; i >= 0; i--) {
@@ -2266,7 +2300,7 @@ export async function run<T, E, C = void>(
         }
       }
     }
-    onEvent?.(eventWithContext, context as C);
+    onEvent?.(eventWithName, context as C);
   };
 
   // Use the exported early exit function with proper type parameter

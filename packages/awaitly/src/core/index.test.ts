@@ -2023,7 +2023,7 @@ describe("zipAsync() - combine two async Results", () => {
     const order: string[] = [];
 
     const a = (async () => {
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((r) => setTimeout(r, 50));
       order.push("a");
       return ok(1);
     })();

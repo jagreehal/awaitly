@@ -12,7 +12,7 @@ import { Aside, Tabs, TabItem, AnimatedWorkflowDiagram } from '~/components';
 `step()` requires an explicit string ID as the first argument: `step('id', fn, opts)` or `step('id', result, opts)`. The string literal is the step ID used in events, diagrams, and caching.
 
 ```typescript
-const workflow = createWorkflow({ fetchUser, fetchPosts });
+const workflow = createWorkflow('workflow', { fetchUser, fetchPosts });
 
 const result = await workflow(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'));
@@ -297,7 +297,7 @@ const result = await workflow(async (step) => {
 
 ```typescript
 const controller = new AbortController();
-const workflow = createWorkflow({}, { signal: controller.signal });
+const workflow = createWorkflow('workflow', { }, { signal: controller.signal });
 
 const resultPromise = workflow(async (step) => {
   await step.sleep("long-sleep", "10s");

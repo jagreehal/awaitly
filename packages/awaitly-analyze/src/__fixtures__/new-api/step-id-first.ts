@@ -32,27 +32,28 @@ const sendReceipt = async (
 };
 
 // Workflow using new API
-export const checkoutWorkflow = createWorkflow({
-  id: 'checkout',
-  deps: { getCart, chargeCard, sendReceipt },
+export const checkoutWorkflow = createWorkflow("checkoutWorkflow", {
+  getCart,
+  chargeCard,
+  sendReceipt,
 });
 
 export async function runCheckout(userId: string, cartId: string) {
-  return await checkoutWorkflow(async (step, ctx) => {
+  return await checkoutWorkflow(async (step, deps) => {
     // Step with ID, errors, and out
-    const cart = await step('getCart', () => ctx.deps.getCart(cartId), {
+    const cart = await step('getCart', () => deps.getCart(cartId), {
       errors: ['CART_NOT_FOUND', 'CART_EMPTY'],
       out: 'cart',
     });
 
-    // Step using ctx.ref() for tracked reads
-    const charge = await step('chargeCard', () => ctx.deps.chargeCard(ctx.ref('cart').total), {
+    // Step using cart from previous step
+    const charge = await step('chargeCard', () => deps.chargeCard(cart.total), {
       errors: ['CARD_DECLINED', 'INSUFFICIENT_FUNDS'],
       out: 'charge',
     });
 
-    // Step with multiple ctx.ref() reads
-    await step('sendReceipt', () => ctx.deps.sendReceipt(userId, ctx.ref('charge').chargeId), {
+    // Step with charge from previous step
+    await step('sendReceipt', () => deps.sendReceipt(userId, charge.chargeId), {
       errors: ['EMAIL_FAILED'],
     });
 

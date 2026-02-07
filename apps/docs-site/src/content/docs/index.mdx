@@ -45,7 +45,7 @@ const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
   id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND');
 
 // Create workflow - error types are inferred
-const workflow = createWorkflow({ fetchUser });
+const workflow = createWorkflow('workflow', { fetchUser });
 
 // Run it
 const result = await workflow(async (step) => {

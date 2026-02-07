@@ -13,7 +13,7 @@ describe("Dep Source Tracking", () => {
     it("detects dep from deps.xxx() pattern", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ getCart: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { getCart: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('getCart', () => deps.getCart('123'));
@@ -33,7 +33,7 @@ describe("Dep Source Tracking", () => {
     it("detects dep from ctx.deps.xxx() pattern", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ fetchUser: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { fetchUser: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, ctx) => {
             await step('getUser', () => ctx.deps.fetchUser('1'));
@@ -55,7 +55,7 @@ describe("Dep Source Tracking", () => {
     it("extracts dep from options object", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ getCart: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { getCart: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('getCart', () => {
@@ -80,7 +80,7 @@ describe("Dep Source Tracking", () => {
     it("extracts dep from step.dep() wrapper", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ getCart: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { getCart: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('getCart', step.dep('getCart', () => deps.getCart('123')));
@@ -100,7 +100,7 @@ describe("Dep Source Tracking", () => {
     it("step.dep() takes precedence over auto-detection", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ getCart: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { getCart: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('getCart', step.dep('cartService', () => deps.getCart('123')));
@@ -123,7 +123,7 @@ describe("Dep Source Tracking", () => {
     it("explicit dep option overrides auto-detection", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
-        const workflow = createWorkflow({ getCart: async () => ok({}) });
+        const workflow = createWorkflow("workflow", { getCart: async () => ok({}) });
         export async function run() {
           return await workflow(async (step, deps) => {
             await step('getCart', () => deps.getCart('123'), { dep: 'cartRetrieval' });

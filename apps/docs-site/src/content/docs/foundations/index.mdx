@@ -66,7 +66,7 @@ Where workflows, runs, and options live:
 ```mermaid
 flowchart LR
   subgraph creation [Creation-time options]
-    createWorkflow["createWorkflow(deps, options)"]
+    createWorkflow["createWorkflow(name, deps, options)"]
     options[resumeState, onEvent, cache, ...]
     createWorkflow --> options
   end
@@ -91,7 +91,7 @@ flowchart LR
   run --> durable
 ```
 
-- **Creation-time**: Pass options to `createWorkflow(deps, options)`. They apply to every run.
+- **Creation-time**: Pass options to `createWorkflow(name, deps, options)`. They apply to every run.
 - **Per-run**: Pass options to `workflow.run(fn, exec)` (or `workflow.run(args, fn, exec)`). They apply only to that invocation.
 - **Never**: `workflow(fn, opts)` ignores the extra object; Awaitly warns and points you to `.run(...)` or `createWorkflow`.
 - **Durable**: `durable.run(...)` wraps a workflow with a store and checkpoints after each keyed step.
@@ -103,7 +103,7 @@ flowchart LR
 | `ok(value)` | Create a success Result |
 | `err(error)` | Create a failure Result |
 | `step('id', fn)` | Execute operation, exit early on error |
-| `createWorkflow(deps)` | Create reusable workflow with error inference |
+| `createWorkflow('workflow', deps)` | Create reusable workflow with error inference (deps optional: `createWorkflow('name')` for no deps) |
 | `allAsync([...])` | Run operations in parallel (fail-fast) |
 | `step.retry(id, fn, opts)` | Retry with backoff on failure |
 | `resumeState` | Continue from saved checkpoint |

@@ -298,7 +298,7 @@ describe("Conditional Helpers", () => {
       const fetchUser = async (): AsyncResult<{ id: string; isPremium: boolean }, never> => 
         ok({ id: "1", isPremium: false });
 
-      const workflow = createWorkflow({ fetchUser }, {
+      const workflow = createWorkflow("workflow", { fetchUser }, {
         onEvent: (event) => events.push(event),
       });
 
@@ -326,7 +326,7 @@ describe("Conditional Helpers", () => {
       const fetchUser = async (): AsyncResult<{ id: string; isPremium: boolean }, never> => 
         ok({ id: "1", isPremium: false });
 
-      const workflow = createWorkflow({ fetchUser }, {
+      const workflow = createWorkflow("workflow", { fetchUser }, {
         createContext: (): RequestContext => ({ requestId: "req-123" }),
         onEvent: (event) => events.push(event),
       });
@@ -355,7 +355,7 @@ describe("Conditional Helpers", () => {
     it("ctx parameter can be ignored (backward compatible)", async () => {
       const fetchUser = async (): AsyncResult<{ id: string }, never> => ok({ id: "1" });
 
-      const workflow = createWorkflow({ fetchUser });
+      const workflow = createWorkflow("workflow", { fetchUser });
 
       // Code that doesn't use ctx parameter still works (TypeScript allows unused parameters)
       const result = await workflow(async (step) => {

@@ -18,7 +18,7 @@ const sendNotification = async (
   return ok({ sent: true });
 };
 
-export const mainWorkflow = createWorkflow({
+export const mainWorkflow = createWorkflow("mainWorkflow", {
   fetchUserData,
   sendNotification,
 });

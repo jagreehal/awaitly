@@ -13,7 +13,7 @@ Use `allAsync` to run operations concurrently:
 import { allAsync } from 'awaitly';
 import { createWorkflow } from 'awaitly/workflow';
 
-const workflow = createWorkflow({ fetchUser, fetchPosts, fetchComments });
+const workflow = createWorkflow('workflow', { fetchUser, fetchPosts, fetchComments });
 
 const result = await workflow(async (step) => {
   const [user, posts, comments] = await step('fetchUserData', () =>
@@ -136,7 +136,7 @@ const result = await processInBatches(
 );
 ```
 
-See [Batch Processing/../guides/batch-processing/) for details.
+See [Batch Processing](/guides/batch-processing/) for details.
 
 ## Parallel with dependencies
 
@@ -237,7 +237,7 @@ const sendNotification = async (
   }
 };
 
-const notifyUsers = createWorkflow({ fetchUser, sendNotification });
+const notifyUsers = createWorkflow('workflow', { fetchUser, sendNotification });
 
 const result = await notifyUsers(async (step) => {
   const userIds = ['1', '2', '3', '4', '5'];

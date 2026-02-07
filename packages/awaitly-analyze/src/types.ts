@@ -20,7 +20,7 @@
 export interface StaticBaseNode {
   /** Unique identifier for this node (generated during analysis) */
   id: string;
-  /** Human-readable name (from step options or inferred from function name) */
+  /** Human-readable name (for steps: from first arg stepId in awaitly; for other nodes from options or inferred) */
   name?: string;
   /** Cache key if specified (may be "<dynamic>" for template literals) */
   key?: string;
@@ -46,19 +46,28 @@ export interface SourceLocation {
 
 /**
  * A single step in the workflow.
+ * Aligns with awaitly: step identity is always the first argument (stepId), never from options.
  */
 export interface StaticStepNode extends StaticBaseNode {
   type: "step";
-  /** Step ID from first argument: step('id', fn, opts) - required */
+  /** Step ID from first argument: step('id', fn, opts). In awaitly this is the required first param. */
   stepId: string;
   /** The function being called (e.g., "fetchUser", "deps.validateCart") */
   callee?: string;
-  /** Short description for labels/tooltips (static analysis) */
+  /** Short description for labels/tooltips (from options.description; static analysis) */
   description?: string;
   /** Full markdown documentation (static analysis) */
   markdown?: string;
   /** JSDoc description from comment above the step statement (static analysis) */
   jsdocDescription?: string;
+  /** JSDoc @param tags (name + description) */
+  jsdocParams?: Array<{ name: string; description?: string }>;
+  /** JSDoc @returns description */
+  jsdocReturns?: string;
+  /** JSDoc @throws descriptions */
+  jsdocThrows?: string[];
+  /** JSDoc @example text */
+  jsdocExample?: string;
   /** Retry configuration if specified */
   retry?: StaticRetryConfig;
   /** Timeout configuration if specified */
@@ -72,6 +81,12 @@ export interface StaticStepNode extends StaticBaseNode {
   reads?: string[];
   /** Dependency source (from step.dep() or detected from callee) */
   depSource?: string;
+  /** Inferred input type(s) from type checker (e.g. step argument types) */
+  inputType?: string;
+  /** Inferred output type from type checker (e.g. unwrapped Promise/Result success type) */
+  outputType?: string;
+  /** Source location of the step callee's definition (e.g. where deps.getBatch is defined) */
+  depLocation?: SourceLocation;
 }
 
 /**
@@ -90,6 +105,8 @@ export interface StaticDecisionNode extends StaticBaseNode {
   consequent: StaticFlowNode[];
   /** The "else" branch (when condition is false) */
   alternate?: StaticFlowNode[];
+  /** Inferred type of the condition expression (e.g. "boolean") */
+  conditionType?: string;
 }
 
 /**
@@ -184,6 +201,8 @@ export interface StaticConditionalNode extends StaticBaseNode {
   alternate?: StaticFlowNode[];
   /** For whenOr/unlessOr, the default value as source string */
   defaultValue?: string;
+  /** Inferred type of the condition expression (e.g. "boolean") */
+  conditionType?: string;
 }
 
 /**
@@ -252,6 +271,8 @@ export interface StaticWorkflowRefNode extends StaticBaseNode {
   resolved: boolean;
   /** The full IR of the referenced workflow (if resolved and inlined) */
   inlinedIR?: StaticWorkflowIR;
+  /** Source location of the referenced workflow's definition (when resolved) */
+  definitionLocation?: SourceLocation;
 }
 
 /**
@@ -269,6 +290,7 @@ export interface StaticUnknownNode extends StaticBaseNode {
 /**
  * A saga step in a saga workflow.
  * Represents saga.step() or saga.tryStep() calls with optional compensation.
+ * Aligns with awaitly: saga.step(name, operation, options?) — name is the first argument, not in options.
  */
 export interface StaticSagaStepNode extends StaticBaseNode {
   type: "saga-step";
@@ -284,6 +306,14 @@ export interface StaticSagaStepNode extends StaticBaseNode {
   markdown?: string;
   /** JSDoc description from comment above the saga step statement (static analysis) */
   jsdocDescription?: string;
+  /** JSDoc @param tags (name + description) */
+  jsdocParams?: Array<{ name: string; description?: string }>;
+  /** JSDoc @returns description */
+  jsdocReturns?: string;
+  /** JSDoc @throws descriptions */
+  jsdocThrows?: string[];
+  /** JSDoc @example text */
+  jsdocExample?: string;
   /** Whether this is a tryStep (error-mapped step) */
   isTryStep?: boolean;
 }
@@ -334,10 +364,20 @@ export interface StaticWorkflowNode extends StaticBaseNode {
   markdown?: string;
   /** JSDoc description from comment above the workflow declaration (static analysis) */
   jsdocDescription?: string;
+  /** JSDoc @param tags (name + description) */
+  jsdocParams?: Array<{ name: string; description?: string }>;
+  /** JSDoc @returns description */
+  jsdocReturns?: string;
+  /** JSDoc @throws descriptions */
+  jsdocThrows?: string[];
+  /** JSDoc @example text */
+  jsdocExample?: string;
   /** Whether strict mode is enabled for this workflow */
   strict?: boolean;
   /** Declared errors for the workflow (strict mode contract) */
   declaredErrors?: string[];
+  /** Inferred return type of the workflow callback (from type checker) */
+  workflowReturnType?: string;
 }
 
 /**

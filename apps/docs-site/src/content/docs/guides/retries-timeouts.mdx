@@ -490,7 +490,7 @@ Using step options is equivalent to `step.retry` with `step.withTimeout`, but mo
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 
-const workflow = createWorkflow({ fetchUserFromApi, cacheUser });
+const workflow = createWorkflow('workflow', { fetchUserFromApi, cacheUser });
 
 const result = await workflow(async (step) => {
   // Retry API calls with production-ready settings

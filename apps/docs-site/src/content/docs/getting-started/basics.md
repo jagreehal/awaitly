@@ -128,10 +128,10 @@ if (result.ok) {
 
 | Need | Use |
 |------|-----|
-| Dependency injection for testing | `createWorkflow(deps)` |
-| Retries, timeouts, caching | `createWorkflow(deps)` with step helpers |
-| State persistence | `createWorkflow(deps)` |
-| Auto-inferred error types from deps | `createWorkflow(deps)` |
+| Dependency injection for testing | `createWorkflow('workflow', deps)` |
+| Retries, timeouts, caching | `createWorkflow('workflow', deps)` with step helpers |
+| State persistence | `createWorkflow('workflow', deps)` |
+| Auto-inferred error types from deps | `createWorkflow('workflow', deps)` |
 
 For most cases, start with `run()`. You can always migrate later.
 

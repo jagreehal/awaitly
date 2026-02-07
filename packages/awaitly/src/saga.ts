@@ -9,7 +9,7 @@
  * ```typescript
  * import { createSagaWorkflow, ok, err } from 'awaitly';
  *
- * const checkout = createSagaWorkflow({ reserveInventory, chargeCard, sendEmail });
+ * const checkout = createSagaWorkflow('checkout', { reserveInventory, chargeCard, sendEmail });
  *
  * const result = await checkout(async (saga) => {
  *   const reservation = await saga.step(
@@ -152,12 +152,12 @@ export interface SagaContext<E = unknown> {
  * Saga event types for observability.
  */
 export type SagaEvent =
-  | { type: "saga_start"; sagaId: string; ts: number }
-  | { type: "saga_success"; sagaId: string; ts: number; durationMs: number }
-  | { type: "saga_error"; sagaId: string; ts: number; durationMs: number; error: unknown }
-  | { type: "saga_compensation_start"; sagaId: string; ts: number; stepCount: number }
-  | { type: "saga_compensation_step"; sagaId: string; stepName?: string; ts: number; success: boolean; error?: unknown }
-  | { type: "saga_compensation_end"; sagaId: string; ts: number; durationMs: number; success: boolean; failedCount: number };
+  | { type: "saga_start"; sagaId: string; workflowName?: string; ts: number }
+  | { type: "saga_success"; sagaId: string; workflowName?: string; ts: number; durationMs: number }
+  | { type: "saga_error"; sagaId: string; workflowName?: string; ts: number; durationMs: number; error: unknown }
+  | { type: "saga_compensation_start"; sagaId: string; workflowName?: string; ts: number; stepCount: number }
+  | { type: "saga_compensation_step"; sagaId: string; workflowName?: string; stepName?: string; ts: number; success: boolean; error?: unknown }
+  | { type: "saga_compensation_end"; sagaId: string; workflowName?: string; ts: number; durationMs: number; success: boolean; failedCount: number };
 
 /**
  * Options for createSagaWorkflow.
@@ -220,7 +220,7 @@ type ErrorsOfDeps<Deps extends Record<string, AnyResultFn>> = {
  *
  * @example
  * ```typescript
- * const saga = createSagaWorkflow({ reserveInventory, chargeCard });
+ * const saga = createSagaWorkflow('checkout', { reserveInventory, chargeCard });
  *
  * const result = await saga(async (ctx) => {
  *   const reservation = await ctx.step(
@@ -242,12 +242,19 @@ type ErrorsOfDeps<Deps extends Record<string, AnyResultFn>> = {
 export function createSagaWorkflow<
   const Deps extends Readonly<Record<string, AnyResultFn>>
 >(
+  workflowName: string,
   deps: Deps,
   options?: SagaWorkflowOptions<ErrorsOfDeps<Deps>>
 ): <T>(
   fn: (saga: SagaContext<ErrorsOfDeps<Deps>>, deps: Deps) => Promise<T>
 ) => Promise<SagaResult<T, ErrorsOfDeps<Deps>>> {
   type E = ErrorsOfDeps<Deps>;
+
+  if (typeof workflowName !== "string" || workflowName.length === 0) {
+    throw new TypeError(
+      "createSagaWorkflow(workflowName, deps, options?): first argument must be a non-empty string. Example: createSagaWorkflow('checkout', { reserveInventory, chargeCard })"
+    );
+  }
 
   return async <T>(
     fn: (saga: SagaContext<E>, deps: Deps) => Promise<T>
@@ -257,7 +264,11 @@ export function createSagaWorkflow<
     const compensations: RecordedCompensation[] = [];
 
     const emitEvent = (event: SagaEvent | WorkflowEvent<E | UnexpectedError>) => {
-      options?.onEvent?.(event);
+      const withName =
+        (event as { workflowName?: string }).workflowName === undefined
+          ? ({ ...(event as object), workflowName } as typeof event)
+          : event;
+      options?.onEvent?.(withName);
     };
 
     emitEvent({

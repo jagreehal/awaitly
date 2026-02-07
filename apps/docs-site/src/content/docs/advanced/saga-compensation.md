@@ -11,8 +11,7 @@ Define compensating actions for steps that need rollback on downstream failures.
 import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/saga';
 
 // Create saga with deps (error types inferred automatically)
-const checkoutSaga = createSagaWorkflow(
-  { reserveInventory, chargeCard, sendConfirmation },
+const checkoutSaga = createSagaWorkflow('saga', { reserveInventory, chargeCard, sendConfirmation },
   { onEvent: (event) => console.log(event) }
 );
 
@@ -147,8 +146,7 @@ const result = await runSaga<CheckoutResult, CheckoutError>(async (saga) => {
 ## Real-world example: Order fulfillment
 
 ```typescript
-const fulfillOrder = createSagaWorkflow({
-  reserveStock,
+const fulfillOrder = createSagaWorkflow('saga', { reserveStock,
   createShipment,
   chargePayment,
   updateOrder,
@@ -265,7 +263,7 @@ Result: SagaCompensationError with compensationErrors: [{stepName: 'charge', err
 ```typescript
 import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/saga';
 
-const orderSaga = createSagaWorkflow(deps, {
+const orderSaga = createSagaWorkflow('saga', deps, {
   onEvent: async (event) => {
     if (event.type === 'compensation_error') {
       // Alert immediately when compensation fails
@@ -386,7 +384,7 @@ Compensations may run multiple times. Design them to be safe.
 ### Use idempotency keys
 
 ```typescript
-const orderSaga = createSagaWorkflow(deps);
+const orderSaga = createSagaWorkflow('saga', deps);
 
 const result = await orderSaga(async (saga, deps) => {
   const payment = await saga.step(

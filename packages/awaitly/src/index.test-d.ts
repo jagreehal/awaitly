@@ -84,11 +84,18 @@ async function _test1() {
 async function _testWebhookCustomUnexpected() {
   type AppError = "NOT_FOUND";
   const workflow = createWorkflow(
+    "webhook",
     { fetchUser },
     { catchUnexpected: () => ({ type: "INTERNAL" as const }) }
   );
 
-  const handler = createWebhookHandler<{ id: string }, { ok: boolean }, AppError>(
+  // When using custom catchUnexpected, pass TUnexpected as 4th type arg so config types line up
+  const handler = createWebhookHandler<
+    { id: string },
+    { ok: boolean },
+    AppError,
+    { type: "INTERNAL" }
+  >(
     workflow,
     async (step, deps, body) => {
       await step("fetchUser", () => fetchUser(body.id));
@@ -300,6 +307,7 @@ function _test6() {
 
 async function _test6a() {
   const workflow = createWorkflow(
+    "test6a",
     { fetchUser },
     {
       createContext: () => ({ traceId: "trace-123" }),
@@ -325,6 +333,7 @@ async function _test6a() {
 
 async function _test6aa() {
   const workflow = createWorkflow(
+    "test6aa",
     { fetchUser },
     {
       createContext: () => ({ traceId: "trace-456" }),
@@ -351,6 +360,7 @@ async function _test6aa() {
 
 async function _test6ab() {
   const workflow = createWorkflow(
+    "test6ab",
     { fetchUser },
     {
       createContext: () => ({ traceId: "trace-789" }),
@@ -372,6 +382,7 @@ async function _test6ab() {
 
 async function _test6ac() {
   const workflow = createWorkflow(
+    "test6ac",
     { fetchUser },
     {
       createContext: () => ({ traceId: "trace-900" }),
@@ -506,7 +517,7 @@ async function _test8() {
 
 async function _test9() {
   // Create workflow with deps object - error types inferred automatically
-  const getPosts = createWorkflow({ fetchUser, fetchPosts });
+  const getPosts = createWorkflow("getPosts", { fetchUser, fetchPosts });
 
   const result = await getPosts(async (step) => {
     const user = await step("fetchUser", () => fetchUser("123"));
@@ -529,7 +540,7 @@ async function _test9() {
 // =============================================================================
 
 async function _test10() {
-  const getPosts = createWorkflow({ fetchUser, fetchPosts });
+  const getPosts = createWorkflow("getPosts", { fetchUser, fetchPosts });
 
   // Uses object is passed as second argument for destructuring
   const result = await getPosts(async (step, { fetchUser: fu, fetchPosts: fp }) => {
@@ -549,6 +560,7 @@ async function _test10() {
 
 async function _test11() {
   const getPosts = createWorkflow(
+    "getPosts",
     { fetchUser, fetchPosts },
     {
       catchUnexpected: () => "UNEXPECTED" as const,
@@ -613,7 +625,7 @@ async function _test12b() {
   type BeneficiaryErrors = ErrorsOfDeps<typeof beneficiaryDeps>;
   expectType<BeneficiaryServiceError>({} as BeneficiaryErrors);
 
-  const beneficiaryWorkflow = createWorkflow(beneficiaryDeps);
+  const beneficiaryWorkflow = createWorkflow("beneficiaryWorkflow", beneficiaryDeps);
 
   const result = await beneficiaryWorkflow(async (step, deps) => {
     const valid = await step("validatePayload", () => deps.validatePayload({ id: "123" }));
@@ -636,6 +648,7 @@ async function _test13() {
   const errors: Array<"NOT_FOUND" | "FETCH_ERROR" | UnexpectedError> = [];
 
   const getPosts = createWorkflow(
+    "getPosts",
     { fetchUser, fetchPosts },
     {
       onError: (error) => {
@@ -827,7 +840,7 @@ async function _test22AsyncResultTypedCause() {
 // =============================================================================
 
 async function _test23WorkflowWithArgs() {
-  const workflow = createWorkflow({ fetchUser, fetchPosts });
+  const workflow = createWorkflow("workflowWithArgs", { fetchUser, fetchPosts });
 
   // With args - type inferred from first argument
   const result = await workflow({ id: "123", limit: 10 }, async (step, deps, args) => {
@@ -847,7 +860,7 @@ async function _test23WorkflowWithArgs() {
 // =============================================================================
 
 async function _test24WorkflowBackwardsCompatible() {
-  const workflow = createWorkflow({ fetchUser, fetchPosts });
+  const workflow = createWorkflow("workflowNoArgs", { fetchUser, fetchPosts });
 
   // Original API still works - no args
   const result = await workflow(async (step, deps) => {
@@ -866,11 +879,31 @@ async function _test24WorkflowBackwardsCompatible() {
 }
 
 // =============================================================================
+// TEST 24B: createWorkflow without deps object
+// =============================================================================
+
+async function _test24bWorkflowNoDeps() {
+  const workflow = createWorkflow("workflowNoDeps");
+
+  const result = await workflow(async (step, deps) => {
+    // no deps object provided at creation, so deps should not be required for step helpers
+    expectType<unknown>(deps);
+    await step.sleep("pause", "1ms");
+    return 123;
+  });
+
+  if (result.ok) {
+    expectType<number>(result.value);
+  }
+}
+
+// =============================================================================
 // TEST 25: createWorkflow strict mode with args
 // =============================================================================
 
 async function _test25WorkflowStrictWithArgs() {
   const workflow = createWorkflow(
+    "workflowStrictWithArgs",
     { fetchUser, fetchPosts },
     {
       catchUnexpected: () => "UNEXPECTED" as const,
@@ -895,7 +928,7 @@ async function _test25WorkflowStrictWithArgs() {
 // =============================================================================
 
 async function _test26WorkflowPrimitiveArgs() {
-  const workflow = createWorkflow({ fetchUser });
+  const workflow = createWorkflow("workflowPrimitiveArgs", { fetchUser });
 
   // Primitive arg type (string)
   const result = await workflow("user-123", async (step, deps, id) => {
@@ -923,7 +956,7 @@ async function _test27WorkflowCauseIsUnknown() {
     }
   };
 
-  const workflow = createWorkflow({ fetchWithTypedCause });
+  const workflow = createWorkflow("workflowTypedCause", { fetchWithTypedCause });
 
   const result = await workflow(async (step) => {
     return await step("fetchUser", () => fetchWithTypedCause("1"));
@@ -1094,7 +1127,7 @@ async function _test36ParallelWithCreateWorkflow() {
     Promise.resolve(ok([{ id: "p1", title: `Post by ${userId}` }]));
 
   // createWorkflow should infer error union from deps
-  const workflow = createWorkflow({ fetchUser, fetchPosts });
+  const workflow = createWorkflow("parallelCreateWorkflow", { fetchUser, fetchPosts });
 
   const result = await workflow(async (step, { fetchUser, fetchPosts }) => {
     const { user, posts } = await step.parallel("Fetch user and posts", {
@@ -1125,6 +1158,7 @@ async function _testContextTypeSafety() {
 
   // Test 1: WorkflowEvent includes context type
   const workflow = createWorkflow(
+    "contextTypeSafety",
     { fetchUser },
     {
       createContext: (): RequestContext => ({
@@ -1170,7 +1204,7 @@ async function _testContextTypeSafety() {
 async function _testContextDefaultsToUnknown() {
   // When no context is provided, WorkflowEvent should default to unknown
   // But createWorkflow without createContext uses void for C
-  const workflow = createWorkflow({ fetchUser }, {
+  const workflow = createWorkflow("contextDefaults", { fetchUser }, {
     onEvent: (event, ctx) => {
       // event.context should be void | undefined (default C = void)
       expectType<void | undefined>(event.context);
@@ -1183,8 +1217,12 @@ async function _testContextDefaultsToUnknown() {
     return await step("fetchUser", () => fetchUser("123"));
   });
   
-  // Test with explicit unknown context type
-  const workflowWithUnknown = createWorkflow<{ fetchUser: typeof fetchUser }, unknown>({ fetchUser }, {
+  // Test with explicit unknown context type (3rd generic = C)
+  const workflowWithUnknown = createWorkflow<
+    { fetchUser: typeof fetchUser },
+    UnexpectedError,
+    unknown
+  >("contextUnknown", { fetchUser }, {
     onEvent: (event, ctx) => {
       // When explicitly typed as unknown, context should be unknown | undefined
       expectType<unknown | undefined>(event.context);
@@ -1270,7 +1308,7 @@ function _testWorkflowEventContextGeneric() {
   
   // Extract a specific event type
   type WorkflowStartEvent = Extract<EventWithContext, { type: "workflow_start" }>;
-  expectType<{ type: "workflow_start"; workflowId: string; ts: number; context?: RequestContext }>(
+  expectType<{ type: "workflow_start"; workflowId: string; workflowName?: string; ts: number; context?: RequestContext }>(
     {} as WorkflowStartEvent
   );
 
@@ -1278,6 +1316,7 @@ function _testWorkflowEventContextGeneric() {
   expectType<{
     type: "step_error";
     workflowId: string;
+    workflowName?: string;
     stepId: string;
     stepKey?: string;
     name?: string;
@@ -1766,7 +1805,7 @@ async function _test52WorkflowRunInference() {
   const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> =>
     ok({ id, name: "Alice" });
 
-  const workflow = createWorkflow({ fetchUser });
+  const workflow = createWorkflow("workflowRunInference", { fetchUser });
 
   // workflow.run(fn) should infer T as number
   const result1 = await workflow.run(async (step) => {
@@ -1792,7 +1831,7 @@ async function _test53WorkflowWithInference() {
   const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> =>
     ok({ id, name: "Alice" });
 
-  const workflow = createWorkflow({ fetchUser });
+  const workflow = createWorkflow("workflowWithInference", { fetchUser });
   const w2 = workflow.with({ onEvent: () => {} });
 
   // w2(fn) should work and infer T
@@ -1821,7 +1860,7 @@ async function _test54WorkflowWithRunInference() {
   const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> =>
     ok({ id, name: "Alice" });
 
-  const workflow = createWorkflow({ fetchUser });
+  const workflow = createWorkflow("workflowWithRunInference", { fetchUser });
   const w2 = workflow.with({ onEvent: () => {} });
 
   // w2.run(args, fn, exec) should infer Args and T
@@ -1848,6 +1887,7 @@ async function _test55ExecutionOptionsType() {
 
   // Create workflow with context type
   const workflow = createWorkflow(
+    "workflowExecOptions",
     { fetchUser },
     {
       createContext: (): RequestContext => ({ requestId: "default" }),

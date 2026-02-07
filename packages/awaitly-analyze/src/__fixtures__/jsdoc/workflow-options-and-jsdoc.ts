@@ -4,6 +4,7 @@ import { createWorkflow } from "awaitly/workflow";
  * JSDoc description for the workflow.
  */
 const workflow = createWorkflow(
+  "workflow",
   {},
   { description: "Options description", markdown: "# Options markdown" }
 );

@@ -39,7 +39,7 @@ flowchart TD
   durableRun[durable.run(deps, fn, { id, store, version })]
   load[store.load(id)]
   versionCheck[version_check]
-  build[createWorkflow(deps, { resumeState })]
+  build[createWorkflow('workflow', deps, { resumeState })]
   run[workflow.run(fn)]
   persist[persist_after_each_keyed_step]
   success[on_success_delete_state]

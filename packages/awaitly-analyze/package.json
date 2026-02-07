@@ -50,6 +50,10 @@
     "url": "git+https://github.com/jagreehal/awaitly.git"
   },
   "license": "MIT",
+  "dependencies": {
+    "awaitly": "workspace:*",
+    "awaitly-visualizer": "workspace:*"
+  },
   "peerDependencies": {
     "ts-morph": ">=27.0.2"
   },

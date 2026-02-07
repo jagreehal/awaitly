@@ -50,7 +50,7 @@ describe("Mermaid Validation - Special Characters", () => {
   it("should handle step names with parentheses", async () => {
     const collector = createEventCollector({ workflowName: "test-workflow" });
 
-    const workflow = createWorkflow({ fetchUserWithSpecialChars }, {
+    const workflow = createWorkflow("workflow", { fetchUserWithSpecialChars }, {
       onEvent: collector.handleEvent,
     });
 
@@ -73,7 +73,7 @@ describe("Mermaid Validation - Special Characters", () => {
   it("should handle step names with brackets", async () => {
     const collector = createEventCollector({ workflowName: "test-workflow" });
 
-    const workflow = createWorkflow({ processDataWithBrackets }, {
+    const workflow = createWorkflow("workflow", { processDataWithBrackets }, {
       onEvent: collector.handleEvent,
     });
 
@@ -96,7 +96,7 @@ describe("Mermaid Validation - Special Characters", () => {
   it("should handle step names with quotes", async () => {
     const collector = createEventCollector({ workflowName: "test-workflow" });
 
-    const workflow = createWorkflow({ fetchUserWithSpecialChars }, {
+    const workflow = createWorkflow("workflow", { fetchUserWithSpecialChars }, {
       onEvent: collector.handleEvent,
     });
 
@@ -119,7 +119,7 @@ describe("Mermaid Validation - Special Characters", () => {
   it("should handle parallel subgraph names with special chars", async () => {
     const collector = createEventCollector({ workflowName: "test-workflow" });
 
-    const workflow = createWorkflow({ fetchUserWithSpecialChars }, {
+    const workflow = createWorkflow("workflow", { fetchUserWithSpecialChars }, {
       onEvent: collector.handleEvent,
     });
 
@@ -143,7 +143,7 @@ describe("Mermaid Validation - Special Characters", () => {
     const fetch1 = async (): AsyncResult<string, "ERROR"> => ok("result1");
     const fetch2 = async (): AsyncResult<string, "ERROR"> => ok("result2");
 
-    const workflow = createWorkflow({ fetch1, fetch2 }, {
+    const workflow = createWorkflow("workflow", { fetch1, fetch2 }, {
       onEvent: collector.handleEvent,
     });
 
@@ -164,6 +164,7 @@ describe("Mermaid Validation - Special Characters", () => {
     const collector = createEventCollector({ workflowName: "edge-cases" });
 
     const workflow = createWorkflow(
+      "workflow",
       { fetchUserWithSpecialChars, processDataWithBrackets },
       {
         onEvent: collector.handleEvent,
@@ -216,7 +217,7 @@ describe("Mermaid Enhanced Edges", () => {
 
     const collector = createEventCollector({ workflowName: "retry-test" });
 
-    const workflow = createWorkflow({ failingThenSucceed }, {
+    const workflow = createWorkflow("workflow", { failingThenSucceed }, {
       onEvent: collector.handleEvent,
     });
 
@@ -244,7 +245,7 @@ describe("Mermaid Enhanced Edges", () => {
 
     const collector = createEventCollector({ workflowName: "error-test" });
 
-    const workflow = createWorkflow({ alwaysFails }, {
+    const workflow = createWorkflow("workflow", { alwaysFails }, {
       onEvent: collector.handleEvent,
     });
 
@@ -276,7 +277,7 @@ describe("Mermaid Enhanced Edges", () => {
 
     const collector = createEventCollector({ workflowName: "timeout-test" });
 
-    const workflow = createWorkflow({ slowOperation }, {
+    const workflow = createWorkflow("workflow", { slowOperation }, {
       onEvent: collector.handleEvent,
     });
 
@@ -312,7 +313,7 @@ describe("Mermaid Enhanced Edges", () => {
 
     const viz = createVisualizer({ workflowName: "options-test" });
 
-    const workflow = createWorkflow({ failingThenSucceed }, {
+    const workflow = createWorkflow("workflow", { failingThenSucceed }, {
       onEvent: viz.handleEvent,
     });
 

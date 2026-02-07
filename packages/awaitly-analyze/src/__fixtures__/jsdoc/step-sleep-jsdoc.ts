@@ -1,6 +1,6 @@
 import { createWorkflow } from "awaitly/workflow";
 
-const workflow = createWorkflow({});
+const workflow = createWorkflow("workflow", {});
 
 async function run() {
   return await workflow(async (step) => {

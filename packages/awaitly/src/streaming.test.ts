@@ -290,7 +290,7 @@ describe("createWorkflow with streaming", () => {
     const streamStore = createMemoryStreamStore();
     const deps = {};
 
-    const workflow = createWorkflow(deps, { streamStore });
+    const workflow = createWorkflow("workflow", deps, { streamStore });
 
     const result = await workflow(async (step) => {
       const writer = step.getWritable<string>({ namespace: "test" });
@@ -321,7 +321,7 @@ describe("createWorkflow with streaming", () => {
 
   it("releases backpressure when reader consumes items", async () => {
     const streamStore = createMemoryStreamStore();
-    const workflow = createWorkflow({}, { streamStore });
+    const workflow = createWorkflow("workflow", {}, { streamStore });
 
     const result = await workflow(async (step) => {
       const writer = step.getWritable<string>({
@@ -359,6 +359,7 @@ describe("createWorkflow with streaming", () => {
     const events: WorkflowEvent<unknown>[] = [];
 
     const workflow = createWorkflow(
+      "workflow",
       {},
       {
         streamStore,
@@ -393,7 +394,7 @@ describe("createWorkflow with streaming", () => {
 
   it("waits for first write when reader starts before any items exist", async () => {
     const streamStore = createMemoryStreamStore();
-    const workflow = createWorkflow({}, { streamStore });
+    const workflow = createWorkflow("workflow", {}, { streamStore });
 
     const result = await workflow(async (step) => {
       const writer = step.getWritable<string>({ namespace: "delayed" });
@@ -425,7 +426,7 @@ describe("createWorkflow with streaming", () => {
 
   it("waits when reader starts before writer is created", async () => {
     const streamStore = createMemoryStreamStore();
-    const workflow = createWorkflow({}, { streamStore });
+    const workflow = createWorkflow("workflow", {}, { streamStore });
 
     const result = await workflow(async (step) => {
       const reader = step.getReadable<string>({
@@ -455,7 +456,7 @@ describe("createWorkflow with streaming", () => {
 
   it("honors startIndex when reading from stream", async () => {
     const streamStore = createMemoryStreamStore();
-    const workflow = createWorkflow({}, { streamStore });
+    const workflow = createWorkflow("workflow", {}, { streamStore });
 
     const result = await workflow(async (step) => {
       const writer = step.getWritable<number>({ namespace: "start-index" });
@@ -483,7 +484,7 @@ describe("createWorkflow with streaming", () => {
   });
 
   it("returns UnexpectedError when streamStore not provided", async () => {
-    const workflow = createWorkflow({});
+    const workflow = createWorkflow("workflow", {});
 
     const result = await workflow(async (step) => {
       step.getWritable<string>();
@@ -501,6 +502,7 @@ describe("createWorkflow with streaming", () => {
     let capturedWorkflowId = "";
 
     const workflow = createWorkflow(
+      "workflow",
       {},
       {
         streamStore,
@@ -540,7 +542,7 @@ describe("createWorkflow with streaming", () => {
 
   it("supports multiple namespaces in same workflow", async () => {
     const streamStore = createMemoryStreamStore();
-    const workflow = createWorkflow({}, { streamStore });
+    const workflow = createWorkflow("workflow", {}, { streamStore });
 
     const result = await workflow(async (step) => {
       const writer1 = step.getWritable<string>({ namespace: "ns1" });
@@ -812,7 +814,7 @@ describe("stream transformers", () => {
 describe("stream error handling", () => {
   it("write to closed stream returns error", async () => {
     const streamStore = createMemoryStreamStore();
-    const workflow = createWorkflow({}, { streamStore });
+    const workflow = createWorkflow("workflow", {}, { streamStore });
 
     const result = await workflow(async (step) => {
       const writer = step.getWritable<string>({ namespace: "test" });
@@ -836,7 +838,7 @@ describe("stream error handling", () => {
 
   it("close already closed stream returns error", async () => {
     const streamStore = createMemoryStreamStore();
-    const workflow = createWorkflow({}, { streamStore });
+    const workflow = createWorkflow("workflow", {}, { streamStore });
 
     const result = await workflow(async (step) => {
       const writer = step.getWritable<string>({ namespace: "test" });
@@ -858,7 +860,7 @@ describe("stream error handling", () => {
 
   it("read from empty stream returns STREAM_ENDED", async () => {
     const streamStore = createMemoryStreamStore();
-    const workflow = createWorkflow({}, { streamStore });
+    const workflow = createWorkflow("workflow", {}, { streamStore });
 
     const result = await workflow(async (step) => {
       // Use short pollTimeout since no writer will ever exist
@@ -885,6 +887,7 @@ describe("stream error handling", () => {
     const events: WorkflowEvent<unknown>[] = [];
 
     const workflow = createWorkflow(
+      "workflow",
       {},
       {
         streamStore,
@@ -919,7 +922,7 @@ describe("step.streamForEach", () => {
       process: async (item: number) => ok(item * 2),
     };
 
-    const workflow = createWorkflow(deps, { streamStore });
+    const workflow = createWorkflow("workflow", deps, { streamStore });
     const result = await workflow(async (step, deps) => {
       // Write items
       const writer = step.getWritable<number>({ namespace: "process" });
@@ -945,6 +948,7 @@ describe("step.streamForEach", () => {
     const collector = createResumeStateCollector();
 
     const workflow = createWorkflow(
+      "workflow",
       {},
       {
         streamStore,
@@ -977,6 +981,7 @@ describe("step.streamForEach", () => {
     const events: WorkflowEvent<unknown>[] = [];
 
     const workflow = createWorkflow(
+      "workflow",
       {},
       {
         streamStore,
@@ -1047,7 +1052,7 @@ describe("step.streamForEach", () => {
       yield "world";
     }
 
-    const workflow = createWorkflow(deps, { streamStore });
+    const workflow = createWorkflow("workflow", deps, { streamStore });
     const result = await workflow(async (step, deps) => {
       return step.streamForEach(
         source(),
@@ -1063,7 +1068,7 @@ describe("step.streamForEach", () => {
 
   it("processes async iterable items before source completes when concurrency > 1", async () => {
     const streamStore = createMemoryStreamStore();
-    const workflow = createWorkflow({}, { streamStore });
+    const workflow = createWorkflow("workflow", {}, { streamStore });
 
     const result = await workflow(async (step) => {
       let startedProcessing = false;
@@ -1111,7 +1116,7 @@ describe("step.streamForEach", () => {
 
   it("preserves all results when concurrency slots complete out of order", async () => {
     const streamStore = createMemoryStreamStore();
-    const workflow = createWorkflow({}, { streamStore });
+    const workflow = createWorkflow("workflow", {}, { streamStore });
 
     const result = await workflow(async (step) => {
       const writer = step.getWritable<number>({ namespace: "out-of-order" });
@@ -1145,7 +1150,7 @@ describe("step.streamForEach", () => {
 
   it("honors concurrency option when processing items", async () => {
     const streamStore = createMemoryStreamStore();
-    const workflow = createWorkflow({}, { streamStore });
+    const workflow = createWorkflow("workflow", {}, { streamStore });
     let inFlight = 0;
     let maxInFlight = 0;
 
@@ -1176,7 +1181,7 @@ describe("step.streamForEach", () => {
 
   it("processes items before stream is closed when concurrency > 1", async () => {
     const streamStore = createMemoryStreamStore();
-    const workflow = createWorkflow({}, { streamStore });
+    const workflow = createWorkflow("workflow", {}, { streamStore });
 
     const result = await workflow(async (step) => {
       const writer = step.getWritable<number>({ namespace: "live" });

@@ -29,7 +29,7 @@ const fetchSettings = async (
   return ok({ theme: "dark" });
 };
 
-export const parallelWorkflow = createWorkflow({
+export const parallelWorkflow = createWorkflow("parallelWorkflow", {
   fetchUser,
   fetchPosts,
   fetchFriends,

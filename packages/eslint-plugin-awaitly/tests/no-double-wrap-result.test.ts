@@ -72,7 +72,7 @@ describe('no-double-wrap-result', () => {
     });
 
     it('allows returning raw value from createWorkflow executor', () => {
-      const code = `createWorkflow({ fetchUser })(async (step) => {
+      const code = `createWorkflow('workflow', { fetchUser })(async (step) => {
         const user = await step(fetchUser('1'));
         return { user };
       });`;
@@ -156,7 +156,7 @@ describe('no-double-wrap-result', () => {
     });
 
     it('reports ok() in createWorkflow executor', () => {
-      const code = `createWorkflow({ fetchUser })(async (step, { fetchUser }) => {
+      const code = `createWorkflow('workflow', { fetchUser })(async (step, { fetchUser }) => {
         const user = await step(fetchUser('1'));
         return ok({ user });
       });`;
@@ -188,7 +188,7 @@ describe('no-double-wrap-result', () => {
     it('reports ok() in createWorkflow().run() chained call', () => {
       // Direct chain from createWorkflow can be detected
       const code = `
-        createWorkflow({ fetchUser }).run(async (step) => {
+        createWorkflow('workflow', { fetchUser }).run(async (step) => {
           const user = await step(() => fetchUser());
           return ok({ user });
         });
@@ -199,7 +199,7 @@ describe('no-double-wrap-result', () => {
 
     it('reports ok() in createWorkflow().with().run() chained call', () => {
       const code = `
-        createWorkflow({ fetchUser })
+        createWorkflow('workflow', { fetchUser })
           .with({ onEvent: () => {} })
           .run(async (step) => {
             const user = await step(() => fetchUser());
@@ -267,7 +267,7 @@ describe('no-double-wrap-result', () => {
       // This is a known limitation - we can't statically trace variable origins
       // The runtime warning will catch these cases
       const code = `
-        const workflow = createWorkflow({ fetchUser });
+        const workflow = createWorkflow('workflow', { fetchUser });
         workflow.run(async (step) => {
           return ok({ user: 'test' });
         });
@@ -280,7 +280,7 @@ describe('no-double-wrap-result', () => {
     it('cannot detect workflowInstance() calls (variable-based)', () => {
       // Same limitation - variable-based workflow calls can't be traced
       const code = `
-        const myWorkflow = createWorkflow({ fetchUser });
+        const myWorkflow = createWorkflow('workflow', { fetchUser });
         myWorkflow(async (step) => {
           return ok({ data: 123 });
         });

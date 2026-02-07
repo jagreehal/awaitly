@@ -14,9 +14,9 @@ import type {
  * Workflow executors should return raw values - awaitly wraps them automatically.
  *
  * BAD:  run(async (step) => { return ok({ user }); })      - Double-wrapped
- * BAD:  createWorkflow(deps)(async (step) => ok(value))    - Double-wrapped
+ * BAD:  createWorkflow('workflow', deps)(async (step) => ok(value))    - Double-wrapped
  * GOOD: run(async (step) => { return { user }; })          - Raw value
- * GOOD: createWorkflow(deps)(async (step) => value)        - Raw value
+ * GOOD: createWorkflow('workflow', deps)(async (step) => value)        - Raw value
  */
 
 const WORKFLOW_CALLERS = new Set(['run', 'createWorkflow']);
@@ -26,7 +26,7 @@ type FunctionNode = ArrowFunctionExpression | FunctionExpression;
 
 /**
  * Trace back through a chain of method calls to find if it originates from createWorkflow().
- * Handles patterns like: createWorkflow(deps).with(...).run(...)
+ * Handles patterns like: createWorkflow('workflow', deps).with(...).run(...)
  */
 function tracesToCreateWorkflow(node: Node): boolean {
   // Direct createWorkflow() call
@@ -39,7 +39,7 @@ function tracesToCreateWorkflow(node: Node): boolean {
   }
 
   // Method call on something - trace back through the chain
-  // e.g., createWorkflow(deps).with(...) -> check createWorkflow(deps)
+  // e.g., createWorkflow('workflow', deps).with(...) -> check createWorkflow(...)
   if (node.type === 'CallExpression' && node.callee.type === 'MemberExpression') {
     const { object } = node.callee;
     return tracesToCreateWorkflow(object);
@@ -56,14 +56,14 @@ function isWorkflowCall(node: CallExpression): boolean {
     return true;
   }
 
-  // Chained: createWorkflow(deps)(async (step) => ...)
+  // Chained: createWorkflow('workflow', deps)(async (step) => ...)
   // The outer call's callee is another CallExpression
   if (callee.type === 'CallExpression') {
     const innerCallee = callee.callee;
     if (innerCallee.type === 'Identifier' && innerCallee.name === 'createWorkflow') {
       return true;
     }
-    // Handle createWorkflow(deps).with(...)(async (step) => ...)
+    // Handle createWorkflow('workflow', deps).with(...)(async (step) => ...)
     // where the inner call is on a member of createWorkflow result
     if (innerCallee.type === 'MemberExpression') {
       const { object, property } = innerCallee;
@@ -96,7 +96,7 @@ function isWorkflowCall(node: CallExpression): boolean {
       return true;
     }
 
-    // createWorkflow(deps).run(...) or createWorkflow(deps).with(...).run(...)
+    // createWorkflow('workflow', deps).run(...) or .with(...).run(...)
     // Trace back through the chain to find createWorkflow
     if (
       property.type === 'Identifier' &&

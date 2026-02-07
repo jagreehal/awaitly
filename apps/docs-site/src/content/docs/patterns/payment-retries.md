@@ -28,8 +28,7 @@ import { postgres } from 'awaitly-postgres';
 
 const store = postgres(process.env.DATABASE_URL!);
 
-const workflow = createWorkflow({
-  validateCard,
+const workflow = createWorkflow('workflow', { validateCard,
   chargeProvider,
   persistResult,
 });
@@ -76,7 +75,7 @@ If the workflow crashes after charging but before persisting:
 const snapshot = await store.load(idempotencyKey);
 
 if (snapshot) {
-  const workflow = createWorkflow(deps, { snapshot });
+  const workflow = createWorkflow('workflow', deps, { snapshot });
 
   const result = await workflow(async (step) => {
     const card = await step(
@@ -170,8 +169,7 @@ async function handlePayment(orderId: string, cardToken: string, amount: number)
   const idempotencyKey = `payment:${orderId}`;
   const snapshot = await store.load(idempotencyKey);
 
-  const workflow = createWorkflow(
-    { validateCard, chargeProvider, persistResult },
+  const workflow = createWorkflow('workflow', { validateCard, chargeProvider, persistResult },
     { snapshot: snapshot ?? undefined }
   );
 
