@@ -154,7 +154,7 @@ importers:
         version: 4.1.18
       '@types/node':
         specifier: ^25
-        version: 25.2.0
+        version: 25.2.1
       '@types/react':
         specifier: ^19
         version: 19.2.13
@@ -2825,9 +2825,6 @@ packages:
 
   '@types/node@17.0.45':
     resolution: {integrity: sha512-w+tIMs3rq2afQdsPJlODhoUEKzFP1ayaoyl1CcnwtIlsVe7K7bA1NGm4s3PraqTLlXnbIN84zuBlxBWo1u9BLw==}
-
-  '@types/node@25.2.0':
-    resolution: {integrity: sha512-DZ8VwRFUNzuqJ5khrvwMXHmvPe+zGayJhr2CDNiKB1WBE1ST8Djl00D0IC4vvNmHMdj6DlbYRIaFE7WHjlDl5w==}
 
   '@types/node@25.2.1':
     resolution: {integrity: sha512-CPrnr8voK8vC6eEtyRzvMpgp3VyVRhgclonE7qYi6P9sXwYb59ucfrnmFBTaP0yUi8Gk4yZg/LlTJULGxvTNsg==}
@@ -9702,10 +9699,6 @@ snapshots:
 
   '@types/node@17.0.45': {}
 
-  '@types/node@25.2.0':
-    dependencies:
-      undici-types: 7.16.0
-
   '@types/node@25.2.1':
     dependencies:
       undici-types: 7.16.0
@@ -9735,7 +9728,7 @@ snapshots:
 
   '@types/sax@1.2.7':
     dependencies:
-      '@types/node': 25.2.1
+      '@types/node': 17.0.45
 
   '@types/trusted-types@2.0.7':
     optional: true
