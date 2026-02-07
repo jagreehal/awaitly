@@ -1,6 +1,6 @@
 {
   "name": "awaitly-mongo",
-  "version": "8.0.0",
+  "version": "9.0.0",
   "type": "module",
   "description": "MongoDB persistence adapter for awaitly workflows",
   "main": "./dist/index.cjs",
