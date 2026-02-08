@@ -1,5 +1,12 @@
 # awaitly-analyze
 
+## 0.11.0
+
+### Minor Changes
+
+- 69c2fa8: - **awaitly-analyze**: Static analyzer enhancements (path generation, complexity metrics, Mermaid output), kitchen-sink fixtures, and fixture tsconfig for type-checking test sources.
+  - **awaitly-docs**: Astro and content config updates for docs site.
+
 ## 0.10.1
 
 ### Patch Changes
