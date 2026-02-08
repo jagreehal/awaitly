@@ -48,12 +48,6 @@ export default defineConfig({
       ],
       sidebar: [
         {
-          label: 'Components',
-          items: [
-            { label: 'Overview', slug: 'components' },
-          ],
-        },
-        {
           label: 'Getting Started',
           items: [
             { label: 'Installation', slug: 'getting-started/installation' },

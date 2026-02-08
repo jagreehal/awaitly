@@ -24,11 +24,12 @@
   "scripts": {
     "build": "tsup",
     "type-check": "tsc --noEmit",
+    "type-check:fixtures": "tsc -p tsconfig.fixtures.json",
     "test": "vitest run",
     "test:watch": "vitest watch",
     "lint": "eslint .",
     "clean": "rm -rf dist",
-    "quality": "pnpm type-check && pnpm test && pnpm lint"
+    "quality": "pnpm type-check && pnpm type-check:fixtures && pnpm test && pnpm lint"
   },
   "keywords": [
     "awaitly",

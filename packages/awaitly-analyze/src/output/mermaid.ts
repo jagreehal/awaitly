@@ -699,7 +699,8 @@ function escapeLabel(label: string): string {
     .replace(/\}/g, ")")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/#/g, "&num;");
+    .replace(/#/g, "&num;")
+    .replace(/\|/g, "&#124;");
 }
 
 function truncate(str: string, maxLength: number): string {
