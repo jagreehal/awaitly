@@ -1387,6 +1387,129 @@ function findWorkflowInvocations(
     }
   });
 
+  // ── Fallback: factory pattern support ──
+  // When createWorkflow() is returned from a function (no variable binding),
+  // the direct binding-name search above finds nothing. Try two fallbacks:
+  //
+  // 1. Factory tracing: find calls to the enclosing factory function in the
+  //    same file, trace the result variable, and find invocations of it.
+  // 2. Deps-signature matching: find any callback invocation whose parameter
+  //    destructuring matches the workflow's dependency names.
+  if (invocations.length === 0 && !workflowInfo.bindingName) {
+    // Fallback 1: Factory tracing
+    // Check if createWorkflow is returned from a named function
+    let factoryName: string | undefined;
+    let current: Node | undefined = workflowInfo.callExpression.getParent();
+    while (current) {
+      if (Node.isReturnStatement(current) || Node.isArrowFunction(current)) {
+        // Walk up to find enclosing named function
+        let scope: Node | undefined = current.getParent();
+        while (scope) {
+          if (Node.isFunctionDeclaration(scope)) {
+            factoryName = (scope as { getName?: () => string | undefined }).getName?.();
+            break;
+          }
+          if (Node.isVariableDeclaration(scope)) {
+            const init = scope.getInitializer();
+            if (init && (Node.isArrowFunction(init) || Node.isFunctionExpression(init))) {
+              factoryName = scope.getName();
+              break;
+            }
+          }
+          scope = scope.getParent();
+        }
+        break;
+      }
+      current = current.getParent();
+    }
+
+    if (factoryName) {
+      // Search for calls to the factory function, trace result variables
+      const factoryResultVars: string[] = [];
+      sourceFile.forEachDescendant((node) => {
+        if (!Node.isCallExpression(node)) return;
+        const text = getCalleeText(node.getExpression());
+        if (text !== factoryName) return;
+        // Check if factory result is assigned to a variable
+        const parent = node.getParent();
+        if (parent && Node.isVariableDeclaration(parent)) {
+          factoryResultVars.push(parent.getName());
+        }
+      });
+
+      // Find invocations of factory result variables
+      for (const varName of factoryResultVars) {
+        sourceFile.forEachDescendant((node) => {
+          if (!Node.isCallExpression(node)) return;
+          const text = getCalleeText(node.getExpression());
+          if (text !== varName && text !== `await ${varName}`) return;
+          const args = node.getArguments();
+          if (args.length > 0) {
+            const firstArg = args[0];
+            if (Node.isArrowFunction(firstArg) || Node.isFunctionExpression(firstArg)) {
+              invocations.push({
+                callExpression: node,
+                callbackArg: firstArg,
+              });
+            }
+          }
+        });
+      }
+    }
+
+    // Fallback 2: Deps-signature matching
+    // When the workflow is invoked via a parameter (e.g., function run(workflow) { workflow(cb) }),
+    // match by checking if the callback's second parameter destructures the same dep names.
+    if (invocations.length === 0 && workflowInfo.depsObject) {
+      const depNames = extractDepNamesFromObject(workflowInfo.depsObject);
+
+      if (depNames.length > 0) {
+        sourceFile.forEachDescendant((node) => {
+          if (!Node.isCallExpression(node)) return;
+          const args = node.getArguments();
+          if (args.length === 0) return;
+
+          const firstArg = args[0];
+          if (!Node.isArrowFunction(firstArg) && !Node.isFunctionExpression(firstArg)) return;
+
+          // Callback must have at least 2 parameters (step + deps)
+          const params = (firstArg as { getParameters: () => Node[] }).getParameters();
+          if (params.length < 2) return;
+
+          // Second parameter must destructure names matching the workflow's deps
+          const secondParam = params[1];
+          if (!Node.isParameterDeclaration(secondParam)) return;
+          const depsNameNode = secondParam.getNameNode();
+          if (!Node.isObjectBindingPattern(depsNameNode)) return;
+
+          const boundNames = depsNameNode.getElements().map((e: { getName: () => string }) => e.getName());
+          // Require all workflow dep names to appear in the callback destructuring
+          const allDepsPresent = depNames.every((d) => boundNames.includes(d));
+
+          if (allDepsPresent) {
+            // Guard: skip if the callee resolves to a locally-defined
+            // function/variable (not a parameter) – those are unlikely to be
+            // workflow invocations.
+            const calleeExpr = node.getExpression();
+            if (Node.isIdentifier(calleeExpr)) {
+              const defs = calleeExpr.getDefinitionNodes();
+              const isLocalNonParam = defs.some(
+                (d: Node) =>
+                  Node.isFunctionDeclaration(d) ||
+                  Node.isVariableDeclaration(d)
+              );
+              if (isLocalNonParam) return;
+            }
+            invocations.push({
+              callExpression: node,
+              callbackArg: firstArg,
+            });
+          }
+        });
+      }
+    }
+  }
+
   return invocations;
 }
 
@@ -3872,6 +3995,29 @@ function isLikelyWorkflowCall(node: Node): boolean {
 // =============================================================================
 // Utility Functions
 // =============================================================================
+
+/**
+ * Extract just the property names from an object literal expression.
+ * Used for deps-signature matching in the factory pattern fallback.
+ */
+function extractDepNamesFromObject(depsNode: Node): string[] {
+  const { Node } = loadTsMorph();
+  const names: string[] = [];
+
+  if (!Node.isObjectLiteralExpression(depsNode)) {
+    return names;
+  }
+
+  for (const prop of depsNode.getProperties()) {
+    if (Node.isPropertyAssignment(prop)) {
+      names.push(prop.getName());
+    } else if (Node.isShorthandPropertyAssignment(prop)) {
+      names.push(prop.getName());
+    }
+  }
+
+  return names;
+}
 
 function extractDependencies(
   depsNode: Node,

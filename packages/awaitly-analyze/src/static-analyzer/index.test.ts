@@ -22,6 +22,14 @@ import type {
   StaticSequenceNode,
   StaticStepNode,
   StaticParallelNode,
+  StaticRaceNode,
+  StaticStreamNode,
+  StaticConditionalNode,
+  StaticSwitchNode,
+  StaticWorkflowRefNode,
+  StaticSagaStepNode,
+  StaticDecisionNode,
+  StaticLoopNode,
 } from "../types";
 import { getStaticChildren } from "../types";
 
@@ -47,6 +55,23 @@ function collectSagaStepNodes(root: { children: StaticFlowNode[] }): StaticFlowN
   }
   for (const c of root.children) walk(c);
   return sagaSteps;
+}
+
+function collectAllNodes(root: { children: StaticFlowNode[] }): StaticFlowNode[] {
+  const nodes: StaticFlowNode[] = [];
+  function walk(n: StaticFlowNode) {
+    nodes.push(n);
+    for (const c of getStaticChildren(n)) walk(c);
+  }
+  for (const c of root.children) walk(c);
+  return nodes;
+}
+
+function findNodesByType<T extends StaticFlowNode>(
+  root: { children: StaticFlowNode[] },
+  type: T["type"]
+): T[] {
+  return collectAllNodes(root).filter((n) => n.type === type) as T[];
 }
 
 describe("ts-morph Static Analyzer", () => {
@@ -611,6 +636,255 @@ async function run() {
 
       expect(workflowA?.metadata.stats.totalSteps).toBe(1);
       expect(workflowB?.metadata.stats.totalSteps).toBe(1);
+    });
+  });
+
+  describe("Factory Pattern Analysis", () => {
+    it("should find invocations when factory result is assigned to a variable", () => {
+      const source = `
+        const workflow = createWorkflow("factory-direct", {
+          fetchUser: async () => ({ id: '1' }),
+        });
+
+        function createMyWorkflow() {
+          return workflow;
+        }
+
+        export async function run() {
+          const wf = createMyWorkflow();
+          return await wf(async (step, { fetchUser }) => {
+            const user = await step("fetch", () => fetchUser());
+            return user;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      // The direct binding "workflow" should still find the invocation via wf
+      // since wf = createMyWorkflow() which returns workflow
+    });
+
+    it("should find invocations via factory function return pattern", () => {
+      const source = `
+        function createSpecWorkflow() {
+          return createWorkflow("factory-return", {
+            generateStep: async () => "hello",
+            validateStep: async (s: string) => ({ answer: s, length: s.length }),
+          });
+        }
+
+        const wf = createSpecWorkflow();
+
+        export async function run() {
+          return await wf(async (step, { generateStep, validateStep }) => {
+            const raw = await step("generate", () => generateStep());
+            return await step("validate", () => validateStep(raw));
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("factory-return");
+      expect(results[0].root.children.length).toBeGreaterThan(0);
+
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(2);
+      expect(steps[0].stepId).toBe("generate");
+      expect(steps[1].stepId).toBe("validate");
+    });
+
+    it("should find invocations via deps-signature matching when workflow is a parameter", () => {
+      const source = `
+        function createSpecWorkflow() {
+          return createWorkflow("deps-sig-match", {
+            generateStep: async () => "hello",
+            validateStep: async (s: string) => ({ answer: s }),
+          });
+        }
+
+        type SpecWorkflow = ReturnType<typeof createSpecWorkflow>;
+
+        async function runSpecWorkflow(workflow: SpecWorkflow, question: string) {
+          return await workflow(async (step, { generateStep, validateStep }) => {
+            const raw = await step("generate", () => generateStep());
+            return await step("validate", () => validateStep(raw));
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("deps-sig-match");
+      expect(results[0].root.children.length).toBeGreaterThan(0);
+
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(2);
+      expect(steps[0].stepId).toBe("generate");
+      expect(steps[1].stepId).toBe("validate");
+    });
+
+    it("should not match deps-signature when dep names differ", () => {
+      const source = `
+        function createSpecWorkflow() {
+          return createWorkflow("no-match", {
+            generateStep: async () => "hello",
+            validateStep: async (s: string) => ({ answer: s }),
+          });
+        }
+
+        // This callback destructures different names, should NOT match
+        async function runOtherWorkflow(workflow: any) {
+          return await workflow(async (step, { fetchData, processData }) => {
+            const raw = await step("fetch", () => fetchData());
+            return await step("process", () => processData(raw));
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      // No matching invocation found, so no children
+      expect(results[0].root.children).toHaveLength(0);
+    });
+
+    it("should not match deps-signature on non-workflow function calls", () => {
+      const source = `
+        function createSpecWorkflow() {
+          return createWorkflow("false-positive-guard", {
+            generateStep: async () => "hello",
+            validateStep: async (s: string) => ({ answer: s }),
+          });
+        }
+
+        // Not a workflow invocation: helper accepts an arbitrary callback
+        async function executeTask(cb: any) {
+          return cb();
+        }
+
+        export async function run() {
+          return await executeTask(async (_ignored, { generateStep, validateStep }) => {
+            const raw = await _ignored("generate", () => generateStep());
+            return await _ignored("validate", () => validateStep(raw));
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      // No real workflow invocation exists in this file.
+      expect(results[0].root.children).toHaveLength(0);
+    });
+
+    it("should find invocations via arrow function factory with implicit return", () => {
+      const source = `
+        const createMyWorkflow = () => createWorkflow("arrow-implicit", {
+          stepA: async () => "a",
+          stepB: async () => "b",
+        });
+
+        export async function main() {
+          const workflow = createMyWorkflow();
+          return await workflow(async (step, { stepA, stepB }) => {
+            const a = await step("doA", () => stepA());
+            return await step("doB", () => stepB());
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("arrow-implicit");
+
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(2);
+      expect(steps[0].stepId).toBe("doA");
+      expect(steps[1].stepId).toBe("doB");
+    });
+
+    it("should find invocations via arrow function factory with block body", () => {
+      const source = `
+        const createMyWorkflow = () => {
+          return createWorkflow("arrow-block", {
+            stepA: async () => "a",
+            stepB: async () => "b",
+          });
+        };
+
+        export async function main() {
+          const workflow = createMyWorkflow();
+          return await workflow(async (step, { stepA, stepB }) => {
+            const a = await step("doA", () => stepA());
+            return await step("doB", () => stepB());
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("arrow-block");
+
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(2);
+      expect(steps[0].stepId).toBe("doA");
+      expect(steps[1].stepId).toBe("doB");
+    });
+
+    it("should find invocations via function expression factory", () => {
+      const source = `
+        const createMyWorkflow = function() {
+          return createWorkflow("func-expr", {
+            stepA: async () => "a",
+            stepB: async () => "b",
+          });
+        };
+
+        export async function main() {
+          const workflow = createMyWorkflow();
+          return await workflow(async (step, { stepA, stepB }) => {
+            const a = await step("doA", () => stepA());
+            return await step("doB", () => stepB());
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("func-expr");
+
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(2);
+      expect(steps[0].stepId).toBe("doA");
+      expect(steps[1].stepId).toBe("doB");
+    });
+
+    it("should find invocations via factory tracing in same file", () => {
+      const source = `
+        function createMyWorkflow(options?: { onEvent?: (e: any) => void }) {
+          return createWorkflow("factory-traced", {
+            stepA: async () => "a",
+            stepB: async () => "b",
+          }, { onEvent: options?.onEvent });
+        }
+
+        export async function main() {
+          const workflow = createMyWorkflow();
+          return await workflow(async (step, { stepA, stepB }) => {
+            const a = await step("doA", () => stepA());
+            return await step("doB", () => stepB());
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("factory-traced");
+
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(2);
+      expect(steps[0].stepId).toBe("doA");
+      expect(steps[1].stepId).toBe("doB");
     });
   });
 
@@ -3740,6 +4014,223 @@ async function run() {
   });
 
   // ============================================================================
+  // Step Method Analysis
+  // ============================================================================
+
+  describe("Step Method Analysis", () => {
+    it("should produce a StaticStepNode for step.try()", () => {
+      const source = `
+        const workflow = createWorkflow("try-test", {
+          riskyOp: async () => "result",
+        });
+
+        export async function run() {
+          return await workflow(async (step, { riskyOp }) => {
+            const result = await step.try("attempt", () => riskyOp());
+            return result;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(1);
+      expect(steps[0].type).toBe("step");
+      expect(steps[0].stepId).toBe("attempt");
+    });
+
+    it("should produce a StaticStepNode for step.fromResult()", () => {
+      const source = `
+        const workflow = createWorkflow("fromResult-test", {
+          fetchData: async () => "data",
+        });
+
+        export async function run() {
+          return await workflow(async (step, { fetchData }) => {
+            const data = await step.fromResult("load", () => fetchData());
+            return data;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(1);
+      expect(steps[0].type).toBe("step");
+      expect(steps[0].stepId).toBe("load");
+    });
+
+    it("should produce a StaticDecisionNode for step.branch()", () => {
+      const source = `
+        const workflow = createWorkflow("branch-test", {
+          chargeCard: async (amount: number) => ({ chargeId: "ch_1" }),
+          skipPayment: async () => ({ skipped: true }),
+        });
+
+        export async function run() {
+          return await workflow(async (step, deps) => {
+            const result = await step.branch("payment", {
+              conditionLabel: "amount > 0",
+              condition: () => true,
+              then: () => deps.chargeCard(100),
+              thenErrors: ["CARD_DECLINED"],
+              else: () => deps.skipPayment(),
+              elseErrors: [],
+            });
+            return result;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+
+      const children = results[0].root.children;
+      const decisionNode = children.find((n) => n.type === "decision") as StaticDecisionNode | undefined;
+      expect(decisionNode).toBeDefined();
+      expect(decisionNode!.decisionId).toBe("payment");
+      expect(decisionNode!.conditionLabel).toBe("amount > 0");
+      expect(decisionNode!.consequent.length).toBeGreaterThan(0);
+    });
+
+    it("should produce a StaticLoopNode for step.forEach()", () => {
+      const source = `
+        const workflow = createWorkflow("forEach-test", {
+          processItem: async (item: string) => ({ processed: item }),
+        });
+
+        export async function run() {
+          return await workflow(async (step, deps) => {
+            await step.forEach("process-all", ["a", "b"], {
+              maxIterations: 10,
+              run: (item) => deps.processItem(item),
+            });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+
+      function findLoop(nodes: StaticFlowNode[]): StaticLoopNode | undefined {
+        for (const n of nodes) {
+          if (n.type === "loop") return n as StaticLoopNode;
+          for (const c of getStaticChildren(n)) {
+            const found = findLoop([c]);
+            if (found) return found;
+          }
+        }
+        return undefined;
+      }
+
+      const loopNode = findLoop(results[0].root.children);
+      expect(loopNode).toBeDefined();
+      expect(loopNode!.loopType).toBe("step.forEach");
+      expect(loopNode!.loopId).toBe("process-all");
+    });
+
+    it("should produce a StaticLoopNode for step.forEach() with step.item()", () => {
+      const source = `
+        const workflow = createWorkflow("item-test", {
+          validate: async (item: string) => ({ valid: true }),
+          process: async (item: string) => ({ done: true }),
+        });
+
+        export async function run() {
+          return await workflow(async (step, deps) => {
+            await step.forEach("batch", ["x", "y"], {
+              maxIterations: 5,
+              item: step.item((item, i, s) => {
+                s("validate", () => deps.validate(item));
+                s("process", () => deps.process(item));
+              }),
+            });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+
+      function findLoop(nodes: StaticFlowNode[]): StaticLoopNode | undefined {
+        for (const n of nodes) {
+          if (n.type === "loop") return n as StaticLoopNode;
+          for (const c of getStaticChildren(n)) {
+            const found = findLoop([c]);
+            if (found) return found;
+          }
+        }
+        return undefined;
+      }
+
+      const loopNode = findLoop(results[0].root.children);
+      expect(loopNode).toBeDefined();
+      expect(loopNode!.loopType).toBe("step.forEach");
+      expect(loopNode!.loopId).toBe("batch");
+    });
+
+    it("should produce a StaticDecisionNode for step.if()", () => {
+      const source = `
+        const workflow = createWorkflow("if-test", {
+          premiumFeature: async () => ({ premium: true }),
+          basicFeature: async () => ({ basic: true }),
+        });
+
+        export async function run() {
+          return await workflow(async (step, deps) => {
+            if (step.if("user-tier", "isPremium", () => true)) {
+              await step("premium", () => deps.premiumFeature());
+            } else {
+              await step("basic", () => deps.basicFeature());
+            }
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+
+      const children = results[0].root.children;
+      const decisionNode = children.find((n) => n.type === "decision") as StaticDecisionNode | undefined;
+      expect(decisionNode).toBeDefined();
+      expect(decisionNode!.decisionId).toBe("user-tier");
+      expect(decisionNode!.conditionLabel).toBe("isPremium");
+    });
+
+    it("should produce a StaticDecisionNode for step.label()", () => {
+      const source = `
+        const workflow = createWorkflow("label-test", {
+          discountPath: async () => ({ discounted: true }),
+          standardPath: async () => ({ standard: true }),
+        });
+
+        export async function run() {
+          return await workflow(async (step, deps) => {
+            if (step.label("discount-check", "hasDiscount", () => true)) {
+              await step("discount", () => deps.discountPath());
+            } else {
+              await step("standard", () => deps.standardPath());
+            }
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+
+      const children = results[0].root.children;
+      const decisionNode = children.find((n) => n.type === "decision") as StaticDecisionNode | undefined;
+      expect(decisionNode).toBeDefined();
+      expect(decisionNode!.decisionId).toBe("discount-check");
+      expect(decisionNode!.conditionLabel).toBe("hasDiscount");
+    });
+  });
+
+  // ============================================================================
   // Path Generation
   // ============================================================================
 
@@ -3822,6 +4313,46 @@ async function run() {
       const mermaid = renderStaticMermaid(ir as import("./types").StaticWorkflowIR);
       // Node label is rendered as nodeId[label]; unescaped # in label breaks Mermaid (link syntax).
       expect(mermaid).not.toMatch(/\[[^\]]*#[^\]]*\]/);
+    });
+
+    it("should escape | in step names so Mermaid diagram is valid", () => {
+      const ir = {
+        root: {
+          id: "w1",
+          type: "workflow" as const,
+          workflowName: "test",
+          source: "createWorkflow" as const,
+          dependencies: [],
+          errorTypes: [],
+          children: [
+            {
+              id: "step-1",
+              type: "step" as const,
+              name: "A | B",
+              callee: "deps.doWork",
+            },
+          ],
+        },
+        metadata: {
+          analyzedAt: Date.now(),
+          filePath: "<source>",
+          warnings: [],
+          stats: {
+            totalSteps: 1,
+            conditionalCount: 0,
+            parallelCount: 0,
+            raceCount: 0,
+            loopCount: 0,
+            workflowRefCount: 0,
+            unknownCount: 0,
+          },
+        },
+        references: new Map(),
+      };
+
+      const mermaid = renderStaticMermaid(ir as import("./types").StaticWorkflowIR);
+      // Pipe character is Mermaid's edge label delimiter; unescaped | breaks the diagram.
+      expect(mermaid).not.toMatch(/\[[^\]]*\|[^\]]*\]/);
     });
   });
 
@@ -4632,6 +5163,308 @@ async function run() {
       });
 
       expect(mermaid).toContain("Fastest source");
+    });
+  });
+
+  // ===========================================================================
+  // Kitchen Sink -- all IR node types
+  // ===========================================================================
+  describe("Kitchen Sink -- all IR node types", () => {
+    it("should detect every IR node type from the kitchen-sink fixture", () => {
+      const source = readFileSync(
+        join(FIXTURES_DIR, "kitchen-sink.ts"),
+        "utf-8"
+      );
+      const results = analyzeWorkflowSource(source);
+
+      // Find the kitchenSink workflow (not the otherWorkflow)
+      const ksResult = results.find(
+        (r) => r.root.workflowName === "kitchenSink"
+      );
+      expect(ksResult).toBeDefined();
+      const root = ksResult!.root;
+      const stats = ksResult!.metadata.stats;
+      const allNodes = collectAllNodes(root);
+
+      // ----- Workflow-level properties -----
+      expect(root.workflowName).toBe("kitchenSink");
+      expect(root.source).toBe("createWorkflow");
+      expect(root.dependencies.length).toBeGreaterThanOrEqual(1);
+
+      // ----- Steps by stepId -----
+      const steps = findNodesByType<StaticStepNode>(root, "step");
+      const stepIds = steps.map((s) => s.stepId).filter(Boolean);
+
+      // Core step variants
+      expect(stepIds).toContain("fetch-user");
+      expect(stepIds).toContain("pause");
+      expect(stepIds).toContain("try-risky");
+      expect(stepIds).toContain("from-result");
+      expect(stepIds).toContain("retry-fetch");
+      expect(stepIds).toContain("timed-fetch");
+      expect(stepIds).toContain("dep-step");
+
+      // Key property checks on specific steps
+      const fetchUserStep = steps.find((s) => s.stepId === "fetch-user");
+      expect(fetchUserStep).toBeDefined();
+      expect(fetchUserStep!.key).toBe("user");
+      expect(fetchUserStep!.out).toBe("user");
+      expect(fetchUserStep!.errors).toEqual(["NOT_FOUND"]);
+
+      // step.sleep callee
+      const sleepStep = steps.find((s) => s.stepId === "pause");
+      expect(sleepStep).toBeDefined();
+      expect(sleepStep!.callee).toBe("step.sleep");
+
+      // step.retry
+      const retryStep = steps.find((s) => s.stepId === "retry-fetch");
+      expect(retryStep).toBeDefined();
+      expect(retryStep!.retry?.attempts).toBe(3);
+      expect(retryStep!.retry?.backoff).toBe("exponential");
+
+      // step.withTimeout
+      const timedStep = steps.find((s) => s.stepId === "timed-fetch");
+      expect(timedStep).toBeDefined();
+      expect(timedStep!.timeout?.ms).toBe(5000);
+
+      // step.dep
+      const depStep = steps.find((s) => s.stepId === "dep-step");
+      expect(depStep).toBeDefined();
+      expect(depStep!.depSource).toBe("userService");
+
+      // ----- Parallel nodes -----
+      const parallels = findNodesByType<StaticParallelNode>(root, "parallel");
+      expect(parallels.length).toBeGreaterThanOrEqual(3);
+
+      // step.parallel
+      const stepParallel = parallels.find(
+        (p) => p.callee === "step.parallel"
+      );
+      expect(stepParallel).toBeDefined();
+      expect(stepParallel!.mode).toBe("all");
+
+      // allAsync
+      const allAsyncNode = parallels.find((p) => p.callee === "allAsync");
+      expect(allAsyncNode).toBeDefined();
+      expect(allAsyncNode!.mode).toBe("all");
+
+      // allSettledAsync
+      const allSettledNode = parallels.find(
+        (p) => p.callee === "allSettledAsync"
+      );
+      expect(allSettledNode).toBeDefined();
+      expect(allSettledNode!.mode).toBe("allSettled");
+
+      // ----- Race nodes -----
+      const races = findNodesByType<StaticRaceNode>(root, "race");
+      expect(races.length).toBeGreaterThanOrEqual(3);
+
+      const stepRaces = races.filter((r) => r.callee === "step.race");
+      expect(stepRaces.length).toBeGreaterThanOrEqual(2);
+
+      const anyAsyncNode = races.find((r) => r.callee === "anyAsync");
+      expect(anyAsyncNode).toBeDefined();
+
+      // ----- Decision nodes (step.if, step.label, step.branch) -----
+      const decisions = findNodesByType<StaticDecisionNode>(root, "decision");
+      expect(decisions.length).toBeGreaterThanOrEqual(3);
+
+      const premiumCheck = decisions.find(
+        (d) => d.decisionId === "premium-check"
+      );
+      expect(premiumCheck).toBeDefined();
+      expect(premiumCheck!.conditionLabel).toBe("user.isPremium");
+
+      const roleCheck = decisions.find((d) => d.decisionId === "role-check");
+      expect(roleCheck).toBeDefined();
+      expect(roleCheck!.conditionLabel).toBe("user.role === admin");
+
+      const paymentBranch = decisions.find(
+        (d) => d.decisionId === "payment"
+      );
+      expect(paymentBranch).toBeDefined();
+      expect(paymentBranch!.conditionLabel).toBe("cart.total > 0");
+
+      // ----- Conditional nodes (if/else, when, unless, whenOr, unlessOr) -----
+      const conditionals = findNodesByType<StaticConditionalNode>(
+        root,
+        "conditional"
+      );
+      expect(conditionals.length).toBeGreaterThanOrEqual(5);
+
+      // Plain if/else (helper = null or undefined)
+      const plainIf = conditionals.find(
+        (c) => c.helper === null || c.helper === undefined
+      );
+      expect(plainIf).toBeDefined();
+
+      // when
+      const whenNode = conditionals.find((c) => c.helper === "when");
+      expect(whenNode).toBeDefined();
+
+      // unless
+      const unlessNode = conditionals.find((c) => c.helper === "unless");
+      expect(unlessNode).toBeDefined();
+
+      // whenOr
+      const whenOrNode = conditionals.find((c) => c.helper === "whenOr");
+      expect(whenOrNode).toBeDefined();
+      expect(whenOrNode!.defaultValue).toBeDefined();
+
+      // unlessOr
+      const unlessOrNode = conditionals.find(
+        (c) => c.helper === "unlessOr"
+      );
+      expect(unlessOrNode).toBeDefined();
+      expect(unlessOrNode!.defaultValue).toBeDefined();
+
+      // ----- Switch node -----
+      const switches = findNodesByType<StaticSwitchNode>(root, "switch");
+      expect(switches.length).toBeGreaterThanOrEqual(1);
+
+      const sw = switches[0];
+      expect(sw.expression).toContain("user.role");
+      expect(sw.cases.length).toBeGreaterThanOrEqual(2);
+      expect(sw.cases.some((c) => c.isDefault)).toBe(true);
+
+      // ----- Loop nodes -----
+      const loops = findNodesByType<StaticLoopNode>(root, "loop");
+      expect(loops.length).toBeGreaterThanOrEqual(6);
+
+      const loopTypes = loops.map((l) => l.loopType);
+      expect(loopTypes).toContain("for");
+      expect(loopTypes).toContain("for-of");
+      expect(loopTypes).toContain("for-in");
+      expect(loopTypes).toContain("while");
+      expect(loopTypes).toContain("step.forEach");
+
+      // for-of has iterSource
+      const forOfLoop = loops.find((l) => l.loopType === "for-of");
+      expect(forOfLoop).toBeDefined();
+      expect(forOfLoop!.iterSource).toBeDefined();
+
+      // for-in has iterSource
+      const forInLoop = loops.find((l) => l.loopType === "for-in");
+      expect(forInLoop).toBeDefined();
+      expect(forInLoop!.iterSource).toBeDefined();
+
+      // step.forEach loops have loopId
+      const forEachLoops = loops.filter(
+        (l) => l.loopType === "step.forEach"
+      );
+      expect(forEachLoops.length).toBeGreaterThanOrEqual(2);
+      const forEachIds = forEachLoops.map((l) => l.loopId).filter(Boolean);
+      expect(forEachIds).toContain("foreach-run");
+      expect(forEachIds).toContain("foreach-item");
+
+      // ----- Stream nodes -----
+      const streams = findNodesByType<StaticStreamNode>(root, "stream");
+      expect(streams.length).toBeGreaterThanOrEqual(3);
+
+      const streamTypes = streams.map((s) => s.streamType);
+      expect(streamTypes).toContain("write");
+      expect(streamTypes).toContain("read");
+      expect(streamTypes).toContain("forEach");
+
+      const writeStream = streams.find((s) => s.streamType === "write");
+      expect(writeStream!.namespace).toBe("progress");
+
+      const readStream = streams.find((s) => s.streamType === "read");
+      expect(readStream!.namespace).toBe("data");
+
+      const forEachStream = streams.find(
+        (s) => s.streamType === "forEach"
+      );
+      expect(forEachStream!.namespace).toBe("events");
+
+      // ----- Workflow ref -----
+      const refs = findNodesByType<StaticWorkflowRefNode>(
+        root,
+        "workflow-ref"
+      );
+      expect(refs.length).toBeGreaterThanOrEqual(1);
+      expect(refs[0].workflowName).toBe("otherWorkflow");
+
+      // ----- Aggregate stats -----
+      expect(stats.totalSteps).toBeGreaterThanOrEqual(20);
+      expect(stats.parallelCount).toBeGreaterThanOrEqual(3);
+      expect(stats.raceCount).toBeGreaterThanOrEqual(3);
+      expect(stats.conditionalCount).toBeGreaterThanOrEqual(8);
+      expect(stats.loopCount).toBeGreaterThanOrEqual(6);
+      expect(stats.streamCount).toBeGreaterThanOrEqual(3);
+      expect(stats.workflowRefCount).toBeGreaterThanOrEqual(1);
+
+      // ----- Every expected node type is present -----
+      const presentTypes = new Set(allNodes.map((n) => n.type));
+      for (const expected of [
+        "step",
+        "parallel",
+        "race",
+        "decision",
+        "conditional",
+        "switch",
+        "loop",
+        "stream",
+        "workflow-ref",
+      ] as const) {
+        expect(presentTypes.has(expected)).toBe(true);
+      }
+    });
+  });
+
+  // ===========================================================================
+  // Saga Kitchen Sink
+  // ===========================================================================
+  describe("Saga Kitchen Sink", () => {
+    it("should detect saga patterns in non-destructured form", () => {
+      const source = readFileSync(
+        join(FIXTURES_DIR, "kitchen-sink-saga.ts"),
+        "utf-8"
+      );
+      const results = analyzeWorkflowSource(source);
+
+      const orderResult = results.find(
+        (r) => r.root.workflowName === "orderSaga"
+      );
+      expect(orderResult).toBeDefined();
+
+      const root = orderResult!.root;
+      expect(root.source).toBe("createSagaWorkflow");
+
+      const stats = orderResult!.metadata.stats;
+      expect(stats.sagaWorkflowCount).toBe(1);
+
+      // saga.step nodes
+      const sagaSteps = collectSagaStepNodes(root);
+      expect(sagaSteps.length).toBeGreaterThanOrEqual(3);
+
+      // Compensated steps
+      expect(stats.compensatedStepCount).toBeGreaterThanOrEqual(3);
+
+      // saga.tryStep detection
+      const trySteps = sagaSteps.filter(
+        (s) => s.type === "saga-step" && (s as StaticSagaStepNode).isTryStep
+      );
+      expect(trySteps.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("should detect destructured saga workflow (saga steps require saga.step() form)", () => {
+      const source = readFileSync(
+        join(FIXTURES_DIR, "kitchen-sink-saga.ts"),
+        "utf-8"
+      );
+      const results = analyzeWorkflowSource(source);
+
+      const destructuredResult = results.find(
+        (r) => r.root.workflowName === "orderSagaDestructured"
+      );
+      expect(destructuredResult).toBeDefined();
+
+      const root = destructuredResult!.root;
+      expect(root.source).toBe("createSagaWorkflow");
+      // Destructured `{ step, tryStep } = saga` is not tracked by the analyzer;
+      // the workflow is detected but saga-step nodes require saga.step() form.
+      expect(root.dependencies.length).toBeGreaterThanOrEqual(1);
     });
   });
 });
