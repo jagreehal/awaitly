@@ -11,6 +11,13 @@ import type { WorkflowSnapshot, SnapshotStore } from "awaitly/persistence";
 import type { WorkflowLock } from "awaitly/durable";
 import { createMongoLock, type MongoLockOptions } from "./mongo-lock";
 
+/** Document shape for the snapshots collection (string _id). */
+interface SnapshotDoc {
+  _id: string;
+  snapshot: WorkflowSnapshot;
+  updatedAt: Date;
+}
+
 // Re-export types for convenience
 export type { SnapshotStore, WorkflowSnapshot } from "awaitly/persistence";
 export type { WorkflowLock } from "awaitly/durable";
@@ -114,7 +121,7 @@ export function mongo(urlOrOptions: string | MongoOptions): SnapshotStore & Part
     db = client.db(databaseName);
 
     // Create index on updatedAt for list queries
-    const collection = db.collection(collectionName);
+    const collection = db.collection<SnapshotDoc>(collectionName);
     await collection.createIndex({ updatedAt: -1 }, { background: true }).catch(() => {
       // Index may already exist, ignore error
     });
@@ -130,11 +137,10 @@ export function mongo(urlOrOptions: string | MongoOptions): SnapshotStore & Part
   const store: SnapshotStore & Partial<WorkflowLock> = {
     async save(id: string, snapshot: WorkflowSnapshot): Promise<void> {
       const db = await ensureConnected();
-      const collection = db.collection(collectionName);
+      const collection = db.collection<SnapshotDoc>(collectionName);
       const fullId = prefix + id;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await collection.updateOne(
-        { _id: fullId } as any,
+        { _id: fullId },
         {
           $set: {
             snapshot,
@@ -147,38 +153,36 @@ export function mongo(urlOrOptions: string | MongoOptions): SnapshotStore & Part
 
     async load(id: string): Promise<WorkflowSnapshot | null> {
       const db = await ensureConnected();
-      const collection = db.collection(collectionName);
+      const collection = db.collection<SnapshotDoc>(collectionName);
       const fullId = prefix + id;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const doc = await collection.findOne({ _id: fullId } as any);
+      const doc = await collection.findOne({ _id: fullId });
       if (!doc) return null;
-      return doc.snapshot as WorkflowSnapshot;
+      return doc.snapshot;
     },
 
     async delete(id: string): Promise<void> {
       const db = await ensureConnected();
-      const collection = db.collection(collectionName);
+      const collection = db.collection<SnapshotDoc>(collectionName);
       const fullId = prefix + id;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await collection.deleteOne({ _id: fullId } as any);
+      await collection.deleteOne({ _id: fullId });
     },
 
     async list(options?: { prefix?: string; limit?: number }): Promise<Array<{ id: string; updatedAt: string }>> {
       const db = await ensureConnected();
-      const collection = db.collection(collectionName);
+      const collection = db.collection<SnapshotDoc>(collectionName);
       const filterPrefix = prefix + (options?.prefix ?? "");
       const limit = options?.limit ?? 100;
+      const escaped = filterPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cursor = collection
-        .find({ _id: { $regex: `^${filterPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}` } } as any)
+        .find({ _id: { $regex: `^${escaped}` } })
         .sort({ updatedAt: -1 })
         .limit(limit);
 
       const docs = await cursor.toArray();
       return docs.map(doc => ({
         id: String(doc._id).slice(prefix.length),
-        updatedAt: (doc.updatedAt as Date).toISOString(),
+        updatedAt: doc.updatedAt.toISOString(),
       }));
     },
 
