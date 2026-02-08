@@ -1,5 +1,12 @@
 # awaitly-mongo
 
+## 9.1.0
+
+### Minor Changes
+
+- 69c2fa8: - **awaitly-analyze**: Static analyzer enhancements (path generation, complexity metrics, Mermaid output), kitchen-sink fixtures, and fixture tsconfig for type-checking test sources.
+  - **awaitly-docs**: Astro and content config updates for docs site.
+
 ## 9.0.0
 
 ### Patch Changes
