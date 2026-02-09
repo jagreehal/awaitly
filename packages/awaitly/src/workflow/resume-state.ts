@@ -5,7 +5,7 @@
 import { ok } from "../core";
 import type { WorkflowEvent } from "../core";
 import type { ResumeState, ResumeStateEntry, PendingApproval } from "./types";
-import { isStepComplete, isPendingApproval } from "./guards";
+import { isStepComplete, isPendingApproval, isPendingHook } from "./guards";
 
 /**
  * Create a collector for step results to build resume state.
@@ -210,6 +210,49 @@ export function getPendingApprovals(state: ResumeState): string[] {
   for (const [key, entry] of state.steps) {
     if (!entry.result.ok && isPendingApproval(entry.result.error)) {
       pending.push(key);
+    }
+  }
+  return pending;
+}
+
+const HOOK_STEP_KEY_PREFIX = "hook:";
+
+/**
+ * Inject a hook callback value into resume state.
+ * Call this when the app receives the HTTP callback (e.g. POST /hook/:hookId) and pass the request body as value.
+ *
+ * @param state - The resume state to update
+ * @param options - hookId (from the callback URL) and value (e.g. request body)
+ * @returns A new ResumeState with the hook step set to ok(value)
+ */
+export function injectHook<T>(
+  state: ResumeState,
+  options: { hookId: string; value: T }
+): ResumeState {
+  const newSteps = new Map(state.steps);
+  newSteps.set(HOOK_STEP_KEY_PREFIX + options.hookId, {
+    result: ok(options.value),
+  });
+  return { steps: newSteps };
+}
+
+/**
+ * Check if a step in resume state has a pending hook error.
+ */
+export function hasPendingHook(state: ResumeState, hookId: string): boolean {
+  const entry = state.steps.get(HOOK_STEP_KEY_PREFIX + hookId);
+  if (!entry || entry.result.ok) return false;
+  return isPendingHook(entry.result.error);
+}
+
+/**
+ * Get all pending hook hookIds from resume state.
+ */
+export function getPendingHooks(state: ResumeState): string[] {
+  const pending: string[] = [];
+  for (const entry of state.steps.values()) {
+    if (!entry.result.ok && isPendingHook(entry.result.error)) {
+      pending.push((entry.result.error as { hookId: string }).hookId);
     }
   }
   return pending;

@@ -76,6 +76,29 @@ export {
   createWorkflow,
   isStepComplete,
   isWorkflowCancelled,
+
+  // Hook primitive (suspend until HTTP callback; app calls injectHook to resume)
+  type PendingHook,
+  type ResumeState,
+  type ResumeStateEntry,
+  pendingHook,
+  createHook,
+  HOOK_STEP_KEY_PREFIX,
+  isPendingHook,
+  injectHook,
+  hasPendingHook,
+  getPendingHooks,
+  createResumeStateCollector,
+  injectApproval,
+  clearStep,
+  hasPendingApproval,
+  getPendingApprovals,
+  createApprovalStateCollector,
+  pendingApproval,
+  createApprovalStep,
+  gatedStep,
+  isPendingApproval,
+  isApprovalRejected,
 } from "./workflow";
 
 // Re-export UNEXPECTED_ERROR constant for convenience

@@ -550,6 +550,19 @@ export type PendingApproval = {
 };
 
 /**
+ * Standard error type for steps awaiting an HTTP callback (webhook).
+ * Use with injectHook() to resume when the app receives the callback.
+ * stepKey is always "hook:" + hookId for resume state.
+ */
+export type PendingHook = {
+  type: "PENDING_HOOK";
+  hookId: string;
+  /** Step key used in resume state; always "hook:" + hookId */
+  stepKey: string;
+  metadata?: Record<string, unknown>;
+};
+
+/**
  * Error returned when approval is rejected.
  */
 export type ApprovalRejected = {

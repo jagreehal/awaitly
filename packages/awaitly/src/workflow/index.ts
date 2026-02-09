@@ -38,21 +38,26 @@ export type {
   Workflow,
   WorkflowCancelledError,
   PendingApproval,
+  PendingHook,
   ApprovalRejected,
   ApprovalStepOptions,
   GatedStepOptions,
 } from "./types";
 
-export { isStepComplete, isWorkflowCancelled, isPendingApproval, isApprovalRejected } from "./guards";
+export { isStepComplete, isWorkflowCancelled, isPendingApproval, isApprovalRejected, isPendingHook } from "./guards";
 export {
   createResumeStateCollector,
   injectApproval,
+  injectHook,
   clearStep,
   hasPendingApproval,
   getPendingApprovals,
+  hasPendingHook,
+  getPendingHooks,
   createApprovalStateCollector,
 } from "./resume-state";
 export { pendingApproval, createApprovalStep, gatedStep } from "./hitl";
+export { pendingHook, createHook, HOOK_STEP_KEY_PREFIX } from "./hook";
 
 // Re-export snapshot types and utilities for convenience
 export type {
