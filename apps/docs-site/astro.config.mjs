@@ -83,6 +83,7 @@ export default defineConfig({
                 { label: 'Batch Processing', slug: 'guides/batch-processing' },
                 { label: 'Streaming', slug: 'guides/streaming' },
                 { label: 'Human-in-the-Loop', slug: 'guides/human-in-loop' },
+                { label: 'Callback Hooks', slug: 'guides/hooks' },
                 { label: 'Workflow Versioning', slug: 'guides/versioning' },
               ],
             },

@@ -725,6 +725,93 @@ async function run() {
       expect(steps[1].stepId).toBe("validate");
     });
 
+    it("should match deps-signature when workflow parameter callee is parenthesized", () => {
+      const source = `
+        function createSpecWorkflow() {
+          return createWorkflow("deps-sig-parenthesized", {
+            generateStep: async () => "hello",
+            validateStep: async (s: string) => ({ answer: s }),
+          });
+        }
+
+        type SpecWorkflow = ReturnType<typeof createSpecWorkflow>;
+
+        async function runSpecWorkflow(workflow: SpecWorkflow) {
+          return await (workflow)(async (step, { generateStep, validateStep }) => {
+            const raw = await step("generate", () => generateStep());
+            return await step("validate", () => validateStep(raw));
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("deps-sig-parenthesized");
+
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(2);
+      expect(steps[0].stepId).toBe("generate");
+      expect(steps[1].stepId).toBe("validate");
+    });
+
+    it("should match deps-signature when workflow parameter callee is parenthesized await expression", () => {
+      const source = `
+        function createSpecWorkflow() {
+          return createWorkflow("deps-sig-await-parenthesized", {
+            generateStep: async () => "hello",
+            validateStep: async (s: string) => ({ answer: s }),
+          });
+        }
+
+        type SpecWorkflow = ReturnType<typeof createSpecWorkflow>;
+
+        async function runSpecWorkflow(workflow: Promise<SpecWorkflow>) {
+          return await (await workflow)(async (step, { generateStep, validateStep }) => {
+            const raw = await step("generate", () => generateStep());
+            return await step("validate", () => validateStep(raw));
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("deps-sig-await-parenthesized");
+
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(2);
+      expect(steps[0].stepId).toBe("generate");
+      expect(steps[1].stepId).toBe("validate");
+    });
+
+    it("should match deps-signature when awaited workflow parameter has inner parentheses", () => {
+      const source = `
+        function createSpecWorkflow() {
+          return createWorkflow("deps-sig-await-inner-parens", {
+            generateStep: async () => "hello",
+            validateStep: async (s: string) => ({ answer: s }),
+          });
+        }
+
+        type SpecWorkflow = ReturnType<typeof createSpecWorkflow>;
+
+        async function runSpecWorkflow(workflow: Promise<SpecWorkflow>) {
+          return await (await (workflow))(async (step, { generateStep, validateStep }) => {
+            const raw = await step("generate", () => generateStep());
+            return await step("validate", () => validateStep(raw));
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("deps-sig-await-inner-parens");
+
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(2);
+      expect(steps[0].stepId).toBe("generate");
+      expect(steps[1].stepId).toBe("validate");
+    });
+
     it("should not match deps-signature when dep names differ", () => {
       const source = `
         function createSpecWorkflow() {
@@ -774,6 +861,116 @@ async function run() {
       const results = analyzeWorkflowSource(source);
       expect(results).toHaveLength(1);
       // No real workflow invocation exists in this file.
+      expect(results[0].root.children).toHaveLength(0);
+    });
+
+    it("should not count direct invocation when callee is same-name different variable", () => {
+      // Callee must resolve to the workflow's variable declaration (not just same name).
+      // Use two blocks so shadowing does not apply; only binding check distinguishes.
+      const source = `
+        if (true) {
+          const w = createWorkflow("same-name-guard", {
+            stepA: async () => "a",
+          });
+        }
+        if (true) {
+          const w = (cb: any) => cb();
+          w(async (step: any, { stepA }: any) => step("a", () => stepA()));
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("same-name-guard");
+      // Second block's w(cb) must not be counted (different variable, same name).
+      expect(results[0].root.children).toHaveLength(0);
+    });
+
+    it("should not count factory invocation when callee is same-name different variable", () => {
+      // Factory fallback must match by symbol/declaration, not just variable name.
+      const source = `
+        function createSpecWorkflow() {
+          return createWorkflow("factory-same-name-guard", {
+            stepA: async () => "a",
+          });
+        }
+
+        export async function main() {
+          const w = createSpecWorkflow();
+          return await w(async (step, { stepA }) => step("a", () => stepA()));
+        }
+
+        function other() {
+          const w = (cb: any) => cb();
+          w(async (step: any, { stepA }: any) => step("a", () => stepA()));
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("factory-same-name-guard");
+      // Only main()'s w(...) is the factory result; other()'s w is a different variable.
+      expect(results[0].root.children).toHaveLength(1);
+    });
+
+    it("should not count factory invocation when factory name is shadowed by local declaration", () => {
+      const source = `
+        function createSpecWorkflow() {
+          return createWorkflow("factory-shadowed-name", {
+            stepA: async () => "a",
+          });
+        }
+
+        export async function main() {
+          const w = createSpecWorkflow();
+          return await w(async (step, { stepA }) => step("a", () => stepA()));
+        }
+
+        function other() {
+          function createSpecWorkflow() {
+            return (cb: any) => cb();
+          }
+          const w = createSpecWorkflow();
+          w(async (step: any, { stepA }: any) => step("a", () => stepA()));
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("factory-shadowed-name");
+      // Only main() should count; other() uses a shadowed local factory.
+      expect(results[0].root.children).toHaveLength(1);
+    });
+
+    it("should not match deps-signature when callee is a method (e.g. obj.run(cb))", () => {
+      // Callee must be a function parameter; method calls with matching callback
+      // shape would otherwise be false positives (isLocalNonParam only checks identifiers).
+      const source = `
+        function createSpecWorkflow() {
+          return createWorkflow("no-method-callee", {
+            generateStep: async () => "hello",
+            validateStep: async (s: string) => ({ answer: s }),
+          });
+        }
+
+        const runner = {
+          run(cb: any) {
+            return cb();
+          },
+        };
+
+        export async function run() {
+          return await runner.run(async (_step, { generateStep, validateStep }) => {
+            const raw = await _step("generate", () => generateStep());
+            return await _step("validate", () => validateStep(raw));
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("no-method-callee");
+      // Must not treat runner.run(...) as a workflow invocation.
       expect(results[0].root.children).toHaveLength(0);
     });
 

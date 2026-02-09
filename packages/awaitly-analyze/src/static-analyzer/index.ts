@@ -418,6 +418,27 @@ function getCalleeExpression(expression: Node): Node {
   return current;
 }
 
+/**
+ * Get the callee as an Identifier if possible (unwrap parentheses and await).
+ * Returns undefined for property access (e.g. obj.run) or other non-identifier callees.
+ * Handles (await (workflow)) by unwrapping parentheses again after await.
+ */
+function getCalleeIdentifier(expression: Node): Node | undefined {
+  const { Node } = loadTsMorph();
+  let current: Node = expression;
+  while (true) {
+    while (Node.isParenthesizedExpression(current)) {
+      current = current.getExpression();
+    }
+    if (Node.isAwaitExpression(current)) {
+      current = (current as { getExpression: () => Node }).getExpression();
+      continue;
+    }
+    break;
+  }
+  return Node.isIdentifier(current) ? current : undefined;
+}
+
 function findWorkflowCalls(sourceFile: SourceFile, opts: Required<AnalyzerOptions>): WorkflowCallInfo[] {
   const { Node } = loadTsMorph();
   const workflows: WorkflowCallInfo[] = [];
@@ -1368,6 +1389,22 @@ function findWorkflowInvocations(
       text === `await ${workflowName}` ||
       text === `(await ${workflowName})`
     ) {
+      // When we have the actual workflow variable declaration, require the call's
+      // callee to resolve to that declaration (avoids same-name different variable).
+      if (workflowInfo.variableDeclaration) {
+        const calleeId = getCalleeIdentifier(expression);
+        if (calleeId) {
+          const symbol = calleeId.getSymbol();
+          if (symbol) {
+            const decls = symbol.getDeclarations();
+            const isSameBinding = decls.some(
+              (d) => d === workflowInfo.variableDeclaration
+            );
+            if (!isSameBinding) return;
+          }
+        }
+      }
+
       // Only count invocations that are inside this workflow's containing scope
       // (so inner workflow doesn't pick up outer invocations with the same name).
       const isInWorkflowScope =
@@ -1399,6 +1436,7 @@ function findWorkflowInvocations(
     // Fallback 1: Factory tracing
     // Check if createWorkflow is returned from a named function
     let factoryName: string | undefined;
+    let factoryDecl: Node | undefined;
     let current: Node | undefined = workflowInfo.callExpression.getParent();
     while (current) {
       if (Node.isReturnStatement(current) || Node.isArrowFunction(current)) {
@@ -1407,12 +1445,14 @@ function findWorkflowInvocations(
         while (scope) {
           if (Node.isFunctionDeclaration(scope)) {
             factoryName = (scope as { getName?: () => string | undefined }).getName?.();
+            factoryDecl = scope;
             break;
           }
           if (Node.isVariableDeclaration(scope)) {
             const init = scope.getInitializer();
             if (init && (Node.isArrowFunction(init) || Node.isFunctionExpression(init))) {
               factoryName = scope.getName();
+              factoryDecl = scope;
               break;
             }
           }
@@ -1423,38 +1463,51 @@ function findWorkflowInvocations(
       current = current.getParent();
     }
 
-    if (factoryName) {
-      // Search for calls to the factory function, trace result variables
-      const factoryResultVars: string[] = [];
+    if (factoryName && factoryDecl) {
+      // Search for calls to the factory function that resolve to this declaration
+      // (not a shadowed same-named function), then trace result variable declarations.
+      const factoryResultDecls: Node[] = [];
       sourceFile.forEachDescendant((node) => {
         if (!Node.isCallExpression(node)) return;
-        const text = getCalleeText(node.getExpression());
-        if (text !== factoryName) return;
-        // Check if factory result is assigned to a variable
+        const expression = node.getExpression();
+        const calleeId = getCalleeIdentifier(expression);
+        if (!calleeId || calleeId.getText() !== factoryName) return;
+        const symbol = calleeId.getSymbol();
+        if (!symbol) return;
+        const decls = symbol.getDeclarations();
+        const isOurFactory = decls.some((d) => d === factoryDecl);
+        if (!isOurFactory) return;
         const parent = node.getParent();
         if (parent && Node.isVariableDeclaration(parent)) {
-          factoryResultVars.push(parent.getName());
+          factoryResultDecls.push(parent);
         }
       });
 
-      // Find invocations of factory result variables
-      for (const varName of factoryResultVars) {
-        sourceFile.forEachDescendant((node) => {
-          if (!Node.isCallExpression(node)) return;
-          const text = getCalleeText(node.getExpression());
-          if (text !== varName && text !== `await ${varName}`) return;
-          const args = node.getArguments();
-          if (args.length > 0) {
-            const firstArg = args[0];
-            if (Node.isArrowFunction(firstArg) || Node.isFunctionExpression(firstArg)) {
-              invocations.push({
-                callExpression: node,
-                callbackArg: firstArg,
-              });
-            }
+      // Find invocations only when the callee resolves to a factory result variable
+      // (avoids same-name different variable and method calls like obj.run(cb)).
+      sourceFile.forEachDescendant((node) => {
+        if (!Node.isCallExpression(node)) return;
+        const expression = node.getExpression();
+        const calleeId = getCalleeIdentifier(expression);
+        if (!calleeId) return;
+        const symbol = calleeId.getSymbol();
+        if (!symbol) return;
+        const decls = symbol.getDeclarations();
+        const isFactoryResultVar = decls.some((d) =>
+          factoryResultDecls.includes(d)
+        );
+        if (!isFactoryResultVar) return;
+        const args = node.getArguments();
+        if (args.length > 0) {
+          const firstArg = args[0];
+          if (Node.isArrowFunction(firstArg) || Node.isFunctionExpression(firstArg)) {
+            invocations.push({
+              callExpression: node,
+              callbackArg: firstArg,
+            });
           }
-        });
-      }
+        }
+      });
     }
 
     // Fallback 2: Deps-signature matching
@@ -1466,6 +1519,18 @@ function findWorkflowInvocations(
       if (depNames.length > 0) {
         sourceFile.forEachDescendant((node) => {
           if (!Node.isCallExpression(node)) return;
+          const expression = node.getExpression();
+          // Only consider `workflow(cb)` where `workflow` is a function parameter.
+          // Unwrap parentheses and await so (workflow)(cb) and (await workflow)(cb) are recognized.
+          const calleeId = getCalleeIdentifier(expression);
+          if (!calleeId) return;
+          const symbol = calleeId.getSymbol();
+          if (!symbol) return;
+          const isParameterCallee = symbol
+            .getDeclarations()
+            .some((decl) => Node.isParameterDeclaration(decl));
+          if (!isParameterCallee) return;
+
           const args = node.getArguments();
           if (args.length === 0) return;
 
@@ -1490,9 +1555,9 @@ function findWorkflowInvocations(
             // Guard: skip if the callee resolves to a locally-defined
             // function/variable (not a parameter) – those are unlikely to be
             // workflow invocations.
-            const calleeExpr = node.getExpression();
-            if (Node.isIdentifier(calleeExpr)) {
-              const defs = calleeExpr.getDefinitionNodes();
+            if (calleeId) {
+              const ident = calleeId as { getDefinitionNodes?: () => Node[] };
+              const defs = ident.getDefinitionNodes?.() ?? [];
               const isLocalNonParam = defs.some(
                 (d: Node) =>
                   Node.isFunctionDeclaration(d) ||

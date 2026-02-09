@@ -3,7 +3,7 @@
  */
 
 import type { WorkflowEvent } from "../core";
-import type { WorkflowCancelledError, PendingApproval, ApprovalRejected } from "./types";
+import type { WorkflowCancelledError, PendingApproval, ApprovalRejected, PendingHook } from "./types";
 
 /**
  * Type guard to check if an event is a step_complete event.
@@ -78,5 +78,19 @@ export function isApprovalRejected(error: unknown): error is ApprovalRejected {
     typeof error === "object" &&
     error !== null &&
     (error as ApprovalRejected).type === "APPROVAL_REJECTED"
+  );
+}
+
+/**
+ * Type guard to check if an error is a PendingHook.
+ *
+ * @param error - The error to check
+ * @returns `true` if the error is a PendingHook, `false` otherwise
+ */
+export function isPendingHook(error: unknown): error is PendingHook {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as PendingHook).type === "PENDING_HOOK"
   );
 }
