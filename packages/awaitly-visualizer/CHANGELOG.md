@@ -1,5 +1,12 @@
 # awaitly-visualizer
 
+## 10.0.0
+
+### Patch Changes
+
+- Updated dependencies [f68ccdb]
+  - awaitly@1.21.0
+
 ## 9.0.0
 
 ### Patch Changes
