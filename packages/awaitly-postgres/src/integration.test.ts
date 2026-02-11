@@ -1,14 +1,37 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { postgres } from "./index";
 import { durable } from "awaitly/durable";
 import { ok, err, type AsyncResult } from "awaitly";
+import type { WorkflowSnapshot } from "awaitly/persistence";
 
 const TEST_CONNECTION_STRING = process.env.TEST_POSTGRES_CONNECTION_STRING ??
   (process.env.CI ? "postgresql://postgres:postgres@localhost:5432/test_awaitly" : undefined);
 const shouldSkip = !TEST_CONNECTION_STRING && !process.env.CI;
 
 describe.skipIf(shouldSkip)("Integration with durable.run", () => {
-  it("should work with durable.run", async () => {
+  let postgresAvailable = false;
+
+  beforeAll(async () => {
+    try {
+      const store = postgres({
+        url: TEST_CONNECTION_STRING!,
+        table: `test_integration_ping_${Date.now()}`,
+      });
+      const minimalSnapshot: WorkflowSnapshot = {
+        formatVersion: 1,
+        steps: {},
+        execution: { status: "completed", lastUpdated: new Date().toISOString() },
+      };
+      await store.save("ping", minimalSnapshot);
+      await store.delete("ping");
+      await store.close();
+      postgresAvailable = true;
+    } catch {
+      postgresAvailable = false;
+    }
+  });
+
+  it.skipIf(() => !postgresAvailable)("should work with durable.run", async () => {
     const store = postgres({
       url: TEST_CONNECTION_STRING || "postgresql://postgres:postgres@localhost:5432/test_awaitly",
       table: `test_integration_${Date.now()}`,

@@ -86,6 +86,8 @@ const workflow = createWorkflow('workflow', { fetchUser, sendEmail },
 );
 ```
 
+The value returned by `createWorkflow` has **`name`**, **`deps`**, **`options`**, and **`snapshot`** (plus `getSnapshot()`, `run()`, `with()`, `subscribe()`), so it matches WorkflowClass for inspection and persistence (e.g. `workflow.name`, `workflow.snapshot`).
+
 ## run()
 
 For one-off workflows where you specify error types manually:

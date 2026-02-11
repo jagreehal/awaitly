@@ -131,6 +131,8 @@ const snapshot = await store.load(workflowId);
 const workflow = createWorkflow('workflow', deps, { snapshot: snapshot ?? undefined });
 ```
 
+You can use `workflow.snapshot` for one-off access instead of `workflow.getSnapshot()`, and `workflow.name` / `workflow.deps` / `workflow.options` for inspection.
+
 ### Retry failed operations
 
 ```typescript
@@ -276,6 +278,7 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 |------|-------------|
 | Result types + composition (`ok`, `err`, `isOk`, `isErr`, `map`, `mapError`, `andThen`, `tap`, `from`, `fromPromise`, `all`, `allAsync`, `partition`, `match`, `run`, `TaggedError`) | `awaitly` |
 | Workflow engine (`createWorkflow`, `Duration`, `isStepComplete`, `createResumeStateCollector`, `isWorkflowCancelled`, step types, `ResumeState`) | `awaitly/workflow` |
+| Workflow instance (`name`, `deps`, `options`, `snapshot`, `getSnapshot`, `run`, `with`, `subscribe`) | Returned by `createWorkflow` |
 | Saga pattern (`createSagaWorkflow`) | `awaitly/workflow` |
 | Parallel ops (`allAsync`, `allSettledAsync`, `zip`, `zipAsync`) | `awaitly` |
 | HITL (`pendingApproval`, `createApprovalStep`, `gatedStep`, `injectApproval`, `isPendingApproval`) | `awaitly/hitl` |

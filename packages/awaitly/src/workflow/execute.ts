@@ -634,6 +634,7 @@ export function createWorkflow<
 
     const snapshot: WorkflowSnapshot = {
       formatVersion: 1,
+      workflowName: workflowName,
       steps: stepsToInclude,
       execution: {
         status: workflowStatus,
@@ -2440,6 +2441,14 @@ export function createWorkflow<
     // Add .getSnapshot() and .subscribe() - they use the same underlying state
     wrapped.getSnapshot = getSnapshot;
     wrapped.subscribe = subscribe;
+    Object.defineProperty(wrapped, "name", { value: workflowName, enumerable: true, configurable: true });
+    wrapped.deps = Object.freeze({ ...depsActual });
+    wrapped.options = optionsActual ? Object.freeze({ ...optionsActual }) : undefined;
+    Object.defineProperty(wrapped, "snapshot", {
+      get: () => getSnapshot(),
+      enumerable: true,
+      configurable: true,
+    });
 
     return wrapped as Workflow<E, U, Deps, C>;
   }
@@ -2475,13 +2484,19 @@ export function createWorkflow<
 
   // Attach methods to workflowExecutor
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (workflowExecutor as any).run = runWithOptions;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (workflowExecutor as any).with = withOptions;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (workflowExecutor as any).getSnapshot = getSnapshot;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (workflowExecutor as any).subscribe = subscribe;
+  const w = workflowExecutor as any;
+  w.run = runWithOptions;
+  w.with = withOptions;
+  w.getSnapshot = getSnapshot;
+  w.subscribe = subscribe;
+  Object.defineProperty(w, "name", { value: workflowName, enumerable: true, configurable: true });
+  w.deps = Object.freeze({ ...depsActual });
+  w.options = optionsActual ? Object.freeze({ ...optionsActual }) : undefined;
+  Object.defineProperty(w, "snapshot", {
+    get: () => getSnapshot(),
+    enumerable: true,
+    configurable: true,
+  });
 
   return workflowExecutor as Workflow<E, U, Deps, C>;
 }

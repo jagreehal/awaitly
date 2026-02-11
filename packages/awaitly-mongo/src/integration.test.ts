@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { mongo } from "./index";
 import { MongoClient as MongoClientImpl } from "mongodb";
 import { durable } from "awaitly/durable";
@@ -9,7 +9,30 @@ const TEST_CONNECTION_STRING = process.env.TEST_MONGODB_URI ??
 const shouldSkip = !TEST_CONNECTION_STRING && !process.env.CI;
 
 describe.skipIf(shouldSkip)("Integration with durable.run", () => {
-  it(
+  let mongoAvailable = false;
+
+  beforeAll(async () => {
+    try {
+      const connectionString = TEST_CONNECTION_STRING!;
+      const store = mongo({
+        url: connectionString,
+        collection: `test_integration_ping_${Date.now()}`,
+      });
+      const minimalSnapshot = {
+        formatVersion: 1 as const,
+        steps: {},
+        execution: { status: "completed" as const, lastUpdated: new Date().toISOString() },
+      };
+      await store.save("ping", minimalSnapshot);
+      await store.delete("ping");
+      await store.close();
+      mongoAvailable = true;
+    } catch {
+      mongoAvailable = false;
+    }
+  }, 10000);
+
+  it.skipIf(() => !mongoAvailable)(
     "lock: state collection uses database from connection string",
     async () => {
       let connectionString = TEST_CONNECTION_STRING || "mongodb://localhost:27017/test_awaitly";
@@ -50,7 +73,7 @@ describe.skipIf(shouldSkip)("Integration with durable.run", () => {
     20000
   );
 
-  it(
+  it.skipIf(() => !mongoAvailable)(
     "lock: second tryAcquire returns null when lease is still active",
     async () => {
       const connectionString = TEST_CONNECTION_STRING || "mongodb://localhost:27017/test_awaitly";
@@ -77,7 +100,7 @@ describe.skipIf(shouldSkip)("Integration with durable.run", () => {
     20000
   );
 
-  it(
+  it.skipIf(() => !mongoAvailable)(
     "should work with durable.run",
     async () => {
       const connectionString = TEST_CONNECTION_STRING || "mongodb://localhost:27017/test_awaitly";

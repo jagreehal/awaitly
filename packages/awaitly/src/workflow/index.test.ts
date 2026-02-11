@@ -1428,6 +1428,97 @@ describe("createWorkflow()", () => {
     });
   });
 
+  describe("workflow introspection properties", () => {
+    it("exposes workflow name", () => {
+      const workflow = createWorkflow("myWorkflow", { fetchUser });
+      expect(workflow.name).toBe("myWorkflow");
+    });
+
+    it("exposes workflow deps as frozen copy", () => {
+      const deps = { fetchUser, fetchPosts };
+      const workflow = createWorkflow("test", deps);
+
+      expect(workflow.deps).toEqual(deps);
+      expect(workflow.deps.fetchUser).toBe(fetchUser);
+      expect(workflow.deps.fetchPosts).toBe(fetchPosts);
+      expect(Object.isFrozen(workflow.deps)).toBe(true);
+    });
+
+    it("exposes workflow options as frozen copy when provided", () => {
+      const onError = vi.fn();
+      const options = { onError };
+      const workflow = createWorkflow("test", { fetchUser }, options);
+
+      expect(workflow.options).toBeDefined();
+      expect(workflow.options?.onError).toBe(onError);
+      expect(Object.isFrozen(workflow.options)).toBe(true);
+    });
+
+    it("has undefined options when not provided", () => {
+      const workflow = createWorkflow("test", { fetchUser });
+      expect(workflow.options).toBeUndefined();
+    });
+
+    it("exposes snapshot as a getter property", async () => {
+      const workflow = createWorkflow("test", { fetchUser });
+
+      let snapshot = workflow.snapshot;
+      expect(snapshot.workflowName).toBe("test");
+      expect(Object.keys(snapshot.steps)).toHaveLength(0);
+
+      await workflow(async (step) => {
+        return await step('fetchUser', () => fetchUser("1"), { key: "user:1" });
+      });
+
+      snapshot = workflow.snapshot;
+      expect(Object.keys(snapshot.steps)).toHaveLength(1);
+      expect(snapshot.steps["user:1"]).toBeDefined();
+      expect(snapshot.steps["user:1"]!.ok).toBe(true);
+    });
+
+    it("snapshot property creates new copy on each access", async () => {
+      const workflow = createWorkflow("test", { fetchUser });
+
+      await workflow(async (step) => {
+        return await step('fetchUser', () => fetchUser("1"), { key: "user:1" });
+      });
+
+      const snap1 = workflow.snapshot;
+      const snap2 = workflow.snapshot;
+
+      expect(snap1).toEqual(snap2);
+      expect(snap1).not.toBe(snap2);
+    });
+
+    it("prevents mutation of exposed deps", () => {
+      const workflow = createWorkflow("test", { fetchUser });
+
+      expect(() => {
+        // @ts-expect-error - Testing runtime immutability
+        workflow.deps.newProp = () => ok(123);
+      }).toThrow();
+    });
+
+    it("prevents mutation of exposed options", () => {
+      const workflow = createWorkflow("test", { fetchUser }, { onError: vi.fn() });
+
+      expect(() => {
+        // @ts-expect-error - Testing runtime immutability
+        workflow.options!.newProp = "test";
+      }).toThrow();
+    });
+
+    it("preserves properties when using .with()", () => {
+      const onError = vi.fn();
+      const workflow = createWorkflow("test", { fetchUser }, { onError });
+      const wrapped = workflow.with({ onEvent: vi.fn() });
+
+      expect(wrapped.name).toBe("test");
+      expect(wrapped.deps.fetchUser).toBe(fetchUser);
+      expect(wrapped.options?.onError).toBe(onError);
+    });
+  });
+
   describe("custom catchUnexpected (closed union)", () => {
     it("uses run with catchUnexpected internally", async () => {
       const getPosts = createWorkflow(
