@@ -45,6 +45,10 @@ import {
   UnwrapError,
   unwrapOr,
   unwrapOrElse,
+  runOrThrow,
+  runOrThrowAsync,
+  runOrNull,
+  runOrUndefined,
   bimap,
   orElse,
   orElseAsync,
@@ -249,6 +253,66 @@ describe("Unwrapping", () => {
         const code: number = error.code;
         return code;
       });
+    });
+  });
+
+  describe("runOrThrow()", () => {
+    it("returns value for ok result (same as unwrap)", () => {
+      const result = ok(42);
+      expect(runOrThrow(result)).toBe(42);
+    });
+
+    it("throws UnwrapError for err (same as unwrap)", () => {
+      const result = err("FAILED");
+      try {
+        runOrThrow(result);
+        expect.fail("should have thrown");
+      } catch (error) {
+        expect(error).toBeInstanceOf(UnwrapError);
+        expect((error as UnwrapError).error).toBe("FAILED");
+      }
+    });
+  });
+
+  describe("runOrThrowAsync()", () => {
+    it("resolves with value when Result is ok", async () => {
+      const ar: AsyncResult<number, string> = Promise.resolve(ok(42));
+      await expect(runOrThrowAsync(ar)).resolves.toBe(42);
+    });
+
+    it("rejects with UnwrapError when Result is err", async () => {
+      const ar: AsyncResult<number, string> = Promise.resolve(err("NOT_FOUND"));
+      await expect(runOrThrowAsync(ar)).rejects.toThrow(UnwrapError);
+      try {
+        await runOrThrowAsync(ar);
+      } catch (error) {
+        expect(error).toBeInstanceOf(UnwrapError);
+        expect((error as UnwrapError).error).toBe("NOT_FOUND");
+      }
+    });
+  });
+
+  describe("runOrNull()", () => {
+    it("returns value for ok result", () => {
+      const result = ok(42);
+      expect(runOrNull(result)).toBe(42);
+    });
+
+    it("returns null for err result", () => {
+      const result = err("failed");
+      expect(runOrNull(result)).toBeNull();
+    });
+  });
+
+  describe("runOrUndefined()", () => {
+    it("returns value for ok result", () => {
+      const result = ok(42);
+      expect(runOrUndefined(result)).toBe(42);
+    });
+
+    it("returns undefined for err result", () => {
+      const result = err("failed");
+      expect(runOrUndefined(result)).toBeUndefined();
     });
   });
 });

@@ -202,6 +202,30 @@ workflow(async ({ step = defaultStep }) => { ... });
 workflow(async ({ step: runStep = fallback }) => { ... });
 ```
 
+### Class-based workflows
+
+The analyzer also supports workflows defined by **extending `Workflow`** from `awaitly/workflow`:
+
+```typescript
+import { Workflow } from 'awaitly/workflow';
+
+class GetUserWorkflow extends Workflow<typeof deps> {
+  constructor() {
+    super('getUser', deps);
+  }
+
+  async run(event, step) {
+    const user = await step('fetchUser', () => this.deps.fetchUser(event.payload.userId));
+    const posts = await step('fetchPosts', () => this.deps.fetchPosts(user.id));
+    return { user, posts };
+  }
+}
+```
+
+- **Workflow name** is taken from the first argument to `super("name", deps)` (e.g. `"getUser"`, `"image-processing"`).
+- **Steps** are extracted from the `run(event, step)` body; use `step('id', fn)` so step IDs appear in diagrams and IR.
+- When analyzing **files** (e.g. `analyze('./workflows.ts')`), ensure the file imports `Workflow` from `awaitly/workflow` so the analyzer can resolve it.
+
 ## IR structure
 
 The analyzer returns a `StaticWorkflowIR` with:
@@ -252,7 +276,7 @@ type StaticFlowNode =
 Main static-analysis node types and when fields are populated:
 
 - **StaticWorkflowNode** (root): `workflowName`, `source`, `dependencies`, `children`, `description`, `markdown`, `jsdocDescription?`, `errorTypes`.
-  `description` and `markdown` are set only for `createWorkflow` / `createSagaWorkflow` (from options or deps). They are undefined for `run()` / `runSaga()`. `jsdocDescription` is extracted from JSDoc above the workflow variable when present.
+  `description` and `markdown` are set for `createWorkflow` / `createSagaWorkflow` (from options or deps) and for **class-based workflows** from the constructor options (third argument to `super("name", deps, options)`). They are undefined for `run()` / `runSaga()`. JSDoc above the workflow variable or class is extracted as `jsdocDescription` when present.
 
 - **StaticStepNode**: `stepId`, `callee`, `name`, `key`, `description`, `markdown`, `jsdocDescription?`, `retry`, `timeout`, `errors?`, `out?`, `reads?`.
   `stepId` is required and comes from the first argument to **`step('id', fn, opts)`**. `description` and `markdown` come from step options. `jsdocDescription` is extracted from JSDoc above the step statement.
@@ -326,6 +350,8 @@ console.log(workflows.length); // 2
 const wfA = analyze.source(source).named('workflowA');
 const wfB = analyze.source(source).named('workflowB');
 ```
+
+For **class-based workflows**, the name used with `.named(name)` is the string passed to `super("name", deps)` (e.g. `.named('getUser')`), not the class name.
 
 ## Use cases
 

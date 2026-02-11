@@ -140,6 +140,8 @@ const result = await run<User, 'NOT_FOUND'>(async (step) => {
   </TabItem>
 </Tabs>
 
+You can also define workflows by **extending the `Workflow` class** from `awaitly/workflow` and implementing `run(event, step)`; run them with `instance.execute(payload)`. The same step API applies. All workflow options (cache, resumeState, snapshot, onEvent, signal, description, markdown, etc.) are passed to the **constructor** as the third argument: `new MyWorkflow('name', deps, options)`. **`execute(payload, options?)`** only accepts the run input and optional `{ signal, instanceId }`. To resume, construct with `{ resumeState }` or `{ snapshot }`, then call `execute(payload)`. See the [API reference](/docs/reference/api/) for the Workflow class.
+
 ## Workflow options
 
 ### cache

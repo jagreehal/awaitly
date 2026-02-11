@@ -16,10 +16,13 @@ export type {
   StepOptions,
 } from "../core";
 
+// Export WorkflowRunEvent (different from WorkflowEvent in core, which is for event emissions)
+export type { WorkflowRunEvent } from "./workflow-event";
+
 // Re-export streaming types for workflow users
 export type { StreamStore } from "../streaming/types";
 
-// Re-export workflow types from types.ts
+// Re-export workflow types from types.ts (callable type as Workflow for backward compat; class as value below)
 export type {
   StepCache,
   ResumeStateEntry,
@@ -36,6 +39,7 @@ export type {
   SubscribeEvent,
   SubscribeOptions,
   Workflow,
+  Workflow as WorkflowCallable,
   WorkflowCancelledError,
   PendingApproval,
   PendingHook,
@@ -78,7 +82,32 @@ export {
   SnapshotDecodeError,
 } from "../persistence";
 
+/**
+ * @deprecated Use WorkflowClass instead. createWorkflow will be removed in v3.0.0.
+ *
+ * The new Workflow class API provides a cleaner, event-driven signature:
+ *
+ * @example
+ * ```typescript
+ * // Old (deprecated):
+ * const workflow = createWorkflow('my-workflow', { fetchUser });
+ * await workflow(async (step, deps, ctx) => { ... });
+ *
+ * // New (recommended):
+ * class MyWorkflow extends WorkflowClass<typeof deps> {
+ *   async run(event: WorkflowRunEvent<InputType>, step) {
+ *     // Access input via event.payload
+ *     // Access deps via this.deps
+ *   }
+ * }
+ * const workflow = new MyWorkflow('my-workflow', deps);
+ * await workflow.execute(payload);
+ * ```
+ */
 export { createWorkflow } from "./execute";
+
+/** Primary Workflow API - class-based with run(event, step) signature */
+export { Workflow as WorkflowClass } from "./workflow-class";
 
 // Workflow Diagram DSL (for visualization; types shared with analyzer/visualizer)
 export type {

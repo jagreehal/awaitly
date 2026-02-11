@@ -13,7 +13,8 @@ import {
   type AsyncResult,
   isUnexpectedError,
 } from "./index";
-import { createWorkflow } from "./workflow-entry";
+import { createWorkflow, WorkflowClass } from "./workflow-entry";
+import type { RunStep, WorkflowRunEvent, ErrorsOfDeps } from "./workflow";
 import {
   isPendingApproval,
   createApprovalStep,
@@ -167,6 +168,39 @@ describe("Workflows Documentation - Your First Workflow", () => {
     if (!result.ok && isUnexpectedError(result.error)) {
       // UnexpectedError wraps uncaught exceptions
       expect(result.error.type).toBe("UNEXPECTED_ERROR");
+    }
+  });
+});
+
+// =============================================================================
+// Section: Class-based Workflow (Workflow class)
+// =============================================================================
+
+describe("Workflows Documentation - Class-based Workflow", () => {
+  it("verifies class-based example: extend Workflow, override run, call execute()", async () => {
+    const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> =>
+      id === "1" ? ok({ id, name: "Alice", email: "alice@example.com" }) : err("NOT_FOUND");
+
+    const deps = { fetchUser };
+    type Deps = typeof deps;
+
+    class GetUserWorkflow extends WorkflowClass<Deps, ErrorsOfDeps<Deps>> {
+      async run(
+        event: WorkflowRunEvent<{ userId: string }>,
+        step: RunStep<ErrorsOfDeps<Deps>>
+      ): Promise<User> {
+        const user = await step("fetchUser", () => this.deps.fetchUser(event.payload.userId));
+        return user;
+      }
+    }
+
+    const w = new GetUserWorkflow("fetch-user", deps);
+    const result = await w.execute<User, { userId: string }>({ userId: "1" });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.name).toBe("Alice");
+      expect(result.value.email).toBe("alice@example.com");
     }
   });
 });

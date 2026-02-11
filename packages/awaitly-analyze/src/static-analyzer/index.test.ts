@@ -639,6 +639,72 @@ async function run() {
     });
   });
 
+  describe("Class-based Workflow", () => {
+    it("should discover and analyze class-based Workflow with run(event, step)", () => {
+      const source = readFileSync(
+        join(FIXTURES_DIR, "workflow-class.ts"),
+        "utf-8"
+      );
+      const results = analyzeWorkflowSource(source, undefined, {
+        assumeImported: true,
+        detect: "all",
+      });
+
+      expect(results).toHaveLength(2);
+
+      const getUser = results.find((r) => r.root.workflowName === "getUser");
+      const imageProcessing = results.find(
+        (r) => r.root.workflowName === "image-processing"
+      );
+
+      expect(getUser).toBeDefined();
+      expect(getUser!.root.source).toBe("Workflow");
+      expect(imageProcessing).toBeDefined();
+      expect(imageProcessing!.root.source).toBe("Workflow");
+
+      const getUserSteps = collectStepNodes(getUser!.root);
+      expect(getUserSteps).toHaveLength(2);
+      expect(getUserSteps.map((s) => s.stepId)).toEqual([
+        "fetchUser",
+        "fetchPosts",
+      ]);
+
+      const imageSteps = collectStepNodes(imageProcessing!.root);
+      expect(imageSteps).toHaveLength(1);
+      expect(imageSteps[0].stepId).toBe("fetch");
+    });
+
+    it("should detect class-based Workflow when imported with alias", () => {
+      const source = `
+        import { Workflow as WF, type WorkflowRunEvent } from "awaitly/workflow";
+        const fetchUser = async (_id: string) => ({ id: "1", name: "Alice" });
+        const deps = { fetchUser };
+
+        class AliasedWorkflow extends WF<typeof deps> {
+          constructor() {
+            super("aliased-workflow", deps);
+          }
+
+          async run(event: WorkflowRunEvent<{ userId: string }>, step: any) {
+            return await step("fetchUser", () => this.deps.fetchUser(event.payload.userId));
+          }
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source, undefined, {
+        detect: "all",
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].root.workflowName).toBe("aliased-workflow");
+      expect(results[0].root.source).toBe("Workflow");
+
+      const steps = collectStepNodes(results[0].root);
+      expect(steps).toHaveLength(1);
+      expect(steps[0].stepId).toBe("fetchUser");
+    });
+  });
+
   describe("Factory Pattern Analysis", () => {
     it("should find invocations when factory result is assigned to a variable", () => {
       const source = `

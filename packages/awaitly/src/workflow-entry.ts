@@ -5,18 +5,38 @@
  * error inference, step caching, and resume state.
  *
  * @example
+ * **Workflow class (primary API):**
  * ```typescript
- * import { createWorkflow, run } from 'awaitly/workflow';
+ * import { WorkflowClass, type WorkflowRunEvent } from 'awaitly/workflow';
  * import { ok, err, type AsyncResult } from 'awaitly/core';
  *
  * const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
  *   id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND');
  *
- * const workflow = createWorkflow('fetch-user', { fetchUser });
+ * const deps = { fetchUser };
  *
- * const result = await workflow(async (step) => {
- *   const user = await step(fetchUser('1'));
- *   return user;
+ * class GetUserWorkflow extends WorkflowClass<typeof deps> {
+ *   async run(event: WorkflowRunEvent<{ userId: string }>, step) {
+ *     const user = await step('fetchUser', () =>
+ *       this.deps.fetchUser(event.payload.userId)
+ *     );
+ *     return user;
+ *   }
+ * }
+ *
+ * const w = new GetUserWorkflow('fetch-user', deps);
+ * const result = await w.execute({ userId: '1' });
+ * ```
+ *
+ * @example
+ * **Simple workflows with run() function:**
+ * ```typescript
+ * import { run } from 'awaitly/workflow';
+ *
+ * const result = await run(async (step) => {
+ *   // Simple workflows without deps
+ *   const data = await step('fetch', () => fetchData());
+ *   return data;
  * });
  * ```
  */
@@ -54,13 +74,12 @@ export {
 // Workflow Engine
 // =============================================================================
 export {
-  // Types
+  // Types (Workflow = callable type from createWorkflow; class is exported as value below)
   type AnyResultFn,
   type ErrorsOfDeps,
   type CausesOfDeps,
   type WorkflowOptions,
   type ExecutionOptions,
-  type Workflow,
   type WorkflowFn,
   type WorkflowFnWithArgs,
   type WorkflowContext,
@@ -72,8 +91,20 @@ export {
   type SubscribeEvent,
   type SubscribeOptions,
 
-  // Functions
+  // Callable workflow type (return type of createWorkflow); Workflow = same type for backward compat
+  type Workflow,
+  type WorkflowCallable,
+
+  // WorkflowRunEvent type for class-based workflows
+  type WorkflowRunEvent,
+
+  // Functions / Class
+  /**
+   * @deprecated Use WorkflowClass instead. createWorkflow will be removed in v3.0.0.
+   * See WorkflowClass for the new event-driven API.
+   */
   createWorkflow,
+  WorkflowClass,
   isStepComplete,
   isWorkflowCancelled,
 

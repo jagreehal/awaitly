@@ -369,7 +369,7 @@ interface WorkflowCallInfo {
   optionsObject: Node | undefined;
   callbackFunction: Node | undefined;
   variableDeclaration: Node | undefined;
-  source: "createWorkflow" | "createSagaWorkflow" | "runSaga" | "run";
+  source: "createWorkflow" | "createSagaWorkflow" | "runSaga" | "run" | "Workflow";
 }
 
 /**
@@ -629,6 +629,89 @@ function findWorkflowCalls(sourceFile: SourceFile, opts: Required<AnalyzerOption
       }
     }
   });
+
+  // -------------------------------------------------------------------------
+  // Class-based Workflow: class X extends Workflow { async run(step, deps, ctx) { ... } }
+  // -------------------------------------------------------------------------
+  if (opts.detect === "all" || opts.detect === "createWorkflow") {
+    const hasWorkflowImport =
+      awaitlyImports.namedImports.has("Workflow") ||
+      awaitlyImports.namedImports.has("WorkflowClass") ||
+      [...awaitlyImports.namedImportAliases.values()].includes("Workflow") ||
+      [...awaitlyImports.namedImportAliases.values()].includes("WorkflowClass") ||
+      awaitlyImports.defaultImports.size > 0 ||
+      awaitlyImports.namespaceImports.size > 0 ||
+      opts.assumeImported;
+
+    sourceFile.forEachDescendant((node) => {
+      if (!Node.isClassDeclaration(node)) return;
+
+      const ext = node.getExtends();
+      if (!ext) return;
+
+      const expr = ext.getExpression();
+      const extText = expr.getText();
+      // Resolve base: canonical "Workflow"/"WorkflowClass" or alias (e.g. WF) that maps to Workflow
+      const resolvedBase =
+        extText === "Workflow" || extText.startsWith("Workflow<")
+          ? "Workflow"
+          : extText === "WorkflowClass" || extText.startsWith("WorkflowClass<")
+            ? "WorkflowClass"
+            : awaitlyImports.namedImportAliases.get(extText);
+      const isWorkflowBase =
+        (resolvedBase === "Workflow" && awaitlyImports.namedImports.has("Workflow")) ||
+        (resolvedBase === "WorkflowClass" && awaitlyImports.namedImports.has("WorkflowClass")) ||
+        (resolvedBase === "Workflow" && awaitlyImports.namedImportAliases.get(extText) === "Workflow") ||
+        (Node.isPropertyAccessExpression(expr) &&
+          (expr.getName() === "Workflow" || expr.getName() === "WorkflowClass") &&
+          (awaitlyImports.namespaceImports.has(expr.getExpression().getText()) || awaitlyImports.defaultImports.has(expr.getExpression().getText())));
+
+      if (!isWorkflowBase || !hasWorkflowImport) return;
+
+      const constructors = node.getConstructors();
+      const ctor = constructors.length > 0 ? constructors[0] : undefined;
+      let name: string = node.getName() || "anonymous";
+      let depsObject: Node | undefined;
+      let optionsObject: Node | undefined;
+
+      if (ctor) {
+        const body = ctor.getBody();
+        if (body && Node.isBlock(body)) {
+          for (const stmt of body.getStatements()) {
+            if (Node.isExpressionStatement(stmt)) {
+              const call = stmt.getExpression();
+              if (Node.isCallExpression(call) && call.getExpression().getText() === "super") {
+                const args = call.getArguments();
+                if (args.length >= 1 && args[0]) {
+                  const nameArg = resolveWorkflowNameArg(args[0]);
+                  if (nameArg) name = nameArg;
+                  depsObject = args.length >= 2 ? args[1] : undefined;
+                  if (args.length >= 3 && args[2] && Node.isObjectLiteralExpression(args[2])) {
+                    optionsObject = args[2];
+                  }
+                }
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      const runMethod = node.getInstanceMethod("run");
+      if (!runMethod) return;
+
+      workflows.push({
+        name,
+        bindingName: node.getName(),
+        callExpression: node,
+        depsObject,
+        optionsObject,
+        callbackFunction: runMethod,
+        variableDeclaration: undefined,
+        source: "Workflow",
+      });
+    });
+  }
 
   return workflows;
 }
@@ -903,19 +986,16 @@ function analyzeWorkflowCall(
   const isSagaWorkflow = source === "createSagaWorkflow" || source === "runSaga";
   const sagaContext: SagaContext = { isSagaWorkflow };
 
-  // For run() and runSaga(), the callback is already in callbackFunction
+  // For run(), runSaga(), and Workflow class: the body is already in callbackFunction
   const children: StaticFlowNode[] = [];
   let callbackForReturnType: Node | undefined;
 
-  if (source === "run" || source === "runSaga") {
+  if (source === "run" || source === "runSaga" || source === "Workflow") {
     callbackForReturnType = workflowInfo.callbackFunction;
-    // run() and runSaga() have the callback as the first argument
     if (workflowInfo.callbackFunction) {
-      // Extract saga parameter info for runSaga
       if (source === "runSaga") {
         sagaContext.sagaParamInfo = extractSagaParameterInfo(workflowInfo.callbackFunction);
       }
-      // Extract step parameter info for proper step detection
       const stepParamInfo = extractStepParameterInfo(workflowInfo.callbackFunction);
       const analyzed = analyzeCallback(
         workflowInfo.callbackFunction,
@@ -1011,18 +1091,30 @@ function extractStepParameterInfo(callback: Node): StepParameterInfo | undefined
   const { Node } = loadTsMorph();
 
   let params: Node[] = [];
+  let isClassRunMethod = false;
+
   if (Node.isArrowFunction(callback)) {
     params = callback.getParameters();
   } else if (Node.isFunctionExpression(callback)) {
     params = callback.getParameters();
+  } else if (Node.isMethodDeclaration(callback)) {
+    params = callback.getParameters();
+    // Check if this is a class-based Workflow run method with signature run(event, step)
+    isClassRunMethod = callback.getName() === 'run';
   }
 
   if (params.length === 0) return undefined;
 
-  const firstParam = params[0];
-  if (!Node.isParameterDeclaration(firstParam)) return undefined;
+  // For class-based Workflow run(event, step), step is the second parameter
+  // For function callbacks (step, deps, ctx), step is the first parameter
+  const stepParamIndex = isClassRunMethod ? 1 : 0;
 
-  const nameNode = firstParam.getNameNode();
+  if (params.length <= stepParamIndex) return undefined;
+
+  const stepParam = params[stepParamIndex];
+  if (!Node.isParameterDeclaration(stepParam)) return undefined;
+
+  const nameNode = stepParam.getNameNode();
 
   // Check if it's destructured: ({ step }) or ({ step: s })
   if (Node.isObjectBindingPattern(nameNode)) {
@@ -1060,6 +1152,10 @@ function getWorkflowCallbackReturnType(cb: Node | undefined): string | undefined
     node = node.getExpression();
   }
   if (Node.isArrowFunction(node) || Node.isFunctionExpression(node)) {
+    const ret = (node as { getReturnType?: () => { getText: () => string } }).getReturnType?.();
+    return ret?.getText();
+  }
+  if (Node.isMethodDeclaration(node)) {
     const ret = (node as { getReturnType?: () => { getText: () => string } }).getReturnType?.();
     return ret?.getText();
   }
@@ -1605,12 +1701,14 @@ function analyzeCallback(
   stepParamInfo?: StepParameterInfo
 ): StaticFlowNode[] {
   const { Node } = loadTsMorph();
-  // Get the function body
+  // Get the function body (arrow, function expression, or run() method)
   let body: Node | undefined;
 
   if (Node.isArrowFunction(callback)) {
     body = callback.getBody();
   } else if (Node.isFunctionExpression(callback)) {
+    body = callback.getBody();
+  } else if (Node.isMethodDeclaration(callback)) {
     body = callback.getBody();
   }
 

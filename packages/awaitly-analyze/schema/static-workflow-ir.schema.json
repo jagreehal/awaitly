@@ -67,7 +67,7 @@
         "type": { "const": "workflow" },
         "id": { "type": "string" },
         "workflowName": { "type": "string" },
-        "source": { "enum": ["createWorkflow", "run", "createSagaWorkflow", "runSaga"] },
+        "source": { "enum": ["createWorkflow", "run", "createSagaWorkflow", "runSaga", "Workflow"] },
         "dependencies": { "type": "array", "items": { "$ref": "#/$defs/DependencyInfo" } },
         "errorTypes": { "type": "array", "items": { "type": "string" } },
         "children": { "type": "array", "items": { "$ref": "#/$defs/StaticFlowNode" } },

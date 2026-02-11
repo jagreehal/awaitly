@@ -12,14 +12,14 @@ import {
   type RunStep,
   type UnexpectedError,
 } from "../core";
-import {
-  createWorkflow,
-  type AnyResultFn,
-  type ErrorsOfDeps,
-  type WorkflowOptions,
-  type WorkflowContext,
-  type WorkflowCancelledError,
-  type Workflow,
+import { createWorkflow } from "../workflow/execute";
+import type {
+  AnyResultFn,
+  ErrorsOfDeps,
+  WorkflowOptions,
+  WorkflowContext,
+  WorkflowCancelledError,
+  WorkflowCallable,
 } from "../workflow";
 import {
   type SnapshotStore,
@@ -574,7 +574,7 @@ export const durable = {
       };
 
       // Reference to the workflow instance (populated after creation)
-      let workflowInstance: Workflow<E, UnexpectedError, Deps, C> | null = null;
+      let workflowInstance: WorkflowCallable<E, UnexpectedError, Deps, C> | null = null;
 
       // Build workflow options with proper types (U = UnexpectedError by default)
       const workflowOptions: WorkflowOptions<E, UnexpectedError, C> = {

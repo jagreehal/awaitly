@@ -350,8 +350,8 @@ export interface StaticWorkflowNode extends StaticBaseNode {
   type: "workflow";
   /** Name of the workflow (from variable name or file name) */
   workflowName: string;
-  /** Source pattern: 'createWorkflow', 'run', 'createSagaWorkflow', or 'runSaga' */
-  source?: "createWorkflow" | "run" | "createSagaWorkflow" | "runSaga";
+  /** Source pattern: 'createWorkflow', 'run', 'createSagaWorkflow', 'runSaga', or 'Workflow' (class-based) */
+  source?: "createWorkflow" | "run" | "createSagaWorkflow" | "runSaga" | "Workflow";
   /** Dependencies declared in createWorkflow */
   dependencies: DependencyInfo[];
   /** Inferred error types from dependencies */

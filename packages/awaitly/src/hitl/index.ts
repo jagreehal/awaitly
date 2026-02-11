@@ -7,7 +7,7 @@
  */
 
 import type { Result, WorkflowEvent } from "../core";
-import type { ResumeState, Workflow } from "../workflow";
+import type { ResumeState, WorkflowCallable } from "../workflow";
 import { createApprovalStateCollector, isPendingApproval, injectApproval } from "../workflow";
 
 // =============================================================================
@@ -421,7 +421,7 @@ export interface HITLOrchestrator {
    */
   execute<T, E, TInput>(
     workflowName: string,
-    workflowFactory: (options: HITLWorkflowFactoryOptions) => Workflow<E, unknown>,
+    workflowFactory: (options: HITLWorkflowFactoryOptions) => WorkflowCallable<E, unknown>,
     workflowFn: (step: unknown, deps: unknown, input: TInput) => Promise<T>,
     input: TInput,
     options?: { runId?: string; metadata?: Record<string, unknown> }
@@ -432,7 +432,7 @@ export interface HITLOrchestrator {
    */
   resume<T, E, TInput>(
     runId: string,
-    workflowFactory: (options: HITLWorkflowFactoryOptions) => Workflow<E, unknown>,
+    workflowFactory: (options: HITLWorkflowFactoryOptions) => WorkflowCallable<E, unknown>,
     workflowFn: (step: unknown, deps: unknown, input: TInput) => Promise<T>
   ): Promise<HITLExecutionResult<T, E>>;
 
@@ -536,7 +536,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
 
   async function execute<T, E, TInput>(
     workflowName: string,
-    workflowFactory: (options: HITLWorkflowFactoryOptions) => Workflow<E, unknown>,
+    workflowFactory: (options: HITLWorkflowFactoryOptions) => WorkflowCallable<E, unknown>,
     workflowFn: (step: unknown, deps: unknown, input: TInput) => Promise<T>,
     input: TInput,
     opts?: { runId?: string; metadata?: Record<string, unknown> }
@@ -550,7 +550,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
     });
 
     // Execute workflow - collector tracks pending approvals via events
-    const result = await (workflow as Workflow<E, unknown>)(
+    const result = await (workflow as WorkflowCallable<E, unknown>)(
       input,
       workflowFn as (step: unknown, deps: unknown, args: TInput) => Promise<T>
     );
@@ -632,7 +632,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
 
   async function resume<T, E, TInput>(
     runId: string,
-    workflowFactory: (options: HITLWorkflowFactoryOptions) => Workflow<E, unknown>,
+    workflowFactory: (options: HITLWorkflowFactoryOptions) => WorkflowCallable<E, unknown>,
     workflowFn: (step: unknown, deps: unknown, input: TInput) => Promise<T>
   ): Promise<HITLExecutionResult<T, E>> {
     const savedState = await workflowStateStore.load(runId);
@@ -687,7 +687,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
     });
 
     // Execute workflow
-    const result = await (workflow as Workflow<E, unknown>)(
+    const result = await (workflow as WorkflowCallable<E, unknown>)(
       savedState.input as TInput,
       workflowFn as (step: unknown, deps: unknown, args: TInput) => Promise<T>
     );

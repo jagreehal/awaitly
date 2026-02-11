@@ -3835,6 +3835,48 @@ export const unwrapOrElse = <T, E, C>(
   fn: (error: E, cause?: C) => T
 ): T => (r.ok ? r.value : fn(r.error, r.cause));
 
+/**
+ * Alias for `unwrap`. Returns the success value or throws.
+ *
+ * The Result is already computed; use when you want the value or throw (e.g. at boundaries or in tests).
+ *
+ * @param r - The Result to unwrap
+ * @returns The success value if the Result is successful
+ * @throws {UnwrapError} If the Result is an error (includes the error and cause)
+ */
+export const runOrThrow = <T, E, C>(r: Result<T, E, C>): T => unwrap(r);
+
+/**
+ * Awaits a Promise of a Result, then returns the success value or rejects.
+ *
+ * The returned promise **resolves with T** on success and **rejects with UnwrapError** on failure.
+ * UnwrapError extends Error and carries the original `error` and `cause` from the Err.
+ *
+ * @param ar - A Promise or thenable that resolves to a Result
+ * @returns A Promise that resolves with the success value or rejects with UnwrapError
+ */
+export const runOrThrowAsync = <T, E, C>(
+  ar: PromiseLike<Result<T, E, C>>
+): Promise<T> => Promise.resolve(ar).then(unwrap);
+
+/**
+ * Convenience alias for `unwrapOr(r, null)`. Returns the success value or null.
+ *
+ * @param r - The Result to unwrap
+ * @returns The success value if successful, otherwise null
+ */
+export const runOrNull = <T, E, C>(r: Result<T, E, C>): T | null =>
+  r.ok ? r.value : null;
+
+/**
+ * Convenience alias for `unwrapOr(r, undefined)`. Returns the success value or undefined.
+ *
+ * @param r - The Result to unwrap
+ * @returns The success value if successful, otherwise undefined
+ */
+export const runOrUndefined = <T, E, C>(r: Result<T, E, C>): T | undefined =>
+  r.ok ? r.value : undefined;
+
 // =============================================================================
 // Wrapping Functions
 // =============================================================================

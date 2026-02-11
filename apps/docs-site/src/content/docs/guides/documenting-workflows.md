@@ -15,7 +15,7 @@ JSDoc comments above workflow or step declarations are **also** extracted by the
 
 ## Workflow-level documentation
 
-Set `description` and `markdown` when creating the workflow (in the options object or on the deps object). They apply to `createWorkflow` and `createSagaWorkflow` only; `run()` and `runSaga()` have no options object, so they do not support workflow-level docs.
+Set `description` and `markdown` when creating the workflow (in the options object or on the deps object). They apply to `createWorkflow` and `createSagaWorkflow` only; `run()` and `runSaga()` have no options object, so they do not support workflow-level docs. For **class-based workflows** (extending `Workflow` from `awaitly/workflow`), pass the same options (including `description`, `markdown`) to the **constructor** as the third argument: `new MyWorkflow('name', deps, { description: '...', markdown: '...' })`. JSDoc above the class is also extracted as `jsdocDescription` when present.
 
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';

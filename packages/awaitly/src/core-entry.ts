@@ -67,6 +67,10 @@ export {
   unwrap,
   unwrapOr,
   unwrapOrElse,
+  runOrThrow,
+  runOrThrowAsync,
+  runOrNull,
+  runOrUndefined,
 
   // Wrap
   from,

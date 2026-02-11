@@ -6,7 +6,7 @@
  */
 
 import { type Result, type AsyncResult, type RunStep, ok, err, isOk } from "../core";
-import { type Workflow, type UnexpectedError } from "../workflow";
+import { type WorkflowCallable, type UnexpectedError } from "../workflow";
 
 // =============================================================================
 // Request/Response Types
@@ -303,7 +303,7 @@ export function createWebhookHandler<
   TBody = unknown,
   TDeps = unknown
 >(
-  workflow: Workflow<TError, TUnexpected, TDeps>,
+  workflow: WorkflowCallable<TError, TUnexpected, TDeps>,
   workflowFn: (
     step: RunStep<TError | TUnexpected>,
     deps: TDeps,
@@ -320,7 +320,7 @@ export function createWebhookHandler<
   TBody = unknown,
   TDeps = unknown
 >(
-  workflow: Workflow<TError, UnexpectedError, TDeps>,
+  workflow: WorkflowCallable<TError, UnexpectedError, TDeps>,
   workflowFn: (
     step: RunStep<TError | UnexpectedError>,
     deps: TDeps,
@@ -337,7 +337,7 @@ export function createWebhookHandler<
   TDeps = unknown,
   TUnexpected = UnexpectedError
 >(
-  workflow: Workflow<TError, TUnexpected, TDeps>,
+  workflow: WorkflowCallable<TError, TUnexpected, TDeps>,
   workflowFn: (
     step: RunStep<TError | TUnexpected>,
     deps: TDeps,
@@ -863,7 +863,7 @@ export function createEventHandler<
   TDeps = unknown,
   TUnexpected = UnexpectedError
 >(
-  workflow: Workflow<TError, TUnexpected, TDeps>,
+  workflow: WorkflowCallable<TError, TUnexpected, TDeps>,
   workflowFn: (
     step: RunStep<TError | TUnexpected>,
     deps: TDeps,

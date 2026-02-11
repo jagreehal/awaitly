@@ -28,7 +28,7 @@ import {
   UNEXPECTED_ERROR,
 } from "./index";
 import { run, type WorkflowEvent } from "./run-entry";
-import { createWorkflow, ErrorsOfDeps } from "./workflow-entry";
+import { createWorkflow, ErrorsOfDeps, type Workflow as WorkflowCallableLegacy } from "./workflow-entry";
 import { pendingApproval } from "./hitl-entry";
 import { Duration, type DurationType } from "./duration";
 // These are exported via awaitly/match and awaitly/retry entry points.
@@ -50,6 +50,11 @@ type Post = { id: number; title: string };
 declare const fetchUser: (id: string) => AsyncResult<User, "NOT_FOUND">;
 declare const fetchPosts: (userId: string) => AsyncResult<Post[], "FETCH_ERROR">;
 declare const validateUser: (user: User) => Result<User, "INVALID_USER">;
+
+function _testWorkflowTypeBackwardCompatibility() {
+  type W = WorkflowCallableLegacy<"NOT_FOUND", UnexpectedError, { fetchUser: typeof fetchUser }>;
+  expectType<W>({} as W);
+}
 
 // =============================================================================
 // TEST 1: run() with onError includes UnexpectedError (sound behavior)
