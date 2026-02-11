@@ -1,5 +1,13 @@
 # browser-test
 
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [f68ccdb]
+  - awaitly@1.21.0
+  - awaitly-visualizer@10.0.0
+
 ## 0.3.1
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # awaitly-analyze
 
+## 0.12.1
+
+### Patch Changes
+
+- Updated dependencies [f68ccdb]
+  - awaitly@1.21.0
+  - awaitly-visualizer@10.0.0
+
 ## 0.12.0
 
 ### Minor Changes
