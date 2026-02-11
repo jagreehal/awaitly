@@ -45,6 +45,10 @@ import {
   UnwrapError,
   unwrapOr,
   unwrapOrElse,
+  runOrThrow,
+  runOrThrowAsync,
+  runOrNull,
+  runOrUndefined,
   bimap,
   orElse,
   orElseAsync,
@@ -249,6 +253,63 @@ describe("Unwrapping", () => {
         const code: number = error.code;
         return code;
       });
+    });
+  });
+
+  describe("runOrThrow()", () => {
+    it("returns value for ok result", () => {
+      const result = ok(42);
+      expect(runOrThrow(result)).toBe(42);
+    });
+
+    it("throws UnwrapError for err (same as unwrap)", () => {
+      const result = err("FAILED");
+      expect(() => runOrThrow(result)).toThrow(UnwrapError);
+      try {
+        runOrThrow(result);
+      } catch (e) {
+        expect((e as UnwrapError).error).toBe("FAILED");
+      }
+    });
+  });
+
+  describe("runOrThrowAsync()", () => {
+    it("resolves with value when Promise resolves to ok", async () => {
+      const p = Promise.resolve(ok(42));
+      await expect(runOrThrowAsync(p)).resolves.toBe(42);
+    });
+
+    it("rejects with UnwrapError when Promise resolves to err", async () => {
+      const p = Promise.resolve(err("ASYNC_FAILED"));
+      await expect(runOrThrowAsync(p)).rejects.toThrow(UnwrapError);
+      await expect(runOrThrowAsync(p)).rejects.toMatchObject({
+        error: "ASYNC_FAILED",
+        name: "UnwrapError",
+      });
+    });
+  });
+
+  describe("runOrNull()", () => {
+    it("returns value for ok result", () => {
+      const result = ok(42);
+      expect(runOrNull(result)).toBe(42);
+    });
+
+    it("returns null for err result", () => {
+      const result = err("failed");
+      expect(runOrNull(result)).toBe(null);
+    });
+  });
+
+  describe("runOrUndefined()", () => {
+    it("returns value for ok result", () => {
+      const result = ok(42);
+      expect(runOrUndefined(result)).toBe(42);
+    });
+
+    it("returns undefined for err result", () => {
+      const result = err("failed");
+      expect(runOrUndefined(result)).toBe(undefined);
     });
   });
 });

@@ -477,11 +477,21 @@ export interface Workflow<E, U = UnexpectedError, Deps = unknown, C = void> {
    */
   with(exec: ExecutionOptions<E, U, C>): Workflow<E, U, Deps, C>;
 
+  /** Workflow name (from createWorkflow first argument). */
+  readonly name: string;
+  /** Dependencies passed to createWorkflow. */
+  readonly deps: Deps;
+  /** Options passed to createWorkflow. */
+  readonly options?: WorkflowOptions<E, U, C>;
+
   /**
    * Get a JSON-serializable snapshot of the workflow state.
    * Returns a deep copy (via structuredClone) of the current state.
    */
   getSnapshot(options?: GetSnapshotOptions): WorkflowSnapshot;
+
+  /** Current workflow snapshot (read-only). Alias for getSnapshot(); creates a new copy on each access. */
+  readonly snapshot: WorkflowSnapshot;
 
   /**
    * Subscribe to workflow events for auto-persistence.

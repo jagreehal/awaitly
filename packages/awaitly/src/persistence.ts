@@ -62,6 +62,8 @@ export type StepResult =
 export interface WorkflowSnapshot {
   /** Snapshot format version (literal type - bump when shape changes) */
   formatVersion: 1;
+  /** Workflow name (from createWorkflow first argument). */
+  workflowName?: string;
   /** Step results keyed by step ID. Uses Object.create(null) internally. */
   steps: Record<string, StepResult>;
   /** Execution state metadata */

@@ -67,6 +67,10 @@ export {
   unwrap,
   unwrapOr,
   unwrapOrElse,
+  runOrThrow,
+  runOrThrowAsync,
+  runOrNull,
+  runOrUndefined,
 
   // Wrap
   from,
@@ -132,6 +136,7 @@ export {
   // Types
   type Tagged,
   type Matcher,
+  type MatchTag,
 
   // Namespace
   Match,
@@ -140,6 +145,7 @@ export {
   matchValue,
   tag as matchTag,
   tags as matchTags,
+  when as matchWhen,
   exhaustive,
   orElse as matchOrElse,
   orElseValue,
