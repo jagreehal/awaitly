@@ -1,5 +1,13 @@
 # browser-test
 
+## 0.3.3
+
+### Patch Changes
+
+- Updated dependencies [84bfb7a]
+  - awaitly@1.22.0
+  - awaitly-visualizer@11.0.0
+
 ## 0.3.2
 
 ### Patch Changes
