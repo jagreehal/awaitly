@@ -42,7 +42,7 @@ function parseDurationString(input: string): DurationObject | undefined {
  *
  * @example
  * ```typescript
- * const success = ok(42);
+ * const success = Awaitly.ok(42);
  * // Type shown: Ok<number>
  * ```
  */
@@ -58,7 +58,7 @@ export type Ok<T> = { ok: true; value: T };
  *
  * @example
  * ```typescript
- * const failure = err({ type: "NOT_FOUND", message: "User not found" });
+ * const failure = Awaitly.err({ type: "NOT_FOUND", message: "User not found" });
  * // Type shown: Err<{ type: string; message: string }>
  * ```
  */
@@ -81,6 +81,10 @@ export type Result<T, E = unknown, C = unknown> = Ok<T> | Err<E, C>;
  */
 export type AsyncResult<T, E = unknown, C = unknown> = Promise<Result<T, E, C>>;
 
+/**
+ * Cause of a step failure: either a Result error or a thrown value.
+ * Used inside UnexpectedError when a step returns Err or throws.
+ */
 export type UnexpectedStepFailureCause =
   | {
       type: "STEP_FAILURE";
@@ -95,6 +99,10 @@ export type UnexpectedStepFailureCause =
       thrown: unknown;
     };
 
+/**
+ * Union of causes for unexpected errors: uncaught exception or step failure.
+ * Used as the cause field of UnexpectedError.
+ */
 export type UnexpectedCause =
   | { type: "UNCAUGHT_EXCEPTION"; thrown: unknown }
   | UnexpectedStepFailureCause;
@@ -194,12 +202,12 @@ export type MaybeAsyncResult<T, E, C = unknown> = Result<T, E, C> | Promise<Resu
  *
  * @example
  * ```typescript
- * const success = ok(42);
+ * const success = Awaitly.ok(42);
  * // Type: Ok<number>
  *
  * function divide(a: number, b: number): Result<number, string> {
- *   if (b === 0) return err("Division by zero");
- *   return ok(a / b);
+ *   if (b === 0) return Awaitly.err("Division by zero");
+ *   return Awaitly.ok(a / b);
  * }
  * ```
  */
@@ -217,11 +225,11 @@ export const ok = <T>(value: T): Ok<T> => ({ ok: true, value });
  * @example
  * ```typescript
  * // Simple error
- * const r1 = err("NOT_FOUND");
+ * const r1 = Awaitly.err("NOT_FOUND");
  * // Type: Err<"NOT_FOUND">
  *
  * // Error with context (include in error object)
- * const r2 = err({ type: "PROCESSING_FAILED", cause: originalError });
+ * const r2 = Awaitly.err({ type: "PROCESSING_FAILED", cause: originalError });
  * // Type: Err<{ type: string; cause: Error }>
  * ```
  */
@@ -4954,13 +4962,13 @@ type AllResult<T extends readonly Result<unknown, unknown, unknown>[]> =
  * @example
  * ```typescript
  * // Combine multiple successful Results
- * const combined = all([ok(1), ok(2), ok(3)]);
+ * const combined = all([Awaitly.ok(1), Awaitly.ok(2), Awaitly.ok(3)]);
  * // combined: { ok: true, value: [1, 2, 3] }
  *
  * // Short-circuits on first error
- * const error = all([ok(1), err('ERROR'), ok(3)]);
+ * const error = all([Awaitly.ok(1), Awaitly.err('ERROR'), Awaitly.ok(3)]);
  * // error: { ok: false, error: 'ERROR' }
- * // Note: ok(3) is never evaluated
+ * // Note: Awaitly.ok(3) is never evaluated
  *
  * // Combine API responses
  * const data = all([

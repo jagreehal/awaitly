@@ -31,6 +31,15 @@ export function pendingHook(
 /**
  * Create a new hook: generates a unique hookId and returns it with the stepKey for use in the workflow step.
  * The app exposes a URL (e.g. POST /hook/:hookId) and calls injectHook(state, { hookId, value }) when the callback arrives.
+ *
+ * @returns Object with `hookId` (use in callback URL) and `stepKey` (use with step() and injectHook).
+ *
+ * @example
+ * ```typescript
+ * const { hookId, stepKey } = createHook();
+ * // Expose POST /hook/:hookId; in handler call injectHook(state, { hookId, value: req.body })
+ * await step(() => pendingHook(hookId), { key: stepKey });
+ * ```
  */
 export function createHook(): { hookId: string; stepKey: string } {
   const hookId = crypto.randomUUID();

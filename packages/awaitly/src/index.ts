@@ -7,13 +7,13 @@
  * ## Quick Start
  *
  * ```typescript
- * import { ok, err, type AsyncResult } from 'awaitly';
+ * import { Awaitly, type AsyncResult } from 'awaitly';
  * import { run } from 'awaitly/run';
  *
  * // Define Result-returning functions
  * async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
  *   const user = await db.find(id);
- *   return user ? ok(user) : err('NOT_FOUND');
+ *   return user ? Awaitly.ok(user) : Awaitly.err('NOT_FOUND');
  * }
  *
  * // Compose with run() - clean do-notation style
@@ -27,7 +27,8 @@
  * ## Entry Points
  *
  * **Core (this package):**
- * - `awaitly` - Result types, transformers, tagged errors (minimal ~2KB)
+ * - `awaitly` - Awaitly namespace (Result types, transformers, tagged errors, pipe/flow)
+ * - `awaitly/result` - Result types only (minimal bundle, no namespace)
  * - `awaitly/run` - run() function with step orchestration
  *
  * **Workflow Engine:**
@@ -47,59 +48,75 @@
  * - `awaitly/durable` - Durable execution with automatic checkpointing
  */
 
+import * as result from "./result";
+import { TaggedError } from "./tagged-error";
+import {
+  pipe,
+  flow,
+  compose,
+  identity,
+  R,
+  recoverWith,
+  getOrElse,
+  getOrElseLazy,
+  mapAsync,
+  flatMapAsync,
+  tapAsync,
+  tapErrorAsync,
+  race,
+  traverse,
+  traverseAsync,
+  traverseParallel,
+} from "./functional";
+
 // =============================================================================
-// Core - Result primitives (from result.ts for minimal bundle size)
+// Awaitly namespace (Effect-style single export)
+// =============================================================================
+
+const Awaitly = {
+  // Result (all value exports)
+  ...result,
+  // Tagged errors
+  TaggedError,
+  // Functional (non-clashing: pipe, flow, R, async helpers, etc.)
+  pipe,
+  flow,
+  compose,
+  identity,
+  R,
+  recoverWith,
+  getOrElse,
+  getOrElseLazy,
+  mapAsync,
+  flatMapAsync,
+  tapAsync,
+  tapErrorAsync,
+  race,
+  traverse,
+  traverseAsync,
+  traverseParallel,
+} as const;
+
+export { Awaitly };
+
+// =============================================================================
+// Named value exports (tree-shake friendly)
 // =============================================================================
 
 export {
-  // Types
-  type Ok,
-  type Err,
-  type Result,
-  type AsyncResult,
-  type UnexpectedError,
-  type UnexpectedCause,
-  type UnexpectedStepFailureCause,
-  type PromiseRejectedError,
-  type PromiseRejectionCause,
-  type EmptyInputError,
-  type MaybeAsyncResult,
-
-  // Type utilities
-  type ErrorOf,
-  type Errors,
-  type ExtractValue,
-  type ExtractError,
-  type ExtractCause,
-  type CauseOf,
-
-  // Error discriminants
   UNEXPECTED_ERROR,
   PROMISE_REJECTED,
-
-  // Named error constants (for static analysis)
   AWAITLY_UNEXPECTED,
   AWAITLY_CANCELLED,
   AWAITLY_TIMEOUT,
-
-  // Static analysis helpers
   tags,
-
-  // Constructors
   ok,
   err,
-
-  // Type guards
   isOk,
   isErr,
   isUnexpectedError,
   isPromiseRejectedError,
-
-  // Error matching
-  type MatchErrorHandlers,
   matchError,
-
-  // Unwrap
   UnwrapError,
   unwrap,
   unwrapOr,
@@ -108,14 +125,10 @@ export {
   runOrThrowAsync,
   runOrNull,
   runOrUndefined,
-
-  // Wrap
   from,
   fromPromise,
   tryAsync,
   fromNullable,
-
-  // Transform
   map,
   mapError,
   match,
@@ -129,42 +142,72 @@ export {
   orElseAsync,
   recover,
   recoverAsync,
-
-  // Batch
-  type SettledError,
+  hydrate,
+  isSerializedResult,
   all,
   allAsync,
   allSettled,
   allSettledAsync,
+  partition,
   any,
   anyAsync,
-  partition,
   zip,
   zipAsync,
-
-  // Hydration / Serialization
-  hydrate,
-  isSerializedResult,
 } from "./result";
 
-// =============================================================================
-// Tagged Errors
-// =============================================================================
+export { TaggedError } from "./tagged-error";
 
 export {
-  // Factory function
-  TaggedError,
+  pipe,
+  flow,
+  compose,
+  identity,
+  R,
+  recoverWith,
+  getOrElse,
+  getOrElseLazy,
+  mapAsync,
+  flatMapAsync,
+  tapAsync,
+  tapErrorAsync,
+  race,
+  traverse,
+  traverseAsync,
+  traverseParallel,
+} from "./functional";
 
-  // Types
-  type TaggedErrorBase,
-  type TaggedErrorOptions,
-  type TaggedErrorCreateOptions,
-  type TaggedErrorConstructor,
+// =============================================================================
+// Type exports (cannot live on runtime object)
+// =============================================================================
 
-  // Type utilities
-  type TagOf,
-  type ErrorByTag,
-  type PropsOf,
+export type {
+  Ok,
+  Err,
+  Result,
+  AsyncResult,
+  UnexpectedError,
+  UnexpectedCause,
+  UnexpectedStepFailureCause,
+  PromiseRejectedError,
+  PromiseRejectionCause,
+  EmptyInputError,
+  MaybeAsyncResult,
+  ErrorOf,
+  Errors,
+  ExtractValue,
+  ExtractError,
+  ExtractCause,
+  CauseOf,
+  MatchErrorHandlers,
+  SettledError,
+} from "./result";
+
+export type {
+  TaggedErrorBase,
+  TaggedErrorOptions,
+  TaggedErrorCreateOptions,
+  TaggedErrorConstructor,
+  TagOf,
+  ErrorByTag,
+  PropsOf,
 } from "./tagged-error";
-
-

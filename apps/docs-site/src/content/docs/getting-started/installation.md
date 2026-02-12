@@ -31,17 +31,27 @@ The library requires TypeScript 4.7 or later. Enable strict mode for best result
 
 ## Import paths
 
-Import from the main entry point:
+Import from the main entry point. For **minimal bundle** use `awaitly/result` (Result types only, named exports). For **best DX** (including the Awaitly namespace and functional utilities) use `awaitly`. You can use **named exports** (tree-shake friendly) or the **Awaitly** namespace:
 
 ```typescript
+// Named exports (recommended for tree-shaking)
 import { ok, err, type AsyncResult } from 'awaitly';
 import { createWorkflow } from 'awaitly/workflow';
+
+// Awaitly namespace (Effect-style: one object with ok, err, pipe, map, etc.)
+import { Awaitly } from 'awaitly';
+Awaitly.ok(1);
+Awaitly.err('E');
+Awaitly.pipe(value, fn1, fn2);
 ```
 
-Or use tree-shakable imports for smaller bundles:
+Or use tree-shakable subpaths for smaller bundles:
 
 ```typescript
-// Result types (~2KB)
+// Minimal: Result types only (smallest)
+import { ok, err, map, andThen, type AsyncResult } from 'awaitly/result';
+
+// Full package: named exports
 import { ok, err, map, andThen } from 'awaitly';
 
 // run() for workflow composition

@@ -23,6 +23,11 @@
       "import": "./dist/run.js",
       "require": "./dist/run.cjs"
     },
+    "./result": {
+      "types": "./dist/result.d.ts",
+      "import": "./dist/result.js",
+      "require": "./dist/result.cjs"
+    },
     "./workflow": {
       "types": "./dist/workflow.d.ts",
       "import": "./dist/workflow.js",

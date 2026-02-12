@@ -82,10 +82,10 @@ switch (result.error.type ?? result.error) {
 `UnexpectedError` represents any thrown exception escaping a dep. It must be handled at HTTP/API boundaries.
 
 ```typescript
-import { UNEXPECTED_ERROR } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 if (!result.ok) {
-  if ((result.error.type ?? result.error) === UNEXPECTED_ERROR) {
+  if ((result.error.type ?? result.error) === Awaitly.UNEXPECTED_ERROR) {
     console.error('Bug:', result.error.cause);
     return { status: 500 };
   }
@@ -197,11 +197,11 @@ async function getUser(id: string): Promise<User | null> {
 }
 
 // AFTER
-import { ok, err, type AsyncResult } from 'awaitly';
+import { Awaitly, type AsyncResult } from 'awaitly';
 
 async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? Awaitly.ok(user) : Awaitly.err('NOT_FOUND');
 }
 ```
 
@@ -351,14 +351,14 @@ const { user, posts } = await step.parallel('Fetch user and posts', {
 
 **Array form** (wraps allAsync):
 ```typescript
+import { Awaitly } from 'awaitly';
+
 const [user, posts] = await step.parallel('Fetch user and posts', () =>
-  allAsync([deps.getUser(id), deps.getPosts(id)])
+  Awaitly.allAsync([deps.getUser(id), deps.getPosts(id)])
 );
 ```
 
 Legacy `step.parallel(operations, { name })` is not supported; always pass the name as the first argument.
-
-Import: `import { allAsync } from 'awaitly';`
 
 ---
 
@@ -369,67 +369,67 @@ These utilities work on Result values **outside workflows** (at boundaries, in d
 ### Default values
 
 ```typescript
-import { unwrapOr, unwrapOrElse } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 // Static default
-const name = unwrapOr(result, 'Anonymous');
+const name = Awaitly.unwrapOr(result, 'Anonymous');
 
 // Computed default (only called on Err)
-const user = unwrapOrElse(result, () => createGuestUser());
+const user = Awaitly.unwrapOrElse(result, () => createGuestUser());
 ```
 
 ### Transform values
 
 ```typescript
-import { map, mapError } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 // Transform Ok value
-const upperName = map(result, user => user.name.toUpperCase());
+const upperName = Awaitly.map(result, user => user.name.toUpperCase());
 
 // Transform Err value
-const httpError = mapError(result, e => ({ code: 404, message: e }));
+const httpError = Awaitly.mapError(result, e => ({ code: 404, message: e }));
 ```
 
 ### Chain operations
 
 ```typescript
-import { andThen } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 // Chain Result-returning functions (flatMap)
-const orderResult = andThen(userResult, user => createOrder(user));
+const orderResult = Awaitly.andThen(userResult, user => createOrder(user));
 ```
 
 ### Fallback on error
 
 ```typescript
-import { orElse } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 // Try alternative on Err
-const result = orElse(primaryResult, () => fallbackResult);
+const result = Awaitly.orElse(primaryResult, () => fallbackResult);
 ```
 
 ### Convert nullable to Result
 
 ```typescript
-import { fromNullable } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 // null/undefined → Err, value → Ok
-const result = fromNullable(maybeUser, () => 'NOT_FOUND');
+const result = Awaitly.fromNullable(maybeUser, () => 'NOT_FOUND');
 ```
 
 ### Wrap throwing code (outside workflows)
 
 ```typescript
-import { from, fromPromise } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 // Sync throwing code → Result
-const parsed = from(() => JSON.parse(data), () => 'PARSE_ERROR');
+const parsed = Awaitly.from(() => JSON.parse(data), () => 'PARSE_ERROR');
 
 // Async throwing code → AsyncResult
-const response = await fromPromise(fetch(url), () => 'FETCH_ERROR');
+const response = await Awaitly.fromPromise(fetch(url), () => 'FETCH_ERROR');
 
 // With error context from the cause
-const detailed = from(
+const detailed = Awaitly.from(
   () => JSON.parse(data),
   (cause) => ({ type: 'PARSE_ERROR', message: String(cause) })
 );
@@ -438,13 +438,13 @@ const detailed = from(
 ### Type guards
 
 ```typescript
-import { isOk, isErr } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
-if (isOk(result)) {
+if (Awaitly.isOk(result)) {
   console.log(result.value);  // TypeScript knows it's Ok
 }
 
-if (isErr(result)) {
+if (Awaitly.isErr(result)) {
   console.log(result.error);  // TypeScript knows it's Err
 }
 ```
@@ -452,13 +452,13 @@ if (isErr(result)) {
 ### Side effects without changing Result
 
 ```typescript
-import { tap, tapError } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 // Log success without changing result
-const logged = tap(result, user => console.log('Got user:', user.id));
+const logged = Awaitly.tap(result, user => console.log('Got user:', user.id));
 
 // Log error without changing result
-const loggedErr = tapError(result, e => console.error('Failed:', e));
+const loggedErr = Awaitly.tapError(result, e => console.error('Failed:', e));
 ```
 
 ### Partial application at composition boundaries
@@ -499,13 +499,13 @@ Start with strings. Migrate to objects when you need context.
 `run()` without options wraps ALL errors as `UnexpectedError`. To get typed errors, use `catchUnexpected`:
 
 ```typescript
-import { ok, err, type AsyncResult, UNEXPECTED_ERROR } from 'awaitly';
+import { Awaitly, type AsyncResult } from 'awaitly';
 import { run } from 'awaitly/run';
 
 // deps return Results, never throw
 async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? Awaitly.ok(user) : Awaitly.err('NOT_FOUND');
 }
 
 async function createOrder(user: User): AsyncResult<Order, 'ORDER_FAILED'> {
@@ -547,7 +547,7 @@ const result = await run(async (step) => {
   return user;
 });
 
-if (!result.ok && result.error.type === UNEXPECTED_ERROR) {
+if (!result.ok && result.error.type === Awaitly.UNEXPECTED_ERROR) {
   // Access original error via cause
   const cause = result.error.cause;
   if (cause.type === 'STEP_FAILURE') {
@@ -559,15 +559,14 @@ if (!result.ok && result.error.type === UNEXPECTED_ERROR) {
 ### Full: createWorkflow(deps) with DI
 
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
+import { Awaitly, type AsyncResult } from 'awaitly';
 import { createWorkflow } from 'awaitly/workflow';
-import { UNEXPECTED_ERROR } from 'awaitly';
 
 // 1. deps return Results, never throw
 const deps = {
   getUser: async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
     const user = await db.find(id);
-    return user ? ok(user) : err('NOT_FOUND');
+    return user ? Awaitly.ok(user) : Awaitly.err('NOT_FOUND');
   },
   createOrder: async (user: User): AsyncResult<Order, 'ORDER_FAILED'> => {
     // ...
@@ -594,7 +593,7 @@ export async function handleRequest(userId: string) {
     case 'NOT_FOUND': return { status: 404 };
     case 'ORDER_FAILED': return { status: 400 };
     case 'STEP_TIMEOUT': return { status: 504 };
-    case UNEXPECTED_ERROR:
+    case Awaitly.UNEXPECTED_ERROR:
       console.error(result.error.cause);
       return { status: 500 };
   }
@@ -629,15 +628,15 @@ Test workflows by creating real deps and using `unwrapOk`/`unwrapErr`:
 
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
-import { ok, err } from 'awaitly';
+import { Awaitly } from 'awaitly';
 import { unwrapOk, unwrapErr } from 'awaitly/testing';
 
 it('completes order flow', async () => {
   const deps = {
     getUser: async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
-      id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND'),
+      id === '1' ? Awaitly.ok({ id, name: 'Alice' }) : Awaitly.err('NOT_FOUND'),
     createOrder: async (user: User): AsyncResult<Order, 'ORDER_FAILED'> =>
-      ok({ orderId: '123' }),
+      Awaitly.ok({ orderId: '123' }),
   };
 
   const workflow = createWorkflow(deps);
@@ -652,8 +651,8 @@ it('completes order flow', async () => {
 
 it('returns NOT_FOUND for unknown user', async () => {
   const deps = {
-    getUser: async (id: string): AsyncResult<User, 'NOT_FOUND'> => err('NOT_FOUND'),
-    createOrder: async (user: User): AsyncResult<Order, 'ORDER_FAILED'> => ok({ orderId: '123' }),
+    getUser: async (id: string): AsyncResult<User, 'NOT_FOUND'> => Awaitly.err('NOT_FOUND'),
+    createOrder: async (user: User): AsyncResult<Order, 'ORDER_FAILED'> => Awaitly.ok({ orderId: '123' }),
   };
 
   const workflow = createWorkflow(deps);
@@ -676,8 +675,8 @@ it('retries on failure', async () => {
   const deps = {
     fetchData: async (): AsyncResult<{ data: string }, 'NETWORK_ERROR'> => {
       attempts++;
-      if (attempts < 3) return err('NETWORK_ERROR');
-      return ok({ data: 'success' });
+      if (attempts < 3) return Awaitly.err('NETWORK_ERROR');
+      return Awaitly.ok({ data: 'success' });
     },
   };
 
@@ -723,26 +722,21 @@ Full structure is documented in awaitly-analyze README (“JSON output shape”)
 
 ## Imports
 
-`UNEXPECTED_ERROR` is imported from `awaitly` in all examples.
+**Recommended:** Use the `Awaitly` namespace for a clean, organized API surface:
 
 ```typescript
-// Core
-import { ok, err, type AsyncResult } from 'awaitly';
+// Core - All-in-one namespace (recommended)
+import { Awaitly, type AsyncResult, type Result } from 'awaitly';
+
+// Access everything via Awaitly:
+Awaitly.ok(value)
+Awaitly.err(error)
+Awaitly.map(result, fn)
+Awaitly.allAsync([...])
+Awaitly.UNEXPECTED_ERROR
 
 // Simple workflow (closures, no DI)
 import { run } from 'awaitly/run';
-
-// Utilities (use outside workflows)
-import {
-  unwrapOr, unwrapOrElse,           // defaults
-  map, mapError,                     // transform
-  andThen, orElse,                   // chain
-  fromNullable, from, fromPromise,   // wrap
-  isOk, isErr,                       // guards
-  tap, tapError,                     // side effects
-  allAsync,                          // parallel
-  UNEXPECTED_ERROR,                  // error discriminant
-} from 'awaitly';
 
 // Full workflow (DI, retries, timeout)
 import { createWorkflow } from 'awaitly/workflow';
@@ -752,4 +746,29 @@ import { bindDeps } from 'awaitly/bind-deps';
 
 // Testing
 import { unwrapOk, unwrapErr } from 'awaitly/testing';
+```
+
+**Alternative:** Named imports (backwards compatible):
+
+```typescript
+// Core - Named imports (still supported)
+import {
+  ok, err,                           // constructors
+  type AsyncResult, type Result,     // types
+  unwrapOr, unwrapOrElse,           // defaults
+  map, mapError,                     // transform
+  andThen, orElse,                   // chain
+  fromNullable, from, fromPromise,   // wrap
+  isOk, isErr,                       // guards
+  tap, tapError,                     // side effects
+  allAsync,                          // parallel
+  UNEXPECTED_ERROR,                  // error discriminant
+} from 'awaitly';
+```
+
+**Tree-shaking:** For minimal bundle size, use the `awaitly/result` entry point:
+
+```typescript
+// Result types only (minimal bundle, no namespace)
+import { ok, err, type AsyncResult } from 'awaitly/result';
 ```

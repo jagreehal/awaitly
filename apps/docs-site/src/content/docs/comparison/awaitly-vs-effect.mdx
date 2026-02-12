@@ -48,10 +48,10 @@ Choose awaitly when you want typed error handling and workflow resilience withou
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, err, type Result } from 'awaitly';
+import { Awaitly, type Result } from 'awaitly';
 
 const divide = (a: number, b: number): Result<number, 'DIVIDE_BY_ZERO'> =>
-  b === 0 ? err('DIVIDE_BY_ZERO') : ok(a / b);
+  b === 0 ? Awaitly.err('DIVIDE_BY_ZERO') : Awaitly.ok(a / b);
 
 const result = divide(10, 2);
 if (result.ok) {
@@ -416,11 +416,11 @@ const program = Effect.gen(function* () {
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { allAsync } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 const result = await workflow(async (step) => {
   const [user, posts, comments] = await step('fetchUserData', () =>
-    allAsync([
+    Awaitly.allAsync([
       fetchUser('1'),
       fetchPosts('1'),
       fetchComments('1'),
@@ -498,18 +498,18 @@ Both libraries provide ways to combine multiple Results/Effects.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, err, all, allAsync } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 // Sync results
-const results = [ok(1), ok(2), ok(3)];
-const combined = all(results);
+const results = [Awaitly.ok(1), Awaitly.ok(2), Awaitly.ok(3)];
+const combined = Awaitly.all(results);
 /*
 Output:
 { ok: true, value: [1, 2, 3] }
 */
 
 // Async results
-const asyncResults = await allAsync([
+const asyncResults = await Awaitly.allAsync([
   fetchUser('1'),
   fetchUser('2'),
   fetchUser('3'),
@@ -546,10 +546,10 @@ const result = await Effect.runPromise(
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, err, allSettled, allSettledAsync } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
-const results = [ok(1), err('A'), ok(3), err('B')];
-const settled = allSettled(results);
+const results = [Awaitly.ok(1), Awaitly.err('A'), Awaitly.ok(3), Awaitly.err('B')];
+const settled = Awaitly.allSettled(results);
 /*
 Output:
 {
@@ -690,24 +690,24 @@ Both libraries provide functional composition utilities.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { pipe, flow, R } from 'awaitly/functional';
+import { Awaitly } from 'awaitly';
 
 // pipe: Apply functions left-to-right to a value
-const result = pipe(
-  ok(5),
-  R.map(n => n * 2),
-  R.andThen(n => n > 5 ? ok(n) : err('TOO_SMALL')),
-  R.mapError(e => ({ code: e }))
+const result = Awaitly.pipe(
+  Awaitly.ok(5),
+  Awaitly.R.map(n => n * 2),
+  Awaitly.R.andThen(n => n > 5 ? Awaitly.ok(n) : Awaitly.err('TOO_SMALL')),
+  Awaitly.R.mapError(e => ({ code: e }))
 );
 
 // flow: Create a new function from composed functions
-const processNumber = flow(
-  R.map((n: number) => n * 2),
-  R.andThen(n => n > 5 ? ok(n) : err('TOO_SMALL')),
-  R.mapError(e => ({ code: e }))
+const processNumber = Awaitly.flow(
+  Awaitly.R.map((n: number) => n * 2),
+  Awaitly.R.andThen(n => n > 5 ? Awaitly.ok(n) : Awaitly.err('TOO_SMALL')),
+  Awaitly.R.mapError(e => ({ code: e }))
 );
 
-const result = processNumber(ok(5));
+const result = processNumber(Awaitly.ok(5));
 ```
   </TabItem>
   <TabItem label="Effect">

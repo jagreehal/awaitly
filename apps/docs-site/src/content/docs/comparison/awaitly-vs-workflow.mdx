@@ -58,16 +58,16 @@ Choose awaitly when you want typed error handling, platform flexibility, and exp
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, err, type AsyncResult, TaggedError } from "awaitly";
+import { Awaitly, type AsyncResult, TaggedError } from "awaitly";
 
 class UserNotFoundError extends TaggedError("UserNotFoundError")<{ id: string }> {}
 
 async function fetchUser(id: string): AsyncResult<User, UserNotFoundError> {
   const user = await db.findUser(id);
   if (!user) {
-    return err(new UserNotFoundError({ id }));
+    return Awaitly.err(new UserNotFoundError({ id }));
   }
-  return ok(user);
+  return Awaitly.ok(user);
 }
 ```
   </TabItem>
@@ -136,12 +136,12 @@ async function processPayment(
   amount: number
 ): AsyncResult<PaymentResult, InvalidAmountError | AmountTooLargeError> {
   if (amount < 0) {
-    return err(new InvalidAmountError({ amount }));
+    return Awaitly.err(new InvalidAmountError({ amount }));
   }
   if (amount > 10000) {
-    return err(new AmountTooLargeError({ amount }));
+    return Awaitly.err(new AmountTooLargeError({ amount }));
   }
-  return ok(await chargeCard(amount));
+  return Awaitly.ok(await chargeCard(amount));
 }
 
 // Configure retry for specific errors
@@ -220,7 +220,7 @@ export async function parallelWorkflow() {
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { anyAsync } from "awaitly";
+import { Awaitly } from "awaitly";
 
 export const raceWorkflow = createWorkflow('workflow', { fetchFromPrimary, fetchFromFallback },
   { description: "Race workflow" }
@@ -229,7 +229,7 @@ export const raceWorkflow = createWorkflow('workflow', { fetchFromPrimary, fetch
 export async function runRaceWorkflow() {
   return await raceWorkflow(async (step) => {
     const result = await step.race("Fastest API", () =>
-      anyAsync([deps.fetchFromPrimary(), deps.fetchFromFallback()])
+      Awaitly.anyAsync([deps.fetchFromPrimary(), deps.fetchFromFallback()])
     );
     return result;
   });
@@ -255,6 +255,9 @@ export async function raceWorkflow() {
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
+import { Awaitly } from "awaitly";
+import { createWorkflow } from "awaitly/workflow";
+
 export const myWorkflow = createWorkflow('workflow', { myStep },
   {
     description: "Workflow with context",
@@ -274,7 +277,7 @@ export async function runWorkflow() {
 
     // Check for cancellation
     if (ctx.signal?.aborted) {
-      return err("CANCELLED");
+      return Awaitly.err("CANCELLED");
     }
 
     const result = await step('myStep', () => deps.myStep(), { key: "my-step" });
@@ -532,11 +535,11 @@ my-workflow [completed in 234ms]
 <Tabs>
   <TabItem label="awaitly (After)">
 ```typescript
-import { ok, type AsyncResult } from "awaitly";
+import { Awaitly, type AsyncResult } from "awaitly";
 import { createWorkflow } from "awaitly/workflow";
 
 async function add(a: number, b: number): AsyncResult<number, never> {
-  return ok(a + b);
+  return Awaitly.ok(a + b);
 }
 
 export const simpleWorkflow = createWorkflow('workflow', { add },

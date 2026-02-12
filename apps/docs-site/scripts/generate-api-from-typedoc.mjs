@@ -42,11 +42,23 @@ const SECTION_MAP = {
   match: ["Transform", null],
   tap: ["Transform", null],
   tapError: ["Transform", null],
-  // Functional
+  // Function Composition (main package now exports these from functional)
   pipe: ["Function Composition", "pipe"],
   flow: ["Function Composition", "flow"],
   compose: ["Function Composition", "compose"],
   identity: ["Function Composition", "identity"],
+  R: ["Function Composition", "R"],
+  recoverWith: ["Function Composition", "recoverWith"],
+  getOrElse: ["Function Composition", "getOrElse"],
+  getOrElseLazy: ["Function Composition", "getOrElseLazy"],
+  mapAsync: ["Function Composition", "mapAsync"],
+  flatMapAsync: ["Function Composition", "flatMapAsync"],
+  tapAsync: ["Function Composition", "tapAsync"],
+  tapErrorAsync: ["Function Composition", "tapErrorAsync"],
+  race: ["Function Composition", "race"],
+  traverse: ["Function Composition", "traverse"],
+  traverseAsync: ["Function Composition", "traverseAsync"],
+  traverseParallel: ["Function Composition", "traverseParallel"],
   bindDeps: ["Function Composition", "bindDeps"],
 };
 
@@ -89,8 +101,12 @@ function getFullComment(comment) {
   const summary = getCommentSummary(comment);
   const remarks = getCommentRemarks(comment);
   if (!summary && !remarks) return "";
-  if (!remarks) return summary;
-  return summary ? `${summary}\n\n${remarks}` : remarks;
+  const full = !remarks ? summary : summary ? `${summary}\n\n${remarks}` : remarks;
+  // TypeDoc sometimes attaches the module-level JSDoc to re-exports (e.g. from, fromNullable). Skip it.
+  if (full && (full.includes("## Quick Start") || full.includes("## Entry Points"))) return "";
+  // Fix truncated "over ." from JSDoc (e.g. "Prefer ... over result.ok" → "over ." when code is stripped)
+  if (full && full.includes(" over .")) return full.replace(/\s+over \.?/g, ".");
+  return full;
 }
 
 function buildSignature(ref, sig) {
@@ -142,6 +158,32 @@ function groupBySection(reflections) {
   return bySection;
 }
 
+/** Dedupe by short name (e.g. "pipe" and "Awaitly.pipe" → one "pipe"). Prefer root export (no dot in original name). */
+function dedupeByName(items) {
+  const byShort = new Map();
+  for (const r of items) {
+    const short = r.name.split(".").pop();
+    const existing = byShort.get(short);
+    const isRoot = r.name.indexOf(".") === -1;
+    if (!existing) {
+      byShort.set(short, { ...r, name: short, _originalName: r.name });
+    } else {
+      const existingIsRoot = existing._originalName.indexOf(".") === -1;
+      const prefer = existingIsRoot ? existing : isRoot ? r : existing;
+      const other = prefer === existing ? r : existing;
+      const merged = {
+        ...prefer,
+        name: short,
+        _originalName: prefer._originalName ?? prefer.name,
+        comment: prefer.comment || other.comment,
+        signature: prefer.signature || other.signature,
+      };
+      byShort.set(short, merged);
+    }
+  }
+  return [...byShort.values()].map(({ _originalName, ...r }) => ({ ...r, name: r.name }));
+}
+
 function generateMarkdown(project) {
   const reflections = collectReflections(project);
   const bySection = groupBySection(reflections);
@@ -156,6 +198,18 @@ function generateMarkdown(project) {
     "Function Composition::flow",
     "Function Composition::compose",
     "Function Composition::identity",
+    "Function Composition::R",
+    "Function Composition::recoverWith",
+    "Function Composition::getOrElse",
+    "Function Composition::getOrElseLazy",
+    "Function Composition::mapAsync",
+    "Function Composition::flatMapAsync",
+    "Function Composition::tapAsync",
+    "Function Composition::tapErrorAsync",
+    "Function Composition::race",
+    "Function Composition::traverse",
+    "Function Composition::traverseAsync",
+    "Function Composition::traverseParallel",
     "Function Composition::bindDeps",
   ];
 
@@ -166,6 +220,22 @@ function generateMarkdown(project) {
     "---",
     "",
     "This page is generated from the awaitly package JSDoc and TypeScript types. For workflow and step options, see [Options reference](#options-reference) below.",
+    "",
+    "## Import styles",
+    "",
+    "You can use **named exports** (tree-shake friendly) or the **Awaitly** namespace. For **minimal bundle** (Result types only, no namespace), use `awaitly/result`:",
+    "",
+    "```typescript",
+    "// Minimal bundle: Result types only",
+    "import { ok, err, map, andThen, type AsyncResult } from 'awaitly/result';",
+    "",
+    "// Full package: named exports",
+    "import { ok, err, pipe, map, type AsyncResult } from 'awaitly';",
+    "",
+    "// Full package: Awaitly namespace (Effect-style single object)",
+    "import { Awaitly } from 'awaitly';",
+    "Awaitly.ok(1); Awaitly.err('E'); Awaitly.pipe(2, (n) => n * 2);",
+    "```",
     "",
   ];
 
@@ -186,9 +256,12 @@ function generateMarkdown(project) {
       lines.push("");
       currentSubsection = subsection;
     }
-    for (const r of items.sort((a, b) => a.name.localeCompare(b.name))) {
-      lines.push(`### ${r.name}`);
-      lines.push("");
+    const deduped = dedupeByName(items).sort((a, b) => a.name.localeCompare(b.name));
+    for (const r of deduped) {
+      if (!subsection || subsection !== r.name) {
+        lines.push(`### ${r.name}`);
+        lines.push("");
+      }
       if (r.comment) {
         lines.push(r.comment);
         lines.push("");

@@ -238,6 +238,10 @@ export function injectHook<T>(
 
 /**
  * Check if a step in resume state has a pending hook error.
+ *
+ * @param state - The resume state to check
+ * @param hookId - The hook id (from createHook() or the callback URL)
+ * @returns `true` if that hook step is pending, `false` otherwise
  */
 export function hasPendingHook(state: ResumeState, hookId: string): boolean {
   const entry = state.steps.get(HOOK_STEP_KEY_PREFIX + hookId);
@@ -247,6 +251,9 @@ export function hasPendingHook(state: ResumeState, hookId: string): boolean {
 
 /**
  * Get all pending hook hookIds from resume state.
+ *
+ * @param state - The resume state to check
+ * @returns Array of hookIds that have pending callbacks
  */
 export function getPendingHooks(state: ResumeState): string[] {
   const pending: string[] = [];

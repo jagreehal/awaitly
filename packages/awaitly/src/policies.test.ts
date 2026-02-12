@@ -32,7 +32,8 @@ import {
   // Fluent builder
   stepOptions,
 } from "./policies";
-import { ok, type AsyncResult } from "./index";
+import { Awaitly, type AsyncResult } from "./index";
+const { ok } = Awaitly;
 import { createWorkflow } from "./workflow-entry";
 
 // ============================================================================
