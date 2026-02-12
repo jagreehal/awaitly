@@ -2016,6 +2016,32 @@ function analyzeCallExpression(
     return analyzeStepFromResultCall(node, args, opts, warnings, stats);
   }
 
+  // Effect-style ergonomics methods
+  // step.run() - unwrap AsyncResult directly
+  if (isStepMethodCall(callee, "run", context)) {
+    return analyzeStepCall(node, args, opts, warnings, stats);
+  }
+
+  // step.andThen() - chain AsyncResults
+  if (isStepMethodCall(callee, "andThen", context)) {
+    return analyzeStepCall(node, args, opts, warnings, stats);
+  }
+
+  // step.match() - pattern matching (treated as a step call)
+  if (isStepMethodCall(callee, "match", context)) {
+    return analyzeStepCall(node, args, opts, warnings, stats);
+  }
+
+  // step.all() - alias for step.parallel()
+  if (isStepMethodCall(callee, "all", context)) {
+    return analyzeParallelCall(node, args, "all", opts, warnings, stats, sagaContext, context);
+  }
+
+  // step.map() - parallel batch mapping (similar to parallel)
+  if (isStepMethodCall(callee, "map", context)) {
+    return analyzeStepCall(node, args, opts, warnings, stats);
+  }
+
   // step.parallel() call
   if (isStepMethodCall(callee, "parallel", context)) {
     return analyzeParallelCall(node, args, "all", opts, warnings, stats, sagaContext, context);

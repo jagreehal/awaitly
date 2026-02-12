@@ -7,25 +7,41 @@ Execute multiple operations in parallel while maintaining typed error handling.
 
 ## Basic parallel execution
 
-Use `allAsync` to run operations concurrently:
+Use **step.all** (Effect-style) or **allAsync** to run operations concurrently:
 
 ```typescript
-import { allAsync } from 'awaitly';
 import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts, fetchComments });
 
+// Preferred: step.all — named results, step tracking, cache when key provided
 const result = await workflow(async (step) => {
-  const [user, posts, comments] = await step('fetchUserData', () =>
-    allAsync([
-      fetchUser('1'),
-      fetchPosts('1'),
-      fetchComments('1'),
-    ])
-  );
-
+  const { user, posts, comments } = await step.all('fetchAll', {
+    user: () => fetchUser('1'),
+    posts: () => fetchPosts('1'),
+    comments: () => fetchComments('1'),
+  });
   return { user, posts, comments };
 });
+```
+
+Or with `allAsync` and a single step:
+
+```typescript
+import { allAsync } from 'awaitly';
+
+const result = await workflow(async (step) => {
+  const [user, posts, comments] = await step('fetchUserData', () =>
+    allAsync([fetchUser('1'), fetchPosts('1'), fetchComments('1')])
+  );
+  return { user, posts, comments };
+});
+```
+
+For mapping over an array in parallel, use **step.map**:
+
+```typescript
+const users = await step.map('fetchUsers', ['1', '2', '3'], (id) => fetchUser(id));
 ```
 
 ## Fail-fast behavior
@@ -90,14 +106,23 @@ const [successes, failures] = partition(results);
 
 ## Named parallel operations
 
-Give parallel groups a name for visualization using `step.parallel` with the name as the first argument:
+Give parallel groups a name for visualization using `step.all` (Effect-style, named results) or `step.parallel`:
 
 ```typescript
+// step.all — named results
+const result = await workflow(async (step) => {
+  const { user, posts } = await step.all('Fetch user data', {
+    user: () => fetchUser('1'),
+    posts: () => fetchPosts('1'),
+  });
+  return { user, posts };
+});
+
+// step.parallel + allAsync
 const result = await workflow(async (step) => {
   const [user, posts] = await step.parallel('Fetch user data', () =>
     allAsync([fetchUser('1'), fetchPosts('1')])
   );
-
   return { user, posts };
 });
 ```

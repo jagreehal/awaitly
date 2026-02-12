@@ -16,7 +16,7 @@ import type { CallExpression, MemberExpression, ObjectExpression, Property, Iden
  * GOOD: step(fetchUser, { key: 'user:1' }) - fetchUser is a function reference (thunk)
  */
 
-const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult']);
+const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'run']);
 
 function isStepCall(node: CallExpression): boolean {
   const { callee } = node;

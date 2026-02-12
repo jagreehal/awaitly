@@ -41,6 +41,108 @@ Choose awaitly when you want typed error handling and workflow resilience withou
 | Concurrency | Native Promise.all | Fibers |
 | Rate limiting | Built-in `awaitly/ratelimit` | Built-in `RateLimiter` |
 
+## Effect-style step helpers
+
+awaitly’s step helpers are aligned with Effect’s API so the surface feels familiar to Effect users—as close as we can get while still using async/await and not generators. They run through the full step engine (events, retry, timeout, and in createWorkflow: cache and `onAfterStep`).
+
+### Unwrap (run)
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+// step.run(id, result, opts?) — unwraps AsyncResult, exits on error
+const user = await step.run('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+const user = yield* fetchUser('1');
+```
+  </TabItem>
+</Tabs>
+
+### Chain (andThen)
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+// step.andThen(id, value, fn, opts?)
+const enriched = await step.andThen('enrich', user, (u) => enrichUser(u));
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+const enriched = yield* enrichUser(user);
+```
+  </TabItem>
+</Tabs>
+
+### Pattern match (match)
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+// step.match(id, result, { ok, err }, opts?) — step-tracked
+const msg = await step.match('handleUser', userResult, {
+  ok: (user) => `Hello ${user.name}`,
+  err: () => 'Failed',
+});
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+const msg = yield* Effect.match(userResult, {
+  onSuccess: (user) => `Hello ${user.name}`,
+  onFailure: () => 'Failed',
+});
+```
+  </TabItem>
+</Tabs>
+
+### Parallel named (all)
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+// step.all(id, shape, opts?) — named results, step tracking
+const { user, posts } = await step.all('fetchAll', {
+  user: () => fetchUser('1'),
+  posts: () => fetchPosts('1'),
+});
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+const { user, posts } = yield* Effect.all({
+  user: fetchUser('1'),
+  posts: fetchPosts('1'),
+});
+```
+  </TabItem>
+</Tabs>
+
+### Map over array (map)
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+// step.map(id, items, mapper, opts?) — parallel, step tracking
+const users = await step.map('fetchUsers', ['1', '2', '3'], (id) => fetchUser(id));
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+const users = yield* Effect.all(
+  ['1', '2', '3'].map((id) => fetchUser(id))
+);
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="tip" title="Full step engine">
+These helpers are not thin wrappers: they emit step events, support retry/timeout options, and in createWorkflow use the cache and `onAfterStep` when you pass a key. See [Steps — Effect-style ergonomics](/foundations/step/#effect-style-ergonomics).
+</Aside>
+
 ## Result Types
 
 ### Creating Results
@@ -116,12 +218,13 @@ const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* 
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
 const result = await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'));
+  const user = await step.run('fetchUser', () => fetchUser('1'));
   await step('sendEmail', () => sendEmail(user.email));
   return user;
 });
 
 // TypeScript knows: result.error is 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
+// step.run unwraps AsyncResult; use step('id', fn) or step.run with a getter when caching
 ```
   </TabItem>
   <TabItem label="Effect">
@@ -416,29 +519,28 @@ const program = Effect.gen(function* () {
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
-
+// Effect-style: step.all — named results, step tracking
 const result = await workflow(async (step) => {
-  const [user, posts, comments] = await step('fetchUserData', () =>
-    Awaitly.allAsync([
-      fetchUser('1'),
-      fetchPosts('1'),
-      fetchComments('1'),
-    ])
-  );
+  const { user, posts, comments } = await step.all('fetchAll', {
+    user: () => fetchUser('1'),
+    posts: () => fetchPosts('1'),
+    comments: () => fetchComments('1'),
+  });
   return { user, posts, comments };
 });
+
+// Or step('id', () => allAsync([...])) for array results
 ```
   </TabItem>
   <TabItem label="Effect">
 ```typescript
 import { Effect } from 'effect';
 
-const program = Effect.all([
-  fetchUser('1'),
-  fetchPosts('1'),
-  fetchComments('1'),
-], { concurrency: 'unbounded' });
+const program = Effect.all({
+  user: fetchUser('1'),
+  posts: fetchPosts('1'),
+  comments: fetchComments('1'),
+});
 ```
   </TabItem>
 </Tabs>
@@ -500,43 +602,32 @@ Both libraries provide ways to combine multiple Results/Effects.
 ```typescript
 import { Awaitly } from 'awaitly';
 
-// Sync results
-const results = [Awaitly.ok(1), Awaitly.ok(2), Awaitly.ok(3)];
-const combined = Awaitly.all(results);
-/*
-Output:
-{ ok: true, value: [1, 2, 3] }
-*/
+// In a workflow: step.all (named) or step.map (array)
+const { u1, u2, u3 } = await step.all('fetchUsers', {
+  u1: () => fetchUser('1'),
+  u2: () => fetchUser('2'),
+  u3: () => fetchUser('3'),
+});
 
-// Async results
-const asyncResults = await Awaitly.allAsync([
+// Standalone: allAsync
+const users = await Awaitly.allAsync([
   fetchUser('1'),
   fetchUser('2'),
   fetchUser('3'),
 ]);
-/*
-Output:
-{ ok: true, value: [user1, user2, user3] }
-or
-{ ok: false, error: 'NOT_FOUND' } // first error
-*/
+// { ok: true, value: [user1, user2, user3] } or first error
 ```
   </TabItem>
   <TabItem label="Effect">
 ```typescript
 import { Effect } from 'effect';
 
-// Effect.all combines multiple effects
 const program = Effect.all([
   fetchUser('1'),
   fetchUser('2'),
   fetchUser('3'),
-]);
-
-// Run with unbounded concurrency
-const result = await Effect.runPromise(
-  program.pipe(Effect.withConcurrency('unbounded'))
-);
+], { concurrency: 'unbounded' });
+const result = await Effect.runPromise(program);
 ```
   </TabItem>
 </Tabs>

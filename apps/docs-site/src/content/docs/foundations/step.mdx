@@ -402,6 +402,65 @@ Manual `for` loops with dynamic keys like `${item.id}`:
 `step.forEach()` enables [awaitly-analyze](/guides/static-analysis/) to enumerate all possible execution paths, generate accurate workflow diagrams, and create comprehensive test matrices.
 </Aside>
 
+## Effect-style ergonomics
+
+Convenience helpers that run through the step engine (events, retry, timeout, and in createWorkflow: cache and `onAfterStep`). Familiar to Effect users.
+
+### step.run - unwrap AsyncResult
+
+Unwrap an AsyncResult with a step ID. Use a **getter** when caching so the operation runs only on cache miss:
+
+```typescript
+// run() - unwraps and exits on error
+const user = await step.run('fetchUser', fetchUser('1'));
+
+// With createWorkflow cache: pass a getter so the second call can hit cache
+const user = await step.run('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+```
+
+### step.andThen - chain AsyncResults
+
+Chain a success value into another AsyncResult-returning operation:
+
+```typescript
+const user = { id: '1', name: 'Alice' };
+const enriched = await step.andThen('enrich', user, (u) => enrichUser(u));
+```
+
+### step.match - pattern match on Result
+
+Handle both success and error with step tracking (emits `step_start` / `step_success` for the match step):
+
+```typescript
+const message = await step.match('handleUser', userResult, {
+  ok: async (user) => `Hello ${user.name}`,
+  err: async () => 'nope',
+});
+```
+
+### step.all - parallel with named results
+
+Alias for `step.parallel`. Runs multiple operations in parallel and returns an object keyed by name. **Only caches when you pass an explicit `key`** (omitted key = no cache, matching core).
+
+```typescript
+const { user, posts } = await step.all('fetchAll', {
+  user: () => fetchUser('1'),
+  posts: () => fetchPosts('1'),
+});
+```
+
+### step.map - parallel over an array
+
+Map over an array with parallel execution. **Only caches when you pass an explicit `key`** (omitted key = no cache, matching core).
+
+```typescript
+const users = await step.map('fetchUsers', ['1', '2', '3'], (id) => fetchUser(id));
+```
+
+<Aside type="note" title="Caching and run / all / map">
+In `createWorkflow`, use a getter with `step.run` when you use a key so cache hits don't run the operation. For `step.all` and `step.map`, caching applies only when you pass `{ key: '...' }`; without a key they never cache by step id.
+</Aside>
+
 ## Parallel steps
 
 Run multiple steps concurrently:
@@ -469,6 +528,11 @@ Workflow diagram and generated docs show:
 | Variant | Use when |
 |---------|----------|
 | `step('id', fn)` | Operation returns a Result |
+| `step.run(id, result, opts?)` | Unwrap AsyncResult directly (use getter when caching) |
+| `step.andThen(id, value, fn, opts?)` | Chain AsyncResult from a success value |
+| `step.match(id, result, { ok, err }, opts?)` | Pattern match on Result with step tracking |
+| `step.all(id, shape, opts?)` | Parallel named operations (alias for parallel; cache only with key) |
+| `step.map(id, items, mapper, opts?)` | Parallel over array (cache only with key) |
 | `step.try(id, fn, opts)` | Operation throws exceptions |
 | `step.fromResult(id, fn, opts)` | Need to transform Result errors |
 | `step.retry(id, fn, opts)` | Operation might fail transiently |

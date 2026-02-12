@@ -37,8 +37,19 @@ const result = await workflow(async (step) => {
 
 ```typescript
 import { allAsync, anyAsync, allSettledAsync } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
-// All must succeed (fail-fast on first error)
+// Inside a workflow: step.all (named results, step tracking)
+await workflow(async (step) => {
+  const { user, posts } = await step.all('fetchAll', {
+    user: () => fetchUser('1'),
+    posts: () => fetchPosts('1'),
+  });
+  const users = await step.map('fetchUsers', ['1', '2', '3'], (id) => fetchUser(id));
+  return { user, posts, users };
+});
+
+// Standalone: allAsync — all must succeed (fail-fast)
 const [user, posts] = await allAsync([fetchUser('1'), fetchPosts('1')]);
 
 // First success wins (failover pattern)
@@ -47,6 +58,24 @@ const data = await anyAsync([fetchFromPrimary(), fetchFromBackup()]);
 // Collect ALL errors (if any fail)
 const result = await allSettledAsync([op1(), op2(), op3()]);
 if (!result.ok) console.log('Errors:', result.error.map(e => e.error));
+```
+
+### Use Effect-style step helpers (run, andThen, match)
+
+Inside a workflow callback `(step) => { ... }` or `run(async (step) => { ... })`:
+
+```typescript
+// Unwrap AsyncResult (use getter when caching: () => fetchUser('1'))
+const user = await step.run('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+
+// Chain from success value
+const enriched = await step.andThen('enrich', user, (u) => enrichUser(u));
+
+// Pattern match with step tracking
+const msg = await step.match('handleUser', userResult, {
+  ok: (user) => `Hello ${user.name}`,
+  err: () => 'Failed',
+});
 ```
 
 ### Combine two Results into a tuple
