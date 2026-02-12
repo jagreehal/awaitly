@@ -17,7 +17,8 @@ import {
   type ValidationError,
   type EventMessage,
 } from ".";
-import { ok, err, type AsyncResult, type UnexpectedError } from "../index";
+import { Awaitly, type AsyncResult, type UnexpectedError } from "../index";
+const { ok, err } = Awaitly;
 import { createWorkflow } from "../workflow-entry";
 
 // =============================================================================

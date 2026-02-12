@@ -5,8 +5,8 @@
  * Provides pipe-based composition with automatic error short-circuiting.
  */
 
-import type { Result, AsyncResult, PromiseRejectedError, PromiseRejectionCause } from "../core";
-import { ok, err, isOk, isErr, PROMISE_REJECTED } from "../core";
+import type { Result, AsyncResult, PromiseRejectedError, PromiseRejectionCause } from "../result";
+import { ok, err, isOk, isErr, PROMISE_REJECTED } from "../result";
 
 // =============================================================================
 // Composition
@@ -215,11 +215,11 @@ export const identity = <A>(a: A): A => a;
  *
  * @example
  * ```typescript
- * const result = ok(5);
- * map(result, (x) => x * 2); // ok(10)
+ * const result = Awaitly.ok(5);
+ * map(result, (x) => x * 2); // Awaitly.ok(10)
  *
- * const error = err("not found");
- * map(error, (x) => x * 2); // err("not found")
+ * const error = Awaitly.err("not found");
+ * map(error, (x) => x * 2); // Awaitly.err("not found")
  * ```
  */
 export function map<T, U, E, C>(result: Result<T, E, C>, fn: (value: T) => U): Result<U, E, C> {
@@ -235,11 +235,11 @@ export function map<T, U, E, C>(result: Result<T, E, C>, fn: (value: T) => U): R
  * @example
  * ```typescript
  * const divide = (a: number, b: number): Result<number, string> =>
- *   b === 0 ? err("division by zero") : ok(a / b);
+ *   b === 0 ? Awaitly.err("division by zero") : Awaitly.ok(a / b);
  *
- * const result = ok(10);
- * flatMap(result, (x) => divide(x, 2)); // ok(5)
- * flatMap(result, (x) => divide(x, 0)); // err("division by zero")
+ * const result = Awaitly.ok(10);
+ * flatMap(result, (x) => divide(x, 2)); // Awaitly.ok(5)
+ * flatMap(result, (x) => divide(x, 0)); // Awaitly.err("division by zero")
  * ```
  */
 export function flatMap<T, U, E1, E2, C1, C2>(
@@ -257,11 +257,11 @@ export function flatMap<T, U, E1, E2, C1, C2>(
  *
  * @example
  * ```typescript
- * const result = ok(5);
- * bimap(result, (x) => x * 2, (e) => `Error: ${e}`); // ok(10)
+ * const result = Awaitly.ok(5);
+ * bimap(result, (x) => x * 2, (e) => `Error: ${e}`); // Awaitly.ok(10)
  *
- * const error = err("not found");
- * bimap(error, (x) => x * 2, (e) => `Error: ${e}`); // err("Error: not found")
+ * const error = Awaitly.err("not found");
+ * bimap(error, (x) => x * 2, (e) => `Error: ${e}`); // Awaitly.err("Error: not found")
  * ```
  */
 export function bimap<T, U, E1, E2, C>(
@@ -280,9 +280,9 @@ export function bimap<T, U, E1, E2, C>(
  *
  * @example
  * ```typescript
- * const error = err("not found");
+ * const error = Awaitly.err("not found");
  * mapError(error, (e) => ({ type: "ERROR", message: e }));
- * // err({ type: "ERROR", message: "not found" })
+ * // Awaitly.err({ type: "ERROR", message: "not found" })
  * ```
  */
 export function mapError<T, E1, E2, C>(
@@ -300,8 +300,8 @@ export function mapError<T, E1, E2, C>(
  *
  * @example
  * ```typescript
- * const result = ok(5);
- * tap(result, (x) => console.log(`Value: ${x}`)); // logs "Value: 5", returns ok(5)
+ * const result = Awaitly.ok(5);
+ * tap(result, (x) => console.log(`Value: ${x}`)); // logs "Value: 5", returns Awaitly.ok(5)
  * ```
  */
 export function tap<T, E, C>(result: Result<T, E, C>, fn: (value: T) => void): Result<T, E, C> {
@@ -316,7 +316,7 @@ export function tap<T, E, C>(result: Result<T, E, C>, fn: (value: T) => void): R
  *
  * @example
  * ```typescript
- * const error = err("not found");
+ * const error = Awaitly.err("not found");
  * tapError(error, (e) => console.log(`Error: ${e}`)); // logs "Error: not found", returns err
  * ```
  */
@@ -332,7 +332,7 @@ export function tapError<T, E, C>(result: Result<T, E, C>, fn: (error: E) => voi
  *
  * @example
  * ```typescript
- * const result = ok(5);
+ * const result = Awaitly.ok(5);
  * match(result, {
  *   ok: (x) => `Success: ${x}`,
  *   err: (e) => `Error: ${e}`
@@ -354,10 +354,10 @@ export function match<T, E, U, C>(
  *
  * @example
  * ```typescript
- * const error = err("not found");
+ * const error = Awaitly.err("not found");
  * recover(error, () => 0); // 0
  *
- * const success = ok(5);
+ * const success = Awaitly.ok(5);
  * recover(success, () => 0); // 5
  * ```
  */
@@ -373,7 +373,7 @@ export function recover<T, E, C>(result: Result<T, E, C>, fn: (error: E) => T): 
  *
  * @example
  * ```typescript
- * const error = err("not found");
+ * const error = Awaitly.err("not found");
  * recoverWith(error, (e) => ok(0)); // ok(0)
  * recoverWith(error, (e) => err("still failed")); // err("still failed")
  * ```
@@ -393,10 +393,10 @@ export function recoverWith<T, E1, E2, C1, C2>(
  *
  * @example
  * ```typescript
- * const error = err("not found");
+ * const error = Awaitly.err("not found");
  * getOrElse(error, 0); // 0
  *
- * const success = ok(5);
+ * const success = Awaitly.ok(5);
  * getOrElse(success, 0); // 5
  * ```
  */
@@ -412,10 +412,10 @@ export function getOrElse<T, E, C>(result: Result<T, E, C>, defaultValue: T): T 
  *
  * @example
  * ```typescript
- * const error = err("not found");
+ * const error = Awaitly.err("not found");
  * getOrElseLazy(error, () => expensiveComputation()); // calls expensiveComputation()
  *
- * const success = ok(5);
+ * const success = Awaitly.ok(5);
  * getOrElseLazy(success, () => expensiveComputation()); // 5, doesn't call expensiveComputation
  * ```
  */
@@ -435,7 +435,7 @@ export function getOrElseLazy<T, E, C>(result: Result<T, E, C>, fn: () => T): T 
  *
  * @example
  * ```typescript
- * const result = ok(5);
+ * const result = Awaitly.ok(5);
  * await mapAsync(result, async (x) => x * 2); // ok(10)
  * ```
  */
@@ -456,7 +456,7 @@ export async function mapAsync<T, U, E, C>(
  * @example
  * ```typescript
  * const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> => { ... };
- * const result = ok("user-123");
+ * const result = Awaitly.ok("user-123");
  * await flatMapAsync(result, fetchUser); // AsyncResult<User, "NOT_FOUND">
  * ```
  */
@@ -476,7 +476,7 @@ export async function flatMapAsync<T, U, E1, E2, C1, C2>(
  *
  * @example
  * ```typescript
- * const result = ok(5);
+ * const result = Awaitly.ok(5);
  * await tapAsync(result, async (x) => {
  *   await logToServer(x);
  * }); // ok(5)
@@ -498,7 +498,7 @@ export async function tapAsync<T, E, C>(
  *
  * @example
  * ```typescript
- * const error = err("not found");
+ * const error = Awaitly.err("not found");
  * await tapErrorAsync(error, async (e) => {
  *   await logErrorToServer(e);
  * }); // err("not found")

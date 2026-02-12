@@ -4,10 +4,10 @@
  * This file verifies that all code examples work correctly and pass type checking.
  */
 import { describe, it, expect } from "vitest";
-import {
+import { Awaitly, type AsyncResult, type UnexpectedError } from "./index";
+const {
   ok,
   err,
-  type AsyncResult,
   unwrapOr,
   unwrapOrElse,
   map,
@@ -23,8 +23,7 @@ import {
   tap,
   tapError,
   UNEXPECTED_ERROR,
-  type UnexpectedError,
-} from "./index";
+} = Awaitly;
 import { run } from "./run-entry";
 import { createWorkflow } from "./workflow-entry";
 import { unwrapOk, unwrapErr } from "./testing";

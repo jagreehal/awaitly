@@ -43,7 +43,7 @@ import {
   // Pipeable namespace
   R,
 } from ".";
-import { ok, err, PROMISE_REJECTED, type Result, type AsyncResult, type PromiseRejectedError } from "../core";
+import { ok, err, PROMISE_REJECTED, type Result, type AsyncResult, type PromiseRejectedError } from "../result";
 
 // =============================================================================
 // Composition Tests

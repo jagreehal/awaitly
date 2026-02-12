@@ -5,7 +5,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
 import { describe, it, expect, vi } from 'vitest';
-import {
+import { Awaitly, type AsyncResult, type Result } from "./index";
+const {
   all,
   allSettled,
   any,
@@ -24,9 +25,7 @@ import {
   tap,
   ok,
   err,
-  type AsyncResult,
-  type Result,
-} from '../src/index';
+} = Awaitly;
 import {
   run,
   createWorkflow,

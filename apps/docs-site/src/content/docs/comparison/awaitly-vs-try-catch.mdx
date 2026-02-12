@@ -26,9 +26,9 @@ try/catch                           Result types
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { from } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
-const parseJson = (str: string) => from(() => JSON.parse(str));
+const parseJson = (str: string) => Awaitly.from(() => JSON.parse(str));
 
 const result = parseJson('{"name": "Alice"}');
 
@@ -76,7 +76,7 @@ With try/catch, nothing in the type system tells you `parseJson` can fail. With 
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
+import { Awaitly, type AsyncResult } from 'awaitly';
 
 type FetchError = 'NETWORK_ERROR' | 'NOT_FOUND' | 'SERVER_ERROR';
 
@@ -84,12 +84,12 @@ const fetchUser = async (id: string): AsyncResult<User, FetchError> => {
   try {
     const res = await fetch(`/api/users/${id}`);
     if (!res.ok) {
-      if (res.status === 404) return err('NOT_FOUND');
-      return err('SERVER_ERROR');
+      if (res.status === 404) return Awaitly.err('NOT_FOUND');
+      return Awaitly.err('SERVER_ERROR');
     }
-    return ok(await res.json());
+    return Awaitly.ok(await res.json());
   } catch {
-    return err('NETWORK_ERROR');
+    return Awaitly.err('NETWORK_ERROR');
   }
 };
 
@@ -248,7 +248,7 @@ const createUserAccount = async (userId: string) => {
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { allSettled, partition } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 const results = await Promise.all([
   fetchUser('1'),
@@ -256,10 +256,10 @@ const results = await Promise.all([
   fetchUser('3'),
 ]);
 
-const settled = allSettled(results);
+const settled = Awaitly.allSettled(results);
 // Always succeeds - collects all outcomes
 
-const [successes, failures] = partition(results);
+const [successes, failures] = Awaitly.partition(results);
 console.log(`Found ${successes.length} users`);
 console.log(`Failed to find ${failures.length} users`);
 /*
@@ -298,17 +298,17 @@ console.log(`Failed to find ${failures.length} users`);
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, map, andThen } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
-const result = ok(5);
+const result = Awaitly.ok(5);
 
 // Transform the value
-const doubled = map(result, n => n * 2);
+const doubled = Awaitly.map(result, n => n * 2);
 // { ok: true, value: 10 }
 
 // Chain operations that might fail
-const validated = andThen(result, n =>
-  n > 0 ? ok(n) : err('NEGATIVE')
+const validated = Awaitly.andThen(result, n =>
+  n > 0 ? Awaitly.ok(n) : Awaitly.err('NEGATIVE')
 );
 ```
   </TabItem>
@@ -351,16 +351,16 @@ try {
 You don't have to rewrite everything. Wrap existing code:
 
 ```typescript
-import { from, fromPromise, tryAsync } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 // Wrap sync code
-const result1 = from(() => JSON.parse(jsonString));
+const result1 = Awaitly.from(() => JSON.parse(jsonString));
 
 // Wrap promises
-const result2 = await fromPromise(fetch('/api/data'));
+const result2 = await Awaitly.fromPromise(fetch('/api/data'));
 
 // Wrap with custom error type
-const result3 = await tryAsync(
+const result3 = await Awaitly.tryAsync(
   () => riskyOperation(),
   (thrown) => ({
     type: 'OPERATION_FAILED' as const,

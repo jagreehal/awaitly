@@ -392,24 +392,35 @@ export function createWebhookHandler<
 
 /**
  * Configuration for a simple webhook handler without workflow.
+ * Use with createSimpleHandler for endpoints that don't need step orchestration.
+ *
+ * @template TInput - Validated input type
+ * @template TOutput - Handler success output type
+ * @template TError - Handler error type
+ * @template TBody - Raw request body type
  */
 export interface SimpleHandlerConfig<TInput, TOutput, TError, TBody = unknown> {
+  /** Validate and transform the incoming request; return ok(input) or err(ValidationError). */
   validateInput: (
     req: WebhookRequest<TBody>
   ) => ValidationResult<TInput, ValidationError> | Promise<ValidationResult<TInput, ValidationError>>;
 
+  /** Execute the business logic; return Result. */
   handler: (input: TInput, req: WebhookRequest<TBody>) => AsyncResult<TOutput, TError>;
 
+  /** Map the handler result to an HTTP response. */
   mapResult: (
     result: Result<TOutput, TError>,
     req: WebhookRequest<TBody>
   ) => WebhookResponse;
 
+  /** Optional: map validation errors to response. Defaults to 400 with error details. */
   mapValidationError?: (
     error: ValidationError,
     req: WebhookRequest<TBody>
   ) => WebhookResponse<ErrorResponseBody>;
 
+  /** Optional: handle unexpected errors. Defaults to 500. */
   mapUnexpectedError?: (
     error: unknown,
     req: WebhookRequest<TBody>

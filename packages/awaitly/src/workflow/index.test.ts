@@ -3,16 +3,8 @@
  * Tests for workflow.ts - createWorkflow, run, step functions
  */
 import { describe, it, expect, vi } from "vitest";
-import {
-  AsyncResult,
-  err,
-  isErr,
-  isOk,
-  isUnexpectedError,
-  ok,
-  Result,
-  UnexpectedError,
-} from "../index";
+import { Awaitly, type AsyncResult, type Result, type UnexpectedError } from "../index";
+const { err, isErr, isOk, isUnexpectedError, ok } = Awaitly;
 import {
   createWorkflow,
   isStepComplete,

@@ -7,6 +7,8 @@ description: Decision guide for choosing the right awaitly APIs
 
 ### Handle errors without exceptions
 
+For minimal bundle use `awaitly/result`; for full API (Awaitly namespace, pipe, etc.) use `awaitly`.
+
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
 

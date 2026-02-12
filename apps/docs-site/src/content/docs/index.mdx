@@ -40,7 +40,7 @@ npm install awaitly
 import { ok, err, type AsyncResult } from 'awaitly';
 import { createWorkflow } from 'awaitly/workflow';
 
-// Define operations that return Results
+// Define operations that return Results (or use Awaitly.ok / Awaitly.err)
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
   id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND');
 

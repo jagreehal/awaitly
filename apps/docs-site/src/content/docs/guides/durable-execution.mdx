@@ -193,7 +193,7 @@ Awaitly **fails fast on version mismatch**: if stored state was written by a dif
 
 Bump the `version` option when you make breaking changes that old checkpoints cannot satisfy:
 
-- **Step names/keys** – You renamed or changed a step’s `key` (e.g. `'fetch-user'` → `'load-user'`). Old state has cached results under the old key.
+- **Step names/keys** – You renamed or changed a step's `key` (e.g. `'fetch-user'` → `'load-user'`). Old state has cached results under the old key.
 - **Step order** – You added, removed, or reordered keyed steps. Resuming from old state would skip or replay the wrong steps.
 - **Step outputs** – You changed what a step returns in a way that later steps or the workflow logic no longer accept (e.g. type or shape change). Old cached results would be invalid.
 
@@ -387,14 +387,14 @@ for (const id of pendingIds) {
 **What you add (optional):**
 
 - **Discover**: list non-complete ids via `durable.listPending(store)` or a custom query with metadata (e.g. status, updatedAt).
-- **Claim/lock**: so multiple workers don’t run the same id (e.g. Postgres `SELECT ... FOR UPDATE SKIP LOCKED`, or a Mongo/Redis claim pattern)—this is adapter/application logic, not in core Awaitly.
+- **Claim/lock**: so multiple workers don't run the same id (e.g. Postgres `SELECT ... FOR UPDATE SKIP LOCKED`, or a Mongo/Redis claim pattern)—this is adapter/application logic, not in core Awaitly.
 - **Trigger**: pull (sweep pending) vs push (enqueue id, then worker runs). `durable.run` is the execution primitive either way.
 
 **Pagination and ordering:** Do not load the world into memory. For large deployments, use `durable.listPending(store, options)` with `limit` and `offset` (or `nextOffset` from the previous page). Postgres, Mongo, and LibSQL adapters implement `listPage(options)` and return `ListPageResult` with `ids`, optional `total`, and `nextOffset`. Example: `const page = await durable.listPending(store, { limit: 50, offset: 0, orderBy: 'updatedAt', orderDir: 'desc' });` then iterate `page.ids` and use `page.nextOffset` for the next page.
 
 **Bulk delete:** Use `durable.deleteStates(store, ids, { concurrency?, continueOnError? })` for admin/cleanup. It loops over `store.delete(id)` with optional bounded concurrency; when the store implements `deleteMany(ids)` (Postgres, Mongo, LibSQL), that is used for efficiency. Returns `{ deleted, errors? }` when `continueOnError` is true.
 
-**Delete semantics (ack/reset):** Deleting state is effectively an ack or reset—the workflow can no longer resume from that state. If you delete while a workflow is running, the in-flight run continues; when it finishes it may try to delete again (no-op) or save (recreating state). For multi-worker safety, prefer deleting only when the workflow is not running, or when you hold the lock (e.g. after a successful run or after claiming the id). Core does not require the lock for delete; adapters that support locking do not enforce “delete only with lock”—so document and enforce in your worker logic if needed.
+**Delete semantics (ack/reset):** Deleting state is effectively an ack or reset—the workflow can no longer resume from that state. If you delete while a workflow is running, the in-flight run continues; when it finishes it may try to delete again (no-op) or save (recreating state). For multi-worker safety, prefer deleting only when the workflow is not running, or when you hold the lock (e.g. after a successful run or after claiming the id). Core does not require the lock for delete; adapters that support locking do not enforce "delete only with lock"—so document and enforce in your worker logic if needed.
 
 See also: [Persistence](./persistence) and the store adapters above (Postgres, Mongo).
 

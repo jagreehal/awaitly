@@ -12,7 +12,8 @@ import {
   type Resource,
   type ResourceCleanupError,
 } from "./resource";
-import { ok, err, type AsyncResult } from "./index";
+import { Awaitly, type AsyncResult } from "./index";
+const { ok, err } = Awaitly;
 import { createWorkflow } from "./workflow-entry";
 
 // ============================================================================

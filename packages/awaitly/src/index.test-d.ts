@@ -9,24 +9,35 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 import { expectType } from "tsd";
 import {
-  ok,
-  err,
-  Ok,
-  Err,
-  Result,
-  AsyncResult,
-  UnexpectedError,
-  Errors,
-  ErrorOf,
-  TaggedError,
+  Awaitly,
+  type Ok,
+  type Err,
+  type Result,
+  type AsyncResult,
+  type UnexpectedError,
+  type Errors,
+  type ErrorOf,
   type TagOf,
   type ErrorByTag,
+} from "./index";
+const {
+  ok,
+  err,
+  TaggedError,
   isOk,
   isErr,
   recover,
   recoverAsync,
   UNEXPECTED_ERROR,
-} from "./index";
+  mapError,
+  match,
+  map,
+  tapError,
+  andThen,
+  all,
+  any,
+  allSettled,
+} = Awaitly;
 import { run, type WorkflowEvent } from "./run-entry";
 import { createWorkflow, ErrorsOfDeps } from "./workflow-entry";
 import { pendingApproval } from "./hitl-entry";
@@ -669,7 +680,7 @@ async function _test13() {
 // TEST 14: Typed cause - err() infers cause type from options
 // =============================================================================
 
-import { mapError, match, ExtractCause, CauseOf, map, tapError, andThen } from "./index";
+import type { ExtractCause, CauseOf } from "./index";
 
 function _test14TypedCause() {
   // err() returns clean Err<E> type - no cause in the type signature
@@ -975,8 +986,6 @@ async function _test27WorkflowCauseIsUnknown() {
 // =============================================================================
 // TEST 28: batch operations preserve cause types
 // =============================================================================
-
-import { all, any, allSettled } from "./index";
 
 function _test28BatchPreservesCause() {
   // Results with typed causes

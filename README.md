@@ -22,6 +22,8 @@ No exceptions for expected failures. No manual error unions.
 npm install awaitly
 ```
 
+For minimal bundle use `awaitly/result`; for Awaitly namespace and full API use `awaitly`.
+
 📚 **[Full Documentation](https://jagreehal.github.io/awaitly/)** - guides, API reference, and examples.
 
 ---

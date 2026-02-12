@@ -23,10 +23,10 @@ Both awaitly and [neverthrow](https://github.com/supermacro/neverthrow) provide 
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, err } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 const divide = (a: number, b: number) =>
-  b === 0 ? err('DIVIDE_BY_ZERO') : ok(a / b);
+  b === 0 ? Awaitly.err('DIVIDE_BY_ZERO') : Awaitly.ok(a / b);
 
 const result = divide(10, 2);
 /*
@@ -60,7 +60,7 @@ Both libraries use the same `ok()` and `err()` constructors, making migration st
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { isOk, isErr } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 const result = divide(10, 2);
 
@@ -70,7 +70,7 @@ if (result.ok) {
 }
 
 // Function-based
-if (isOk(result)) {
+if (Awaitly.isOk(result)) {
   console.log(result.value); // 5
 }
 ```
@@ -98,10 +98,10 @@ if (result.isErr()) {
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, map } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
-const result = ok(5);
-const doubled = map(result, n => n * 2);
+const result = Awaitly.ok(5);
+const doubled = Awaitly.map(result, n => n * 2);
 /*
 Output:
 { ok: true, value: 10 }
@@ -127,10 +127,10 @@ Result { _value: 10 }
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { err, mapError } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
-const result = err('NOT_FOUND');
-const mapped = mapError(result, e => ({ code: e, status: 404 }));
+const result = Awaitly.err('NOT_FOUND');
+const mapped = Awaitly.mapError(result, e => ({ code: e, status: 404 }));
 /*
 Output:
 { ok: false, error: { code: 'NOT_FOUND', status: 404 } }
@@ -158,15 +158,15 @@ Result { _error: { code: 'NOT_FOUND', status: 404 } }
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, err, andThen } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
 const parseNumber = (s: string) => {
   const n = parseInt(s, 10);
-  return isNaN(n) ? err('PARSE_ERROR') : ok(n);
+  return isNaN(n) ? Awaitly.err('PARSE_ERROR') : Awaitly.ok(n);
 };
 
-const result = ok('42');
-const parsed = andThen(result, parseNumber);
+const result = Awaitly.ok('42');
+const parsed = Awaitly.andThen(result, parseNumber);
 /*
 Output:
 { ok: true, value: 42 }
@@ -197,10 +197,10 @@ Result { _value: 42 }
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, match } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
-const result = ok(42);
-const message = match(
+const result = Awaitly.ok(42);
+const message = Awaitly.match(
   result,
   value => `Success: ${value}`,
   error => `Error: ${error}`
@@ -233,11 +233,11 @@ Output:
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
+import { Awaitly, type AsyncResult } from 'awaitly';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? Awaitly.ok(user) : Awaitly.err('NOT_FOUND');
 };
 
 // Use with regular async/await
@@ -274,17 +274,17 @@ if (result.isOk()) {
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, err, all } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
-const results = [ok(1), ok(2), ok(3)];
-const combined = all(results);
+const results = [Awaitly.ok(1), Awaitly.ok(2), Awaitly.ok(3)];
+const combined = Awaitly.all(results);
 /*
 Output:
 { ok: true, value: [1, 2, 3] }
 */
 
-const withError = [ok(1), err('FAILED'), ok(3)];
-const failed = all(withError);
+const withError = [Awaitly.ok(1), Awaitly.err('FAILED'), Awaitly.ok(3)];
+const failed = Awaitly.all(withError);
 /*
 Output:
 { ok: false, error: 'FAILED' }
@@ -317,18 +317,18 @@ Result { _error: 'FAILED' }
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, unwrap, unwrapOr, unwrapOrElse } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
-const result = ok(42);
+const result = Awaitly.ok(42);
 
 // Throws if err
-const value1 = unwrap(result); // 42
+const value1 = Awaitly.unwrap(result); // 42
 
 // Default value
-const value2 = unwrapOr(result, 0); // 42
+const value2 = Awaitly.unwrapOr(result, 0); // 42
 
 // Computed default
-const value3 = unwrapOrElse(result, err => {
+const value3 = Awaitly.unwrapOrElse(result, err => {
   console.log('Failed:', err);
   return 0;
 }); // 42
@@ -360,20 +360,20 @@ Chain a sync Result into an async operation.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, andThen, type AsyncResult } from 'awaitly';
+import { Awaitly, type AsyncResult } from 'awaitly';
 
 const parseId = (s: string) => {
   const n = parseInt(s, 10);
-  return isNaN(n) ? err('PARSE_ERROR') : ok(n);
+  return isNaN(n) ? Awaitly.err('PARSE_ERROR') : Awaitly.ok(n);
 };
 
 const fetchUser = async (id: number): AsyncResult<User, 'NOT_FOUND'> => {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? Awaitly.ok(user) : Awaitly.err('NOT_FOUND');
 };
 
 // Just use async function - awaitly handles sync→async naturally
-const result = await andThen(parseId('42'), fetchUser);
+const result = await Awaitly.andThen(parseId('42'), fetchUser);
 /*
 Output:
 { ok: true, value: { id: 42, name: 'Alice' } }
@@ -413,12 +413,12 @@ Transform the success value with an async function.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, map } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
-const result = ok(42);
+const result = Awaitly.ok(42);
 
 // map works with async functions
-const enriched = await map(result, async (n) => {
+const enriched = await Awaitly.map(result, async (n) => {
   const data = await fetchMetadata(n);
   return { value: n, metadata: data };
 });
@@ -456,17 +456,17 @@ Provide a fallback Result on failure.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { err, ok, orElse } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
-const result = err('NOT_FOUND');
-const recovered = orElse(result, (e) => ok({ fallback: true, reason: e }));
+const result = Awaitly.err('NOT_FOUND');
+const recovered = Awaitly.orElse(result, (e) => Awaitly.ok({ fallback: true, reason: e }));
 /*
 Output:
 { ok: true, value: { fallback: true, reason: 'NOT_FOUND' } }
 */
 
 // Can also return a different error
-const retyped = orElse(result, () => err('FALLBACK_FAILED'));
+const retyped = Awaitly.orElse(result, () => Awaitly.err('FALLBACK_FAILED'));
 /*
 Output:
 { ok: false, error: 'FALLBACK_FAILED' }
@@ -503,10 +503,10 @@ Collect ALL errors instead of failing on the first one.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, err, allSettled } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
-const results = [ok(1), err('ERROR_A'), ok(3), err('ERROR_B')];
-const settled = allSettled(results);
+const results = [Awaitly.ok(1), Awaitly.err('ERROR_A'), Awaitly.ok(3), Awaitly.err('ERROR_B')];
+const settled = Awaitly.allSettled(results);
 /*
 Output:
 {
@@ -518,7 +518,7 @@ Output:
 */
 
 // For fail-fast behavior, use all() instead
-const failFast = all(results);
+const failFast = Awaitly.all(results);
 /*
 Output:
 { ok: false, error: 'ERROR_A' }
@@ -559,11 +559,11 @@ Safely wrap functions that might throw exceptions.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { tryCatch } from 'awaitly';
+import { Awaitly } from 'awaitly';
 
-// Wrap a throwing function
+// Wrap a throwing function (sync: from; async: tryAsync)
 const parseJson = (s: string) =>
-  tryCatch(
+  Awaitly.from(
     () => JSON.parse(s),
     (e) => ({ type: 'PARSE_ERROR' as const, message: String(e) })
   );
@@ -607,7 +607,7 @@ Result { _error: { type: 'PARSE_ERROR', message: '...' } }
 </Tabs>
 
 <Aside type="note">
-`tryCatch` executes immediately and returns a Result. neverthrow's `fromThrowable` returns a new function that you then call.
+`Awaitly.from` executes immediately and returns a Result. neverthrow's `fromThrowable` returns a new function that you then call. For async code use `Awaitly.tryAsync`.
 </Aside>
 
 ## Generator-Based Composition
@@ -668,7 +668,7 @@ While neverthrow focuses purely on Result types, awaitly adds workflow orchestra
 ### Automatic Error Type Inference
 
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
+import { Awaitly, type AsyncResult } from 'awaitly';
 import { createWorkflow } from 'awaitly/workflow';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
@@ -761,15 +761,14 @@ import { ok, err } from 'neverthrow';
 const result = ok(5).map(n => n * 2).mapErr(e => e.toUpperCase());
 
 // awaitly: standalone functions
-import { ok, err, map, mapError } from 'awaitly';
-const result = mapError(map(ok(5), n => n * 2), e => e.toUpperCase());
+import { Awaitly } from 'awaitly';
+const result = Awaitly.mapError(Awaitly.map(Awaitly.ok(5), n => n * 2), e => e.toUpperCase());
 
-// Or use pipe pattern with R namespace
-import { pipe, R } from 'awaitly/functional';
-const result = pipe(
-  ok(5),
-  R.map(n => n * 2),
-  R.mapError(e => e.toUpperCase())
+// Or use pipe pattern with Awaitly.R
+const piped = Awaitly.pipe(
+  Awaitly.ok(5),
+  Awaitly.R.map(n => n * 2),
+  Awaitly.R.mapError(e => e.toUpperCase())
 );
 ```
 

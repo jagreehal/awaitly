@@ -4,15 +4,8 @@
  *
  */
 import { describe, it, expect, vi } from "vitest";
-import {
-  ok,
-  err,
-  allAsync,
-  allSettledAsync,
-  anyAsync,
-  type AsyncResult,
-  isUnexpectedError,
-} from "./index";
+import { Awaitly, type AsyncResult } from "./index";
+const { ok, err, allAsync, allSettledAsync, anyAsync, isUnexpectedError } = Awaitly;
 import { createWorkflow } from "./workflow-entry";
 import {
   isPendingApproval,
