@@ -112,6 +112,52 @@ describe('require-step-id', () => {
     });
   });
 
+  describe('valid cases - step.run()', () => {
+    it('allows step.run with string literal id', () => {
+      const code = `step.run('fetchUser', () => fetchUser('1'));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows step.run with id and key option', () => {
+      const code = `step.run('fetchUser', () => fetchUser('1'), { key: 'user:1' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
+  describe('valid cases - step.andThen()', () => {
+    it('allows step.andThen with string literal id', () => {
+      const code = `step.andThen('enrich', user, (u) => enrichUser(u));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
+  describe('valid cases - step.match()', () => {
+    it('allows step.match with string literal id', () => {
+      const code = `step.match('handleUser', result, { ok: (v) => v.name, err: () => 'nope' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
+  describe('valid cases - step.all()', () => {
+    it('allows step.all with name and shape', () => {
+      const code = `step.all('fetchAll', { user: () => fetchUser('1'), posts: () => fetchPosts('1') });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
+  describe('valid cases - step.map()', () => {
+    it('allows step.map with string literal id', () => {
+      const code = `step.map('fetchUsers', ['1', '2'], (id) => fetchUser(id));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
   describe('valid cases - saga.step / saga.tryStep', () => {
     it('allows saga.step with name first and options', () => {
       const code = `
@@ -391,6 +437,58 @@ describe('require-step-id', () => {
       expect(messages).toHaveLength(1);
       expect(messages[0].ruleId).toBe('awaitly/require-step-id');
       expect(messages[0].message).toContain('step.race()');
+    });
+  });
+
+  describe('invalid cases - step.run()', () => {
+    it('reports when step.run has no arguments', () => {
+      const code = `step.run();`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step.run()');
+    });
+
+    it('reports when step.run first argument is identifier', () => {
+      const code = `step.run(myId, () => fetchUser('1'));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step.run()');
+    });
+  });
+
+  describe('invalid cases - step.andThen()', () => {
+    it('reports when step.andThen first argument is identifier', () => {
+      const code = `step.andThen(myId, user, (u) => enrichUser(u));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step.andThen()');
+    });
+  });
+
+  describe('invalid cases - step.match()', () => {
+    it('reports when step.match first argument is identifier', () => {
+      const code = `step.match(myId, result, { ok: (v) => v, err: () => null });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step.match()');
+    });
+  });
+
+  describe('invalid cases - step.all()', () => {
+    it('reports when step.all first argument is identifier', () => {
+      const code = `step.all(myName, { user: () => fetchUser('1') });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step.all()');
+    });
+  });
+
+  describe('invalid cases - step.map()', () => {
+    it('reports when step.map first argument is identifier', () => {
+      const code = `step.map(myId, items, (x) => fetchUser(x));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step.map()');
     });
   });
 

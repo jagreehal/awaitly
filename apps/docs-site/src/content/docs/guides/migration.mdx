@@ -345,7 +345,7 @@ const result = await workflow(async (step) => {
 | `Effect.gen(function* () { ... })` | `run(async (step) => { ... })` | Familiar async/await |
 | `yield* someEffect` | `await step('id', fn)` | Unwrap in workflow |
 | `Effect.tryPromise({ try, catch })` | `step.try('id', () => ..., { onError })` | Similar; id first |
-| `Effect.all([...])` | `step.parallel('name', { ... })` or `allAsync([...])` | Similar |
+| `Effect.all([...])` | `step.all('name', { ... })` or `step.parallel('name', { ... })` or `allAsync([...])` | Similar; `step.all` is Effect-style alias |
 | `Schedule.exponential()` | `step.retry('id', fn, { backoff: 'exponential' })` | Built-in options; id first |
 | `Effect.timeout(duration)` | `step.withTimeout('id', fn, { ms: 5000 })` | Timeout is its own helper |
 | `Layer.provide()` | Pass deps to workflow | Direct injection |

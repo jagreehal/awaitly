@@ -6246,3 +6246,411 @@ describe("Double-wrap detection", () => {
     }
   });
 });
+
+// =============================================================================
+// Effect-Style Ergonomics Tests
+// =============================================================================
+
+describe("Effect-style ergonomics", () => {
+  describe("step.run() - unwrap AsyncResult directly", () => {
+    it("unwraps AsyncResult without wrapper function", async () => {
+      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> => {
+        if (id === "1") {
+          return ok({ id: "1", name: "Alice" });
+        }
+        return err("NOT_FOUND");
+      };
+
+      const result = await run(async (step) => {
+        const userResult = fetchUser("1");
+        const user = await step.run('fetchUser', userResult);
+        return user.name;
+      });
+
+      expect(result).toEqual({ ok: true, value: "Alice" });
+    });
+
+    it("exits early on error", async () => {
+      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> => {
+        return err("NOT_FOUND");
+      };
+
+      const result = await run(async (step) => {
+        const userResult = fetchUser("1");
+        const user = await step.run('fetchUser', userResult);
+        return user.name;
+      }, { onError: () => {} }); // Add error handler to avoid UnexpectedError wrapping
+
+      expect(result).toEqual({ ok: false, error: "NOT_FOUND" });
+    });
+
+    it("works with createWorkflow", async () => {
+      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> => {
+        return ok({ id, name: "Bob" });
+      };
+
+      const workflow = createWorkflow("test", { fetchUser });
+
+      const result = await workflow(async (step, { fetchUser }) => {
+        const user = await step.run('fetchUser', fetchUser("1"));
+        return user.name;
+      });
+
+      expect(result).toEqual({ ok: true, value: "Bob" });
+    });
+
+    it("uses workflow cache when key is provided in createWorkflow", async () => {
+      let calls = 0;
+      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> => {
+        calls++;
+        return ok({ id, name: "Bob" });
+      };
+
+      const cache = new Map<string, Result<unknown, unknown>>();
+      const workflow = createWorkflow("test", { fetchUser }, { cache });
+
+      const result = await workflow(async (step, { fetchUser }) => {
+        // Use getters so the step only runs the fetch when the step runs (cache miss)
+        const first = await step.run("fetchUser1", () => fetchUser("1"), { key: "user:1" });
+        const second = await step.run("fetchUser2", () => fetchUser("1"), { key: "user:1" });
+        return `${first.name}-${second.name}`;
+      });
+
+      expect(result).toEqual({ ok: true, value: "Bob-Bob" });
+      expect(calls).toBe(1);
+      expect(cache.has("user:1")).toBe(true);
+    });
+  });
+
+  describe("step.andThen() - chain AsyncResults", () => {
+    it("chains operations with step tracking", async () => {
+      type User = { id: string; name: string };
+      type EnrichedUser = User & { premium: boolean };
+
+      const enrichUser = async (user: User): AsyncResult<EnrichedUser, "ENRICHMENT_FAILED"> => {
+        return ok({ ...user, premium: true });
+      };
+
+      const result = await run(async (step) => {
+        const user = { id: "1", name: "Alice" };
+        const enriched = await step.andThen('enrich', user, enrichUser);
+        return enriched.premium;
+      });
+
+      expect(result).toEqual({ ok: true, value: true });
+    });
+
+    it("exits on error in chained operation", async () => {
+      type User = { id: string; name: string };
+      type EnrichedUser = User & { premium: boolean };
+
+      const enrichUser = async (_user: User): AsyncResult<EnrichedUser, "ENRICHMENT_FAILED"> => {
+        return err("ENRICHMENT_FAILED");
+      };
+
+      const result = await run(async (step) => {
+        const user = { id: "1", name: "Alice" };
+        const enriched = await step.andThen('enrich', user, enrichUser);
+        return enriched.premium;
+      }, { onError: () => {} }); // Add error handler to avoid UnexpectedError wrapping
+
+      expect(result).toEqual({ ok: false, error: "ENRICHMENT_FAILED" });
+    });
+  });
+
+  describe("step.match() - pattern matching", () => {
+    it("executes ok branch for success", async () => {
+      const userResult = ok({ id: "1", name: "Alice" });
+
+      const result = await run(async (step) => {
+        const message = await step.match('handleUser', userResult, {
+          ok: async (user) => `Hello, ${user.name}`,
+          err: async () => "User not found",
+        });
+        return message;
+      });
+
+      expect(result).toEqual({ ok: true, value: "Hello, Alice" });
+    });
+
+    it("executes err branch for error", async () => {
+      const userResult = err("NOT_FOUND");
+
+      const result = await run(async (step) => {
+        const message = await step.match('handleUser', userResult, {
+          ok: async (user: { name: string }) => `Hello, ${user.name}`,
+          err: async (error) => `Error: ${error}`,
+        });
+        return message;
+      });
+
+      expect(result).toEqual({ ok: true, value: "Error: NOT_FOUND" });
+    });
+
+    it("can execute steps in both branches", async () => {
+      const events: string[] = [];
+
+      const result = await run(async (step) => {
+        const userResult = ok({ id: "1", name: "Alice" });
+
+        const message = await step.match('handleUser', userResult, {
+          ok: async (user) => {
+            events.push('ok-branch');
+            await step('sendWelcome', () => {
+              events.push('sent-welcome');
+              return ok(true);
+            });
+            return `Sent welcome to ${user.name}`;
+          },
+          err: async () => {
+            events.push('err-branch');
+            await step('logError', () => {
+              events.push('logged-error');
+              return ok(true);
+            });
+            return "Failed";
+          },
+        });
+        return message;
+      });
+
+      expect(result).toEqual({ ok: true, value: "Sent welcome to Alice" });
+      expect(events).toEqual(['ok-branch', 'sent-welcome']);
+    });
+
+    it("emits step events for the match step id", async () => {
+      const workflowEvents: string[] = [];
+
+      await run(
+        async (step) => {
+          const result = ok({ id: "1", name: "Alice" });
+          return step.match("handleUser", result, {
+            ok: async (user) => `Hello ${user.name}`,
+            err: async () => "nope",
+          });
+        },
+        {
+          onEvent: (event) => {
+            if (event.type === "step_start" || event.type === "step_success") {
+              workflowEvents.push(`${event.type}:${event.name}`);
+            }
+          },
+        }
+      );
+
+      expect(workflowEvents).toContain("step_start:handleUser");
+      expect(workflowEvents).toContain("step_success:handleUser");
+    });
+  });
+
+  describe("step.all() - Effect.all-style parallel", () => {
+    it("is an alias for step.parallel", async () => {
+      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> => {
+        return ok({ id, name: "Alice" });
+      };
+
+      const fetchPosts = async (id: string): AsyncResult<string[], "FETCH_ERROR"> => {
+        return ok(["post1", "post2"]);
+      };
+
+      const result = await run(async (step) => {
+        const { user, posts } = await step.all('fetchAll', {
+          user: () => fetchUser("1"),
+          posts: () => fetchPosts("1"),
+        });
+        return { userName: user.name, postCount: posts.length };
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        value: { userName: "Alice", postCount: 2 },
+      });
+    });
+
+    it("does not cache all by id when key is omitted in createWorkflow", async () => {
+      let calls = 0;
+      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> => {
+        calls++;
+        return ok({ id, name: `User${id}` });
+      };
+
+      const workflow = createWorkflow("test", { fetchUser }, { cache: new Map() });
+
+      const result = await workflow(async (step, { fetchUser }) => {
+        const first = await step.all("fetchAll", { user: () => fetchUser("1") });
+        const second = await step.all("fetchAll", { user: () => fetchUser("1") });
+        return [first.user.name, second.user.name] as const;
+      });
+
+      expect(result).toEqual({ ok: true, value: ["User1", "User1"] });
+      expect(calls).toBe(2);
+    });
+  });
+
+  describe("step.map() - parallel batch processing", () => {
+    it("maps over array with parallel execution", async () => {
+      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> => {
+        return ok({ id, name: `User${id}` });
+      };
+
+      const result = await run(async (step) => {
+        const users = await step.map('fetchUsers', ["1", "2", "3"], (id) => fetchUser(id));
+        return users.map(u => u.name);
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        value: ["User1", "User2", "User3"],
+      });
+    });
+
+    it("fails fast on first error", async () => {
+      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> => {
+        if (id === "2") {
+          return err("NOT_FOUND");
+        }
+        return ok({ id, name: `User${id}` });
+      };
+
+      const result = await run(async (step) => {
+        const users = await step.map('fetchUsers', ["1", "2", "3"], (id) => fetchUser(id));
+        return users.map(u => u.name);
+      }, { onError: () => {} }); // Add error handler to avoid UnexpectedError wrapping
+
+      expect(result).toEqual({ ok: false, error: "NOT_FOUND" });
+    });
+
+    it("respects concurrency limit", async () => {
+      const activeCount = { current: 0, max: 0 };
+      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> => {
+        activeCount.current++;
+        activeCount.max = Math.max(activeCount.max, activeCount.current);
+        await new Promise(resolve => setTimeout(resolve, 10));
+        activeCount.current--;
+        return ok({ id, name: `User${id}` });
+      };
+
+      const result = await run(async (step) => {
+        const users = await step.map(
+          'fetchUsers',
+          ["1", "2", "3", "4", "5"],
+          (id) => fetchUser(id),
+          { concurrency: 2 }
+        );
+        return users.length;
+      });
+
+      expect(result).toEqual({ ok: true, value: 5 });
+      expect(activeCount.max).toBeLessThanOrEqual(2);
+    });
+
+    it("works with createWorkflow", async () => {
+      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> => {
+        return ok({ id, name: `User${id}` });
+      };
+
+      const workflow = createWorkflow("test", { fetchUser });
+
+      const result = await workflow(async (step, { fetchUser }) => {
+        const users = await step.map('fetchUsers', ["1", "2"], (id) => fetchUser(id));
+        return users.map(u => u.name);
+      });
+
+      expect(result).toEqual({ ok: true, value: ["User1", "User2"] });
+    });
+
+    it("does not cache map by id when key is omitted in createWorkflow", async () => {
+      let calls = 0;
+      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> => {
+        calls++;
+        return ok({ id, name: `User${id}` });
+      };
+
+      const cache = new Map<string, Result<unknown, unknown>>();
+      const workflow = createWorkflow("test", { fetchUser }, { cache });
+
+      const result = await workflow(async (step, { fetchUser }) => {
+        const first = await step.map("fetchUsers", ["1", "2"], (id) => fetchUser(id));
+        const second = await step.map("fetchUsers", ["1", "2"], (id) => fetchUser(id));
+        return [first.length, second.length] as const;
+      });
+
+      expect(result).toEqual({ ok: true, value: [2, 2] });
+      expect(calls).toBe(4);
+    });
+  });
+
+  describe("integrated example - Effect-style workflow", () => {
+    it("demonstrates the new ergonomic API", async () => {
+      type User = { id: string; name: string; email: string };
+      type Order = { id: string; total: number };
+      type Receipt = { orderId: string; charged: boolean };
+
+      const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> => {
+        return ok({ id, name: "Alice", email: "alice@example.com" });
+      };
+
+      const validateOrder = async (data: { userId: string; total: number }): AsyncResult<Order, "INVALID_ORDER"> => {
+        return ok({ id: "order-1", total: data.total });
+      };
+
+      const chargeCard = async (total: number): AsyncResult<Receipt, "CARD_DECLINED"> => {
+        return ok({ orderId: "order-1", charged: true });
+      };
+
+      const sendEmail = async (email: string, _receipt: Receipt): AsyncResult<boolean, "EMAIL_FAILED"> => {
+        return ok(true);
+      };
+
+      const workflow = createWorkflow("checkout", {
+        fetchUser,
+        validateOrder,
+        chargeCard,
+        sendEmail,
+      });
+
+      const result = await workflow(async (step, deps) => {
+        // Use step.run() to unwrap AsyncResults directly
+        const user = await step.run('fetchUser', deps.fetchUser("1"));
+
+        // Use step.andThen() for chaining
+        const order = await step.andThen(
+          'validateOrder',
+          { userId: user.id, total: 100 },
+          deps.validateOrder
+        );
+
+        // Use step.all() for parallel operations
+        const { receipt } = await step.all('processPayment', {
+          receipt: () => deps.chargeCard(order.total),
+        });
+
+        // Use step.match() for pattern matching
+        const emailSent = await step.match(
+          'handleEmail',
+          await deps.sendEmail(user.email, receipt),
+          {
+            ok: async (sent) => sent,
+            err: async (error) => {
+              // Log error but don't fail the workflow
+              await step('logEmailFailure', () => ok({ error }));
+              return false;
+            },
+          }
+        );
+
+        return { user, order, receipt, emailSent };
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toMatchObject({
+          user: { id: "1", name: "Alice" },
+          order: { id: "order-1", total: 100 },
+          receipt: { orderId: "order-1", charged: true },
+          emailSent: true,
+        });
+      }
+    });
+  });
+});

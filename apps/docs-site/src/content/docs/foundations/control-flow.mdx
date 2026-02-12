@@ -216,14 +216,23 @@ fetchUser ─────┐
 
 ## Named Parallel Operations
 
-Give parallel groups a name for visualization using `step.parallel(name, ...)`:
+Give parallel groups a name for visualization using `step.all(name, ...)` (Effect-style) or `step.parallel(name, ...)`:
 
 ```typescript
+// Effect-style: named results
+const result = await workflow(async (step) => {
+  const { user, posts } = await step.all('Fetch user data', {
+    user: () => fetchUser('1'),
+    posts: () => fetchPosts('1'),
+  });
+  return { user, posts };
+});
+
+// Or step.parallel with allAsync
 const result = await workflow(async (step) => {
   const [user, posts] = await step.parallel('Fetch user data', () =>
     allAsync([fetchUser('1'), fetchPosts('1')])
   );
-
   return { user, posts };
 });
 

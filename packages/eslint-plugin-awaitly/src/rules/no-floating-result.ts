@@ -13,7 +13,7 @@ import type { CallExpression, MemberExpression, Node } from 'estree';
  * GOOD: return step(() => fetchUser());
  */
 
-const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'parallel', 'race']);
+const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'parallel', 'race', 'allSettled', 'run', 'andThen', 'match', 'all', 'map']);
 
 function isStepCall(node: CallExpression): boolean {
   const { callee } = node;

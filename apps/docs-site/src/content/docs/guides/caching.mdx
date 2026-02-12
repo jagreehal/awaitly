@@ -97,6 +97,22 @@ const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 ```
 
+## step.run, step.all, step.map and caching
+
+**step.run** — With `createWorkflow`, use a **getter** so the step only runs on cache miss: `step.run('fetchUser', () => fetchUser('1'), { key: 'user:1' })`. If you pass the promise directly, it is created at call site and caching cannot skip the work.
+
+**step.all** and **step.map** — They only use the cache when you pass an explicit `key`. If you omit options or omit `key`, the step is not cached (no cache by step id). This matches core `run()` semantics.
+
+```typescript
+// Cached (explicit key)
+await step.all('fetchAll', { user: () => fetchUser('1') }, { key: 'fetch:1' });
+await step.map('fetchUsers', ids, fetchUser, { key: 'users:batch' });
+
+// Not cached (no key) — runs every time
+await step.all('fetchAll', { user: () => fetchUser('1') });
+await step.map('fetchUsers', ids, fetchUser);
+```
+
 ## Cache scope
 
 The cache persists across workflow runs:

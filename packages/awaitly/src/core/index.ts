@@ -1368,6 +1368,149 @@ export interface RunStep<E = unknown> {
    */
   dep: <T extends (...args: unknown[]) => unknown>(name: string, fn: T) => T;
 
+  // ===========================================================================
+  // Effect-Style Ergonomics
+  // ===========================================================================
+
+  /**
+   * Unwrap an AsyncResult directly within a workflow step.
+   *
+   * Use this when you already have an AsyncResult and want to unwrap it
+   * without wrapping it in a function. Automatically exits on error.
+   *
+   * @param id - Unique step identifier
+   * @param result - The AsyncResult to unwrap
+   * @param options - Step options
+   * @returns The success value (unwrapped)
+   * @throws {EarlyExit} If the result is an error
+   *
+   * @example
+   * ```typescript
+   * const userResult = fetchUser(userId); // AsyncResult<User, 'NOT_FOUND'>
+   * const user = await step.run('fetchUser', userResult);
+   * // Automatically unwraps and exits on error
+   * ```
+   */
+  run: <T, StepE extends E, StepC = unknown>(
+    id: string,
+    result: AsyncResult<T, StepE, StepC>,
+    options?: StepOptions
+  ) => Promise<T>;
+
+  /**
+   * Chain AsyncResult operations with step tracking.
+   *
+   * Use this for composing AsyncResult operations where each step
+   * depends on the previous one's success value.
+   *
+   * @param id - Unique step identifier
+   * @param value - The value to pass to the function
+   * @param fn - Function that takes the value and returns an AsyncResult
+   * @param options - Step options
+   * @returns The final success value (unwrapped)
+   * @throws {EarlyExit} If the result is an error
+   *
+   * @example
+   * ```typescript
+   * const user = await step.run('fetchUser', fetchUser(id));
+   * const enriched = await step.andThen('enrich', user, (user) =>
+   *   enrichUser(user) // Returns AsyncResult<EnrichedUser, E>
+   * );
+   * ```
+   */
+  andThen: <T, U, StepE extends E, StepC = unknown>(
+    id: string,
+    value: T,
+    fn: (value: T) => AsyncResult<U, StepE, StepC>,
+    options?: StepOptions
+  ) => Promise<U>;
+
+  /**
+   * Pattern match on a Result with step tracking for both branches.
+   *
+   * Use this for handling Result values where both success and error
+   * paths need to be tracked as separate steps.
+   *
+   * @param id - Unique step identifier
+   * @param result - The Result to match on
+   * @param handlers - Object with ok and err handler functions
+   * @param options - Step options
+   * @returns The value returned by the matched handler
+   *
+   * @example
+   * ```typescript
+   * const user = await step.run('fetchUser', fetchUser(id));
+   *
+   * const message = await step.match('handleUser', user, {
+   *   ok: async (user) => {
+   *     await step('sendWelcome', () => sendEmail(user.email));
+   *     return 'Sent welcome email';
+   *   },
+   *   err: async (error) => {
+   *     await step('logError', () => logError(error));
+   *     return 'Failed to fetch user';
+   *   }
+   * });
+   * ```
+   */
+  match: <T, StepE extends E, U, StepC = unknown>(
+    id: string,
+    result: Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
+    handlers: {
+      ok: (value: T) => U | Promise<U>;
+      err: (error: StepE, cause?: StepC) => U | Promise<U>;
+    },
+    options?: StepOptions
+  ) => Promise<U>;
+
+  /**
+   * Alias for step.parallel - Effect.all-style API for parallel execution.
+   *
+   * Executes multiple operations in parallel and returns named results.
+   * Identical to step.parallel but with a name more familiar to Effect users.
+   *
+   * @param name - Name for this parallel block
+   * @param operations - Object mapping keys to operations
+   * @returns Object with results mapped to the same keys
+   *
+   * @example
+   * ```typescript
+   * const { user, posts, comments } = await step.all('fetchAll', {
+   *   user: () => fetchUser('1'),
+   *   posts: () => fetchPosts('1'),
+   *   comments: () => fetchComments('1')
+   * });
+   * ```
+   */
+  all: RunStep<E>["parallel"];
+
+  /**
+   * Map over an array with parallel execution and error tracking.
+   *
+   * Similar to Effect.forEach - executes mapper function for each item
+   * in parallel and collects results.
+   *
+   * @param id - Unique step identifier
+   * @param items - Array of items to process
+   * @param mapper - Function to process each item (returns AsyncResult)
+   * @param options - Optional concurrency limit and cache key
+   * @returns Array of results in original order
+   *
+   * @example
+   * ```typescript
+   * const users = await step.map('fetchUsers', userIds, (id) =>
+   *   fetchUser(id)
+   * );
+   * // Automatic parallel execution with error union
+   * ```
+   */
+  map: <T, U, StepE extends E, StepC = unknown>(
+    id: string,
+    items: T[],
+    mapper: (item: T, index: number) => AsyncResult<U, StepE, StepC>,
+    options?: { concurrency?: number; key?: string }
+  ) => Promise<U[]>;
+
 }
 
 // =============================================================================
@@ -3596,6 +3739,91 @@ export async function run<T, E, C = void>(
       fn: T
     ): T => {
       return fn;
+    };
+
+    // ===========================================================================
+    // Effect-Style Ergonomics
+    // ===========================================================================
+
+    // step.run: Unwrap an AsyncResult directly
+    stepFn.run = <T, StepE, StepC = unknown>(
+      id: string,
+      result: AsyncResult<T, StepE, StepC>,
+      options?: StepOptions
+    ): Promise<T> => {
+      return stepFn(id, () => result, options);
+    };
+
+    // step.andThen: Chain AsyncResult operations
+    stepFn.andThen = <T, U, StepE, StepC = unknown>(
+      id: string,
+      value: T,
+      fn: (value: T) => AsyncResult<U, StepE, StepC>,
+      options?: StepOptions
+    ): Promise<U> => {
+      return stepFn(id, () => fn(value), options);
+    };
+
+    // step.match: Pattern match on Result with step tracking (runs through step engine for lifecycle events)
+    stepFn.match = async <T, StepE, U, StepC = unknown>(
+      id: string,
+      result: Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
+      handlers: {
+        ok: (value: T) => U | Promise<U>;
+        err: (error: StepE, cause?: StepC) => U | Promise<U>;
+      },
+      options?: StepOptions
+    ): Promise<U> => {
+      return stepFn(id, async () => {
+        const resolved = await result;
+        if (resolved.ok) {
+          return ok(await handlers.ok(resolved.value));
+        } else {
+          return ok(await handlers.err(resolved.error, resolved.cause));
+        }
+      }, options);
+    };
+
+    // step.all: Alias for step.parallel (Effect.all-style API)
+    stepFn.all = stepFn.parallel;
+
+    // step.map: Map over array with parallel execution
+    stepFn.map = async <T, U, StepE, StepC = unknown>(
+      id: string,
+      items: T[],
+      mapper: (item: T, index: number) => AsyncResult<U, StepE, StepC>,
+      options?: { concurrency?: number; key?: string }
+    ): Promise<U[]> => {
+      const concurrency = options?.concurrency ?? items.length;
+
+      // Use allAsync for parallel execution with fail-fast
+      return stepFn(
+        id,
+        () => {
+          if (concurrency >= items.length) {
+            // Full parallelism - execute all at once
+            return allAsync(items.map((item, index) => mapper(item, index)));
+          } else {
+            // Limited concurrency - batch execution
+            return (async () => {
+              const results: U[] = [];
+              for (let i = 0; i < items.length; i += concurrency) {
+                const batch = items.slice(i, i + concurrency);
+                const batchResult = await allAsync(
+                  batch.map((item, batchIndex) => mapper(item, i + batchIndex))
+                );
+                // allAsync returns Result<U[], E, C>, so we need to check if it's ok
+                if (!batchResult.ok) {
+                  return batchResult; // Propagate the error
+                }
+                results.push(...batchResult.value);
+              }
+              return ok(results);
+            })();
+          }
+        },
+        { key: options?.key }
+      );
     };
 
     const step = stepFn as RunStep<E | UnexpectedError>;

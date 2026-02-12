@@ -6,7 +6,7 @@ user-invocable: true
 
 # Awaitly Core Patterns
 
-**This document defines the only supported patterns for using awaitly. Do not invent alternatives.**
+**This document defines the only supported patterns for using awaitly. Do not invent alternatives.** Effect-style helpers (run, andThen, match, all, map) keep the API as close to Effect as we can get while still using async/await and not generators.
 
 Workflows are sequential unless explicitly composed with helpers like `allAsync()`.
 
@@ -46,7 +46,7 @@ await step('getUser', getUser(id));
 - No retries or caching needed
 - Already have a Result/Promise to unwrap
 
-**Every step type takes a string as the first argument (ID or name).** `step(id, fn, opts)`, `step.retry(id, operation, options)`, `step.withTimeout(id, operation, options)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, options?)`, `step.parallel(name, operations | callback)`, `step.race(name, callback)`, `step.allSettled(name, callback)`. There is no `name` in options—the first argument is the step name/id. Use optional `key` in options for per-iteration identity (e.g. in loops).
+**Every step type takes a string as the first argument (ID or name).** `step(id, fn, opts)`, `step.retry(id, operation, options)`, `step.withTimeout(id, operation, options)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, options?)`, `step.parallel(name, operations | callback)`, `step.race(name, callback)`, `step.allSettled(name, callback)`, `step.run(id, result | getter, options?)`, `step.andThen(id, value, fn, options?)`, `step.match(id, result, handlers, options?)`, `step.all(name, shape, options?)`, `step.map(id, items, mapper, options?)`. There is no `name` in options—the first argument is the step name/id. Use optional `key` in options for per-iteration identity (e.g. in loops).
 
 **Label vs instance:** The first argument is the step **label** (category, e.g. `'fetchUser'`). The optional `key` is the **instance** identity (which iteration or entity). In loops, use one literal ID + key: `step('fetchUser', () => fetchUser(id), { key: \`user:${id}\` })`. Rules of thumb for key: stable (same input → same key); scoped to the step (e.g. `fetchUser:${id}`, `user:${id}`); keep short for logs/snapshots.
 
@@ -147,6 +147,7 @@ If you need per-item error handling in a loop, use `step.forEach()` with error c
 | `step.parallel(operations, { name })` (legacy) | Use `step.parallel('name', operations)` — name is always the first argument |
 | Template literal as step ID (e.g. `` step(`step-${i}`, ...) ``) | Use a literal ID + `key` instead: `step('fetchUser', () => fetchUser(i), { key: \`user:${i}\` })` |
 | `step(promise)` when using retries/caching | Direct form can't re-execute or cache-before-run; use thunk `step('id', () => deps.fn(args))` |
+| `step.run(id, promise, { key })` in createWorkflow | Use getter so cache hits don't run: `step.run(id, () => deps.fn(), { key })` |
 | `await x` without step | Bypasses error handling and tracking |
 | `if (!result.ok)` checks | step() already handles early exit |
 | `Promise.all()` | Disallowed even wrapped in step(); use `allAsync()` so errors are typed as Results |
@@ -264,18 +265,24 @@ const result = await processOrder(async (step, deps) => {
 | Need | Use | Example |
 |------|-----|---------|
 | Result-returning fn | `step(id, fn, opts)` | `step('getUser', () => deps.getUser(id))` |
+| Unwrap AsyncResult | `step.run(id, result \| getter, opts?)` | `step.run('getUser', () => deps.getUser(id))` or `step.run('getUser', () => deps.getUser(id), { key: 'user:1' })` |
+| Chain from value | `step.andThen(id, value, fn, opts?)` | `step.andThen('enrich', user, (u) => deps.enrichUser(u))` |
+| Pattern match | `step.match(id, result, { ok, err }, opts?)` | `step.match('handleUser', result, { ok: (u) => u.name, err: () => 'n/a' })` |
 | Throwing fn (sync) | `step.try(id, fn, opts)` | `step.try('parse', () => JSON.parse(s), { error: 'PARSE_ERROR' })` |
 | Throwing fn (async) | `step.try(id, fn, opts)` | `step.try('fetch', () => deps.fetchExternal(url), { error: 'FETCH_ERROR' })` |
 | Result with error map | `step.fromResult(id, fn, opts)` | `step.fromResult('callApi', () => callApi(), { onError: ... })` |
 | Retries | `step.retry(id, fn, opts)` | `step.retry('fetch', () => deps.fn(), { attempts: 3 })` |
 | Timeout | `step.withTimeout(id, fn, opts)` | `step.withTimeout('slowOp', () => deps.fn(), { ms: 5000 })` |
 | Sleep/delay | `step.sleep(id, duration, opts?)` | `step.sleep('rate-limit', '1s')` |
-| Parallel (object) | `step.parallel(name, operations)` | `step.parallel('Fetch data', { user: () => deps.getUser(id), posts: () => deps.getPosts(id) })` |
+| Parallel (object) | `step.parallel(name, operations)` or `step.all(name, shape, opts?)` | `step.all('fetchAll', { user: () => deps.getUser(id), posts: () => deps.getPosts(id) })` |
 | Parallel (array) | `step.parallel(name, callback)` | `step.parallel('Fetch all', () => allAsync([deps.getUser(id), deps.getPosts(id)]))` |
+| Parallel over array | `step.map(id, items, mapper, opts?)` | `step.map('fetchUsers', ids, (id) => deps.getUser(id))` |
 | Race | `step.race(name, callback)` | `step.race('Fastest API', () => anyAsync([primary(), fallback()]))` |
 | All settled | `step.allSettled(name, callback)` | `step.allSettled('Fetch all', () => allSettledAsync([...]))` |
 
 **All step helpers take a string as the first argument (ID or name). There is no `name` in options.** For `step.sleep`, the second argument is the duration (string like `'5s'` or a `Duration` from `awaitly/duration`). Single-argument `step.sleep('5s')` (old API) is invalid and fails at runtime—always use `step.sleep('id', duration, opts?)`. Use optional `key` in options for per-iteration identity (e.g. in loops).
+
+**Effect-style helpers (`step.run`, `step.andThen`, `step.match`, `step.all`, `step.map`)** run through the full step engine: they emit step events, support retry/timeout options, and in `createWorkflow` use the cache and `onAfterStep` when you pass a key. Use a **getter** with `step.run` when caching so cache hits don't run the operation: `step.run('getUser', () => deps.getUser(id), { key: 'user:1' })`. For `step.all` and `step.map`, caching applies only when you pass an explicit `key`; without a key they do not cache by step id (matches core `run()` semantics).
 
 **`step.try()` handles both sync and async**: It catches exceptions from sync code (like `JSON.parse`) and rejections from async code (like `fetch`).
 
@@ -337,12 +344,18 @@ Manual `for` loops with dynamic keys like `${item.id}`:
 
 ---
 
-## Concurrency with allAsync and step.parallel
+## Concurrency with allAsync, step.parallel, step.all, step.map
 
-For parallel work, use `step.parallel(name, ...)` (name is always the first argument) or wrap `allAsync` in `step()`:
+For parallel work, use **step.all** (Effect-style, named keys) or **step.parallel** (name is always the first argument) or wrap `allAsync` in `step()`. Use **step.map** to run a mapper over an array in parallel.
 
-**Object form** (named keys, typed result):
+**Object form** (named keys; prefer `step.all` for Effect-style API):
 ```typescript
+const { user, posts } = await step.all('fetchAll', {
+  user: () => deps.getUser(id),
+  posts: () => deps.getPosts(id),
+});
+
+// Same with step.parallel
 const { user, posts } = await step.parallel('Fetch user and posts', {
   user: () => deps.getUser(id),
   posts: () => deps.getPosts(id),
@@ -358,7 +371,12 @@ const [user, posts] = await step.parallel('Fetch user and posts', () =>
 );
 ```
 
-Legacy `step.parallel(operations, { name })` is not supported; always pass the name as the first argument.
+**Map over array** (parallel, step-tracked):
+```typescript
+const users = await step.map('fetchUsers', userIds, (id) => deps.getUser(id));
+```
+
+Legacy `step.parallel(operations, { name })` is not supported; always pass the name as the first argument. **step.all** and **step.map** only use the workflow cache when you pass an explicit `key`; without a key they do not cache by step id.
 
 ---
 
@@ -715,7 +733,7 @@ Full structure is documented in awaitly-analyze README (“JSON output shape”)
 | Context | Option keys (use when generating/editing workflow code) |
 |---------|--------------------------------------------------------|
 | Workflow (createWorkflow / createSagaWorkflow) | `description`, `markdown`, `strict`, `catchUnexpected`, `onEvent`, `createContext`, `cache`, `resumeState`, `signal`, `streamStore` |
-| Step (step, step.sleep, step.retry, step.withTimeout, step.try, step.fromResult, step.parallel, step.race, step.allSettled) | **Every step type**: first arg is string (ID or name, required). No `name` in options. `step(id, fn, opts)`, `step.retry(id, fn, opts)`, `step.withTimeout(id, fn, opts)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, opts?)`, `step.parallel(name, operations | callback)`, `step.race(name, callback)`, `step.allSettled(name, callback)`. Options (where applicable): `key`, `description`, `markdown`, `ttl`, `retry`, `timeout`, `signal` |
+| Step (step, step.run, step.andThen, step.match, step.all, step.map, step.sleep, step.retry, step.withTimeout, step.try, step.fromResult, step.parallel, step.race, step.allSettled) | **Every step type**: first arg is string (ID or name, required). No `name` in options. `step(id, fn, opts)`, `step.run(id, result | getter, opts?)`, `step.andThen(id, value, fn, opts?)`, `step.match(id, result, { ok, err }, opts?)`, `step.all(name, shape, opts?)`, `step.map(id, items, mapper, opts?)`, `step.retry(id, fn, opts)`, `step.withTimeout(id, fn, opts)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, opts?)`, `step.parallel(name, operations | callback)`, `step.race(name, callback)`, `step.allSettled(name, callback)`. Options (where applicable): `key`, `description`, `markdown`, `ttl`, `retry`, `timeout`, `signal`. For createWorkflow cache: use getter with `step.run` when using key; `step.all`/`step.map` only cache when `key` is provided. |
 | Saga step (saga.step / saga.tryStep) | First argument is step name (required). Options: `description`, `markdown`, `compensate`. No `name` in options. |
 
 ---

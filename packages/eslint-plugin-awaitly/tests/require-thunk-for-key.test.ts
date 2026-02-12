@@ -127,6 +127,12 @@ describe('require-thunk-for-key', () => {
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
+
+    it('allows step.run with getter and key', () => {
+      const code = `step.run('fetchUser', () => fetchUser('1'), { key: 'user:1' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
   });
 
   describe('invalid cases', () => {
@@ -173,6 +179,13 @@ describe('require-thunk-for-key', () => {
       const code = `step.fromResult(validate(input), { error: 'INVALID', key: 'validate:1' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
+    });
+
+    it('reports step.run with key and immediate call (second arg)', () => {
+      const code = `step.run('fetchUser', fetchUser('1'), { key: 'user:1' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-thunk-for-key');
     });
 
     it('reports non-thunk identifier with key option', () => {

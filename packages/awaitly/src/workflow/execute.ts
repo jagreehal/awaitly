@@ -2122,6 +2122,67 @@ export function createWorkflow<
       // step.dep: Delegate to real step (no caching needed - just returns function unchanged)
       cachedStepFn.dep = realStep.dep;
 
+      // Effect-style ergonomics: Route through cached step so cache/onAfterStep apply.
+      // Accept either AsyncResult or () => AsyncResult (getter) so cache hits never run the getter.
+      cachedStepFn.run = (
+        id: string,
+        resultOrGetter: AsyncResult<unknown, E, unknown> | (() => AsyncResult<unknown, E, unknown>),
+        options?: StepOptions
+      ) => {
+        const op =
+          typeof resultOrGetter === "function"
+            ? (resultOrGetter as () => AsyncResult<unknown, E, unknown>)
+            : () => resultOrGetter as AsyncResult<unknown, E, unknown>;
+        return cachedStepFn(id, op, options) as Promise<unknown>;
+      };
+      cachedStepFn.andThen = (
+        id: string,
+        value: unknown,
+        fn: (value: unknown) => AsyncResult<unknown, E, unknown>,
+        options?: StepOptions
+      ) => cachedStepFn(id, () => fn(value) as AsyncResult<unknown, E, unknown>, options) as Promise<unknown>;
+      cachedStepFn.match = (
+        id: string,
+        result: Result<unknown, E, unknown> | AsyncResult<unknown, E, unknown>,
+        handlers: {
+          ok: (value: unknown) => unknown | Promise<unknown>;
+          err: (error: E, cause?: unknown) => unknown | Promise<unknown>;
+        },
+        options?: StepOptions
+      ) =>
+        cachedStepFn(
+          id,
+          async () => {
+            const resolved = await result;
+            if (resolved.ok) {
+              return ok(await handlers.ok(resolved.value));
+            }
+            return ok(await handlers.err(resolved.error, resolved.cause));
+          },
+          options
+        ) as Promise<unknown>;
+      // Match core: all() with no key = no cache (core parallel doesn't pass key, so no cache by id)
+      cachedStepFn.all = (id: string, shape: Parameters<RunStep<E>["all"]>[1], options?: StepOptions) => {
+        const opts =
+          options !== undefined && Object.prototype.hasOwnProperty.call(options, "key")
+            ? options
+            : { ...options, key: undefined as string | undefined };
+        return cachedStepFn(id, async () => ok(await realStep.all(id, shape)), opts) as Promise<unknown>;
+      };
+      // Match core: step.map() passes { key: options?.key }, so omitted key = no cache (core never caches by id for map)
+      cachedStepFn.map = (
+        id: string,
+        items: unknown[],
+        mapper: (item: unknown, index: number) => AsyncResult<unknown, E, unknown>,
+        options?: { concurrency?: number; key?: string }
+      ) => {
+        const opts =
+          options !== undefined && Object.prototype.hasOwnProperty.call(options, "key")
+            ? options
+            : { ...options, key: undefined as string | undefined };
+        return cachedStepFn(id, async () => ok(await realStep.map(id, items, mapper, options)), opts) as Promise<unknown>;
+      };
+
       return cachedStepFn as RunStep<E>;
     };
 

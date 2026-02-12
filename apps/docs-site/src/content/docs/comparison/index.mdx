@@ -90,6 +90,7 @@ Want compiler-verified error handling (Result types)?
 - You want Result types with familiar async/await syntax
 - You need automatic error type inference
 - You need retries, timeouts, and caching
+- You like Effect-style helpers (`step.run`, `step.andThen`, `step.match`, `step.all`, `step.map`) without the Effect runtime
 - Your team knows async/await but wants better error handling
 
 ### Consider neverthrow when:
@@ -121,7 +122,7 @@ Want compiler-verified error handling (Result types)?
     [Read comparison →](/comparison/awaitly-vs-neverthrow/)
   </Card>
   <Card title="vs Effect" icon="setting">
-    Compare lightweight orchestration vs full ecosystem. When is Effect's power worth the complexity?
+    Compare lightweight orchestration vs full ecosystem. Effect-style step helpers (run, andThen, match, all, map) with native async/await.
 
     [Read comparison →](/comparison/awaitly-vs-effect/)
   </Card>

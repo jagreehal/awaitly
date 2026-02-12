@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-
 /* Starlight/shadcn theme: Starlight Theme Next tokens → shadcn vars (data-theme="light" | "dark") */
 @import "../jag.css";
 

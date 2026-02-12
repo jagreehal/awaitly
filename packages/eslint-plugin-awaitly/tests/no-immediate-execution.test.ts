@@ -58,6 +58,18 @@ describe('no-immediate-execution', () => {
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
+
+    it('allows step.run with getter (thunk)', () => {
+      const code = `step.run('fetchUser', () => fetchUser('1'));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows step.retry with id and thunk', () => {
+      const code = `step.retry('fetchData', () => fetchData(), { attempts: 3 });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
   });
 
   describe('invalid cases', () => {
@@ -100,6 +112,20 @@ describe('no-immediate-execution', () => {
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
     });
+
+    it('reports immediate execution with step.run (second arg)', () => {
+      const code = `step.run('fetchUser', fetchUser('1'));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/no-immediate-execution');
+      expect(messages[0].message).toContain('fetchUser');
+    });
+
+    it('reports immediate execution with step.retry id-first and immediate second arg', () => {
+      const code = `step.retry('fetchData', fetchData(), { attempts: 3 });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+    });
   });
 
   describe('autofix', () => {
@@ -125,6 +151,12 @@ describe('no-immediate-execution', () => {
       const code = `step(fetchUser('1'), { key: 'user:1' });`;
       const result = linter.verifyAndFix(code, config);
       expect(result.output).toBe(`step('fetchUser', () => fetchUser('1'), { key: 'user:1' });`);
+    });
+
+    it('wraps step.run second arg in thunk', () => {
+      const code = `step.run('fetchUser', fetchUser('1'));`;
+      const result = linter.verifyAndFix(code, config);
+      expect(result.output).toBe(`step.run('fetchUser', () => fetchUser('1'));`);
     });
   });
 });

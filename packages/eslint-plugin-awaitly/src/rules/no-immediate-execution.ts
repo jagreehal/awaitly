@@ -14,7 +14,7 @@ import type { CallExpression, MemberExpression } from 'estree';
  * GOOD: step('fetchUser', () => fetchUser('1')) - thunk, step controls execution
  */
 
-const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult']);
+const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'run']);
 
 function isDirectStepCall(node: CallExpression): boolean {
   const { callee } = node;
@@ -42,7 +42,7 @@ function isStepCall(node: CallExpression): boolean {
   return false;
 }
 
-function isStringLiteral(node: unknown): boolean {
+function isStringLiteral(node: unknown): node is { type: 'Literal'; value: string } {
   if (!node || typeof node !== 'object') return false;
   const typed = node as { type?: string; value?: unknown };
   return typed.type === 'Literal' && typeof typed.value === 'string';
@@ -116,8 +116,12 @@ const rule: Rule.RuleModule = {
             executorArg = args[0];
           }
         } else {
-          // step.retry(), step.withTimeout(), etc.: executor is first arg
-          executorArg = args[0];
+          // step.retry('id', fn, opts), step.run('id', resultOrGetter, opts): when first arg is string, executor is second
+          if (args.length > 0 && isStringLiteral(args[0])) {
+            executorArg = args[1];
+          } else {
+            executorArg = args[0];
+          }
         }
 
         if (!executorArg) return;
@@ -134,6 +138,9 @@ const rule: Rule.RuleModule = {
             const sourceCode = context.sourceCode;
             const executorText = sourceCode.getText(executorArg!);
             if (isDirectStepCall(node) && isStringLiteral(args[0])) {
+              return fixer.replaceText(executorArg!, `() => ${executorText}`);
+            }
+            if (!isDirectStepCall(node) && args[0] && isStringLiteral(args[0])) {
               return fixer.replaceText(executorArg!, `() => ${executorText}`);
             }
             // Legacy step(fn()) or step(fn(), opts): fix to step('id', () => fn()[, opts])

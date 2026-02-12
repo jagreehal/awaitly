@@ -16,6 +16,11 @@ import type { CallExpression, MemberExpression } from 'estree';
  * - step.parallel('name', operations | callback)
  * - step.race('name', callback)
  * - step.allSettled('name', callback)
+ * - step.run('id', result | getter, options?)
+ * - step.andThen('id', value, fn, options?)
+ * - step.match('id', result, handlers, options?)
+ * - step.all('name', shape, options?) — alias for parallel
+ * - step.map('id', items, mapper, options?)
  * - saga.step('name', operation, options?)
  * - saga.tryStep('name', operation, options)
  * - tryStep('name', ...) when destructured from saga context
@@ -30,7 +35,7 @@ import type { CallExpression, MemberExpression } from 'estree';
  */
 
 // Step helper methods that require string (id/name) as first argument
-const STEP_HELPER_METHODS = ['sleep', 'retry', 'withTimeout', 'try', 'fromResult', 'parallel', 'race', 'allSettled'];
+const STEP_HELPER_METHODS = ['sleep', 'retry', 'withTimeout', 'try', 'fromResult', 'parallel', 'race', 'allSettled', 'run', 'andThen', 'match', 'all', 'map'];
 
 /** Saga context param names that may receive step/tryStep (common in createSagaWorkflow / runSaga callbacks). */
 const SAGA_CONTEXT_NAMES = ['saga', 'ctx', 'sagaContext', 's'];
@@ -221,7 +226,7 @@ const rule: Rule.RuleModule = {
     type: 'problem',
     docs: {
       description:
-        "Require a string literal as the first argument to step() and step helper methods (sleep, retry, withTimeout, try, fromResult, parallel, race, allSettled).",
+        "Require a string literal as the first argument to step() and step helper methods (sleep, retry, withTimeout, try, fromResult, parallel, race, allSettled, run, andThen, match, all, map).",
       recommended: true,
     },
     schema: [],
@@ -343,6 +348,11 @@ const rule: Rule.RuleModule = {
             parallel: 'Fetch data',
             race: 'Fastest API',
             allSettled: 'Fetch all',
+            run: 'fetchUser',
+            andThen: 'enrich',
+            match: 'handleUser',
+            all: 'fetchAll',
+            map: 'fetchUsers',
           };
 
           if (!firstArg) {

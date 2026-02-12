@@ -59,6 +59,24 @@ describe('no-floating-result', () => {
       expect(messages).toHaveLength(0);
     });
 
+    it('allows step.run with assignment', () => {
+      const code = `const user = await step.run('fetchUser', () => fetchUser('1'));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows step.all with assignment', () => {
+      const code = `const data = await step.all('fetchAll', { user: () => fetchUser('1'), posts: () => fetchPosts('1') });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows step.map with assignment', () => {
+      const code = `const users = await step.map('fetchUsers', ['1', '2'], (id) => fetchUser(id));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
     it('allows chained step()', () => {
       const code = `step(() => fetchUser()).value;`;
       const messages = linter.verify(code, config);
@@ -106,6 +124,27 @@ describe('no-floating-result', () => {
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
       expect(messages[0].message).toContain('step.parallel');
+    });
+
+    it('reports floating step.run()', () => {
+      const code = `step.run('fetchUser', () => fetchUser('1'));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step.run');
+    });
+
+    it('reports floating step.all()', () => {
+      const code = `step.all('fetchAll', { user: () => fetchUser('1') });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step.all');
+    });
+
+    it('reports floating step.map()', () => {
+      const code = `step.map('fetchUsers', ['1', '2'], (id) => fetchUser(id));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step.map');
     });
 
     it('reports multiple floating steps', () => {

@@ -689,6 +689,23 @@ const result = await workflow(async (step) => {
 //                  ^^^ Automatically inferred from dependencies!
 ```
 
+### Step helpers (run, andThen, match)
+
+Inside workflows you can use a neverthrow-style API: `step.run` (unwrap), `step.andThen` (chain), `step.match` (pattern match). They run through the full step engine (events, retry, cache).
+
+```typescript
+const result = await workflow(async (step) => {
+  const user = await step.run('fetchUser', () => fetchUser('123'));
+  const enriched = await step.andThen('enrich', user, (u) => enrichUser(u));
+  return step.match('format', enriched, {
+    ok: (e) => e.displayName,
+    err: () => 'Unknown',
+  });
+});
+```
+
+See [Steps — Effect-style ergonomics](/foundations/step/#effect-style-ergonomics).
+
 ### Built-in Retry and Timeout
 
 ```typescript

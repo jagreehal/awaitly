@@ -35,7 +35,7 @@ Choose awaitly when you want typed error handling, platform flexibility, and exp
 | Workflow Definition | `"use workflow"` directive | `createWorkflow()` factory |
 | Error Handling | `throw Error` / `RetryableError` | `return err(error)` with `TaggedError` |
 | Type Safety | Basic TypeScript | Enhanced with Result types |
-| Parallel Execution | `Promise.all()` | `step.parallel()` with named steps |
+| Parallel Execution | `Promise.all()` | `step.all()` / `step.parallel()` with named steps; `step.map()` for arrays |
 | Race Conditions | `Promise.race()` | `step.race()` with `anyAsync()` |
 | Retry Logic | `RetryableError` class | Retry options in step config |
 | Saga Pattern | Manual try/catch rollback | `createSagaWorkflow` with auto-compensation |
