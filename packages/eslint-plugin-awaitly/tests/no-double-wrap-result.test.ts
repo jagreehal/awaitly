@@ -18,7 +18,7 @@ const config = [
 describe('no-double-wrap-result', () => {
   describe('valid cases', () => {
     it('allows returning raw object from run()', () => {
-      const code = `run(async (step) => {
+      const code = `run(async ({ step }) => {
         const user = await step(() => fetchUser());
         return { user };
       });`;
@@ -27,7 +27,7 @@ describe('no-double-wrap-result', () => {
     });
 
     it('allows returning raw value from run()', () => {
-      const code = `run(async (step) => {
+      const code = `run(async ({ step }) => {
         const count = await step(() => getCount());
         return count;
       });`;
@@ -36,7 +36,7 @@ describe('no-double-wrap-result', () => {
     });
 
     it('allows implicit return of raw value', () => {
-      const code = `run(async (step) => step(() => fetchUser()));`;
+      const code = `run(async ({ step }) => step(() => fetchUser()));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
@@ -53,7 +53,7 @@ describe('no-double-wrap-result', () => {
     });
 
     it('allows ok() inside step callback (not executor)', () => {
-      const code = `run(async (step) => {
+      const code = `run(async ({ step }) => {
         const user = await step(() => ok({ name: 'Alice' }));
         return { user };
       });`;
@@ -62,7 +62,7 @@ describe('no-double-wrap-result', () => {
     });
 
     it('allows ok() in nested function inside executor', () => {
-      const code = `run(async (step) => {
+      const code = `run(async ({ step }) => {
         const helper = () => ok({ nested: true });
         const result = await step(helper);
         return result;
@@ -72,7 +72,7 @@ describe('no-double-wrap-result', () => {
     });
 
     it('allows returning raw value from createWorkflow executor', () => {
-      const code = `createWorkflow('workflow', { fetchUser })(async (step) => {
+      const code = `createWorkflow('workflow', { fetchUser })(async ({ step }) => {
         const user = await step(fetchUser('1'));
         return { user };
       });`;
@@ -81,7 +81,7 @@ describe('no-double-wrap-result', () => {
     });
 
     it('allows run.strict with raw value', () => {
-      const code = `run.strict(async (step) => {
+      const code = `run.strict(async ({ step }) => {
         const value = await step(() => fetchData());
         return { value };
       }, { catchUnexpected: () => 'ERROR' });`;
@@ -107,7 +107,7 @@ describe('no-double-wrap-result', () => {
           run: async (fn) => fn(),
         };
 
-        runner.run(async (step) => ok({ value: step }));
+        runner.run(async ({ step }) => ok({ value: step }));
       `;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
@@ -128,7 +128,7 @@ describe('no-double-wrap-result', () => {
 
   describe('invalid cases', () => {
     it('reports returning ok() from run() executor', () => {
-      const code = `run(async (step) => {
+      const code = `run(async ({ step }) => {
         const user = await step(() => fetchUser());
         return ok({ user });
       });`;
@@ -140,7 +140,7 @@ describe('no-double-wrap-result', () => {
     });
 
     it('reports returning err() from run() executor', () => {
-      const code = `run(async (step) => {
+      const code = `run(async ({ step }) => {
         const result = await step(() => fetchUser());
         return err('NOT_FOUND');
       });`;
@@ -150,13 +150,13 @@ describe('no-double-wrap-result', () => {
     });
 
     it('reports implicit return of ok() from arrow executor', () => {
-      const code = `run(async (step) => ok({ data: await step(() => fetchData()) }));`;
+      const code = `run(async ({ step }) => ok({ data: await step(() => fetchData()) }));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
     });
 
     it('reports ok() in createWorkflow executor', () => {
-      const code = `createWorkflow('workflow', { fetchUser })(async (step, { fetchUser }) => {
+      const code = `createWorkflow('workflow', { fetchUser })(async ({ step, deps: { fetchUser } }) => {
         const user = await step(fetchUser('1'));
         return ok({ user });
       });`;
@@ -165,7 +165,7 @@ describe('no-double-wrap-result', () => {
     });
 
     it('reports ok() in workflow with args', () => {
-      const code = `workflow({ userId: '1' }, async (step, deps, args) => {
+      const code = `workflow({ userId: '1' }, async ({ step, deps, args }) => {
         const user = await step(deps.fetchUser(args.userId));
         return ok({ user });
       });`;
@@ -178,7 +178,7 @@ describe('no-double-wrap-result', () => {
     });
 
     it('reports ok() in run.strict executor', () => {
-      const code = `run.strict(async (step) => {
+      const code = `run.strict(async ({ step }) => {
         return ok({ value: 42 });
       }, { catchUnexpected: () => 'ERROR' });`;
       const messages = linter.verify(code, config);
@@ -188,7 +188,7 @@ describe('no-double-wrap-result', () => {
     it('reports ok() in createWorkflow().run() chained call', () => {
       // Direct chain from createWorkflow can be detected
       const code = `
-        createWorkflow('workflow', { fetchUser }).run(async (step) => {
+        createWorkflow('workflow', { fetchUser }).run(async ({ step }) => {
           const user = await step(() => fetchUser());
           return ok({ user });
         });
@@ -201,7 +201,7 @@ describe('no-double-wrap-result', () => {
       const code = `
         createWorkflow('workflow', { fetchUser })
           .with({ onEvent: () => {} })
-          .run(async (step) => {
+          .run(async ({ step }) => {
             const user = await step(() => fetchUser());
             return ok({ user });
           });
@@ -212,8 +212,8 @@ describe('no-double-wrap-result', () => {
 
     it('reports multiple violations', () => {
       const code = `
-        run(async (step) => { return ok(1); });
-        run(async (step) => { return err('ERROR'); });
+        run(async ({ step }) => { return ok(1); });
+        run(async ({ step }) => { return err('ERROR'); });
       `;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(2);
@@ -222,7 +222,7 @@ describe('no-double-wrap-result', () => {
 
   describe('autofix', () => {
     it('fixes ok(value) to value', () => {
-      const code = `run(async (step) => {
+      const code = `run(async ({ step }) => {
         return ok({ user: 'Alice' });
       });`;
 
@@ -233,7 +233,7 @@ describe('no-double-wrap-result', () => {
     });
 
     it('fixes ok(value) in implicit return', () => {
-      const code = `run(async (step) => ok({ data: 123 }));`;
+      const code = `run(async ({ step }) => ok({ data: 123 }));`;
 
       const result = linter.verifyAndFix(code, config);
       expect(result.fixed).toBe(true);
@@ -242,7 +242,7 @@ describe('no-double-wrap-result', () => {
     });
 
     it('does not autofix err() (requires manual handling)', () => {
-      const code = `run(async (step) => {
+      const code = `run(async ({ step }) => {
         return err('NOT_FOUND');
       });`;
 
@@ -252,7 +252,7 @@ describe('no-double-wrap-result', () => {
     });
 
     it('does not autofix ok() with multiple arguments', () => {
-      const code = `run(async (step) => {
+      const code = `run(async ({ step }) => {
         return ok(value, extra);
       });`;
 
@@ -268,7 +268,7 @@ describe('no-double-wrap-result', () => {
       // The runtime warning will catch these cases
       const code = `
         const workflow = createWorkflow('workflow', { fetchUser });
-        workflow.run(async (step) => {
+        workflow.run(async ({ step }) => {
           return ok({ user: 'test' });
         });
       `;
@@ -281,7 +281,7 @@ describe('no-double-wrap-result', () => {
       // Same limitation - variable-based workflow calls can't be traced
       const code = `
         const myWorkflow = createWorkflow('workflow', { fetchUser });
-        myWorkflow(async (step) => {
+        myWorkflow(async ({ step }) => {
           return ok({ data: 123 });
         });
       `;

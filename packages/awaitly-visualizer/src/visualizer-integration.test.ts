@@ -225,7 +225,7 @@ describe("createVisualizer", () => {
       { onEvent: viz.handleEvent }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       const user = await step("Fetch user", () => fetchUser("1"));
       return user;
     });
@@ -245,7 +245,7 @@ describe("createVisualizer", () => {
       { onEvent: viz.handleEvent }
     );
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       const user = await step("Fetch user", () => fetchUser("missing"));
       return user;
     });
@@ -264,7 +264,7 @@ describe("createVisualizer", () => {
       { onEvent: viz.handleEvent }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step("Fetch user", () => fetchUser("1"));
     });
 
@@ -296,7 +296,7 @@ describe("createVisualizer", () => {
       { onEvent: viz.handleEvent }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step("Fetch", () => fetchUser("1"));
     });
 
@@ -328,7 +328,7 @@ describe("createEventCollector", () => {
       { onEvent: collector.handleEvent }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       const user = await step("Fetch user", () => fetchUser("1"));
       const posts = await step("Fetch posts", () => fetchPosts(user.id));
       return { user, posts };
@@ -349,7 +349,7 @@ describe("createEventCollector", () => {
       { onEvent: collector.handleEvent }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step("Fetch", () => fetchUser("1"));
     });
 
@@ -365,7 +365,7 @@ describe("createEventCollector", () => {
       { onEvent: collector.handleEvent }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step("Fetch", () => fetchUser("1"));
     });
 
@@ -394,7 +394,7 @@ describe("Mermaid renderer", () => {
       { onEvent: viz.handleEvent }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       const user = await step("Fetch user", () => fetchUser("1"));
       const posts = await step("Fetch posts", () => fetchPosts(user.id));
       return { user, posts };
@@ -425,7 +425,7 @@ describe("Mermaid renderer", () => {
       { onEvent: viz.handleEvent }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       // Sequential steps that may be detected as parallel due to timing
       const user = await step("Get user", () => fetchUser("1"));
       const posts = await step("Get posts", () => fetchPosts(user.id));
@@ -488,7 +488,7 @@ describe("scope events", () => {
       { onEvent: (e) => events.push(e) }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       const results = await step.parallel("Fetch all", () =>
         allAsync([fetchUser("1"), fetchPosts("1")])
       );
@@ -513,7 +513,7 @@ describe("scope events", () => {
       { onEvent: (e) => events.push(e) }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       const result = await step.race("Fastest response", () =>
         anyAsync([fetchUser("1"), slowOperation()])
       );
@@ -537,7 +537,7 @@ describe("scope events", () => {
       { onEvent: (e) => events.push(e) }
     );
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       return await step.parallel("Fetch with error", () =>
         allAsync([fetchUser("1"), fetchUser("missing")])
       );
@@ -569,7 +569,7 @@ describe("parallel detection", () => {
     );
 
     // These steps are fast enough that they may be detected as parallel
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       const user = await step("Fetch user", () => fetchUser("1"));
       const posts = await step("Fetch posts", () => fetchPosts(user.id));
       return { user, posts };
@@ -594,7 +594,7 @@ describe("parallel detection", () => {
       { onEvent: viz.handleEvent }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       const user = await step("Fetch user", () => fetchUser("1"));
       const posts = await step("Fetch posts", () => fetchPosts(user.id));
       return { user, posts };
@@ -633,7 +633,7 @@ describe("createLiveVisualizer", () => {
       { onEvent: live.handleEvent }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step("Fetch user", () => fetchUser("1"));
     });
 
@@ -655,7 +655,7 @@ describe("createLiveVisualizer", () => {
       { onEvent: live.handleEvent }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step("Fetch", () => fetchUser("1"));
     });
 
@@ -673,7 +673,7 @@ describe("createLiveVisualizer", () => {
       { onEvent: live.handleEvent }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step("Step", () => fetchUser("1"));
     });
 
@@ -699,7 +699,7 @@ describe("integration", () => {
       { onEvent: viz.handleEvent }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       const user = await step("Fetch user", () => fetchUser("1"));
       const posts = await step("Fetch posts", () => fetchPosts(user.id));
       return { user, posts };
@@ -736,7 +736,7 @@ describe("combineEventHandlers", () => {
       { onEvent: combined }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step("Fetch", () => fetchUser("1"));
     });
 
@@ -761,7 +761,7 @@ describe("combineEventHandlers", () => {
       { onEvent: combined }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step("Fetch", () => fetchUser("1"));
     });
 
@@ -789,7 +789,7 @@ describe("combineEventHandlers", () => {
       { onEvent: combined }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step("Fetch user", () => fetchUser("1"));
     });
 

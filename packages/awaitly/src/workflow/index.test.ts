@@ -30,7 +30,7 @@ import { millis } from "../duration";
 describe("run() - do-notation style", () => {
   it("executes steps sequentially and returns final value", async () => {
     // No catchUnexpected needed - only using step results
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       const a = await step('a', () => ok(10));
       const b = await step('b', () => ok(20));
       const c = await step('c', () => ok(12));
@@ -44,7 +44,7 @@ describe("run() - do-notation style", () => {
     const executedSteps: string[] = [];
 
     const result = await run(
-      async (step) => {
+      async ({ step }) => {
         executedSteps.push("step1");
         const a = await step('a', () => ok(10));
 
@@ -67,7 +67,7 @@ describe("run() - do-notation style", () => {
   });
 
   it("step unwraps Result and returns value directly", async () => {
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       // step() returns T, not Result<T, E>
       const value = await step('getUser', () => ok({ name: "Alice" }));
 
@@ -84,7 +84,7 @@ describe("run() - do-notation style", () => {
       return ok(42);
     };
 
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       const value = await step('asyncOp', () => asyncOp());
       return value * 2;
     });
@@ -96,7 +96,7 @@ describe("run() - do-notation style", () => {
     const errors: Array<{ error: unknown; stepName?: string }> = [];
 
     await run(
-      async (step) => {
+      async ({ step }) => {
         await step('validateInput', () => err("VALIDATION_ERROR"));
         return 0;
       },
@@ -115,7 +115,7 @@ describe("run() - do-notation style", () => {
   it("preserves cause from failed step", async () => {
     const originalCause = new Error("database connection failed");
 
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       await step('dbError', () => err("DB_ERROR", { cause: originalCause }));
       return 0;
     });
@@ -128,7 +128,7 @@ describe("run() - do-notation style", () => {
   describe("step.try() with throwing operations", () => {
     it("catches and maps thrown errors (async)", async () => {
       const result = await run(
-        async (step) => {
+        async ({ step }) => {
           const value = await step.try(
             "network-error",
             async () => {
@@ -151,7 +151,7 @@ describe("run() - do-notation style", () => {
 
     it("catches and maps thrown errors (sync)", async () => {
       const result = await run(
-        async (step) => {
+        async ({ step }) => {
           // Sync operation - no async/await needed!
           const value = await step.try(
             "sync-error",
@@ -173,7 +173,7 @@ describe("run() - do-notation style", () => {
     });
 
     it("works with sync operations that succeed", async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         // Sync operation that doesn't throw
         const value = await step.try("parse", () => JSON.parse('{"x": 42}'), {
           onError: () => "PARSE_ERROR",
@@ -190,7 +190,7 @@ describe("run() - do-notation style", () => {
       });
 
       const result = await run(
-        async (step) => {
+        async ({ step }) => {
           await step.try(
             "map-unknown",
             async () => {
@@ -212,7 +212,7 @@ describe("run() - do-notation style", () => {
 
     it("supports { error } shorthand (no  needed)", async () => {
       const result = await run(
-        async (step) => {
+        async ({ step }) => {
           await step.try(
             "network-error",
             async () => {
@@ -238,7 +238,7 @@ describe("run() - do-notation style", () => {
       const fetchUser = (id: string) => ok({ id, name: "Alice" });
 
       const result = await run(
-        async (step) => {
+        async ({ step }) => {
           const user = await step.fromResult("fetchUser", () => fetchUser("1"), {
             error: "FETCH_FAILED",
           });
@@ -256,7 +256,7 @@ describe("run() - do-notation style", () => {
         err({ type: "NOT_FOUND", userId: id });
 
       const result = await run(
-        async (step) => {
+        async ({ step }) => {
           const user = await step.fromResult("fetchUser", () => fetchUser("1"), {
             onError: (e) => ({ code: "USER_ERROR", original: e }),
           });
@@ -280,7 +280,7 @@ describe("run() - do-notation style", () => {
       const failingOp = (): Result<number, string> => err("ORIGINAL_ERROR");
 
       const result = await run(
-        async (step) => {
+        async ({ step }) => {
           return await step.fromResult("failingOp", () => failingOp(), {
             error: "MAPPED_ERROR" as const,
           });
@@ -302,7 +302,7 @@ describe("run() - do-notation style", () => {
       };
 
       const result = await run(
-        async (step) => {
+        async ({ step }) => {
           return await step.fromResult("asyncFetch", () => asyncFetch(), {
             onError: (e) => ({ type: "NETWORK", reason: e }),
           });
@@ -321,7 +321,7 @@ describe("run() - do-notation style", () => {
         err("DB_ERROR", { cause: new Error("connection refused") });
 
       const result = await run(
-        async (step) => {
+        async ({ step }) => {
           return await step.fromResult("opWithCause", () => opWithCause(), {
             error: "MAPPED" as const,
           });
@@ -347,7 +347,7 @@ describe("run() - do-notation style", () => {
         err({ provider: "openai", code: 429 });
 
       const result = await run(
-        async (step) => {
+        async ({ step }) => {
           return await step.fromResult("callProvider", () => callProvider(), {
             // e is typed as ProviderError, not unknown!
             onError: (e) => ({
@@ -375,7 +375,7 @@ describe("run() - do-notation style", () => {
       const failingOp = (): Result<number, string> => err("ERROR");
 
       await run(
-        async (step) => {
+        async ({ step }) => {
           return await step.fromResult("fr:1", () => failingOp(), {
             error: "MAPPED",
           });
@@ -490,7 +490,7 @@ describe("run() - do-notation style", () => {
         { user: { id: string }; posts: string[] },
         AppError | "UNEXPECTED"
       >(
-        async (step) => {
+        async ({ step }) => {
           const user = await step('fetchUser', () => fetchUser("unknown")); // Returns NOT_FOUND
           const posts = await step('fetchPosts', () => fetchPosts(user.id));
           return { user, posts };
@@ -559,7 +559,7 @@ describe("step() overload ambiguity regression test", () => {
     const fetchUser = async (): AsyncResult<number, "NOPE"> => err("NOPE");
 
     const result = await run<number, "NOPE">(
-      async (step) => {
+      async ({ step }) => {
         await step('fetchUser', () => fetchUser()); // Should compile without mapError
         return 1;
       },
@@ -576,7 +576,7 @@ describe("step() overload ambiguity regression test", () => {
     const validate = (): Result<number, "INVALID"> => err("INVALID");
 
     const result = await run<number, "INVALID">(
-      async (step) => {
+      async ({ step }) => {
         await step('validate', () => validate());
         return 1;
       },
@@ -589,7 +589,7 @@ describe("step() overload ambiguity regression test", () => {
   it("step.try() is clearly separate from step()", async () => {
     // This test ensures the two methods don't get confused
     const result = await run<string, "NETWORK" | "PARSE">(
-      async (step) => {
+      async ({ step }) => {
         // Result-returning: use step()
         const data = await step(
           'getData',
@@ -621,7 +621,7 @@ describe("step() with function form", () => {
       "NOT_FOUND"
     > => ok({ id: "1", name: "Alice" });
 
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser());
       return user;
     });
@@ -635,7 +635,7 @@ describe("step() with function form", () => {
   it("accepts sync Result-returning function", async () => {
     const validate = (): Result<number, "INVALID"> => ok(42);
 
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       const value = await step('validate', () => validate());
       return value;
     });
@@ -648,7 +648,7 @@ describe("step() with function form", () => {
       err("NOT_FOUND");
 
     const result = await run(
-      async (step) => {
+      async ({ step }) => {
         await step('fetchUser', () => fetchUser());
         return 1;
       },
@@ -661,7 +661,7 @@ describe("step() with function form", () => {
   it("function form is the canonical form", async () => {
     const fetchUser = async (): AsyncResult<number, "NOT_FOUND"> => ok(42);
 
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       const value = await step('fetchUser', () => fetchUser());
       return value;
     });
@@ -673,7 +673,7 @@ describe("step() with function form", () => {
     const fetchUser = async (): AsyncResult<number, "NOT_FOUND"> => ok(1);
     const fetchPosts = async (): AsyncResult<number, "FETCH_ERROR"> => ok(2);
 
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser());
       const posts = await step('fetchPosts', () => fetchPosts());
       return user + posts;
@@ -687,7 +687,7 @@ describe("run() safe default ergonomics", () => {
   it("preserves step error details inside UnexpectedError cause", async () => {
     const failure = { code: "NOT_FOUND" };
 
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       await step('failingStep', () => err(failure));
       return "unreachable";
     });
@@ -706,7 +706,7 @@ describe("run() safe default ergonomics", () => {
   it("preserves step.try mapped errors and thrown causes", async () => {
     const boom = new Error("boom");
 
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       await step.try(
         "networkCall",
         () => {
@@ -748,7 +748,7 @@ describe("onEvent (Phase 1 event stream)", () => {
     const events: WorkflowEvent<unknown>[] = [];
 
     await run(
-      async (step) => {
+      async ({ step }) => {
         await step('step1', () => ok(1));
         await step('step2', () => ok(2));
         return 42;
@@ -778,7 +778,7 @@ describe("onEvent (Phase 1 event stream)", () => {
     const events: WorkflowEvent<string | UnexpectedError>[] = [];
 
     await run<number, "FAIL">(
-      async (step) => {
+      async ({ step }) => {
         await step('failStep', () => err("FAIL"));
         return 42;
       },
@@ -801,7 +801,7 @@ describe("onEvent (Phase 1 event stream)", () => {
     const events: WorkflowEvent<unknown>[] = [];
 
     await run(
-      async (step) => {
+      async ({ step }) => {
         await step('loadUser', () => ok(1), { key: "user:123" });
         return 1;
       },
@@ -822,7 +822,7 @@ describe("onEvent (Phase 1 event stream)", () => {
     const events: WorkflowEvent<unknown>[] = [];
 
     await run(
-      async (step) => {
+      async ({ step }) => {
         await step('myStep', () => ok(1));
         return 1;
       },
@@ -842,7 +842,7 @@ describe("onEvent (Phase 1 event stream)", () => {
     const events: WorkflowEvent<string | UnexpectedError>[] = [];
 
     await run<number, "ERR">(
-      async (step) => {
+      async ({ step }) => {
         await step.try("try:1", () => 42, { error: "ERR" });
         return 1;
       },
@@ -872,7 +872,7 @@ describe("createWorkflow step id/name resolution", () => {
       { onEvent: (e) => events.push(e) }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       await step("fetchUser", () => fetchUser());
       return 1;
     });
@@ -892,7 +892,7 @@ describe("createWorkflow step id/name resolution", () => {
       {}
     );
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       // @ts-expect-error - testing runtime error for missing ID
       await step(() => fetchUser() as AsyncResult<{ id: string }, "NOT_FOUND">);
       return 1;
@@ -927,7 +927,7 @@ describe("createWorkflow with onEvent and createContext", () => {
       }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       await step('fetchData', () => fetchData());
       return "done";
     });
@@ -953,7 +953,7 @@ describe("createWorkflow with onEvent and createContext", () => {
       }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       await step('failingFn', () => failingFn());
       return "done";
     });
@@ -985,7 +985,7 @@ describe("createWorkflow with onEvent and createContext", () => {
       }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       await step('fetchData', () => fetchData());
       return "done";
     });
@@ -1016,8 +1016,8 @@ describe("createWorkflow with onEvent and createContext", () => {
       }
     );
 
-    await workflow(async (step) => step('fetchData', () => fetchData()));
-    await workflow(async (step) => step('fetchData', () => fetchData()));
+    await workflow(async ({ step }) => step('fetchData', () => fetchData()));
+    await workflow(async ({ step }) => step('fetchData', () => fetchData()));
 
     // Should see context values 1 and 2 from different runs
     expect(contexts).toContain(1);
@@ -1039,7 +1039,7 @@ describe("createWorkflow with onEvent and createContext", () => {
       }
     );
 
-    await workflow(async (step) => step('fetchData', () => fetchData()));
+    await workflow(async ({ step }) => step('fetchData', () => fetchData()));
 
     // All events should have context
     expect(events.length).toBeGreaterThan(0);
@@ -1058,7 +1058,7 @@ describe("createWorkflow with onEvent and createContext", () => {
       onEvent: (event) => events.push(event),
     });
 
-    await workflow(async (step) => step('fetchData2', () => fetchData()));
+    await workflow(async ({ step }) => step('fetchData2', () => fetchData()));
 
     // Events should NOT have context property when no context provided
     expect(events.length).toBeGreaterThan(0);
@@ -1093,7 +1093,7 @@ describe("createWorkflow with onEvent and createContext", () => {
       }
     );
 
-    await workflow(async (step) => step('fetchData', () => fetchData()));
+    await workflow(async ({ step }) => step('fetchData', () => fetchData()));
 
     // workflow_start should have replayed context
     const startEvent = events.find((e) => e.type === "workflow_start");
@@ -1123,7 +1123,7 @@ describe("createWorkflow with onEvent and createContext", () => {
       }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       await step("test-step", () => failingFn());
       return "done";
     });
@@ -1145,7 +1145,7 @@ describe("createWorkflow with onEvent and createContext", () => {
       },
     });
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       await step('failingFn', () => failingFn());
       return "done";
     });
@@ -1166,7 +1166,7 @@ describe("createWorkflow with onEvent and createContext", () => {
       }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       await step("fetch", () => fetchData());
       return "done";
     });
@@ -1190,7 +1190,7 @@ describe("run.strict()", () => {
     const fetchUser = async (): AsyncResult<number, "NOT_FOUND"> => ok(42);
 
     const result = await run.strict<number, AppError>(
-      async (step) => {
+      async ({ step }) => {
         return await step('fetchUser', () => fetchUser());
       },
       { catchUnexpected: () => "UNEXPECTED"  }
@@ -1211,7 +1211,7 @@ describe("run.strict()", () => {
       err("NOT_FOUND");
 
     const result = await run.strict<number, AppError>(
-      async (step) => {
+      async ({ step }) => {
         return await step('fetchUser', () => fetchUser());
       },
       { catchUnexpected: () => "UNEXPECTED" }
@@ -1224,7 +1224,7 @@ describe("run.strict()", () => {
     type AppError = "NETWORK" | "UNEXPECTED";
 
     const result = await run.strict<number, AppError>(
-      async (step) => {
+      async ({ step }) => {
         return await step.try("network-try", () => 42, { error: "NETWORK"  });
       },
       { catchUnexpected: () => "UNEXPECTED"  }
@@ -1258,7 +1258,7 @@ describe("run.strict()", () => {
       err("NOT_FOUND");
 
     const result = await run.strict<number, AppError>(
-      async (step) => {
+      async ({ step }) => {
         return await step('fetchUser', () => fetchUser());
       },
       { catchUnexpected: () => "UNEXPECTED"  }
@@ -1276,7 +1276,7 @@ describe("run.strict()", () => {
       err("NOT_FOUND");
 
     await run.strict<number, AppError>(
-      async (step) => {
+      async ({ step }) => {
         return await step('fetchUser', () => fetchUser());
       },
       { onError, catchUnexpected: () => "UNEXPECTED"  }
@@ -1337,7 +1337,7 @@ describe("createWorkflow()", () => {
     it("returns ok result when all steps succeed", async () => {
       const getPosts = createWorkflow("getPosts", { fetchUser, fetchPosts });
 
-      const result = await getPosts(async (step) => {
+      const result = await getPosts(async ({ step }) => {
         const user = await step('fetchUser', () => fetchUser("1"));
         const posts = await step('fetchPosts', () => fetchPosts(user.id));
         return { user, posts };
@@ -1353,7 +1353,7 @@ describe("createWorkflow()", () => {
     it("returns error when step fails", async () => {
       const getPosts = createWorkflow("getPosts", { fetchUser, fetchPosts });
 
-      const result = await getPosts(async (step) => {
+      const result = await getPosts(async ({ step }) => {
         const user = await step('fetchUser', () => fetchUser("999")); // Will fail
         return user;
       });
@@ -1368,7 +1368,7 @@ describe("createWorkflow()", () => {
       const getPosts = createWorkflow("getPosts", { fetchUser, fetchPosts });
       const fetchPostsCalled = vi.fn();
 
-      const result = await getPosts(async (step) => {
+      const result = await getPosts(async ({ step }) => {
         const user = await step('fetchUser', () => fetchUser("999")); // Will fail
         fetchPostsCalled();
         const posts = await step('fetchPosts', () => fetchPosts(user.id));
@@ -1384,7 +1384,7 @@ describe("createWorkflow()", () => {
     it("passes deps object as second argument for destructuring", async () => {
       const getPosts = createWorkflow("getPosts", { fetchUser, fetchPosts });
 
-      const result = await getPosts(async (step, deps) => {
+      const result = await getPosts(async ({ step, deps }) => {
         expect(deps.fetchUser).toBe(fetchUser);
         expect(deps.fetchPosts).toBe(fetchPosts);
         const user = await step('fetchUser', () => deps.fetchUser("1"));
@@ -1397,7 +1397,7 @@ describe("createWorkflow()", () => {
     it("allows destructuring deps in callback", async () => {
       const getPosts = createWorkflow("getPosts", { fetchUser, fetchPosts });
 
-      const result = await getPosts(async (step, { fetchUser: fu, fetchPosts: fp }) => {
+      const result = await getPosts(async ({ step, deps: { fetchUser: fu, fetchPosts: fp } }) => {
         const user = await step('fetchUser', () => fu("1"));
         const posts = await step('fetchPosts', () => fp(user.id));
         return { user, posts };
@@ -1412,7 +1412,7 @@ describe("createWorkflow()", () => {
       const onError = vi.fn();
       const getPosts = createWorkflow("getPosts", { fetchUser }, { onError });
 
-      await getPosts(async (step) => {
+      await getPosts(async ({ step }) => {
         return await step('fetchUser', () => fetchUser("999"));
       });
 
@@ -1458,7 +1458,7 @@ describe("createWorkflow()", () => {
       expect(snapshot.workflowName).toBe("test");
       expect(Object.keys(snapshot.steps)).toHaveLength(0);
 
-      await workflow(async (step) => {
+      await workflow(async ({ step }) => {
         return await step('fetchUser', () => fetchUser("1"), { key: "user:1" });
       });
 
@@ -1471,7 +1471,7 @@ describe("createWorkflow()", () => {
     it("snapshot property creates new copy on each access", async () => {
       const workflow = createWorkflow("test", { fetchUser });
 
-      await workflow(async (step) => {
+      await workflow(async ({ step }) => {
         return await step('fetchUser', () => fetchUser("1"), { key: "user:1" });
       });
 
@@ -1522,7 +1522,7 @@ describe("createWorkflow()", () => {
       );
 
       // Normal error
-      const result1 = await getPosts(async (step) => {
+      const result1 = await getPosts(async ({ step }) => {
         return await step('fetchUser', () => fetchUser("999"));
       });
       expect(result1.ok).toBe(false);
@@ -1551,7 +1551,7 @@ describe("createWorkflow()", () => {
         }
       );
 
-      await getPosts(async (step) => {
+      await getPosts(async ({ step }) => {
         return await step("fetchUser", () => fetchUser("999"));
       });
 
@@ -1563,11 +1563,11 @@ describe("createWorkflow()", () => {
     it("can be called multiple times", async () => {
       const getPosts = createWorkflow("getPosts", { fetchUser, fetchPosts });
 
-      const result1 = await getPosts(async (step) => {
+      const result1 = await getPosts(async ({ step }) => {
         return await step('fetchUser', () => fetchUser("1"));
       });
 
-      const result2 = await getPosts(async (step) => {
+      const result2 = await getPosts(async ({ step }) => {
         return await step('fetchUser', () => fetchUser("999"));
       });
 
@@ -1588,7 +1588,7 @@ describe("createWorkflow()", () => {
       const workflow = createWorkflow("workflow", { expensiveOp }, { cache });
 
       // Use lazy form: step('id', () => expensiveOp(...), opts) to enable caching
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         const first = await step('expensiveOp1', () => expensiveOp("123"), { key: "op:123" });
         const second = await step('expensiveOp2', () => expensiveOp("123"), { key: "op:123" });
         return { first, second };
@@ -1614,7 +1614,7 @@ describe("createWorkflow()", () => {
       const cache = new Map<string, Result<unknown, unknown>>();
       const workflow = createWorkflow("workflow", { expensiveOp }, { cache });
 
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         const first = await step('expensiveOp1', () => expensiveOp());
         const second = await step('expensiveOp2', () => expensiveOp());
         return { first, second };
@@ -1640,7 +1640,7 @@ describe("createWorkflow()", () => {
         const onBeforeStart = vi.fn().mockResolvedValue(true);
         const workflow = createWorkflow("workflow", { fetchUser }, { onBeforeStart });
 
-        await workflow(async (step) => {
+        await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1654,7 +1654,7 @@ describe("createWorkflow()", () => {
         const onBeforeStart = vi.fn().mockResolvedValue(false);
         const workflow = createWorkflow("workflow", { fetchUser }, { onBeforeStart });
 
-        const result = await workflow(async (step) => {
+        const result = await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1669,7 +1669,7 @@ describe("createWorkflow()", () => {
         const onBeforeStart = vi.fn().mockReturnValue(true);
         const workflow = createWorkflow("workflow", { fetchUser }, { onBeforeStart });
 
-        await workflow(async (step) => {
+        await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1682,7 +1682,7 @@ describe("createWorkflow()", () => {
         const createContext = (): Context => ({ userId: "user-123" });
         const workflow = createWorkflow<{ fetchUser: typeof fetchUser }, Context>("workflow", { fetchUser }, { onBeforeStart, createContext });
 
-        await workflow(async (step) => {
+        await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1701,7 +1701,7 @@ describe("createWorkflow()", () => {
           }
         );
 
-        await workflow(async (step) => {
+        await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1714,7 +1714,7 @@ describe("createWorkflow()", () => {
         const workflow = createWorkflow("workflow", { fetchUser }, { onBeforeStart });
 
         // Should NOT throw/reject - should return Result
-        const result = await workflow(async (step) => {
+        const result = await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1738,7 +1738,7 @@ describe("createWorkflow()", () => {
           }
         );
 
-        const result = await workflow(async (step) => {
+        const result = await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1756,7 +1756,7 @@ describe("createWorkflow()", () => {
         const onAfterStep = vi.fn();
         const workflow = createWorkflow("workflow", { fetchUser, fetchPosts }, { onAfterStep });
 
-        await workflow(async (step) => {
+        await workflow(async ({ step }) => {
           const user = await step('fetchUser', () => fetchUser("1"), { key: "user:1" });
           const posts = await step('fetchPosts', () => fetchPosts(user.id), { key: "posts:1" });
           return { user, posts };
@@ -1773,7 +1773,7 @@ describe("createWorkflow()", () => {
         const onAfterStep = vi.fn();
         const workflow = createWorkflow("workflow", { fetchUser, fetchPosts }, { onAfterStep });
 
-        await workflow(async (step) => {
+        await workflow(async ({ step }) => {
           const user = await step('fetchUser', () => fetchUser("1"), { key: "user:1" });
           const posts = await step('fetchPosts', () => fetchPosts("999"), { key: "posts:999" }); // Will fail
           return { user, posts };
@@ -1794,7 +1794,7 @@ describe("createWorkflow()", () => {
 
         const workflow = createWorkflow("workflow", { fetchUser }, { onAfterStep, cache });
 
-        await workflow(async (step) => {
+        await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"), { key: "user:1" });
         });
 
@@ -1807,7 +1807,7 @@ describe("createWorkflow()", () => {
         const createContext = (): Context => ({ requestId: "req-456" });
         const workflow = createWorkflow("workflow", { fetchUser }, { onAfterStep, createContext });
 
-        await workflow(async (step) => {
+        await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"), { key: "user:1" });
         });
 
@@ -1826,7 +1826,7 @@ describe("createWorkflow()", () => {
           }
         );
 
-        await workflow(async (step) => {
+        await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"), { key: "user:1" });
         });
 
@@ -1839,7 +1839,7 @@ describe("createWorkflow()", () => {
         const shouldRun = vi.fn().mockResolvedValue(true);
         const workflow = createWorkflow("workflow", { fetchUser }, { shouldRun });
 
-        await workflow(async (step) => {
+        await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1852,7 +1852,7 @@ describe("createWorkflow()", () => {
         const shouldRun = vi.fn().mockResolvedValue(false);
         const workflow = createWorkflow("workflow", { fetchUser }, { shouldRun });
 
-        const result = await workflow(async (step) => {
+        const result = await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1864,7 +1864,7 @@ describe("createWorkflow()", () => {
         const shouldRun = vi.fn().mockReturnValue(true);
         const workflow = createWorkflow("workflow", { fetchUser }, { shouldRun });
 
-        await workflow(async (step) => {
+        await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1877,7 +1877,7 @@ describe("createWorkflow()", () => {
         const createContext = (): Context => ({ instanceId: "instance-789" });
         const workflow = createWorkflow("workflow", { fetchUser }, { shouldRun, createContext });
 
-        await workflow(async (step) => {
+        await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1896,7 +1896,7 @@ describe("createWorkflow()", () => {
           }
         );
 
-        await workflow(async (step) => {
+        await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1915,7 +1915,7 @@ describe("createWorkflow()", () => {
           }
         );
 
-        const result = await workflow(async (step) => {
+        const result = await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1935,7 +1935,7 @@ describe("createWorkflow()", () => {
         const workflow = createWorkflow("workflow", { fetchUser }, { shouldRun });
 
         // Should NOT throw/reject - should return Result
-        const result = await workflow(async (step) => {
+        const result = await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1959,7 +1959,7 @@ describe("createWorkflow()", () => {
           }
         );
 
-        const result = await workflow(async (step) => {
+        const result = await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -1983,7 +1983,7 @@ describe("createWorkflow()", () => {
         });
         const workflow = createWorkflow("workflow", { fetchUser }, { shouldRun, onBeforeStart });
 
-        await workflow(async (step) => {
+        await workflow(async ({ step }) => {
           return await step('fetchUser', () => fetchUser("1"));
         });
 
@@ -2004,12 +2004,12 @@ describe("createWorkflow()", () => {
       const workflow = createWorkflow("workflow", { expensiveOp }, { cache });
 
       // First run - use lazy form for caching
-      const result1 = await workflow(async (step) => {
+      const result1 = await workflow(async ({ step }) => {
         return await step('expensiveOp', () => expensiveOp("123"), { key: "op:123" });
       });
 
       // Second run - should use cache
-      const result2 = await workflow(async (step) => {
+      const result2 = await workflow(async ({ step }) => {
         return await step('expensiveOp', () => expensiveOp("123"), { key: "op:123" });
       });
 
@@ -2036,7 +2036,7 @@ describe("createWorkflow()", () => {
         }
       );
 
-      await workflow(async (step) => {
+      await workflow(async ({ step }) => {
         const first = await step("firstCall", () => expensiveOp(), { key: "op:1" });
         const second = await step("secondCall", () => expensiveOp(), { key: "op:1" });
         return { first, second };
@@ -2065,7 +2065,7 @@ describe("createWorkflow()", () => {
       const cache = new Map<string, Result<unknown, unknown>>();
       const workflow = createWorkflow("workflow", {}, { cache });
 
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         const first = await step.try(
           "try:1",
           () => {
@@ -2104,7 +2104,7 @@ describe("createWorkflow()", () => {
       const workflow = createWorkflow("workflow", { expensiveOp }, { cache });
 
       // Use lazy form for caching
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         const a = await step('expensiveOpA', () => expensiveOp("a"), { key: "op:a" });
         const b = await step('expensiveOpB', () => expensiveOp("b"), { key: "op:b" });
         const a2 = await step('expensiveOpA2', () => expensiveOp("a"), { key: "op:a" });
@@ -2130,7 +2130,7 @@ describe("createWorkflow()", () => {
 
       const workflow = createWorkflow("workflow", { expensiveOp }); // No cache
 
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         const first = await step('expensiveOp1', () => expensiveOp(), { key: "op:1" });
         const second = await step('expensiveOp2', () => expensiveOp(), { key: "op:1" });
         return { first, second };
@@ -2162,7 +2162,7 @@ describe("createWorkflow()", () => {
       );
 
       // Use lazy form for caching
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         const first = await step('expensiveOp1', () => expensiveOp(), { key: "op:1" });
         const second = await step('expensiveOp2', () => expensiveOp(), { key: "op:1" });
         return { first, second };
@@ -2188,7 +2188,7 @@ describe("createWorkflow()", () => {
       const cache = new Map<string, Result<unknown, unknown>>();
       const workflow = createWorkflow("workflow", { expensiveOp }, { cache });
 
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         // Second call uses cached result from first call
         const first = await step('expensiveOp1', () => expensiveOp(), { key: "op:1" });
         const second = await step('expensiveOp2', () => expensiveOp(), { key: "op:1" });
@@ -2223,7 +2223,7 @@ describe("createWorkflow()", () => {
       );
 
       // First run - populate cache with error
-      const result1 = await workflow(async (step) => {
+      const result1 = await workflow(async ({ step }) => {
         return await step("failingCall", () => failingOp(), { key: "failing:1" });
       });
 
@@ -2236,7 +2236,7 @@ describe("createWorkflow()", () => {
       events.length = 0;
 
       // Second run - should hit cache
-      const result2 = await workflow(async (step) => {
+      const result2 = await workflow(async ({ step }) => {
         return await step("failingCall", () => failingOp(), { key: "failing:1" });
       });
 
@@ -2272,7 +2272,7 @@ describe("createWorkflow()", () => {
       );
 
       // First run - populate cache with error via step.try
-      const result1 = await workflow(async (step) => {
+      const result1 = await workflow(async ({ step }) => {
         return await step.try(
           "try:1",
           () => {
@@ -2288,7 +2288,7 @@ describe("createWorkflow()", () => {
       events.length = 0;
 
       // Second run - should hit cache
-      const result2 = await workflow(async (step) => {
+      const result2 = await workflow(async ({ step }) => {
         return await step.try(
           "try:1",
           () => {
@@ -2323,7 +2323,7 @@ describe("createWorkflow()", () => {
       const workflow = createWorkflow("workflow", { expensiveOp }, { cache });
 
       // First run with short TTL
-      const result1 = await workflow(async (step) => {
+      const result1 = await workflow(async ({ step }) => {
         return await step('expensiveOp', () => expensiveOp(), { key: "op:1", ttl: 500 }); // 500ms TTL
       });
 
@@ -2331,7 +2331,7 @@ describe("createWorkflow()", () => {
       if (result1.ok) expect(result1.value).toBe(1);
 
       // Immediately run again - should hit cache
-      const result2 = await workflow(async (step) => {
+      const result2 = await workflow(async ({ step }) => {
         return await step('expensiveOp', () => expensiveOp(), { key: "op:1", ttl: 500 });
       });
 
@@ -2343,7 +2343,7 @@ describe("createWorkflow()", () => {
       vi.advanceTimersByTime(600);
 
       // Run again - should NOT hit cache (per-step TTL expired)
-      const result3 = await workflow(async (step) => {
+      const result3 = await workflow(async ({ step }) => {
         return await step('expensiveOp', () => expensiveOp(), { key: "op:1", ttl: 500 });
       });
 
@@ -2367,7 +2367,7 @@ describe("createWorkflow()", () => {
       const workflow = createWorkflow("workflow", { expensiveOp }, { cache });
 
       // Set entry with longer per-step TTL
-      const result1 = await workflow(async (step) => {
+      const result1 = await workflow(async ({ step }) => {
         return await step('expensiveOp', () => expensiveOp(), { key: "long-ttl", ttl: 5000 }); // 5s TTL
       });
 
@@ -2378,7 +2378,7 @@ describe("createWorkflow()", () => {
       vi.advanceTimersByTime(600);
 
       // Should still hit cache (per-step TTL overrides global)
-      const result2 = await workflow(async (step) => {
+      const result2 = await workflow(async ({ step }) => {
         return await step('expensiveOp', () => expensiveOp(), { key: "long-ttl", ttl: 5000 });
       });
 
@@ -2389,7 +2389,7 @@ describe("createWorkflow()", () => {
       // Advance past per-step TTL
       vi.advanceTimersByTime(5000);
 
-      const result3 = await workflow(async (step) => {
+      const result3 = await workflow(async ({ step }) => {
         return await step('expensiveOp', () => expensiveOp(), { key: "long-ttl", ttl: 5000 });
       });
 
@@ -2408,7 +2408,7 @@ describe("createWorkflow()", () => {
       const cache = createMemoryCache();
       const workflow = createWorkflow("workflow", {}, { cache });
 
-      const result1 = await workflow(async (step) => {
+      const result1 = await workflow(async ({ step }) => {
         return await step.try(
           "try:1",
           () => {
@@ -2423,7 +2423,7 @@ describe("createWorkflow()", () => {
       if (result1.ok) expect(result1.value).toBe(1);
 
       // Immediate retry - should hit cache
-      const result2 = await workflow(async (step) => {
+      const result2 = await workflow(async ({ step }) => {
         return await step.try(
           "try:1",
           () => {
@@ -2441,7 +2441,7 @@ describe("createWorkflow()", () => {
       // Advance past TTL
       vi.advanceTimersByTime(600);
 
-      const result3 = await workflow(async (step) => {
+      const result3 = await workflow(async ({ step }) => {
         return await step.try(
           "try:1",
           () => {
@@ -2471,7 +2471,7 @@ describe("createWorkflow()", () => {
       const cache = createMemoryCache();
       const workflow = createWorkflow("workflow", {}, { cache });
 
-      const result1 = await workflow(async (step) => {
+      const result1 = await workflow(async ({ step }) => {
         return await step.fromResult(
           "from:1",
           () => resultOp(),
@@ -2483,7 +2483,7 @@ describe("createWorkflow()", () => {
       if (result1.ok) expect(result1.value).toBe(1);
 
       // Immediate retry - should hit cache
-      const result2 = await workflow(async (step) => {
+      const result2 = await workflow(async ({ step }) => {
         return await step.fromResult(
           "from:1",
           () => resultOp(),
@@ -2498,7 +2498,7 @@ describe("createWorkflow()", () => {
       // Advance past TTL
       vi.advanceTimersByTime(600);
 
-      const result3 = await workflow(async (step) => {
+      const result3 = await workflow(async ({ step }) => {
         return await step.fromResult(
           "from:1",
           () => resultOp(),
@@ -2524,7 +2524,7 @@ describe("createWorkflow()", () => {
       const workflow = createWorkflow("workflow", { expensiveOp }, { cache });
 
       // First run without TTL
-      const result1 = await workflow(async (step) => {
+      const result1 = await workflow(async ({ step }) => {
         return await step('expensiveOp', () => expensiveOp(), { key: "op:1" }); // No TTL
       });
 
@@ -2532,7 +2532,7 @@ describe("createWorkflow()", () => {
       if (result1.ok) expect(result1.value).toBe(1);
 
       // Second run - should hit cache (entries without TTL don't expire)
-      const result2 = await workflow(async (step) => {
+      const result2 = await workflow(async ({ step }) => {
         return await step('expensiveOp', () => expensiveOp(), { key: "op:1" });
       });
 
@@ -2556,7 +2556,7 @@ describe("createWorkflow()", () => {
         }
       );
 
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         // This will throw an uncaught exception in the step
         return await step.try(
           "throwingStep",
@@ -2592,7 +2592,7 @@ describe("createWorkflow()", () => {
         }
       );
 
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         return await step('throwingOp', () => throwingOp());
       });
 
@@ -2627,7 +2627,7 @@ describe("createWorkflow()", () => {
         }
       );
 
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         return await step.try(
           "test-error",
           () => {
@@ -2666,7 +2666,7 @@ describe("createWorkflow()", () => {
         }
       );
 
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         return await step('throwingOp', () => throwingOp());
       });
 
@@ -2696,7 +2696,7 @@ describe("createWorkflow()", () => {
 
       await expect(
         run.strict(
-          async (step) => {
+          async ({ step }) => {
             await step('throwingStep', () => {
               throw new Error("boom");
             });
@@ -2710,7 +2710,7 @@ describe("createWorkflow()", () => {
       // Bug fix: Uncaught step exceptions in safe-default mode should produce
       // UnexpectedError with cause.type = "UNCAUGHT_EXCEPTION", not "STEP_FAILURE"
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         await step('throwingStep', () => {
           throw new Error("boom");
         });
@@ -2738,7 +2738,7 @@ describe("createWorkflow()", () => {
       const workflow = createWorkflow("workflow", {}, { cache });
 
       // First run - populate cache with step.try error
-      const result1 = await workflow(async (step) => {
+      const result1 = await workflow(async ({ step }) => {
         return await step.try(
           "try:meta",
           () => {
@@ -2756,7 +2756,7 @@ describe("createWorkflow()", () => {
       }
 
       // Second run - should hit cache and preserve metadata
-      const result2 = await workflow(async (step) => {
+      const result2 = await workflow(async ({ step }) => {
         return await step.try(
           "try:meta",
           () => {
@@ -2792,7 +2792,7 @@ describe("step_complete events", () => {
       { onEvent: (event) => events.push(event) }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step("fetchUser", () => fetchUser("123"), { key: "user:123" });
     });
 
@@ -2818,7 +2818,7 @@ describe("step_complete events", () => {
       { onEvent: (event) => events.push(event) }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step("fetchUser", () => fetchUser("unknown"), { key: "user:unknown" });
     });
 
@@ -2848,7 +2848,7 @@ describe("step_complete events", () => {
       { onEvent: (event) => events.push(event) }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       // No explicit key provided - step ID is used as key
       return await step("fetchUser", () => fetchUser());
     });
@@ -2863,7 +2863,7 @@ describe("step_complete events", () => {
 
     const workflow = createWorkflow("workflow", {}, { onEvent: (event) => events.push(event) });
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step.try(
         "parse:1",
         () => JSON.parse('{"valid": true}'),
@@ -2887,7 +2887,7 @@ describe("step_complete events", () => {
 
     const workflow = createWorkflow("workflow", {}, { onEvent: (event) => events.push(event) });
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step.try(
         "parse:2",
         () => JSON.parse("invalid json"),
@@ -2921,7 +2921,7 @@ describe("step_complete events", () => {
       { onEvent: (event) => events.push(event) }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step('fetchUser', () => fetchUser(), { key: "user:1" });
     });
 
@@ -2937,7 +2937,7 @@ describe("direct AsyncResult with keys", () => {
   it("supports direct Result form with explicit id", async () => {
     const workflow = createWorkflow("workflow");
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       return await step('directResult', ok(42));
     });
 
@@ -2955,7 +2955,7 @@ describe("direct AsyncResult with keys", () => {
 
     const workflow = createWorkflow("workflow", { createUser }, { cache: cacheMap });
 
-    await workflow(async (step, { createUser }) => {
+    await workflow(async ({ step, deps: { createUser } }) => {
       // Function-wrapped pattern with explicit ID
       const user = await step('createUser', () => createUser("test@example.com"), { key: "user:1" });
       return user;
@@ -2981,7 +2981,7 @@ describe("direct AsyncResult with keys", () => {
       { onEvent: (e) => events.push(e) }
     );
 
-    await workflow(async (step, { createUser }) => {
+    await workflow(async ({ step, deps: { createUser } }) => {
       // Function-wrapped pattern
       const user = await step('createUser', () => createUser("test@example.com"), { key: "user:1" });
       return user;
@@ -3006,7 +3006,7 @@ describe("direct AsyncResult with keys", () => {
       { onEvent: collector.handleEvent }
     );
 
-    await workflow(async (step, { createUser }) => {
+    await workflow(async ({ step, deps: { createUser } }) => {
       const user = await step('createUser', () => createUser("test@example.com"), { key: "user:1" });
       return user;
     });
@@ -3032,7 +3032,7 @@ describe("direct AsyncResult with keys", () => {
       { onEvent: (e) => events.push(e) }
     );
 
-    await workflow(async (step, { createUser }) => {
+    await workflow(async ({ step, deps: { createUser } }) => {
       const user = await step('createUser', () => createUser("invalid"), { key: "user:1" });
       return user;
     });
@@ -3054,7 +3054,7 @@ describe("direct AsyncResult with keys", () => {
 
     const workflow = createWorkflow("workflow", { createUser }, { cache: cacheMap });
 
-    await workflow(async (step, { createUser }) => {
+    await workflow(async ({ step, deps: { createUser } }) => {
       const user = await step('createUser', () => createUser("invalid"), { key: "user:1" });
       return user;
     });
@@ -3076,7 +3076,7 @@ describe("direct AsyncResult with keys", () => {
       { onEvent: (e) => events.push(e) }
     );
 
-    await workflow(async (step, { createUser }) => {
+    await workflow(async ({ step, deps: { createUser } }) => {
       // No explicit key provided - step ID is used as key
       const user = await step('createUser', () => createUser("test@example.com"));
       return user;
@@ -3102,7 +3102,7 @@ describe("direct AsyncResult with keys", () => {
       { createUser },
       { onEvent: (e) => eventsWrapped.push(e), cache: cacheWrapped }
     );
-    await workflow1(async (step, { createUser }) => {
+    await workflow1(async ({ step, deps: { createUser } }) => {
       const user = await step('createUser', () => createUser("test@example.com"), { key: "user:1" });
       return user;
     });
@@ -3113,7 +3113,7 @@ describe("direct AsyncResult with keys", () => {
       { createUser },
       { onEvent: (e) => eventsDirect.push(e), cache: cacheDirect }
     );
-    await workflow2(async (step, { createUser }) => {
+    await workflow2(async ({ step, deps: { createUser } }) => {
       const user = await step('createUser', () => createUser("test@example.com"), { key: "user:1" });
       return user;
     });
@@ -3148,7 +3148,7 @@ describe("resumeState", () => {
 
     const workflow = createWorkflow("workflow", { expensiveOp }, { resumeState });
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       // This should hit the resume state cache
       return await step('expensiveOp', () => expensiveOp(), { key: "op:1" });
     });
@@ -3174,7 +3174,7 @@ describe("resumeState", () => {
 
     const workflow = createWorkflow("workflow", { expensiveOp }, { resumeState: loadResumeState });
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       return await step('expensiveOp', () => expensiveOp(), { key: "async:op" });
     });
 
@@ -3204,7 +3204,7 @@ describe("resumeState", () => {
 
     const workflow = createWorkflow("workflow", { failingOp }, { resumeState });
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       return await step('failingOp', () => failingOp(), { key: "fail:1" });
     });
 
@@ -3238,7 +3238,7 @@ describe("resumeState", () => {
       }
     );
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       return await step('expensiveOp', () => expensiveOp(), { key: "auto:cache" });
     });
 
@@ -3274,7 +3274,7 @@ describe("resumeState", () => {
 
     const workflow = createWorkflow("workflow", { expensiveOp }, { resumeState });
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       return await step('expensiveOp', () => expensiveOp(), { key: "recover:1" });
     });
 
@@ -3315,7 +3315,7 @@ describe("resumeState", () => {
       }
     );
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"), { key: "user:1" });
       const posts = await step('fetchPosts', () => fetchPosts(user.id), { key: "posts:1" });
       return { user, posts };
@@ -3360,7 +3360,7 @@ describe("resumeState", () => {
       }
     );
 
-    await workflow1(async (step) => {
+    await workflow1(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"), { key: "user:1" });
       const posts = await step('fetchPosts', () => fetchPosts(), { key: "posts:1" });
       return { user, posts };
@@ -3377,7 +3377,7 @@ describe("resumeState", () => {
       { resumeState: { steps: savedSteps } }
     );
 
-    const result = await workflow2(async (step) => {
+    const result = await workflow2(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"), { key: "user:1" });
       const posts = await step('fetchPosts', () => fetchPosts(), { key: "posts:1" });
       return { user, posts };
@@ -3407,7 +3407,7 @@ describe("resumeState", () => {
       }
     });
 
-    await workflow1(async (step) => {
+    await workflow1(async ({ step }) => {
       return await step.try(
         "try:1",
         () => { throw new Error("original throw"); },
@@ -3422,7 +3422,7 @@ describe("resumeState", () => {
     // Second run: resume
     const workflow2 = createWorkflow("workflow", {}, { resumeState: { steps: savedSteps } });
 
-    const result = await workflow2(async (step) => {
+    const result = await workflow2(async ({ step }) => {
       return await step.try(
         "try:1",
         () => "should not be called",
@@ -3452,7 +3452,7 @@ describe("resumeState", () => {
     });
 
     // A step that throws unexpectedly
-    await workflow1(async (step) => {
+    await workflow1(async ({ step }) => {
       return await step('throwingStep', () => {
         throw new Error("uncaught exception");
       }, { key: "uncaught:1" });
@@ -3472,7 +3472,7 @@ describe("resumeState", () => {
     // Second run: resume - should get the same UnexpectedError, not wrapped in STEP_FAILURE
     const workflow2 = createWorkflow("workflow", {}, { resumeState: { steps: savedSteps } });
 
-    const result = await workflow2(async (step) => {
+    const result = await workflow2(async ({ step }) => {
       return await step('throwingStep', () => ok("should not execute"), { key: "uncaught:1" });
     });
 
@@ -3496,7 +3496,7 @@ describe("snapshot", () => {
     };
 
     const workflow = createWorkflow("workflow", { fetchUser });
-    const first = await workflow(async (step, deps) => {
+    const first = await workflow(async ({ step, deps }) => {
       return await step('fetchUser', () => deps.fetchUser("1"), { key: "user:1" });
     });
 
@@ -3505,7 +3505,7 @@ describe("snapshot", () => {
 
     const snapshot = workflow.getSnapshot();
     const workflow2 = createWorkflow("workflow", { fetchUser }, { snapshot });
-    const second = await workflow2(async (step, deps) => {
+    const second = await workflow2(async ({ step, deps }) => {
       return await step('fetchUser', () => deps.fetchUser("1"), { key: "user:1" });
     });
 
@@ -3515,7 +3515,7 @@ describe("snapshot", () => {
 
   it("restores original Result.error when a step had an explicit cause", async () => {
     const workflow = createWorkflow("workflow", {});
-    const first = await workflow(async (step) => {
+    const first = await workflow(async ({ step }) => {
       await step(
         'failingStep',
         () => err("FAILED" as const, { cause: new Error("boom") }),
@@ -3532,7 +3532,7 @@ describe("snapshot", () => {
 
     const snapshot = workflow.getSnapshot();
     const workflow2 = createWorkflow("workflow", {}, { snapshot });
-    const second = await workflow2(async (step) => {
+    const second = await workflow2(async ({ step }) => {
       await step(
         'failingStep',
         () => err("FAILED" as const, { cause: new Error("boom") }),
@@ -3565,7 +3565,7 @@ describe("snapshot", () => {
     const workflow2 = createWorkflow("workflow", {}, { snapshot, onUnknownSteps: "error" });
 
     // Should NOT throw - we can't distinguish unknown steps from skipped branch steps
-    const result = await workflow2(async (step) => {
+    const result = await workflow2(async ({ step }) => {
       return await step('knownStep', () => ok(1), { key: "known:1" });
     });
     expect(result.ok).toBe(true);
@@ -3579,7 +3579,7 @@ describe("snapshot", () => {
     const workflow2 = createWorkflow("workflow", {}, { snapshot, onUnknownSteps: "error" });
 
     // Should NOT throw - the step is known because it's used
-    const result = await workflow2(async (step) => {
+    const result = await workflow2(async ({ step }) => {
       return await step('knownStep', () => ok(1), { key: "known:1" });
     });
     expect(result).toBeDefined();
@@ -3588,7 +3588,7 @@ describe("snapshot", () => {
 
   it("emits snapshot warnings when values are not JSON-serializable", async () => {
     const workflow = createWorkflow("workflow", {});
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step('lossyStep', () => ok({ ok: true, fn: () => "nope" }), { key: "lossy:1" });
     });
 
@@ -3599,7 +3599,7 @@ describe("snapshot", () => {
 
   it("warns when error value is non-JSON-serializable", async () => {
     const workflow = createWorkflow("workflow", {});
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       await step(
         'errorStep',
         () => err(new Error("boom") as unknown as "ERR"),
@@ -3615,14 +3615,14 @@ describe("snapshot", () => {
   it("clears snapshot warnings when a step becomes serializable", async () => {
     const workflow = createWorkflow("workflow", {});
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step('lossyStep', () => ok({ fn: () => "nope" }), { key: "lossy:2" });
     });
 
     const withWarning = workflow.getSnapshot();
     expect(withWarning.warnings?.some((warning) => warning.stepId === "lossy:2")).toBe(true);
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step('lossyStep', () => ok({ value: 123 }), { key: "lossy:2" });
     });
 
@@ -3640,7 +3640,7 @@ describe("snapshot", () => {
 
     const workflow2 = createWorkflow("workflow", {}, { snapshot, onUnknownSteps: "error" });
 
-    const result = await workflow2(async (step) => {
+    const result = await workflow2(async ({ step }) => {
       const runYesBranch = true;
       if (runYesBranch) {
         return await step('yesBranch', () => ok("yes"), { key: "branch:yes" });
@@ -3663,7 +3663,7 @@ describe("snapshot", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const workflow2 = createWorkflow("workflow", {}, { snapshot, onUnknownSteps: "warn" });
 
-    await workflow2(async (step) => {
+    await workflow2(async ({ step }) => {
       return await step('usedStep', () => ok(1), { key: "used:1" });
     });
 
@@ -3691,7 +3691,7 @@ describe("createWorkflow with typed args", () => {
   it("passes args to callback as third parameter", async () => {
     const workflow = createWorkflow("workflow", { fetchUser });
 
-    const result = await workflow({ id: "1" }, async (step, deps, args) => {
+    const result = await workflow({ id: "1" }, async ({ step, deps, args }) => {
       expect(args).toEqual({ id: "1" });
       const user = await step('fetchUser', () => deps.fetchUser(args.id));
       return user;
@@ -3706,7 +3706,7 @@ describe("createWorkflow with typed args", () => {
   it("works without args (backwards compatibility)", async () => {
     const workflow = createWorkflow("workflow", { fetchUser });
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       return await step('fetchUser', () => fetchUser("1"));
     });
 
@@ -3719,7 +3719,7 @@ describe("createWorkflow with typed args", () => {
   it("passes object args with multiple properties", async () => {
     const workflow = createWorkflow("getPosts", { fetchUser, fetchPosts });
 
-    const result = await workflow({ userId: "1", includePosts: true }, async (step, deps, args) => {
+    const result = await workflow({ userId: "1", includePosts: true }, async ({ step, deps, args }) => {
       const user = await step('fetchUser', () => deps.fetchUser(args.userId));
       if (args.includePosts) {
         const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));
@@ -3738,7 +3738,7 @@ describe("createWorkflow with typed args", () => {
   it("passes primitive args (string)", async () => {
     const workflow = createWorkflow("workflow", { fetchUser });
 
-    const result = await workflow("1", async (step, deps, id) => {
+    const result = await workflow("1", async ({ step, deps, args: id }) => {
       return await step('fetchUser', () => deps.fetchUser(id));
     });
 
@@ -3751,7 +3751,7 @@ describe("createWorkflow with typed args", () => {
   it("passes primitive args (number)", async () => {
     const workflow = createWorkflow("workflow", { fetchUser });
 
-    const result = await workflow(42, async (_step, _uses, num) => {
+    const result = await workflow(42, async ({ args: num }) => {
       expect(num).toBe(42);
       return num * 2;
     });
@@ -3771,7 +3771,7 @@ describe("createWorkflow with typed args", () => {
       }
     );
 
-    const result = await workflow({ id: "1" }, async (step, deps, args) => {
+    const result = await workflow({ id: "1" }, async ({ step, deps, args }) => {
       return await step('fetchUser', () => deps.fetchUser(args.id));
     });
 
@@ -3784,7 +3784,7 @@ describe("createWorkflow with typed args", () => {
   it("propagates errors correctly with args", async () => {
     const workflow = createWorkflow("workflow", { fetchUser });
 
-    const result = await workflow({ id: "unknown" }, async (step, deps, args) => {
+    const result = await workflow({ id: "unknown" }, async ({ step, deps, args }) => {
       return await step('fetchUser', () => deps.fetchUser(args.id));
     });
 
@@ -3797,7 +3797,7 @@ describe("createWorkflow with typed args", () => {
   it("preserves deps object access with args", async () => {
     const workflow = createWorkflow("getPosts", { fetchUser, fetchPosts });
 
-    const result = await workflow({ baseId: "1" }, async (step, { fetchUser: getUser, fetchPosts: getPosts }, args) => {
+    const result = await workflow({ baseId: "1" }, async ({ step, deps: { fetchUser: getUser, fetchPosts: getPosts }, args }) => {
       const user = await step('getUser', () => getUser(args.baseId));
       const posts = await step('getPosts', () => getPosts(user.id));
       return { user, posts };
@@ -3816,7 +3816,7 @@ describe("createWorkflow with typed args", () => {
     // Pass a factory function as args - this should NOT be confused with the callback
     const idFactory = () => "1";
 
-    const result = await workflow(idFactory, async (step, deps, factory) => {
+    const result = await workflow(idFactory, async ({ step, deps, args: factory }) => {
       // factory should be the idFactory function, not treated as the workflow callback
       expect(typeof factory).toBe("function");
       const id = factory();
@@ -3835,7 +3835,7 @@ describe("createWorkflow with typed args", () => {
     // Pass an async function as args
     const asyncIdProvider = async () => "1";
 
-    const result = await workflow(asyncIdProvider, async (step, deps, provider) => {
+    const result = await workflow(asyncIdProvider, async ({ step, deps, args: provider }) => {
       const id = await provider();
       return await step('fetchUser', () => deps.fetchUser(id));
     });
@@ -3856,7 +3856,7 @@ describe("Step Retry with Backoff", () => {
     it("succeeds on first attempt without retry", async () => {
       let attempts = 0;
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         return await step(
           'retryOp',
           () => {
@@ -3877,7 +3877,7 @@ describe("Step Retry with Backoff", () => {
     it("retries on transient errors and succeeds", async () => {
       let attempts = 0;
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         return await step(
           'retryOp',
           () => {
@@ -3906,7 +3906,7 @@ describe("Step Retry with Backoff", () => {
     it("fails after exhausting all retries", async () => {
       let attempts = 0;
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         return await step(
           'retryOp',
           () => {
@@ -3931,7 +3931,7 @@ describe("Step Retry with Backoff", () => {
     it("respects retryOn predicate", async () => {
       let attempts = 0;
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         return await step(
           'retryOp',
           () => {
@@ -3959,7 +3959,7 @@ describe("Step Retry with Backoff", () => {
       let attempts = 0;
       const retryCallbacks: { error: unknown; attempt: number; delay: number }[] = [];
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         return await step(
           'retryOp',
           () => {
@@ -3993,7 +3993,7 @@ describe("Step Retry with Backoff", () => {
       const delays: number[] = [];
       let attempts = 0;
 
-      await run(async (step) => {
+      await run(async ({ step }) => {
         return await step(
           'retryOp',
           () => {
@@ -4022,7 +4022,7 @@ describe("Step Retry with Backoff", () => {
       const delays: number[] = [];
       let attempts = 0;
 
-      await run(async (step) => {
+      await run(async ({ step }) => {
         return await step(
           'retryOp',
           () => {
@@ -4052,7 +4052,7 @@ describe("Step Retry with Backoff", () => {
       const delays: number[] = [];
       let attempts = 0;
 
-      await run(async (step) => {
+      await run(async ({ step }) => {
         return await step(
           'retryOp',
           () => {
@@ -4082,7 +4082,7 @@ describe("Step Retry with Backoff", () => {
       const delays: number[] = [];
       let attempts = 0;
 
-      await run(async (step) => {
+      await run(async ({ step }) => {
         return await step(
           'retryOp',
           () => {
@@ -4116,7 +4116,7 @@ describe("Step Retry with Backoff", () => {
       let attempts = 0;
 
       await run(
-        async (step) => {
+        async ({ step }) => {
           return await step(
             "test-step",
             () => {
@@ -4152,7 +4152,7 @@ describe("Step Retry with Backoff", () => {
       const events: WorkflowEvent<unknown>[] = [];
 
       await run(
-        async (step) => {
+        async ({ step }) => {
           return await step(
             "failing-step",
             () => err("ALWAYS_FAILS" as const),
@@ -4185,7 +4185,7 @@ describe("Step Retry with Backoff", () => {
     it("works as shorthand for retry options", async () => {
       let attempts = 0;
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         return await step.retry(
           "retry-step",
           () => {
@@ -4217,7 +4217,7 @@ describe("Step Retry with Backoff", () => {
         return ok(calls);
       };
 
-      const result1 = await workflow(async (step) => {
+      const result1 = await workflow(async ({ step }) => {
         return await step.retry("retry-op", op, {
           attempts: 1,
           backoff: "fixed",
@@ -4230,7 +4230,7 @@ describe("Step Retry with Backoff", () => {
 
       events.length = 0;
 
-      const result2 = await workflow(async (step) => {
+      const result2 = await workflow(async ({ step }) => {
         return await step.retry("retry-op", op, {
           attempts: 1,
           backoff: "fixed",
@@ -4253,7 +4253,7 @@ describe("Step Retry with Backoff", () => {
 describe("Step Timeout", () => {
   describe("basic timeout behavior", () => {
     it("succeeds when operation completes before timeout", async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         return await step(
           'fastOp',
           async () => {
@@ -4272,7 +4272,7 @@ describe("Step Timeout", () => {
 
     it("fails when operation exceeds timeout", async () => {
       const result = await run(
-        async (step) => {
+        async ({ step }) => {
           return await step(
             'slowOp',
             async () => {
@@ -4298,7 +4298,7 @@ describe("Step Timeout", () => {
       const events: WorkflowEvent<unknown>[] = [];
 
       await run(
-        async (step) => {
+        async ({ step }) => {
           return await step(
             "slow-step",
             async () => {
@@ -4325,7 +4325,7 @@ describe("Step Timeout", () => {
 
   describe("step.withTimeout() method", () => {
     it("works as shorthand for timeout options", async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         return await step.withTimeout(
           "timeout-step",
           async () => {
@@ -4343,7 +4343,7 @@ describe("Step Timeout", () => {
     });
 
     it("returns STEP_TIMEOUT when operation exceeds timeout", async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         return await step.withTimeout(
           "slow-step",
           async () => {
@@ -4388,7 +4388,7 @@ describe("Retry + Timeout Combined", () => {
     const events: WorkflowEvent<unknown>[] = [];
 
     const result = await run(
-      async (step) => {
+      async ({ step }) => {
         return await step(
           'retry-timeout-step',
           async () => {
@@ -4439,7 +4439,7 @@ describe("step timeout behavior variants", () => {
       const events: WorkflowEvent<unknown>[] = [];
 
       const result = await run(
-        async (step) => {
+        async ({ step }) => {
           const value = await step(
             'slowOp',
             async () => {
@@ -4471,7 +4471,7 @@ describe("step timeout behavior variants", () => {
     it("does not retry when onTimeout is 'option'", async () => {
       let attempts = 0;
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const value = await step(
           'slowOp',
           async () => {
@@ -4497,7 +4497,7 @@ describe("step timeout behavior variants", () => {
     it("returns error immediately but operation continues in background", async () => {
       let operationCompleted = false;
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         await step(
           'slowOp',
           async () => {
@@ -4527,7 +4527,7 @@ describe("step timeout behavior variants", () => {
       };
       process.once("unhandledRejection", handler);
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         await step(
           'slowOp',
           async () => {
@@ -4550,7 +4550,7 @@ describe("step timeout behavior variants", () => {
 
   describe("onTimeout: function", () => {
     it("uses custom error from handler function", async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         await step(
           "my-slow-step",
           async () => {
@@ -4582,7 +4582,7 @@ describe("step timeout behavior variants", () => {
     });
 
     it("custom error works with tagged errors", async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         await step(
           'slowOp',
           async () => {
@@ -4614,7 +4614,7 @@ describe("step timeout behavior variants", () => {
 
   describe("onTimeout: 'error' (default)", () => {
     it("returns StepTimeoutError by default", async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         await step(
           'slowOp',
           async () => {
@@ -4634,7 +4634,7 @@ describe("step timeout behavior variants", () => {
     });
 
     it("explicit 'error' behavior works same as default", async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         await step(
           'slowOp',
           async () => {
@@ -4672,7 +4672,7 @@ describe("step.parallel() named object form", () => {
     const events: WorkflowEvent<unknown>[] = [];
 
     const result = await run(
-      async (step) => {
+      async ({ step }) => {
         const { user, posts } = await step.parallel("Fetch user and posts", {
           user: () => fetchUser("1"),
           posts: () => fetchPosts("1"),
@@ -4702,7 +4702,7 @@ describe("step.parallel() named object form", () => {
     const events: WorkflowEvent<unknown>[] = [];
 
     const result = await run(
-      async (step) => {
+      async ({ step }) => {
         const { user, posts } = await step.parallel("Fetch user data", {
           user: () => fetchUser("1"),
           posts: () => fetchPosts("1"),
@@ -4735,7 +4735,7 @@ describe("step.parallel() named object form", () => {
       { onEvent: (e) => events.push(e) }
     );
 
-    const result = await workflow(async (step, { fetchUser, fetchPosts }) => {
+    const result = await workflow(async ({ step, deps: { fetchUser, fetchPosts } }) => {
       const { user, posts } = await step.parallel("Fetch user and posts", {
         user: () => fetchUser("missing"), // This will fail
         posts: () => fetchPosts("1"),
@@ -4761,7 +4761,7 @@ describe("step.parallel() named object form", () => {
 
     const workflow = createWorkflow("workflow", { slowOp, fastFailOp });
 
-    const result = await workflow(async (step, { slowOp, fastFailOp }) => {
+    const result = await workflow(async ({ step, deps: { slowOp, fastFailOp } }) => {
       // slowOp is first but takes 100ms, fastFailOp is second but fails immediately
       const { slow, fast } = await step.parallel("Fetch slow and fast", {
         slow: () => slowOp(),
@@ -4777,7 +4777,7 @@ describe("step.parallel() named object form", () => {
   });
 
   it("should support three or more operations", async () => {
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       const { user, posts, comments } = await step.parallel("Fetch user posts comments", {
         user: () => fetchUser("1"),
         posts: () => fetchPosts("1"),
@@ -4796,7 +4796,7 @@ describe("step.parallel() named object form", () => {
   });
 
   it("should handle empty operations object", async () => {
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       const data = await step.parallel("Empty parallel", {});
       return data;
     });
@@ -4810,7 +4810,7 @@ describe("step.parallel() named object form", () => {
   it("should work with createWorkflow", async () => {
     const workflow = createWorkflow("getPosts", { fetchUser, fetchPosts });
 
-    const result = await workflow(async (step, deps) => {
+    const result = await workflow(async ({ step, deps }) => {
       const { user, posts } = await step.parallel("Fetch user and posts", {
         user: () => deps.fetchUser("1"),
         posts: () => deps.fetchPosts("1"),
@@ -4840,7 +4840,7 @@ describe("streamForEach with async iterables", () => {
       yield 2;
     }
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       return step.streamForEach(
         source(),
         async () => ok(undefined),
@@ -4874,7 +4874,7 @@ describe("createWorkflow with signal (cancellation)", () => {
       signal: controller.signal,
     });
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       // This should never execute
       const user = await step('fetchUser', () => fetchUser("1"));
       return user;
@@ -4910,7 +4910,7 @@ describe("createWorkflow with signal (cancellation)", () => {
     });
 
     // Start workflow and abort after first step starts
-    const resultPromise = workflow(async (step) => {
+    const resultPromise = workflow(async ({ step }) => {
       // First step
       const user1 = await step('slowFetch1', () => slowFetch("1"), { key: "step1" });
       // This step should never execute due to cancellation
@@ -4955,7 +4955,7 @@ describe("createWorkflow with signal (cancellation)", () => {
       onEvent: (e) => events.push(e),
     });
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       return await step('fetchUser', () => fetchUser("1"));
     });
 
@@ -4976,7 +4976,7 @@ describe("createWorkflow with signal (cancellation)", () => {
       signal: controller.signal,
     });
 
-    await workflow(async (step, deps, ctx) => {
+    await workflow(async ({ step, deps, ctx }) => {
       receivedSignal = ctx.signal;
       return await step('fetchUser', () => fetchUser("1"));
     });
@@ -5010,7 +5010,7 @@ describe("createWorkflow with signal (cancellation)", () => {
       },
     });
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       return await step('fetchUser', () => fetchUser("1"));
     });
 
@@ -5025,7 +5025,7 @@ describe("createWorkflow with signal (cancellation)", () => {
 
     const workflow = createWorkflow("workflow", { fetchUser });
 
-    await workflow(async (step, deps, ctx) => {
+    await workflow(async ({ step, deps, ctx }) => {
       receivedSignal = ctx.signal;
       return await step('fetchUser', () => fetchUser("1"));
     });
@@ -5051,7 +5051,7 @@ describe("createWorkflow with signal (cancellation)", () => {
       onEvent: (e) => events.push(e),
     });
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       // Only one step - abort happens during it but it returns success
       return await step('slowOp', () => slowOp(), { key: "only-step" });
     });
@@ -5095,7 +5095,7 @@ describe("createWorkflow with signal (cancellation)", () => {
       },
     });
 
-    const resultPromise = workflow(async (step) => {
+    const resultPromise = workflow(async ({ step }) => {
       const user1 = await step('slowFetch1', () => slowFetch("1"), { key: "step1" });
       const user2 = await step('slowFetch2', () => slowFetch("2"), { key: "step2" });
       return { user1, user2 };
@@ -5141,7 +5141,7 @@ describe("createWorkflow with signal (cancellation)", () => {
     });
 
     // Run the workflow - should fail immediately due to pre-aborted signal
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       const value = await step('quickOp', () => quickOp(), { key: "quick-step" });
       return value * 2;
     });
@@ -5189,7 +5189,7 @@ describe("createWorkflow with signal (cancellation)", () => {
       onEvent: (e) => events.push(e),
     });
 
-    const resultPromise = workflow(async (step, deps, ctx) => {
+    const resultPromise = workflow(async ({ step, deps, ctx }) => {
       // Use step.withTimeout with signal: true to get the workflow signal
       const data = await step.withTimeout(
         "fetch-step",
@@ -5255,7 +5255,7 @@ describe("createWorkflow with signal (cancellation)", () => {
       },
     });
 
-    const resultPromise = workflow(async (step, deps, ctx) => {
+    const resultPromise = workflow(async ({ step, deps, ctx }) => {
       const data = await step.withTimeout(
         "fetch-step",
         (signal) => fetchWithSignal(signal),
@@ -5307,7 +5307,7 @@ describe("createWorkflow with signal (cancellation)", () => {
       onEvent: (e) => events.push(e),
     });
 
-    const resultPromise = workflow(async (step) => {
+    const resultPromise = workflow(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("123"), { key: "fetch-user" });
       return user;
     });
@@ -5352,7 +5352,7 @@ describe("createWorkflow with signal (cancellation)", () => {
       onEvent: (e) => events.push(e),
     });
 
-    const resultPromise = workflow(async (step) => {
+    const resultPromise = workflow(async ({ step }) => {
       const data = await step('riskyOperation', () => riskyOperation(), { key: "risky-step" });
       return data;
     });
@@ -5396,7 +5396,7 @@ describe("createWorkflow with signal (cancellation)", () => {
       onEvent: (e) => events.push(e),
     });
 
-    const resultPromise = workflow(async (step) => {
+    const resultPromise = workflow(async ({ step }) => {
       const data = await step('failingOperation', () => failingOperation(), { key: "failing-step" });
       return data;
     });
@@ -5439,7 +5439,7 @@ describe("createWorkflow with execution-time options", () => {
 
     // Misuse: second arg is treated as ignored, but should warn.
     await workflow(
-      async (step) => {
+      async ({ step }) => {
         const user = await step('fetchUser', () => fetchUser("1"));
         return user;
       },
@@ -5466,7 +5466,7 @@ describe("createWorkflow with execution-time options", () => {
     ) => Promise<Result<{ id: string; name: string }, unknown, unknown>>;
     await (workflow as CallableWithThree)(
       { userId: "1" },
-      async (step, deps, args) => {
+      async ({ step, deps, args }) => {
         const user = await step('fetchUser', () => deps.fetchUser(args.userId));
         return user;
       },
@@ -5485,7 +5485,7 @@ describe("createWorkflow with execution-time options", () => {
 
     await workflow(
       { userId: "1", cache: true }, // includes non-option key -> should not match the warning heuristic
-      async (step, deps, args) => {
+      async ({ step, deps, args }) => {
         const user = await step('fetchUser', () => deps.fetchUser(args.userId));
         return user;
       }
@@ -5503,7 +5503,7 @@ describe("createWorkflow with execution-time options", () => {
       onEvent: (e) => eventsA.push(e),
     });
 
-    await workflow.run(async (step) => {
+    await workflow.run(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"));
       return user;
     }, {
@@ -5523,7 +5523,7 @@ describe("createWorkflow with execution-time options", () => {
 
     const workflow = createWorkflow("workflow", { fetchUser });
 
-    await workflow.run(async (step, deps, ctx) => {
+    await workflow.run(async ({ step, deps, ctx }) => {
       const user = await step('fetchUser', () => deps.fetchUser("1"));
       ctx.set("user", user);
       ctx.get("user");
@@ -5549,7 +5549,7 @@ describe("createWorkflow with execution-time options", () => {
     });
 
     // First run with exec override
-    await workflow.run(async (step) => {
+    await workflow.run(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"));
       return user;
     }, {
@@ -5561,7 +5561,7 @@ describe("createWorkflow with execution-time options", () => {
     eventsB.length = 0;
 
     // Second run without exec - should use creation-time handler
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"));
       return user;
     });
@@ -5582,7 +5582,7 @@ describe("createWorkflow with execution-time options", () => {
     const w2 = workflow.with({ onEvent: (e) => eventsB.push(e) });
 
     // Run on w2 - should use B
-    await w2(async (step) => {
+    await w2(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"));
       return user;
     });
@@ -5594,7 +5594,7 @@ describe("createWorkflow with execution-time options", () => {
     eventsA.length = 0;
     eventsB.length = 0;
 
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"));
       return user;
     });
@@ -5615,7 +5615,7 @@ describe("createWorkflow with execution-time options", () => {
     const w2 = workflow.with({ onEvent: (e) => eventsB.push(e) });
 
     // Run with C override - C should win
-    await w2.run(async (step) => {
+    await w2.run(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"));
       return user;
     }, {
@@ -5642,7 +5642,7 @@ describe("createWorkflow with execution-time options", () => {
     const workflow = createWorkflow("workflow", { fetchUser });
 
     // First run - factory should be called
-    const result1 = await workflow.run(async (step) => {
+    const result1 = await workflow.run(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"), { key: "user:1" });
       return user;
     }, {
@@ -5656,7 +5656,7 @@ describe("createWorkflow with execution-time options", () => {
     }
 
     // Second run - factory should be called again (new invocation)
-    const result2 = await workflow.run(async (step) => {
+    const result2 = await workflow.run(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"), { key: "user:1" });
       return user;
     }, {
@@ -5672,7 +5672,7 @@ describe("createWorkflow with execution-time options", () => {
     const workflow = createWorkflow("workflow", { fetchUser });
 
     // First run with signal - abort it
-    const resultPromise = workflow.run(async (step) => {
+    const resultPromise = workflow.run(async ({ step }) => {
       await new Promise((resolve) => setTimeout(resolve, 50));
       const user = await step('fetchUser', () => fetchUser("1"));
       return user;
@@ -5689,7 +5689,7 @@ describe("createWorkflow with execution-time options", () => {
     }
 
     // Second run without signal - should complete normally
-    const result2 = await workflow.run(async (step) => {
+    const result2 = await workflow.run(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"));
       return user;
     });
@@ -5718,7 +5718,7 @@ describe("createWorkflow with execution-time options", () => {
     const w2 = workflow.with({ onEvent: () => {} });
 
     // Run and cache a result
-    await w2(async (step, deps) => {
+    await w2(async ({ step, deps }) => {
       const user = await step('fetchUser', () => deps.fetchUser("1"), { key: "user:1" });
       return user;
     });
@@ -5726,7 +5726,7 @@ describe("createWorkflow with execution-time options", () => {
     expect(fetchCalls).toBe(1);
 
     // Run again - should use cache (cache is still active)
-    await w2(async (step, deps) => {
+    await w2(async ({ step, deps }) => {
       const user = await step('fetchUser', () => deps.fetchUser("1"), { key: "user:1" });
       return user;
     });
@@ -5747,7 +5747,7 @@ describe("createWorkflow with execution-time options", () => {
     const w2 = workflow.with({ onEvent: (e) => eventsB.push(e) });
 
     // Run w2 - uses B
-    await w2(async (step) => {
+    await w2(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"));
       return user;
     });
@@ -5758,7 +5758,7 @@ describe("createWorkflow with execution-time options", () => {
     eventsC.length = 0;
 
     // Run workflow.run with C - uses C
-    await workflow.run(async (step) => {
+    await workflow.run(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"));
       return user;
     }, {
@@ -5772,7 +5772,7 @@ describe("createWorkflow with execution-time options", () => {
     eventsC.length = 0;
 
     // Run workflow() - uses A (creation-time)
-    await workflow(async (step) => {
+    await workflow(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"));
       return user;
     });
@@ -5789,7 +5789,7 @@ describe("createWorkflow with execution-time options", () => {
 
     const result = await workflow.run(
       { userId: "1" },
-      async (step, deps, args) => {
+      async ({ step, deps, args }) => {
         const user = await step('fetchUser', () => deps.fetchUser(args.userId));
         return user;
       },
@@ -5811,7 +5811,7 @@ describe("createWorkflow with execution-time options", () => {
 
     const result = await w2(
       { userId: "1" },
-      async (step, deps, args) => {
+      async ({ step, deps, args }) => {
         const user = await step('fetchUser', () => deps.fetchUser(args.userId));
         return user;
       }
@@ -5833,7 +5833,7 @@ describe("createWorkflow with execution-time options", () => {
       .with({ onEvent: (e) => events.push(e) })
       .with({ signal: controller.signal });
 
-    const result = await chained(async (step) => {
+    const result = await chained(async ({ step }) => {
       const user = await step('fetchUser', () => fetchUser("1"));
       return user;
     });
@@ -5850,7 +5850,7 @@ describe("createWorkflow with execution-time options", () => {
 describe("step.sleep() method", () => {
   it("completes after specified duration (string)", async () => {
     const startTime = Date.now();
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       await step.sleep("short-sleep", "100ms");
       return Date.now() - startTime;
     });
@@ -5863,7 +5863,7 @@ describe("step.sleep() method", () => {
 
   it("completes after specified duration (Duration object)", async () => {
     const startTime = Date.now();
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       await step.sleep("short-sleep", millis(100));
       return Date.now() - startTime;
     });
@@ -5879,7 +5879,7 @@ describe("step.sleep() method", () => {
 
     const workflow = createWorkflow("workflow", {}, { signal: controller.signal });
 
-    const resultPromise = workflow.run(async (step) => {
+    const resultPromise = workflow.run(async ({ step }) => {
       await step.sleep("long-sleep", "5s");
       return "completed";
     });
@@ -5897,7 +5897,7 @@ describe("step.sleep() method", () => {
   it("respects user-provided signal cancellation", async () => {
     const controller = new AbortController();
 
-    const resultPromise = run(async (step) => {
+    const resultPromise = run(async ({ step }) => {
       await step.sleep("long-sleep", "5s", { signal: controller.signal });
       return "completed";
     });
@@ -5924,7 +5924,7 @@ describe("step.sleep() method", () => {
     controller.abort(); // Abort before sleep starts
 
     const startTime = Date.now();
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       await step.sleep("long-sleep", "5s", { signal: controller.signal });
       return "completed";
     });
@@ -5946,7 +5946,7 @@ describe("step.sleep() method", () => {
     const controller = new AbortController();
     const workflow = createWorkflow("workflow", {});
 
-    const resultPromise = workflow.run(async (step) => {
+    const resultPromise = workflow.run(async ({ step }) => {
       await step.sleep("long-sleep", "5s", { signal: controller.signal });
       return "completed";
     });
@@ -5969,7 +5969,7 @@ describe("step.sleep() method", () => {
     const controller = new AbortController();
     const sleepOrder: string[] = [];
 
-    const resultPromise = run(async (step) => {
+    const resultPromise = run(async ({ step }) => {
       // First sleep has signal, second does not
       const sleep1 = step.sleep("sleep-with-signal", "100ms", { signal: controller.signal })
         .then(() => sleepOrder.push("sleep1-done"))
@@ -5998,7 +5998,7 @@ describe("step.sleep() method", () => {
 
     const workflow = createWorkflow("workflow", {}, { signal: workflowController.signal });
 
-    const resultPromise = workflow.run(async (step) => {
+    const resultPromise = workflow.run(async ({ step }) => {
       await step.sleep("long-sleep", "5s", { signal: userController.signal });
       return "completed";
     });
@@ -6019,7 +6019,7 @@ describe("step.sleep() method", () => {
     const events: WorkflowEvent<unknown>[] = [];
 
     const resultPromise = run(
-      async (step) => {
+      async ({ step }) => {
         await step.sleep("signaled-sleep", "5s", { signal: controller.signal });
         return "completed";
       },
@@ -6044,7 +6044,7 @@ describe("step.sleep() method", () => {
     const controller = new AbortController();
     const startTime = Date.now();
 
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       await step.sleep("normal-sleep", "50ms", { signal: controller.signal });
       return "completed";
     });
@@ -6061,7 +6061,7 @@ describe("step.sleep() method", () => {
   });
 
   it("handles invalid duration string as unexpected error", async () => {
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       await step.sleep("bad-sleep", "invalid");
       return "completed";
     });
@@ -6076,7 +6076,7 @@ describe("step.sleep() method", () => {
     const events: WorkflowEvent<unknown>[] = [];
 
     await run(
-      async (step) => {
+      async ({ step }) => {
         await step.sleep("test-sleep", "10ms");
       },
       { onEvent: (e) => events.push(e) }
@@ -6096,7 +6096,7 @@ describe("step.sleep() method", () => {
   it("rejects empty sleep id in workflows", async () => {
     const workflow = createWorkflow("workflow");
 
-    const result = await workflow.run(async (step) => {
+    const result = await workflow.run(async ({ step }) => {
       await step.sleep("", "10ms");
       return "done";
     });
@@ -6111,7 +6111,7 @@ describe("step.sleep() method", () => {
     const workflow = createWorkflow("workflow");
     const startTime = Date.now();
 
-    const result = await workflow.run(async (step) => {
+    const result = await workflow.run(async ({ step }) => {
       await step.sleep("workflow-sleep", "50ms");
       return Date.now() - startTime;
     });
@@ -6126,7 +6126,7 @@ describe("step.sleep() method", () => {
     const events: WorkflowEvent<unknown>[] = [];
 
     await run(
-      async (step) => {
+      async ({ step }) => {
         await step.sleep("sleep", "25ms");
       },
       { onEvent: (e) => events.push(e) }
@@ -6149,7 +6149,7 @@ describe("step.sleep() method", () => {
       { cache, onEvent: (e) => events.push(e) }
     );
 
-    const result = await workflow(async (step) => {
+    const result = await workflow(async ({ step }) => {
       await step.sleep("sleep-1", "5ms");
       await step.sleep("sleep-2", "5ms");
       return "done";
@@ -6172,7 +6172,7 @@ describe("step.sleep() method", () => {
     );
 
     // First run - cache miss, actually sleeps (explicit key enables caching)
-    const result1 = await workflow(async (step) => {
+    const result1 = await workflow(async ({ step }) => {
       await step.sleep("sleep:1", "10ms", { key: "sleep:1" });
       return "done";
     });
@@ -6185,7 +6185,7 @@ describe("step.sleep() method", () => {
     events.length = 0;
 
     // Second run - cache hit, should not actually sleep
-    const result2 = await workflow(async (step) => {
+    const result2 = await workflow(async ({ step }) => {
       await step.sleep("sleep:1", "10ms", { key: "sleep:1" });
       return "done";
     });
@@ -6201,7 +6201,7 @@ describe("Double-wrap detection", () => {
   it("demonstrates the double-wrap mistake pattern", async () => {
     // This test demonstrates what happens when users mistakenly return ok()
     // from the workflow executor - the value gets double-wrapped
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       const value = await step('getValue', () => ok(42));
       return ok({ answer: value }); // MISTAKE: returning ok() from executor
     });
@@ -6218,7 +6218,7 @@ describe("Double-wrap detection", () => {
 
   it("shows correct pattern: returning raw value", async () => {
     // This test demonstrates the correct pattern - return raw values
-    const result = await run(async (step) => {
+    const result = await run(async ({ step }) => {
       const value = await step('getValue', () => ok(42));
       return { answer: value }; // CORRECT: return raw value
     });
@@ -6233,7 +6233,7 @@ describe("Double-wrap detection", () => {
     const fetchNumber = async (): AsyncResult<number, "ERROR"> => ok(42);
     const workflow = createWorkflow("workflow", { fetchNumber });
 
-    const result = await workflow(async (step, { fetchNumber }) => {
+    const result = await workflow(async ({ step, deps: { fetchNumber } }) => {
       const num = await step('fetchNumber', () => fetchNumber());
       return ok({ data: num }); // MISTAKE
     });
@@ -6261,7 +6261,7 @@ describe("Effect-style ergonomics", () => {
         return err("NOT_FOUND");
       };
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const userResult = fetchUser("1");
         const user = await step.run('fetchUser', userResult);
         return user.name;
@@ -6275,7 +6275,7 @@ describe("Effect-style ergonomics", () => {
         return err("NOT_FOUND");
       };
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const userResult = fetchUser("1");
         const user = await step.run('fetchUser', userResult);
         return user.name;
@@ -6291,7 +6291,7 @@ describe("Effect-style ergonomics", () => {
 
       const workflow = createWorkflow("test", { fetchUser });
 
-      const result = await workflow(async (step, { fetchUser }) => {
+      const result = await workflow(async ({ step, deps: { fetchUser } }) => {
         const user = await step.run('fetchUser', fetchUser("1"));
         return user.name;
       });
@@ -6309,7 +6309,7 @@ describe("Effect-style ergonomics", () => {
       const cache = new Map<string, Result<unknown, unknown>>();
       const workflow = createWorkflow("test", { fetchUser }, { cache });
 
-      const result = await workflow(async (step, { fetchUser }) => {
+      const result = await workflow(async ({ step, deps: { fetchUser } }) => {
         // Use getters so the step only runs the fetch when the step runs (cache miss)
         const first = await step.run("fetchUser1", () => fetchUser("1"), { key: "user:1" });
         const second = await step.run("fetchUser2", () => fetchUser("1"), { key: "user:1" });
@@ -6331,7 +6331,7 @@ describe("Effect-style ergonomics", () => {
         return ok({ ...user, premium: true });
       };
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const user = { id: "1", name: "Alice" };
         const enriched = await step.andThen('enrich', user, enrichUser);
         return enriched.premium;
@@ -6348,7 +6348,7 @@ describe("Effect-style ergonomics", () => {
         return err("ENRICHMENT_FAILED");
       };
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const user = { id: "1", name: "Alice" };
         const enriched = await step.andThen('enrich', user, enrichUser);
         return enriched.premium;
@@ -6362,7 +6362,7 @@ describe("Effect-style ergonomics", () => {
     it("executes ok branch for success", async () => {
       const userResult = ok({ id: "1", name: "Alice" });
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const message = await step.match('handleUser', userResult, {
           ok: async (user) => `Hello, ${user.name}`,
           err: async () => "User not found",
@@ -6376,7 +6376,7 @@ describe("Effect-style ergonomics", () => {
     it("executes err branch for error", async () => {
       const userResult = err("NOT_FOUND");
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const message = await step.match('handleUser', userResult, {
           ok: async (user: { name: string }) => `Hello, ${user.name}`,
           err: async (error) => `Error: ${error}`,
@@ -6390,7 +6390,7 @@ describe("Effect-style ergonomics", () => {
     it("can execute steps in both branches", async () => {
       const events: string[] = [];
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const userResult = ok({ id: "1", name: "Alice" });
 
         const message = await step.match('handleUser', userResult, {
@@ -6422,7 +6422,7 @@ describe("Effect-style ergonomics", () => {
       const workflowEvents: string[] = [];
 
       await run(
-        async (step) => {
+        async ({ step }) => {
           const result = ok({ id: "1", name: "Alice" });
           return step.match("handleUser", result, {
             ok: async (user) => `Hello ${user.name}`,
@@ -6453,7 +6453,7 @@ describe("Effect-style ergonomics", () => {
         return ok(["post1", "post2"]);
       };
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const { user, posts } = await step.all('fetchAll', {
           user: () => fetchUser("1"),
           posts: () => fetchPosts("1"),
@@ -6476,7 +6476,7 @@ describe("Effect-style ergonomics", () => {
 
       const workflow = createWorkflow("test", { fetchUser }, { cache: new Map() });
 
-      const result = await workflow(async (step, { fetchUser }) => {
+      const result = await workflow(async ({ step, deps: { fetchUser } }) => {
         const first = await step.all("fetchAll", { user: () => fetchUser("1") });
         const second = await step.all("fetchAll", { user: () => fetchUser("1") });
         return [first.user.name, second.user.name] as const;
@@ -6493,7 +6493,7 @@ describe("Effect-style ergonomics", () => {
         return ok({ id, name: `User${id}` });
       };
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const users = await step.map('fetchUsers', ["1", "2", "3"], (id) => fetchUser(id));
         return users.map(u => u.name);
       });
@@ -6512,7 +6512,7 @@ describe("Effect-style ergonomics", () => {
         return ok({ id, name: `User${id}` });
       };
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const users = await step.map('fetchUsers', ["1", "2", "3"], (id) => fetchUser(id));
         return users.map(u => u.name);
       }, { onError: () => {} }); // Add error handler to avoid UnexpectedError wrapping
@@ -6530,7 +6530,7 @@ describe("Effect-style ergonomics", () => {
         return ok({ id, name: `User${id}` });
       };
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const users = await step.map(
           'fetchUsers',
           ["1", "2", "3", "4", "5"],
@@ -6551,7 +6551,7 @@ describe("Effect-style ergonomics", () => {
 
       const workflow = createWorkflow("test", { fetchUser });
 
-      const result = await workflow(async (step, { fetchUser }) => {
+      const result = await workflow(async ({ step, deps: { fetchUser } }) => {
         const users = await step.map('fetchUsers', ["1", "2"], (id) => fetchUser(id));
         return users.map(u => u.name);
       });
@@ -6569,7 +6569,7 @@ describe("Effect-style ergonomics", () => {
       const cache = new Map<string, Result<unknown, unknown>>();
       const workflow = createWorkflow("test", { fetchUser }, { cache });
 
-      const result = await workflow(async (step, { fetchUser }) => {
+      const result = await workflow(async ({ step, deps: { fetchUser } }) => {
         const first = await step.map("fetchUsers", ["1", "2"], (id) => fetchUser(id));
         const second = await step.map("fetchUsers", ["1", "2"], (id) => fetchUser(id));
         return [first.length, second.length] as const;
@@ -6609,7 +6609,7 @@ describe("Effect-style ergonomics", () => {
         sendEmail,
       });
 
-      const result = await workflow(async (step, deps) => {
+      const result = await workflow(async ({ step, deps }) => {
         // Use step.run() to unwrap AsyncResults directly
         const user = await step.run('fetchUser', deps.fetchUser("1"));
 

@@ -32,7 +32,7 @@ export const orderWorkflow = createWorkflow("orderWorkflow", {
 });
 
 export async function processOrderWithDiscount(orderId: string, hasDiscount: boolean) {
-  return await orderWorkflow(async (step, deps) => {
+  return await orderWorkflow(async ({ step, deps }) => {
     const order = await step('getOrder', () => deps.processOrder(orderId), {
       errors: ['ORDER_NOT_FOUND'],
       out: 'order',

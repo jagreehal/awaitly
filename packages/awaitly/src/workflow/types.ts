@@ -148,14 +148,14 @@ export type CausesOfDeps<Deps extends Record<string, AnyResultFn>> =
  * const workflow = createWorkflow(deps, { cache, onEvent: defaultHandler });
  *
  * // Normal run uses creation-time options
- * await workflow(async (step) => { ... });
+ * await workflow(async ({ step }) => { ... });
  *
  * // Per-run options override creation-time options
- * await workflow.run(async (step) => { ... }, { onEvent: viz.handleEvent });
+ * await workflow.run(async ({ step }) => { ... }, { onEvent: viz.handleEvent });
  *
  * // Pre-bind defaults with .with() (overridable by .run())
  * const visualized = workflow.with({ onEvent: viz.handleEvent });
- * await visualized(async (step) => { ... });
+ * await visualized(async ({ step }) => { ... });
  * ```
  */
 export type ExecutionOptions<E, U = UnexpectedError, C = void> = {
@@ -315,7 +315,7 @@ export type WorkflowContext<C = void, Input = Record<string, unknown>, Data = Re
    *
    * @example
    * ```typescript
-   * const result = await workflow(async (step, deps, ctx) => {
+   * const result = await workflow(async ({ step, deps, ctx }) => {
    *   // Pass signal to fetch
    *   const response = await fetch(url, { signal: ctx.signal });
    *   // Or check manually
@@ -389,10 +389,10 @@ export type WorkflowContext<C = void, Input = Record<string, unknown>, Data = Re
 };
 
 /** Workflow function type (no args) */
-export type WorkflowFn<T, E, Deps, C = void> = (step: RunStep<E>, deps: Deps, ctx: WorkflowContext<C>) => T | Promise<T>;
+export type WorkflowFn<T, E, Deps, C = void> = (context: { step: RunStep<E>; deps: Deps; ctx: WorkflowContext<C> }) => T | Promise<T>;
 
 /** Workflow function type (with args) */
-export type WorkflowFnWithArgs<T, Args, E, Deps, C = void> = (step: RunStep<E>, deps: Deps, args: Args, ctx: WorkflowContext<C>) => T | Promise<T>;
+export type WorkflowFnWithArgs<T, Args, E, Deps, C = void> = (context: { step: RunStep<E>; deps: Deps; args: Args; ctx: WorkflowContext<C> }) => T | Promise<T>;
 
 // =============================================================================
 // Snapshot API Types
@@ -442,14 +442,14 @@ export interface SubscribeOptions {
 export interface Workflow<E, U = UnexpectedError, Deps = unknown, C = void> {
   /**
    * Execute workflow without arguments (original API)
-   * @param fn - Callback receives (step, deps, ctx) where ctx is workflow context (always provided)
+   * @param fn - Callback receives ({ step, deps, ctx }) where ctx is workflow context (always provided)
    */
   <T>(fn: WorkflowFn<T, E, Deps, C>): AsyncResult<T, E | U, unknown>;
 
   /**
    * Execute workflow with typed arguments
    * @param args - Typed arguments passed to the callback (type inferred at call site)
-   * @param fn - Callback receives (step, deps, args, ctx) where ctx is workflow context (always provided)
+   * @param fn - Callback receives ({ step, deps, args, ctx }) where ctx is workflow context (always provided)
    */
   <T, Args>(
     args: Args,
@@ -458,7 +458,7 @@ export interface Workflow<E, U = UnexpectedError, Deps = unknown, C = void> {
 
   /**
    * Execute workflow with execution-time options (no args).
-   * @param fn - Callback receives (step, deps, ctx)
+   * @param fn - Callback receives ({ step, deps, ctx })
    * @param exec - Execution-time options that override creation-time options
    */
   run<T>(fn: WorkflowFn<T, E, Deps, C>, exec?: ExecutionOptions<E, U, C>): AsyncResult<T, E | U, unknown>;
@@ -466,7 +466,7 @@ export interface Workflow<E, U = UnexpectedError, Deps = unknown, C = void> {
   /**
    * Execute workflow with execution-time options (with args).
    * @param args - Typed arguments passed to the callback
-   * @param fn - Callback receives (step, deps, args, ctx)
+   * @param fn - Callback receives ({ step, deps, args, ctx })
    * @param exec - Execution-time options that override creation-time options
    */
   run<T, Args>(args: Args, fn: WorkflowFnWithArgs<T, Args, E, Deps, C>, exec?: ExecutionOptions<E, U, C>): AsyncResult<T, E | U, unknown>;

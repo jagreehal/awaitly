@@ -100,7 +100,7 @@ describe("Workflows Documentation - Your First Workflow", () => {
     const cartItems: CartItem[] = [{ productId: "prod_1", quantity: 2 }];
     const userId = "user_123";
 
-    const result = await checkout(async (step, deps) => {
+    const result = await checkout(async ({ step, deps }) => {
       // deps contains { chargePayment, reserveInventory, createOrder }
       const payment = await step('chargePayment', () => deps.chargePayment({ amount: 99, method: "card_xxx" }));
       const reservation = await step('reserveInventory', () => deps.reserveInventory({ items: cartItems }));
@@ -126,7 +126,7 @@ describe("Workflows Documentation - Your First Workflow", () => {
 
     const checkout = createWorkflow("checkout", { chargePayment, reserveInventory, createOrder });
 
-    const result = await checkout(async (step, deps) => {
+    const result = await checkout(async ({ step, deps }) => {
       const payment = await step('chargePayment', () => deps.chargePayment());
       // These should never be called because of early exit
       await step('reserveInventory', () => deps.reserveInventory({ items: [] }));
@@ -152,7 +152,7 @@ describe("Workflows Documentation - Your First Workflow", () => {
 
     const workflow = createWorkflow("workflow", { fetchData });
 
-    const result = await workflow(async (step, deps) => {
+    const result = await workflow(async ({ step, deps }) => {
       return await step('fetchData', () => deps.fetchData());
     });
 
@@ -211,7 +211,7 @@ describe("Workflows Documentation - Saga Pattern", () => {
 
     const cartItems: CartItem[] = [{ productId: "prod_1", quantity: 1 }];
 
-    const result = await sagaCheckout(async (saga, deps) => {
+    const result = await sagaCheckout(async ({ saga, deps }) => {
       // Step 1: Charge with compensation
       await saga.step(
         "charge-payment",
@@ -258,7 +258,7 @@ describe("Workflows Documentation - Saga Pattern", () => {
 
     const saga = createSagaWorkflow("checkout", { chargePayment, reserveInventory });
 
-    const result = await saga(async (ctx, deps) => {
+    const result = await saga(async ({ saga: ctx, deps }) => {
       const payment = await ctx.step(
         "charge-payment",
         () => deps.chargePayment(),
@@ -296,7 +296,7 @@ describe("Workflows Documentation - Saga Pattern", () => {
 
     const saga = createSagaWorkflow("checkout", { fetchUser, chargePayment, refundPayment });
 
-    const result = await saga(async (ctx, deps) => {
+    const result = await saga(async ({ saga: ctx, deps }) => {
       // No compensation needed for reads
       const user = await ctx.step(
         "fetch-user",
@@ -345,7 +345,7 @@ describe("Workflows Documentation - Parallel Operations", () => {
     // From docs: loadDashboard pattern
     const loadDashboard = createWorkflow("loadDashboard", { fetchProfile, fetchOrders, fetchRecommendations });
 
-    const result = await loadDashboard(async (step, deps) => {
+    const result = await loadDashboard(async ({ step, deps }) => {
       const userId = "user_123";
 
       // Run all three in parallel - fail fast if any fails
@@ -473,7 +473,7 @@ describe("Workflows Documentation - Parallel Operations", () => {
 
     const userDashboard = createWorkflow("userDashboard", { fetchUser, fetchPosts, fetchFriends, fetchSettings });
 
-    const result = await userDashboard(async (step, deps) => {
+    const result = await userDashboard(async ({ step, deps }) => {
       // Fetch user first (sequential dependency)
       const user = await step('fetchUser', () => deps.fetchUser({ userId: "user_1" }));
 
@@ -637,7 +637,7 @@ describe("Workflows Documentation - Approval Workflows", () => {
     const refundWorkflow = createWorkflow("refund", { calculateRefund, requireApproval });
 
     const result = await refundWorkflow(
-      async (step, deps) => {
+      async ({ step, deps }) => {
         const refund = await step('calculateRefund', () => deps.calculateRefund());
 
         // Workflow pauses here until approved
@@ -688,7 +688,7 @@ describe("Workflows Documentation - Approval Workflows", () => {
       resumeState,
     });
 
-    const result = await refundWorkflow(async (step, deps) => {
+    const result = await refundWorkflow(async ({ step, deps }) => {
       const refund = await step('calculateRefund', () => deps.calculateRefund());
       // The approval step uses cache from resumeState (key must match)
       // step() returns the unwrapped value directly, not a Result
@@ -775,7 +775,7 @@ describe("Workflows Documentation - Combining Patterns", () => {
       notifyCustomer,
     });
 
-    const result = await orderFulfillment(async (saga, deps) => {
+    const result = await orderFulfillment(async ({ saga, deps }) => {
       // Validation (no compensation needed)
       const order = await saga.step(
         "validate-order",
@@ -835,7 +835,7 @@ describe("Workflows Documentation - API Verification", () => {
     const workflow = createWorkflow("workflow", { fetchData });
 
     // Verify the callback signature
-    const result = await workflow(async (step, deps, ctx) => {
+    const result = await workflow(async ({ step, deps, ctx }) => {
       // step is the step function
       expect(typeof step).toBe("function");
 
@@ -858,7 +858,7 @@ describe("Workflows Documentation - API Verification", () => {
     const saga = createSagaWorkflow("saga", { fetchData });
 
     // Verify the callback signature
-    const result = await saga(async (ctx, deps) => {
+    const result = await saga(async ({ saga: ctx, deps }) => {
       // ctx has step method
       expect(typeof ctx.step).toBe("function");
 
@@ -877,7 +877,7 @@ describe("Workflows Documentation - API Verification", () => {
     const workflow = createWorkflow("workflow", { fetchData });
 
     // step() requires a thunk (function wrapper)
-    const result = await workflow(async (step, deps) => {
+    const result = await workflow(async ({ step, deps }) => {
       // Form 1: Function wrapper (required form)
       const val1 = await step('fetchData1', () => deps.fetchData());
 

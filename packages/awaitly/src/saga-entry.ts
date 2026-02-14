@@ -13,7 +13,7 @@
  *   chargeCard: { execute: chargeCard, compensate: refundCard },
  * });
  *
- * const result = await runSaga(bookingWorkflow, async (step) => {
+ * const result = await runSaga(bookingWorkflow, async ({ step }) => {
  *   const flight = await step('reserveFlight', flightDetails);
  *   const hotel = await step('reserveHotel', hotelDetails);
  *   const payment = await step('chargeCard', paymentDetails);

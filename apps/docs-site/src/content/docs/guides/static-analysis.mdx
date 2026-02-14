@@ -187,7 +187,7 @@ The analyzer handles various callback patterns:
 
 ```typescript
 // Simple identifier
-workflow(async (step) => { ... });
+workflow(async ({ step, deps }) => { ... });
 
 // Destructuring
 workflow(async ({ step }) => { ... });

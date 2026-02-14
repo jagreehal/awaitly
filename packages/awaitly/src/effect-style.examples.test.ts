@@ -72,7 +72,7 @@ describe('Effect-Style Ergonomics Examples', () => {
 
   describe('step.run() - Direct unwrapping', () => {
     it('eliminates wrapper function boilerplate', async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         // BEFORE: const user = await step('fetchUser', () => fetchUser('123'));
         // AFTER:  const user = await step.run('fetchUser', fetchUser('123'));
 
@@ -86,7 +86,7 @@ describe('Effect-Style Ergonomics Examples', () => {
     it('works seamlessly with createWorkflow', async () => {
       const workflow = createWorkflow('getUserProfile', { fetchUser });
 
-      const result = await workflow(async (step, { fetchUser }) => {
+      const result = await workflow(async ({ step, deps: { fetchUser } }) => {
         const user = await step.run('fetchUser', fetchUser('123'));
         return { id: user.id, email: user.email };
       });
@@ -104,7 +104,7 @@ describe('Effect-Style Ergonomics Examples', () => {
 
   describe('step.andThen() - Chainable operations', () => {
     it('chains dependent operations elegantly', async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         // Fetch user
         const user = await step.run('fetchUser', fetchUser('123'));
 
@@ -118,7 +118,7 @@ describe('Effect-Style Ergonomics Examples', () => {
     });
 
     it('demonstrates natural error propagation', async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const user = await step.run('fetchUser', fetchUser('missing'));
         const enriched = await step.andThen('enrichProfile', user, enrichUserProfile);
         return enriched.tier;
@@ -134,7 +134,7 @@ describe('Effect-Style Ergonomics Examples', () => {
 
   describe('step.match() - Pattern matching', () => {
     it('handles success and error paths explicitly', async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const userResult = await fetchUser('123');
 
         return await step.match('handleUser', userResult, {
@@ -154,7 +154,7 @@ describe('Effect-Style Ergonomics Examples', () => {
     });
 
     it('allows graceful degradation', async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const notificationResult = await sendNotification('user@fail.com', 'Test');
 
         const status = await step.match('handleNotification', notificationResult, {
@@ -179,7 +179,7 @@ describe('Effect-Style Ergonomics Examples', () => {
 
   describe('step.all() - Parallel operations', () => {
     it('executes operations in parallel with named results', async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         // BEFORE:
         // const { user, orders } = await step('fetchAll', () =>
         //   Awaitly.allAsync({ user: fetchUser('123'), orders: fetchOrders('123') })
@@ -212,7 +212,7 @@ describe('Effect-Style Ergonomics Examples', () => {
     it('maps over arrays with parallel execution', async () => {
       const userIds = ['1', '2', '3'];
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         // BEFORE:
         // const users = await step('fetchUsers', () =>
         //   Awaitly.allAsync(userIds.map(id => fetchUser(id)))
@@ -233,7 +233,7 @@ describe('Effect-Style Ergonomics Examples', () => {
     it('supports concurrency limiting for rate-limited APIs', async () => {
       const userIds = ['1', '2', '3', '4', '5', '6', '7', '8'];
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         // Process in batches of 3 to respect API rate limits
         const users = await step.map(
           'fetchUsers',
@@ -276,7 +276,7 @@ describe('Effect-Style Ergonomics Examples', () => {
         sendNotification,
       });
 
-      const result = await workflow(async (step, deps) => {
+      const result = await workflow(async ({ step, deps }) => {
         // 1. Fetch and enrich user in parallel (if possible)
         const user = await step.run('fetchUser', deps.fetchUser('123'));
         const enriched = await step.andThen('enrichUser', user, deps.enrichUserProfile);
@@ -335,7 +335,7 @@ describe('Effect-Style Ergonomics Examples', () => {
       // ========================================
       // BEFORE: Verbose, lots of wrappers
       // ========================================
-      const resultBefore = await run(async (step) => {
+      const resultBefore = await run(async ({ step }) => {
         const user = await step('fetchUser', () => fetchUser('123'));
         const enriched = await step('enrich', () => enrichUserProfile(user));
 
@@ -350,7 +350,7 @@ describe('Effect-Style Ergonomics Examples', () => {
       // ========================================
       // AFTER: Clean, Effect-style
       // ========================================
-      const resultAfter = await run(async (step) => {
+      const resultAfter = await run(async ({ step }) => {
         const user = await step.run('fetchUser', fetchUser('123'));
         const enriched = await step.andThen('enrich', user, enrichUserProfile);
 

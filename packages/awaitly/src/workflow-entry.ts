@@ -14,7 +14,7 @@
  *
  * const workflow = createWorkflow('fetch-user', { fetchUser });
  *
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   const user = await step(fetchUser('1'));
  *   return user;
  * });

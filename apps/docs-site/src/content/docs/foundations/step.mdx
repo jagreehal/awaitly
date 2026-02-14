@@ -14,9 +14,9 @@ import { Aside, Tabs, TabItem, AnimatedWorkflowDiagram } from '~/components';
 ```typescript
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts });
 
-const result = await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'));
-  const posts = await step('fetchPosts', () => fetchPosts(user.id));
+const result = await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'));
+  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));
   return { user, posts };
 });
 ```
@@ -61,7 +61,7 @@ Pass a function (thunk) as the second argument so the step can be cached. The fi
 />
 
 ```typescript
-const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 ```
 
 <Aside type="note">
@@ -73,7 +73,7 @@ A thunk is just a function with no arguments that returns the value. Using thunk
 Pass options as the third argument to `step('id', fn, opts)`:
 
 ```typescript
-const user = await step('fetchUser', () => fetchUser('1'), {
+const user = await step('fetchUser', () => deps.fetchUser('1'), {
   key: 'user:1',            // For caching/deduplication
   retry: { attempts: 3 },   // Retry on failure
   timeout: { ms: 5000 },    // Timeout after 5 seconds
@@ -152,7 +152,7 @@ Output (on rate limit):
 ```typescript
 const user = await step.retry(
   'fetchUser',
-  () => fetchUser('1'),
+  () => deps.fetchUser('1'),
   {
     attempts: 3,
     backoff: 'exponential',  // 'fixed' | 'linear' | 'exponential'
@@ -214,7 +214,7 @@ If the timeout is reached, the workflow gets a `StepTimeoutError`.
 ```typescript
 const data = await step.retry(
   'fetchData',
-  () => step.withTimeout('fetchData', () => fetchData(), { ms: 2000 }),
+  () => step.withTimeout('fetchData', () => deps.fetchData(), { ms: 2000 }),
   { attempts: 3, backoff: 'exponential' }
 );
 ```
@@ -262,13 +262,13 @@ await step.sleep("poll-delay", "2s", {
 ### Rate limiting example
 
 ```typescript
-const result = await workflow(async (step) => {
-  const data = await step('fetchData', () => fetchData());
+const result = await workflow(async ({ step, deps }) => {
+  const data = await step('fetchData', () => deps.fetchData());
   
   // Respect rate limits - wait 1 second between requests
   await step.sleep("rate-limit-delay", "1s");
   
-  const moreData = await step('fetchMoreData', () => fetchMoreData());
+  const moreData = await step('fetchMoreData', () => deps.fetchMoreData());
   return { data, moreData };
 });
 ```
@@ -276,13 +276,13 @@ const result = await workflow(async (step) => {
 ### Polling example
 
 ```typescript
-const result = await workflow(async (step) => {
-  let status = await step('checkStatus', () => checkStatus());
+const result = await workflow(async ({ step, deps }) => {
+  let status = await step('checkStatus', () => deps.checkStatus());
   
   // Poll every 2 seconds until complete
   while (status !== "complete") {
     await step.sleep("poll-interval", "2s");
-    status = await step('checkStatus', () => checkStatus());
+    status = await step('checkStatus', () => deps.checkStatus());
   }
   
   return status;
@@ -299,7 +299,7 @@ const result = await workflow(async (step) => {
 const controller = new AbortController();
 const workflow = createWorkflow('workflow', { }, { signal: controller.signal });
 
-const resultPromise = workflow(async (step) => {
+const resultPromise = workflow(async ({ step, deps }) => {
   await step.sleep("long-sleep", "10s");
   return "completed";
 });
@@ -344,7 +344,7 @@ Process arrays with automatic indexing, resume support, and static analyzability
 await step.forEach('process-payments', payments, {
   stepIdPattern: 'payment-{i}',
   run: async (payment) => {
-    const result = await step('processPayment', () => processPayment(payment));
+    const result = await step('processPayment', () => deps.processPayment(payment));
     return result;
   }
 });
@@ -357,7 +357,7 @@ await step.forEach('process-payments', payments, {
 await step.forEach('send-emails', users, {
   stepIdPattern: 'email-{i}',
   run: async (user) => {
-    await step('sendEmail', () => sendEmail(user.email));
+    await step('sendEmail', () => deps.sendEmail(user.email));
   }
 });
 ```
@@ -370,7 +370,7 @@ const results = await step.forEach('fetch-users', userIds, {
   stepIdPattern: 'user-{i}',
   collect: 'array',  // or 'last' for only the final result
   run: async (userId) => {
-    return await step('fetchUser', () => fetchUser(userId));
+    return await step('fetchUser', () => deps.fetchUser(userId));
   }
 });
 // results is User[]
@@ -383,13 +383,13 @@ When you use a manual `for` loop, use **one literal step ID** (label) and a **pe
 ```typescript
 // Option A: manual loop — one literal ID + key per iteration
 for (const payment of payments) {
-  await step('processPayment', () => processPayment(payment), { key: `payment-${payment.id}` });
+  await step('processPayment', () => deps.processPayment(payment), { key: `payment-${payment.id}` });
 }
 
 // Preferred when static analysis matters: step.forEach() is enumerable
 await step.forEach('process-payments', payments, {
   stepIdPattern: 'payment-{i}',
-  run: (payment) => step('processPayment', () => processPayment(payment))
+  run: (payment) => step('processPayment', () => deps.processPayment(payment))
 });
 ```
 
@@ -412,10 +412,10 @@ Unwrap an AsyncResult with a step ID. Use a **getter** when caching so the opera
 
 ```typescript
 // run() - unwraps and exits on error
-const user = await step.run('fetchUser', fetchUser('1'));
+const user = await step.run('fetchUser', deps.fetchUser('1'));
 
 // With createWorkflow cache: pass a getter so the second call can hit cache
-const user = await step.run('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+const user = await step.run('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 ```
 
 ### step.andThen - chain AsyncResults
@@ -444,8 +444,8 @@ Alias for `step.parallel`. Runs multiple operations in parallel and returns an o
 
 ```typescript
 const { user, posts } = await step.all('fetchAll', {
-  user: () => fetchUser('1'),
-  posts: () => fetchPosts('1'),
+  user: () => deps.fetchUser('1'),
+  posts: () => deps.fetchPosts('1'),
 });
 ```
 
@@ -454,7 +454,7 @@ const { user, posts } = await step.all('fetchAll', {
 Map over an array with parallel execution. **Only caches when you pass an explicit `key`** (omitted key = no cache, matching core).
 
 ```typescript
-const users = await step.map('fetchUsers', ['1', '2', '3'], (id) => fetchUser(id));
+const users = await step.map('fetchUsers', ['1', '2', '3'], (id) => deps.fetchUser(id));
 ```
 
 <Aside type="note" title="Caching and run / all / map">
@@ -470,12 +470,12 @@ Run multiple steps concurrently:
 ```typescript
 import { allAsync } from 'awaitly';
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const [user, posts, comments] = await step('fetchUserData', () =>
     allAsync([
-      fetchUser('1'),
-      fetchPosts('1'),
-      fetchComments('1'),
+      deps.fetchUser('1'),
+      deps.fetchPosts('1'),
+      deps.fetchComments('1'),
     ])
   );
   return { user, posts, comments };
@@ -493,12 +493,12 @@ Output (any fails):
 ```typescript
 import { allSettled } from 'awaitly';
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const results = await step('fetchAllSettled', () =>
     Promise.all([
-      fetchUser('1'),
-      fetchPosts('1'),
-      fetchComments('1'),
+      deps.fetchUser('1'),
+      deps.fetchPosts('1'),
+      deps.fetchComments('1'),
     ]).then(allSettled)
   );
   // results contains all outcomes, even failures
@@ -513,8 +513,8 @@ const result = await workflow(async (step) => {
 The required string ID (first argument) is what appears in workflow diagrams and in **statically generated documentation**. [awaitly-analyze](/docs/guides/static-analysis/) extracts it and uses it in Mermaid diagrams, step tables, and doc generators. You can set `description` or `markdown` in options for richer docs. See [Documenting workflows](/docs/guides/documenting-workflows/) and [Visualization](/docs/guides/visualization/) for details.
 
 ```typescript
-const user = await step('fetchUser', () => fetchUser('1'));
-const posts = await step('fetchPosts', () => fetchPosts(user.id));
+const user = await step('fetchUser', () => deps.fetchUser('1'));
+const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));
 /*
 Workflow diagram and generated docs show:
 ┌─────────────┐     ┌─────────────┐

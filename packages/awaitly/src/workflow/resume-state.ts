@@ -67,7 +67,7 @@ import { isStepComplete, isPendingApproval, isPendingHook } from "./guards";
  *   onEvent: collector.handleEvent, // Pass collector's handler
  * });
  *
- * await workflow(async (step) => {
+ * await workflow(async ({ step }) => {
  *   // Only keyed steps are collected
  *   const user = await step(() => fetchUser("1"), { key: "user:1" });
  *   const posts = await step(() => fetchPosts(user.id), { key: `posts:${user.id}` });
@@ -91,7 +91,7 @@ import { isStepComplete, isPendingApproval, isPendingHook } from "./guards";
  * });
  *
  * // Cached steps skip execution, new steps run normally
- * await workflow(async (step) => {
+ * await workflow(async ({ step }) => {
  *   const user = await step(() => fetchUser("1"), { key: "user:1" }); // Cache hit
  *   const posts = await step(() => fetchPosts(user.id), { key: `posts:${user.id}` }); // Cache hit
  *   return { user, posts };
@@ -279,7 +279,7 @@ export function getPendingHooks(state: ResumeState): string[] {
  *   onEvent: collector.handleEvent,
  * });
  *
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   const user = await step(() => fetchUser("1"), { key: "user:1" });
  *   const approval = await step(requireApproval, { key: "approval:1" });
  *   return { user, approval };

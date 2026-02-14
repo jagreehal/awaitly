@@ -21,7 +21,7 @@ const sendEmail = async (to: string): AsyncResult<void, 'SEND_FAILED'> => {
 
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const user = await step('fetchUser', () => fetchUser('123'));
 
   // Only send email if user is not verified
@@ -40,7 +40,7 @@ const result = await workflow(async (step) => {
 Run a step only when a condition is true. Returns `undefined` if skipped.
 
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const user = await step('fetchUser', () => fetchUser('123'));
 
   // Only fetch premium data if user is premium
@@ -59,7 +59,7 @@ const result = await workflow(async (step) => {
 Run a step only when a condition is false. Returns `undefined` if skipped.
 
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const user = await step('fetchUser', () => fetchUser('123'));
 
   // Only send verification email if user is NOT verified
@@ -78,7 +78,7 @@ const result = await workflow(async (step) => {
 Run a step if condition is true, otherwise return a default value.
 
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const user = await step('fetchUser', () => fetchUser('123'));
 
   // Get premium limits or use default for non-premium users
@@ -98,7 +98,7 @@ const result = await workflow(async (step) => {
 Run a step if condition is false, otherwise return a default value.
 
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const user = await step('fetchUser', () => fetchUser('123'));
 
   // Generate new token if NOT authenticated, else use existing
@@ -141,7 +141,7 @@ const workflow = createWorkflow('workflow', { fetchUser }, {
   }
 });
 
-const result = await workflow(async (step, deps, args, ctx) => {
+const result = await workflow(async ({ step, deps, args, ctx }) => {
   // Create bound helpers
   const { when, whenOr } = createConditionalHelpers({
     workflowId: ctx.workflowId,
@@ -172,7 +172,7 @@ When using `run()`, pass context manually:
 import { run } from 'awaitly/run';
 import { createConditionalHelpers } from 'awaitly/workflow';
 
-const result = await run(async (step) => {
+const result = await run(async ({ step }) => {
   const ctx = {
     workflowId: 'workflow-123',
     onEvent: (event) => {
@@ -221,7 +221,7 @@ import { createVisualizer } from 'awaitly-visualizer';
 const viz = createVisualizer();
 const workflow = createWorkflow('workflow', deps, { onEvent: viz.handleEvent });
 
-await workflow(async (step) => {
+await workflow(async ({ step, deps }) => {
   const user = await step('fetchUser', () => fetchUser('123'));
 
   await when(
@@ -242,8 +242,8 @@ console.log(viz.render());
 ```typescript
 const processOrder = createWorkflow('workflow', { fetchOrder, chargeCard, sendEmail, applyDiscount });
 
-const result = await processOrder(async (step) => {
-  const order = await step('fetchOrder', () => fetchOrder(orderId));
+const result = await processOrder(async ({ step, deps }) => {
+  const order = await step('fetchOrder', () => deps.fetchOrder(orderId));
 
   // Apply discount only if order is large enough
   const discount = await whenOr(

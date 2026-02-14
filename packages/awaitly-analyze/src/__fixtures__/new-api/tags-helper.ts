@@ -37,7 +37,7 @@ export const orderWorkflow = createWorkflow("orderWorkflow", {
 });
 
 export async function processOrder(cartId: string, email: string) {
-  return await orderWorkflow(async (step, deps) => {
+  return await orderWorkflow(async ({ step, deps }) => {
     // Using tags() const for errors
     const cart = await step('getCart', () => deps.getCart(cartId), {
       errors: cartErrors,

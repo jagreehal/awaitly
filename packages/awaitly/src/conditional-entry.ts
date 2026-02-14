@@ -7,7 +7,7 @@
  * ```typescript
  * import { when, unless } from 'awaitly/conditional';
  *
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   const user = await step(fetchUser(id));
  *   await when(user.isAdmin, () => step(logAdminAccess(user)));
  *   return user;

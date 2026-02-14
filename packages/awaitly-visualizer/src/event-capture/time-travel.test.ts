@@ -30,7 +30,7 @@ describe("event-capture: time-travel debugging", () => {
       onEvent: tt.handleEvent,
     });
 
-    await workflow(async (step, { stepA, stepB }) => {
+    await workflow(async ({ step, deps: { stepA, stepB } }) => {
       await step("stepA", () => stepA());
       await step("stepB", () => stepB());
       return "done";
@@ -65,7 +65,7 @@ describe("event-capture: time-travel debugging", () => {
       onEvent: tt.handleEvent,
     });
 
-    await workflow(async (step, { stepA, stepB }) => {
+    await workflow(async ({ step, deps: { stepA, stepB } }) => {
       await step("stepA", () => stepA());
       await step("stepB", () => stepB());
       return "done";
@@ -91,7 +91,7 @@ describe("event-capture: time-travel debugging", () => {
       onEvent: tt.handleEvent,
     });
 
-    await workflow(async (step, { stepA, stepB }) => {
+    await workflow(async ({ step, deps: { stepA, stepB } }) => {
       await step("stepA", () => stepA());
       await step("stepB", () => stepB());
       return "done";

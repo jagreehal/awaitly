@@ -13,7 +13,7 @@
  * // Concurrency limiting (max concurrent)
  * const concurrencyLimiter = createConcurrencyLimiter({ maxConcurrent: 5 });
  *
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   // Wrap operations with rate limiting
  *   const data = await rateLimiter.execute(() =>
  *     step(() => callRateLimitedApi())

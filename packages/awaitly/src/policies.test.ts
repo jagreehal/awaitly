@@ -198,7 +198,7 @@ describe("policies", () => {
       const deps = { fetchUser, fetchOrders };
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step, { fetchUser, fetchOrders }) => {
+      const result = await workflow(async ({ step, deps: { fetchUser, fetchOrders } }) => {
         // ✓ One policy, used everywhere
         const user = await step(
           "fetch-user",
@@ -357,7 +357,7 @@ describe("policies", () => {
       const deps = { fetchUser, checkCache };
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step, { fetchUser, checkCache }) => {
+      const result = await workflow(async ({ step, deps: { fetchUser, checkCache } }) => {
         const user = await step(
           "fetch-user",
           () => fetchUser("123"),
@@ -535,7 +535,7 @@ describe("policies", () => {
       const deps = { fetchUser, queryOrders };
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step, { fetchUser, queryOrders }) => {
+      const result = await workflow(async ({ step, deps: { fetchUser, queryOrders } }) => {
         const user = await step("fetch-user", () => fetchUser("123"), apiStep());
         const orders = await step("query-orders", () => queryOrders("123"), dbStep());
         return ok({ user, orders });
@@ -580,7 +580,7 @@ describe("policies", () => {
       const deps = { fetchUser, queryOrders };
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step, { fetchUser, queryOrders }) => {
+      const result = await workflow(async ({ step, deps: { fetchUser, queryOrders } }) => {
         const user = await step(
           "fetch-user",
           () => fetchUser("123"),
@@ -603,7 +603,7 @@ describe("policies", () => {
       const deps = { fetchUser, checkCache };
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step, { fetchUser, checkCache }) => {
+      const result = await workflow(async ({ step, deps: { fetchUser, checkCache } }) => {
         // Use simple policy without timeout for test reliability
         const user = await step(
           "fetch-user",
@@ -627,7 +627,7 @@ describe("policies", () => {
       const deps = { fetchUser };
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step, { fetchUser }) => {
+      const result = await workflow(async ({ step, deps: { fetchUser } }) => {
         // Build simple options using fluent API
         const options = stepOptions()
           .key("user:123")

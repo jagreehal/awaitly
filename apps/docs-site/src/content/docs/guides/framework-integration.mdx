@@ -149,10 +149,10 @@ export async function checkout(
     sendEmail,
   });
 
-  return await workflow(async (step) => {
-    const cart = await step('validateCart', () => validateCart(cartId));
-    const payment = await step('processPayment', () => processPayment(cart.total));
-    await step('sendEmail', () => sendEmail(cart.email, payment.receiptUrl));
+  return await workflow(async ({ step, deps }) => {
+    const cart = await step('validateCart', () => deps.validateCart(cartId));
+    const payment = await step('processPayment', () => deps.processPayment(cart.total));
+    await step('sendEmail', () => deps.sendEmail(cart.email, payment.receiptUrl));
     return { orderId: payment.id };
   });
 }
@@ -212,10 +212,10 @@ export async function POST(request: Request) {
   const body = await request.json();
 
   const workflow = createWorkflow('workflow', { validateOrder, chargeCard, createOrder });
-  const result = await workflow(async (step) => {
-    const validated = await step('validateOrder', () => validateOrder(body));
-    const charge = await step('chargeCard', () => chargeCard(validated.amount));
-    const order = await step('createOrder', () => createOrder(validated, charge.id));
+  const result = await workflow(async ({ step, deps }) => {
+    const validated = await step('validateOrder', () => deps.validateOrder(body));
+    const charge = await step('chargeCard', () => deps.chargeCard(validated.amount));
+    const order = await step('createOrder', () => deps.createOrder(validated, charge.id));
     return order;
   });
 
@@ -275,9 +275,9 @@ const app = express();
 
 app.post('/api/orders', resultHandler(async (req) => {
   const workflow = createWorkflow('workflow', { validateOrder, processPayment });
-  return await workflow(async (step) => {
-    const order = await step('validateOrder', () => validateOrder(req.body));
-    const payment = await step('processPayment', () => processPayment(order.total));
+  return await workflow(async ({ step, deps }) => {
+    const order = await step('validateOrder', () => deps.validateOrder(req.body));
+    const payment = await step('processPayment', () => deps.processPayment(order.total));
     return { orderId: payment.id };
   });
 }));
@@ -295,10 +295,10 @@ const router = Router();
 router.post('/users', async (req, res) => {
   const workflow = createWorkflow('workflow', { validateUser, createUser, sendWelcome });
 
-  const result = await workflow(async (step) => {
-    const validated = await step('validateUser', () => validateUser(req.body));
-    const user = await step('createUser', () => createUser(validated));
-    await step('sendWelcome', () => sendWelcome(user.email));
+  const result = await workflow(async ({ step, deps }) => {
+    const validated = await step('validateUser', () => deps.validateUser(req.body));
+    const user = await step('createUser', () => deps.createUser(validated));
+    await step('sendWelcome', () => deps.sendWelcome(user.email));
     return user;
   });
 
@@ -353,9 +353,9 @@ fastify.addHook('preHandler', async (request) => {
 fastify.post('/orders', async (request, reply) => {
   const result = await request.workflow(
     { validateOrder, processPayment },
-    async (step) => {
-      const order = await step('validateOrder', () => validateOrder(request.body));
-      const payment = await step('processPayment', () => processPayment(order.total));
+    async ({ step, deps }) => {
+      const order = await step('validateOrder', () => deps.validateOrder(request.body));
+      const payment = await step('processPayment', () => deps.processPayment(order.total));
       return { orderId: payment.id };
     }
   );
@@ -387,8 +387,8 @@ fastify.post('/orders', {
   },
 }, async (request, reply) => {
   // Body is already validated by Fastify
-  const result = await createWorkflow('workflow', { processOrder })(async (step) => {
-    return await step('processOrder', () => processOrder(request.body));
+  const result = await createWorkflow('workflow', { processOrder })(async ({ step, deps }) => {
+    return await step('processOrder', () => deps.processOrder(request.body));
   });
 
   if (result.ok) {

@@ -13,7 +13,7 @@
  *   checkApproval: async () => ({ status: 'pending' }),
  * });
  *
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   const refund = await step(calculateRefund(orderId));
  *   const approval = await step(requireApproval, { key: 'approve:refund' });
  *   return await step(processRefund(refund, approval));

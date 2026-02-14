@@ -89,12 +89,12 @@ Prevents passing workflow options (like `cache`, `onEvent`, `snapshot`) to the w
 
 ```typescript
 // BAD - options are silently ignored here
-await workflow({ cache: new Map() }, async (step) => { ... });
-await workflow({ onEvent: handler }, async (step) => { ... });
+await workflow({ cache: new Map() }, async ({ step }) => { ... });
+await workflow({ onEvent: handler }, async ({ step }) => { ... });
 
 // GOOD - options go to createWorkflow
 const workflow = createWorkflow('workflow', deps, { cache: new Map() });
-await workflow(async (step) => { ... });
+await workflow(async ({ step }) => { ... });
 ```
 
 Detected option keys: `cache`, `onEvent`, `resumeState`, `snapshot`, `serialization`, `snapshotSerialization`, `onUnknownSteps`, `onDefinitionChange`, `onError`, `onBeforeStart`, `onAfterStep`, `shouldRun`, `createContext`, `signal`, `strict`, `catchUnexpected`, `description`, `markdown`, `streamStore`.

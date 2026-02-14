@@ -99,10 +99,10 @@ async function riskyOperation(): Promise<Data> {
 }
 
 // In workflow
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const data = await step.try(
     'riskyOp',
-    () => riskyOperation(),
+    () => deps.riskyOperation(),
     { error: 'OPERATION_FAILED' as const }
   );
   return data;
@@ -205,9 +205,9 @@ const posts = await andThen(
 const count = map(posts, (p) => p.length);
 
 // Or use workflows for complex chains
-const result = await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser(id));
-  const posts = await step('fetchPosts', () => fetchPosts(user.id));
+const result = await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser(id));
+  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));
   return posts.length;
 });
 ```
@@ -328,7 +328,7 @@ const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
 // Workflow with dependency injection
 const workflow = createWorkflow('workflow', { getUser });
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const user = await step('getUser', () => deps.getUser('1'));
   return user;
 });
@@ -425,7 +425,7 @@ import { legacyEffectService } from '@/legacy/services';
 import { createWorkflow } from 'awaitly/workflow';
 
 // Option 1: Inline conversion
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const user = await step('getUser', fromEffect(legacyEffectService.getUser('1')));
   return user;
 });
@@ -436,7 +436,7 @@ const getPosts = wrapEffect(legacyEffectService.getPosts);
 
 const workflow = createWorkflow('workflow', { getUser, getPosts });
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const user = await step('getUser', () => deps.getUser('1'));
   const posts = await step('getPosts', () => deps.getPosts(user.id));
   return { user, posts };

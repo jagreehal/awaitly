@@ -763,7 +763,7 @@ export function getStepTimeoutMeta(e: unknown): StepTimeoutMarkerMeta | undefine
 // =============================================================================
 
 /**
- * The `step` object passed to the function in `run(async (step) => { ... })`.
+ * The `step` object passed to the function in `run(async ({ step }) => { ... })`.
  * acts as the bridge between your business logic and the workflow engine.
  *
  * It provides methods to:
@@ -2352,7 +2352,7 @@ const DEFAULT_RETRY_CONFIG = {
  * run() with catchUnexpected: closed union Result<T, E>.
  */
 export function run<T, E, C = void>(
-  fn: (step: RunStep<E>) => Promise<T> | T,
+  fn: (context: { step: RunStep<E> }) => Promise<T> | T,
   options: RunOptionsWithCatch<E, C>
 ): AsyncResult<T, E, unknown>;
 
@@ -2360,7 +2360,7 @@ export function run<T, E, C = void>(
  * run() with onError (no catchUnexpected): Result<T, E | UnexpectedError>.
  */
 export function run<T, E, C = void>(
-  fn: (step: RunStep<E | UnexpectedError>) => Promise<T> | T,
+  fn: (context: { step: RunStep<E | UnexpectedError> }) => Promise<T> | T,
   options: {
     onError: (error: E | UnexpectedError, stepName?: string, ctx?: C) => void;
     onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
@@ -2377,7 +2377,7 @@ export function run<T, E, C = void>(
  * All errors (typed or thrown) are returned as UnexpectedError.
  */
 export function run<T, C = void>(
-  fn: (step: RunStep) => Promise<T> | T,
+  fn: (context: { step: RunStep }) => Promise<T> | T,
   options?: {
     onEvent?: (event: WorkflowEvent<UnexpectedError, C>, ctx: C) => void;
     workflowId?: string;
@@ -2390,7 +2390,7 @@ export function run<T, C = void>(
 
 // Implementation
 export async function run<T, E, C = void>(
-  fn: (step: RunStep<E | UnexpectedError>) => Promise<T> | T,
+  fn: (context: { step: RunStep<E | UnexpectedError> }) => Promise<T> | T,
   options?: RunOptions<E, C>
 ): AsyncResult<T, E | UnexpectedError> {
   const {
@@ -3827,7 +3827,7 @@ export async function run<T, E, C = void>(
     };
 
     const step = stepFn as RunStep<E | UnexpectedError>;
-    const value = await fn(step);
+    const value = await fn({ step });
 
     // Dev-only warning: Detect common mistake of returning ok() or err() from executor
     if (
@@ -3902,7 +3902,7 @@ export async function run<T, E, C = void>(
  * You must provide catchUnexpected to map uncaught exceptions to E.
  */
 run.strict = <T, E, C = void>(
-  fn: (step: RunStep<E>) => Promise<T> | T,
+  fn: (context: { step: RunStep<E> }) => Promise<T> | T,
   options: {
     onError?: (error: E, stepName?: string, ctx?: C) => void;
     /**

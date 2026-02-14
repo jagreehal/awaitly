@@ -12,7 +12,7 @@
  * const viz = createVisualizer({ workflowName: 'checkout' });
  * const workflow = createWorkflow(deps, { onEvent: viz.handleEvent });
  *
- * await workflow(async (step) => {
+ * await workflow(async ({ step }) => {
  *   await step(() => validateCart(cart), 'Validate cart');
  *   await step(() => processPayment(payment), 'Process payment');
  * });
@@ -170,7 +170,7 @@ export interface WorkflowVisualizer {
  *   onEvent: viz.handleEvent,
  * });
  *
- * await workflow(async (step) => { ... });
+ * await workflow(async ({ step }) => { ... });
  *
  * console.log(viz.render());
  * ```
@@ -368,7 +368,7 @@ export type CollectableEvent =
  *   onEvent: (e) => events.push(e),
  * });
  *
- * await workflow(async (step) => {
+ * await workflow(async ({ step }) => {
  *   const decision = trackIf('check', condition, {
  *     emit: (e) => events.push(e),
  *   });
@@ -409,7 +409,7 @@ export function visualizeEvents(
  *   onEvent: collector.handleEvent,
  * });
  *
- * await workflow(async (step) => {
+ * await workflow(async ({ step }) => {
  *   // Decision events can also be collected
  *   const decision = trackIf('check', condition, {
  *     emit: collector.handleDecisionEvent,

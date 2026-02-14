@@ -31,7 +31,7 @@ export const checkoutWorkflow = createWorkflow("checkoutWorkflow", {
 });
 
 export async function checkout(cartId: string) {
-  return await checkoutWorkflow(async (step, deps) => {
+  return await checkoutWorkflow(async ({ step, deps }) => {
     const cart = await step('getCart', () => deps.getCart(cartId), {
       errors: ['CART_NOT_FOUND'],
       out: 'cart',

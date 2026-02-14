@@ -252,7 +252,7 @@ export function defaultUnexpectedErrorMapper(
  * @template TDeps - The workflow dependencies type
  *
  * @param workflow - The workflow function to execute
- * @param workflowFn - The workflow body function (step, deps, input) => output
+ * @param workflowFn - The workflow body function ({ step, deps, args }) => output
  * @param config - Handler configuration
  * @returns A webhook handler function
  *
@@ -262,7 +262,7 @@ export function defaultUnexpectedErrorMapper(
  *
  * const handler = createWebhookHandler(
  *   checkoutWorkflow,
- *   async (step, deps, input: CheckoutInput) => {
+ *   async ({ step, deps, args: input }) => {
  *     const charge = await step(() => deps.chargeCard(input.amount));
  *     await step(() => deps.sendEmail(input.email, charge.receiptUrl));
  *     return { chargeId: charge.id };
@@ -305,9 +305,7 @@ export function createWebhookHandler<
 >(
   workflow: Workflow<TError, TUnexpected, TDeps>,
   workflowFn: (
-    step: RunStep<TError | TUnexpected>,
-    deps: TDeps,
-    input: TInput
+    context: { step: RunStep<TError | TUnexpected>; deps: TDeps; args: TInput }
   ) => TOutput | Promise<TOutput>,
   config: WebhookHandlerConfig<TInput, TOutput, TError, TBody, TUnexpected>
 ): WebhookHandler<TBody>;
@@ -322,9 +320,7 @@ export function createWebhookHandler<
 >(
   workflow: Workflow<TError, UnexpectedError, TDeps>,
   workflowFn: (
-    step: RunStep<TError | UnexpectedError>,
-    deps: TDeps,
-    input: TInput
+    context: { step: RunStep<TError | UnexpectedError>; deps: TDeps; args: TInput }
   ) => TOutput | Promise<TOutput>,
   config: WebhookHandlerConfig<TInput, TOutput, TError, TBody, UnexpectedError>
 ): WebhookHandler<TBody>;
@@ -339,9 +335,7 @@ export function createWebhookHandler<
 >(
   workflow: Workflow<TError, TUnexpected, TDeps>,
   workflowFn: (
-    step: RunStep<TError | TUnexpected>,
-    deps: TDeps,
-    input: TInput
+    context: { step: RunStep<TError | TUnexpected>; deps: TDeps; args: TInput }
   ) => TOutput | Promise<TOutput>,
   config: WebhookHandlerConfig<TInput, TOutput, TError, TBody, TUnexpected>
 ): WebhookHandler<TBody> {
@@ -370,7 +364,7 @@ export function createWebhookHandler<
       // Execute workflow with validated input
       const workflowResult = await workflow(
         validationResult.value,
-        (step, deps) => workflowFn(step, deps, validationResult.value)
+        ({ step, deps }) => workflowFn({ step, deps, args: validationResult.value })
       );
 
       // Map result to response
@@ -840,7 +834,7 @@ export type EventHandler<TPayload = unknown> = (
  * ```typescript
  * const handler = createEventHandler(
  *   checkoutWorkflow,
- *   async (step, deps, payload: CheckoutPayload) => {
+ *   async ({ step, deps, args: payload }) => {
  *     const charge = await step(() => deps.chargeCard(payload.amount));
  *     return { chargeId: charge.id };
  *   },
@@ -876,9 +870,7 @@ export function createEventHandler<
 >(
   workflow: Workflow<TError, TUnexpected, TDeps>,
   workflowFn: (
-    step: RunStep<TError | TUnexpected>,
-    deps: TDeps,
-    payload: TPayload
+    context: { step: RunStep<TError | TUnexpected>; deps: TDeps; args: TPayload }
   ) => TOutput | Promise<TOutput>,
   config: EventTriggerConfig<TPayload, TOutput, TError, TUnexpected>
 ): EventHandler<TPayload> {
@@ -902,7 +894,7 @@ export function createEventHandler<
 
       const workflowResult = await workflow(
         validationResult.value,
-        (step, deps) => workflowFn(step, deps, validationResult.value)
+        ({ step, deps }) => workflowFn({ step, deps, args: validationResult.value })
       );
 
       return mapResult(workflowResult, event);

@@ -130,7 +130,7 @@ function emitSkipped<C = unknown>(
  *
  * @example
  * ```typescript
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   const user = await step(fetchUser(id));
  *
  *   // Only runs if user is premium
@@ -190,7 +190,7 @@ export function when<T, C = unknown>(
  *
  * @example
  * ```typescript
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   const user = await step(fetchUser(id));
  *
  *   // Only runs if user is NOT verified
@@ -245,7 +245,7 @@ export function unless<T, C = unknown>(
  *
  * @example
  * ```typescript
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   const user = await step(fetchUser(id));
  *
  *   // Get premium limits or use default for non-premium users
@@ -310,7 +310,7 @@ export function whenOr<T, D, C = unknown>(
  *
  * @example
  * ```typescript
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   const user = await step(fetchUser(id));
  *
  *   // Generate new token if user is NOT authenticated, otherwise use existing
@@ -370,7 +370,7 @@ export function unlessOr<T, D, C = unknown>(
  * @example
  * ```typescript
  * // With run() - context is automatically included in events
- * const result = await run(async (step) => {
+ * const result = await run(async ({ step }) => {
  *   const ctx = { workflowId, onEvent, context: requestContext };
  *   const { when, whenOr } = createConditionalHelpers(ctx);
  *

@@ -90,10 +90,10 @@ const workflow = createWorkflow('workflow', { calculateRefund, processRefund, re
   { snapshot }
 );
 
-const result = await workflow(async (step) => {
-  const refund = await step('calculateRefund', () => calculateRefund(orderId));
-  const approval = await step('requireApproval', requireApproval, { key: 'approve:refund' });
-  return await step('processRefund', () => processRefund(refund, approval));
+const result = await workflow(async ({ step, deps }) => {
+  const refund = await step('calculateRefund', () => deps.calculateRefund(orderId));
+  const approval = await step('requireApproval', deps.requireApproval, { key: 'approve:refund' });
+  return await step('processRefund', () => deps.processRefund(refund, approval));
 });
 // checkApproval reads from DB and returns { status: 'approved', value }
 ```
@@ -140,9 +140,9 @@ const orchestrator = createHITLOrchestrator({
 
 // Start workflow
 const { runId, result } = await orchestrator.start(
-  async (step) => {
-    const data = await step('fetchData', () => fetchData());
-    await step('requireApproval', requireApproval, { key: 'approve:data' });
+  async ({ step, deps }) => {
+    const data = await step('fetchData', () => deps.fetchData());
+    await step('requireApproval', deps.requireApproval, { key: 'approve:data' });
     return data;
   },
   { workflowId: 'wf-1' }
@@ -209,17 +209,15 @@ const expenseWorkflow = createWorkflow('workflow', { validateExpense,
   requireManagerApproval,
 });
 
-const workflow = createWorkflow('workflow', deps);
-
-const result = await workflow(async (step) => {
-  const expense = await step('validateExpense', () => validateExpense(data));
-  const approval = await step('requireManagerApproval', requireManagerApproval, { key: 'manager-approval' });
-  return await step('processPayment', () => processPayment(expense, approval));
+const result = await expenseWorkflow(async ({ step, deps }) => {
+  const expense = await step('validateExpense', () => deps.validateExpense(data));
+  const approval = await step('requireManagerApproval', deps.requireManagerApproval, { key: 'manager-approval' });
+  return await step('processPayment', () => deps.processPayment(expense, approval));
 });
 
 if (!result.ok && isPendingApproval(result.error)) {
   // Save snapshot for later
-  await store.save('expense-123', workflow.getSnapshot());
+  await store.save('expense-123', expenseWorkflow.getSnapshot());
   await sendSlackMessage('Expense needs approval: expense-123');
 }
 ```
@@ -306,11 +304,11 @@ const gatedSendEmail = gatedStep(
 );
 
 // In workflow:
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   // This shows the email args before sending
   await step(
     'gatedSendEmail',
-    () => gatedSendEmail({ to: 'external@other.com', subject: 'Hello', body: '...' }),
+    () => deps.gatedSendEmail({ to: 'external@other.com', subject: 'Hello', body: '...' }),
     { key: 'send-email' }
   );
 });

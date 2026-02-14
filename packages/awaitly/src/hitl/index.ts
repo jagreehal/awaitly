@@ -422,7 +422,7 @@ export interface HITLOrchestrator {
   execute<T, E, TInput>(
     workflowName: string,
     workflowFactory: (options: HITLWorkflowFactoryOptions) => Workflow<E, unknown>,
-    workflowFn: (step: unknown, deps: unknown, input: TInput) => Promise<T>,
+    workflowFn: (context: { step: unknown; deps: unknown; args: TInput }) => Promise<T>,
     input: TInput,
     options?: { runId?: string; metadata?: Record<string, unknown> }
   ): Promise<HITLExecutionResult<T, E>>;
@@ -433,7 +433,7 @@ export interface HITLOrchestrator {
   resume<T, E, TInput>(
     runId: string,
     workflowFactory: (options: HITLWorkflowFactoryOptions) => Workflow<E, unknown>,
-    workflowFn: (step: unknown, deps: unknown, input: TInput) => Promise<T>
+    workflowFn: (context: { step: unknown; deps: unknown; args: TInput }) => Promise<T>
   ): Promise<HITLExecutionResult<T, E>>;
 
   /**
@@ -504,7 +504,7 @@ export interface HITLOrchestrator {
  * const result = await orchestrator.execute(
  *   'order-approval',
  *   ({ resumeState, onEvent }) => createWorkflow('order-approval', deps, { resumeState, onEvent }),
- *   async (step, deps, input) => {
+ *   async ({ step, deps, args: input }) => {
  *     const order = await step(() => deps.createOrder(input));
  *     const approval = await step(() => deps.requireApproval(order.id), { key: `approval:${order.id}` });
  *     await step(() => deps.processOrder(order.id));
@@ -537,7 +537,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
   async function execute<T, E, TInput>(
     workflowName: string,
     workflowFactory: (options: HITLWorkflowFactoryOptions) => Workflow<E, unknown>,
-    workflowFn: (step: unknown, deps: unknown, input: TInput) => Promise<T>,
+    workflowFn: (context: { step: unknown; deps: unknown; args: TInput }) => Promise<T>,
     input: TInput,
     opts?: { runId?: string; metadata?: Record<string, unknown> }
   ): Promise<HITLExecutionResult<T, E>> {
@@ -552,7 +552,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
     // Execute workflow - collector tracks pending approvals via events
     const result = await (workflow as Workflow<E, unknown>)(
       input,
-      workflowFn as (step: unknown, deps: unknown, args: TInput) => Promise<T>
+      workflowFn as (context: { step: unknown; deps: unknown; args: TInput }) => Promise<T>
     );
 
     // Check for pending approvals
@@ -633,7 +633,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
   async function resume<T, E, TInput>(
     runId: string,
     workflowFactory: (options: HITLWorkflowFactoryOptions) => Workflow<E, unknown>,
-    workflowFn: (step: unknown, deps: unknown, input: TInput) => Promise<T>
+    workflowFn: (context: { step: unknown; deps: unknown; args: TInput }) => Promise<T>
   ): Promise<HITLExecutionResult<T, E>> {
     const savedState = await workflowStateStore.load(runId);
     if (!savedState) {
@@ -689,7 +689,7 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
     // Execute workflow
     const result = await (workflow as Workflow<E, unknown>)(
       savedState.input as TInput,
-      workflowFn as (step: unknown, deps: unknown, args: TInput) => Promise<T>
+      workflowFn as (context: { step: unknown; deps: unknown; args: TInput }) => Promise<T>
     );
 
     // Check for NEW pending approvals (workflow paused again at a different step)

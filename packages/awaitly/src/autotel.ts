@@ -399,7 +399,7 @@ export type AutotelTraceFn = <T>(
  * const traced = withAutotelTracing(trace, { serviceName: 'checkout' });
  *
  * const result = await traced('process-order', async () => {
- *   return workflow(async (step) => {
+ *   return workflow(async ({ step }) => {
  *     // ... workflow logic
  *   });
  * });

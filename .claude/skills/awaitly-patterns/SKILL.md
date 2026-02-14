@@ -6,9 +6,18 @@ user-invocable: true
 
 # Awaitly Core Patterns
 
-**This document defines the only supported patterns for using awaitly. Do not invent alternatives.** Effect-style helpers (run, andThen, match, all, map) keep the API as close to Effect as we can get while still using async/await and not generators.
+**This document defines the supported patterns for using awaitly. Avoid inventing alternatives.** Effect-style helpers (run, andThen, match, all, map) keep the API as close to Effect as we can get while still using async/await and not generators.
 
-Workflows are sequential unless explicitly composed with helpers like `allAsync()`.
+Workflows are sequential unless explicitly composed with helpers like `Awaitly.allAsync()`.
+
+**Callback shape:** Workflow callbacks receive a single destructured object:
+- `run()`: `async ({ step }) => { ... }`
+- `createWorkflow('name', deps)`: `async ({ step, deps }) => { ... }`
+- `createWorkflow('name', deps)` with input: `async ({ step, deps, args }) => { ... }` — **`args`** is the workflow input object (the first argument to the workflow call).
+
+**Call form (mechanical):**
+- **No input:** `workflow(async ({ step, deps }) => …)`
+- **With input:** `workflow({ userId: '1', ... }, async ({ step, deps, args }) => …)` — `args` is that object.
 
 ---
 
@@ -27,7 +36,7 @@ await step('getUser', () => deps.getUser(id));  // Operation starts when step ru
 
 **Direct form** (Promise/Result passed immediately; cannot be retried/cached-before-run):
 ```typescript
-// createWorkflow(deps)
+// createWorkflow('name', deps)
 await step('getUser', deps.getUser(id));
 
 // run(): deps via closures
@@ -50,16 +59,30 @@ await step('getUser', getUser(id));
 
 **Label vs instance:** The first argument is the step **label** (category, e.g. `'fetchUser'`). The optional `key` is the **instance** identity (which iteration or entity). In loops, use one literal ID + key: `step('fetchUser', () => fetchUser(id), { key: \`user:${id}\` })`. Rules of thumb for key: stable (same input → same key); scoped to the step (e.g. `fetchUser:${id}`, `user:${id}`); keep short for logs/snapshots.
 
+**Step ID naming cheatsheet:**
+
+| Pattern | Step ID | Notes |
+|---------|---------|-------|
+| Fetch a resource | `'getUser'`, `'fetchOrder'` | Verb + noun, camelCase |
+| Create/write | `'createOrder'`, `'sendEmail'` | Action verb + noun |
+| Validation | `'validateInput'`, `'checkInventory'` | Verb + what's checked |
+| Parallel group | `'fetchAll'`, `'validateOrder'` | Describes the group |
+| Retry target | `'chargeCard'` | Same name as the dep being retried |
+| Sleep/delay | `'rateLimitDelay'`, `'cooldown'` | Describes the wait reason |
+| In a loop | `'processItem'` + `{ key: \`item:${id}\` }` | Literal ID + dynamic key |
+
 ### R2: On err, step() immediately returns that error as the workflow result
 
-When `step()` receives an `err` result, it immediately returns that error as the workflow result. No wrapping, no transformation. Do not check `result.ok` inside workflows.
+When `step()` receives an `err` result, it immediately returns that error as the workflow result. No wrapping, no transformation. Avoid checking `result.ok` inside workflows.
 
 ```typescript
-// CORRECT - step handles early exit
+// step handles early exit automatically
 const user = await step('getUser', () => deps.getUser(id));
 const order = await step('createOrder', () => deps.createOrder(user));
+```
 
-// WRONG - never check result.ok inside workflows
+```typescript
+// AVOID - checking result.ok inside workflows bypasses step tracking
 const userResult = await deps.getUser(id);  // calling dep directly, not through step
 if (!userResult.ok) return userResult;
 const order = await step('createOrder', () => deps.createOrder(userResult.value));
@@ -95,32 +118,26 @@ if (!result.ok) {
 
 ### R5: All async work inside workflows must go through step()
 
-Do not use bare `await` inside workflow functions. Every async operation must use `step()` or a step helper.
+Every async operation must use `step()` or a step helper. Avoid bare `await` inside workflow functions.
 
 ```typescript
-// CORRECT
 const user = await step('getUser', () => deps.getUser(id));
 const data = await step.try('fetch', () => deps.fetchExternal(url), { error: 'FETCH_ERROR' });
+```
 
-// WRONG - bare await bypasses error handling and tracking
+```typescript
+// AVOID - bare await bypasses error handling and tracking
 const user = await deps.getUser(id);
 const response = await deps.fetchExternal(url);
 ```
 
-### R6: Never wrap step() in try/catch
+### R6: Don't wrap step() in try/catch
 
-Errors from `step()` propagate automatically to the workflow result. Using `try/catch` around steps breaks this:
+Errors from `step()` propagate automatically to the workflow result. Wrapping steps in `try/catch` breaks that guarantee:
 
 ```typescript
-// ❌ WRONG - try/catch defeats typed error propagation
-try {
-  const result = await step('makePayment', () => deps.makePayment());
-} catch (error) {
-  await step('handleFailed', () => deps.handleFailed(error));
-}
-
-// ✅ CORRECT - errors propagate to workflow result
-const result = await workflow(async (step, deps) => {
+// Errors propagate to workflow result
+const result = await workflow(async ({ step, deps }) => {
   const payment = await step('makePayment', () => deps.makePayment());
   return payment;
 });
@@ -135,25 +152,34 @@ if (!result.ok) {
 }
 ```
 
+```typescript
+// AVOID - try/catch defeats typed error propagation
+try {
+  const result = await step('makePayment', () => deps.makePayment());
+} catch (error) {
+  await step('handleFailed', () => deps.handleFailed(error));
+}
+```
+
 If you need per-item error handling in a loop, use `step.forEach()` with error collection.
 
 ---
 
-## Disallowed Inside Workflows
+## Patterns to Avoid Inside Workflows
 
-| Pattern | Why |
-|---------|-----|
-| `step(...)` without string ID as first argument | step() requires `step('id', fn, opts)` or `step('id', result, opts)` |
-| `step.parallel(operations, { name })` (legacy) | Use `step.parallel('name', operations)` — name is always the first argument |
-| Template literal as step ID (e.g. `` step(`step-${i}`, ...) ``) | Use a literal ID + `key` instead: `step('fetchUser', () => fetchUser(i), { key: \`user:${i}\` })` |
-| `step(promise)` when using retries/caching | Direct form can't re-execute or cache-before-run; use thunk `step('id', () => deps.fn(args))` |
-| `step.run(id, promise, { key })` in createWorkflow | Use getter so cache hits don't run: `step.run(id, () => deps.fn(), { key })` |
-| `await x` without step | Bypasses error handling and tracking |
+| Pattern | Preferred alternative |
+|---------|----------------------|
+| `step(...)` without string ID as first argument | `step('id', fn, opts)` or `step('id', result, opts)` |
+| `step.parallel(operations, { name })` (legacy) | `step.parallel('name', operations)` — name is always the first argument |
+| Template literal as step ID (e.g. `` step(`step-${i}`, ...) ``) | Literal ID + `key`: `step('fetchUser', () => fetchUser(i), { key: \`user:${i}\` })` |
+| `step(promise)` when using retries/caching | Thunk form: `step('id', () => deps.fn(args))` |
+| `step.run(id, promise, { key })` in createWorkflow | Getter so cache hits skip execution: `step.run(id, () => deps.fn(), { key })` |
+| `await x` without step | Wrap in step — bare await bypasses error handling and tracking |
 | `if (!result.ok)` checks | step() already handles early exit |
-| `Promise.all()` | Disallowed even wrapped in step(); use `allAsync()` so errors are typed as Results |
+| `Promise.all()` | `Awaitly.allAsync()` so errors are typed as Results (even inside step) |
 | `throw` in deps | Return `err()` instead, or wrap with `step.try()` |
-| `try/catch` | Use `step.try()` to convert throws to typed errors |
-| `try/catch` around step() | Errors propagate automatically; use workflow-level handling |
+| `try/catch` | `step.try()` to convert throws to typed errors |
+| `try/catch` around step() | Errors propagate automatically; handle at workflow level |
 
 Synchronous computation and pure logic are allowed inside workflows. Only async operations require `step()`.
 
@@ -161,9 +187,13 @@ Synchronous computation and pure logic are allowed inside workflows. Only async 
 
 ## Choosing Your Pattern
 
-| Aspect | `run()` | `createWorkflow(deps)` |
-|--------|---------|------------------------|
-| Import | `awaitly` (core) | `awaitly/workflow` |
+**Canonical signatures:**
+- `run(callback, options?)` — `import { run } from 'awaitly/run'`
+- `createWorkflow('name', deps, options?)` — `import { createWorkflow } from 'awaitly/workflow'`
+
+| Aspect | `run()` | `createWorkflow('name', deps)` |
+|--------|---------|-------------------------------|
+| Import | `awaitly/run` | `awaitly/workflow` |
 | Step syntax | `step('id', promiseOrResult)` or `step('id', () => promiseOrResult)` | `step('id', deps.fn(args))` or `step('id', () => deps.fn(args))` |
 | Deps | Closures | Injected deps object |
 | Error types | Manual (`catchUnexpected`) or `UnexpectedError` | Auto-inferred from deps |
@@ -177,7 +207,7 @@ Synchronous computation and pure logic are allowed inside workflows. Only async 
 - Wrapping throwing APIs with `step.try()`
 - Minimal bundle size matters
 
-### Use `createWorkflow(deps)` when:
+### Use `createWorkflow('name', deps)` when:
 - Shared deps across multiple workflows
 - Need dependency injection for testing
 - Deps already return `AsyncResult`
@@ -217,7 +247,7 @@ import { run } from 'awaitly/run';
 type MyErrors = 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED';
 
   const result = await run<Order, MyErrors>(
-    async (step) => {
+    async ({ step }) => {
       const user = await step('getUser', getUser(userId));
       const order = await step('createOrder', createOrder(user));
       return order;
@@ -228,14 +258,14 @@ type MyErrors = 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED';
 
 **Without options** (errors wrapped as `UnexpectedError`):
 ```typescript
-const result = await run(async (step) => {
+const result = await run(async ({ step }) => {
   const user = await step('getUser', getUser(userId));
   return user;
 });
 // result.error is UnexpectedError - access original via result.error.cause.error
 ```
 
-### Step 2b: Use `createWorkflow(deps)` for DI cases
+### Step 2b: Use `createWorkflow('name', deps)` for DI cases
 
 For shared deps, testing, or advanced features (retries, timeout):
 
@@ -243,14 +273,14 @@ For shared deps, testing, or advanced features (retries, timeout):
 import { createWorkflow } from 'awaitly/workflow';
 
 const deps = { getUser, createOrder, sendEmail };
-const processOrder = createWorkflow(deps);
+const processOrder = createWorkflow('processOrder', deps);
 // TypeScript infers all error types from deps
 ```
 
 ### Step 3: Use step() for linear flow (createWorkflow only)
 
 ```typescript
-const result = await processOrder(async (step, deps) => {
+const result = await processOrder(async ({ step, deps }) => {
   const user = await step('getUser', () => deps.getUser(userId));
   const order = await step('createOrder', () => deps.createOrder(user));
   await step('sendEmail', () => deps.sendEmail(user.email, order));
@@ -275,7 +305,7 @@ const result = await processOrder(async (step, deps) => {
 | Timeout | `step.withTimeout(id, fn, opts)` | `step.withTimeout('slowOp', () => deps.fn(), { ms: 5000 })` |
 | Sleep/delay | `step.sleep(id, duration, opts?)` | `step.sleep('rate-limit', '1s')` |
 | Parallel (object) | `step.parallel(name, operations)` or `step.all(name, shape, opts?)` | `step.all('fetchAll', { user: () => deps.getUser(id), posts: () => deps.getPosts(id) })` |
-| Parallel (array) | `step.parallel(name, callback)` | `step.parallel('Fetch all', () => allAsync([deps.getUser(id), deps.getPosts(id)]))` |
+| Parallel (array) | `step.parallel(name, callback)` | `step.parallel('Fetch all', () => Awaitly.allAsync([deps.getUser(id), deps.getPosts(id)]))` |
 | Parallel over array | `step.map(id, items, mapper, opts?)` | `step.map('fetchUsers', ids, (id) => deps.getUser(id))` |
 | Race | `step.race(name, callback)` | `step.race('Fastest API', () => anyAsync([primary(), fallback()]))` |
 | All settled | `step.allSettled(name, callback)` | `step.allSettled('Fetch all', () => allSettledAsync([...]))` |
@@ -325,16 +355,18 @@ const results = await step.forEach('fetch-users', userIds, {
 ### Why Not Manual Loops?
 
 ```typescript
-// ❌ AVOID - dynamic keys reduce static analyzability
-for (const item of items) {
-  await step('process', () => process(item), { key: `process-${item.id}` });
-}
-
-// ✅ PREFERRED - step.forEach() is statically analyzable
+// step.forEach() is statically analyzable
 await step.forEach('process', items, {
   stepIdPattern: 'process-{i}',
   run: (item) => step('processItem', () => process(item))
 });
+```
+
+```typescript
+// AVOID - dynamic keys reduce static analyzability
+for (const item of items) {
+  await step('process', () => process(item), { key: `process-${item.id}` });
+}
 ```
 
 Manual `for` loops with dynamic keys like `${item.id}`:
@@ -344,9 +376,9 @@ Manual `for` loops with dynamic keys like `${item.id}`:
 
 ---
 
-## Concurrency with allAsync, step.parallel, step.all, step.map
+## Concurrency with Awaitly.allAsync, step.parallel, step.all, step.map
 
-For parallel work, use **step.all** (Effect-style, named keys) or **step.parallel** (name is always the first argument) or wrap `allAsync` in `step()`. Use **step.map** to run a mapper over an array in parallel.
+For parallel work, use **step.all** (Effect-style, named keys) or **step.parallel** (name is always the first argument) or wrap `Awaitly.allAsync()` in `step()`. Use **step.map** to run a mapper over an array in parallel.
 
 **Object form** (named keys; prefer `step.all` for Effect-style API):
 ```typescript
@@ -362,7 +394,7 @@ const { user, posts } = await step.parallel('Fetch user and posts', {
 });
 ```
 
-**Array form** (wraps allAsync):
+**Array form** (wraps Awaitly.allAsync):
 ```typescript
 import { Awaitly } from 'awaitly';
 
@@ -535,7 +567,7 @@ type MyErrors = 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED';
 // Execute workflow with catchUnexpected for typed errors
 export async function handleRequest(userId: string) {
 const result = await run<Order, MyErrors>(
-  async (step) => {
+  async ({ step }) => {
     const user = await step('getUser', getUser(userId));
     const order = await step('createOrder', createOrder(user));
     return order;
@@ -560,7 +592,7 @@ const result = await run<Order, MyErrors>(
 
 **Without `catchUnexpected`**: errors are `UnexpectedError` with original error in `cause`:
 ```typescript
-const result = await run(async (step) => {
+const result = await run(async ({ step }) => {
   const user = await step('getUser', getUser(userId));
   return user;
 });
@@ -574,7 +606,7 @@ if (!result.ok && result.error.type === Awaitly.UNEXPECTED_ERROR) {
 }
 ```
 
-### Full: createWorkflow(deps) with DI
+### Full: createWorkflow('name', deps) with DI
 
 ```typescript
 import { Awaitly, type AsyncResult } from 'awaitly';
@@ -592,11 +624,11 @@ const deps = {
 };
 
 // 2. Create workflow
-const processOrder = createWorkflow(deps);
+const processOrder = createWorkflow('processOrder', deps);
 
 // 3. Execute with steps - no branching, no try/catch
 export async function handleRequest(userId: string) {
-  const result = await processOrder(async (step, deps) => {
+  const result = await processOrder(async ({ step, deps }) => {
     const user = await step('getUser', () => deps.getUser(userId));
     const order = await step('createOrder', () => deps.createOrder(user));
     return order;
@@ -657,9 +689,9 @@ it('completes order flow', async () => {
       Awaitly.ok({ orderId: '123' }),
   };
 
-  const workflow = createWorkflow(deps);
+  const workflow = createWorkflow('orderFlow', deps);
 
-  const result = await workflow(async (step, deps) => {
+  const result = await workflow(async ({ step, deps }) => {
     const user = await step('getUser', () => deps.getUser('1'));
     return await step('createOrder', () => deps.createOrder(user));
   });
@@ -673,9 +705,9 @@ it('returns NOT_FOUND for unknown user', async () => {
     createOrder: async (user: User): AsyncResult<Order, 'ORDER_FAILED'> => Awaitly.ok({ orderId: '123' }),
   };
 
-  const workflow = createWorkflow(deps);
+  const workflow = createWorkflow('orderFlow', deps);
 
-  const result = await workflow(async (step, deps) => {
+  const result = await workflow(async ({ step, deps }) => {
     const user = await step('getUser', () => deps.getUser('unknown'));
     return await step('createOrder', () => deps.createOrder(user));
   });
@@ -698,9 +730,9 @@ it('retries on failure', async () => {
     },
   };
 
-  const workflow = createWorkflow(deps);
+  const workflow = createWorkflow('retryTest', deps);
 
-  const result = await workflow(async (step, deps) => {
+  const result = await workflow(async ({ step, deps }) => {
     return await step.retry('fetchData', () => deps.fetchData(), { attempts: 3 });
   });
 

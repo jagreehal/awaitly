@@ -374,7 +374,7 @@ interface WorkflowCallInfo {
 
 /**
  * Info about saga parameter destructuring.
- * e.g., `async (saga) => {...}` -> { name: "saga", isDestructured: false }
+ * e.g., `async ({ saga }) => {...}` -> { isDestructured: true, sagaAlias: "saga" }
  * e.g., `async ({ step, tryStep }) => {...}` -> { isDestructured: true, stepAlias: "step", tryStepAlias: "tryStep" }
  */
 interface SagaParameterInfo {
@@ -382,6 +382,8 @@ interface SagaParameterInfo {
   isDestructured: boolean;
   stepAlias?: string;
   tryStepAlias?: string;
+  /** When destructured as ({ saga }), the alias for the saga context object */
+  sagaAlias?: string;
 }
 
 /**
@@ -1157,7 +1159,7 @@ function extractWorkflowStrictOptions(optionsNode: Node): {
 
 /**
  * Extract saga parameter info from a callback.
- * e.g., `async (saga) => {...}` -> { name: "saga", isDestructured: false }
+ * e.g., `async ({ saga }) => {...}` -> { isDestructured: true, sagaAlias: "saga" }
  * e.g., `async ({ step, tryStep }) => {...}` -> { isDestructured: true, stepAlias: "step", tryStepAlias: "tryStep" }
  */
 function extractSagaParameterInfo(callback: Node): SagaParameterInfo | undefined {
@@ -1177,7 +1179,6 @@ function extractSagaParameterInfo(callback: Node): SagaParameterInfo | undefined
 
   const nameNode = firstParam.getNameNode();
 
-  // Check if it's destructured: ({ step, tryStep })
   if (Node.isObjectBindingPattern(nameNode)) {
     const result: SagaParameterInfo = { isDestructured: true };
 
@@ -1185,7 +1186,9 @@ function extractSagaParameterInfo(callback: Node): SagaParameterInfo | undefined
       const propName = element.getPropertyNameNode()?.getText() || element.getName();
       const bindingName = element.getName();
 
-      if (propName === "step") {
+      if (propName === "saga") {
+        result.sagaAlias = bindingName;
+      } else if (propName === "step") {
         result.stepAlias = bindingName;
       } else if (propName === "tryStep") {
         result.tryStepAlias = bindingName;
@@ -1537,17 +1540,36 @@ function findWorkflowInvocations(
           const firstArg = args[0];
           if (!Node.isArrowFunction(firstArg) && !Node.isFunctionExpression(firstArg)) return;
 
-          // Callback must have at least 2 parameters (step + deps)
           const params = (firstArg as { getParameters: () => Node[] }).getParameters();
-          if (params.length < 2) return;
+          if (params.length !== 1) return;
 
-          // Second parameter must destructure names matching the workflow's deps
-          const secondParam = params[1];
-          if (!Node.isParameterDeclaration(secondParam)) return;
-          const depsNameNode = secondParam.getNameNode();
-          if (!Node.isObjectBindingPattern(depsNameNode)) return;
+          const firstParam = params[0];
+          if (!Node.isParameterDeclaration(firstParam)) return;
+          const paramNameNode = firstParam.getNameNode();
+          if (!Node.isObjectBindingPattern(paramNameNode)) return;
 
-          const boundNames = depsNameNode.getElements().map((e: { getName: () => string }) => e.getName());
+          const elements = paramNameNode.getElements();
+          const hasStep = elements.some((e: { getName: () => string; getPropertyNameNode?: () => { getText: () => string } | undefined }) => {
+            const propName = e.getPropertyNameNode?.()?.getText() || e.getName();
+            return propName === "step";
+          });
+          if (!hasStep) return;
+
+          const depsElement = elements.find((e: { getName: () => string; getPropertyNameNode?: () => { getText: () => string } | undefined }) => {
+            const propName = e.getPropertyNameNode?.()?.getText() || e.getName();
+            return propName === "deps";
+          });
+          if (!depsElement) return;
+
+          const depsNameNode = (depsElement as { getNameNode?: () => Node }).getNameNode?.();
+          let boundNames: string[];
+          if (depsNameNode && Node.isObjectBindingPattern(depsNameNode)) {
+            boundNames = depsNameNode.getElements().map((e: { getName: () => string }) => e.getName());
+          } else {
+            // deps is not further destructured, can't match individual dep names
+            return;
+          }
+
           // Require all workflow dep names to appear in the callback destructuring
           const allDepsPresent = depNames.every((d) => boundNames.includes(d));
 
@@ -1961,10 +1983,17 @@ function analyzeCallExpression(
   const args = node.getArguments();
 
   // Handle saga workflow step detection
-  if (sagaContext.isSagaWorkflow && sagaContext.sagaParamInfo) {
+          if (sagaContext.isSagaWorkflow && sagaContext.sagaParamInfo) {
     const sagaParam = sagaContext.sagaParamInfo;
 
-    // Destructured form: step() or tryStep()
+    if (sagaParam.isDestructured && sagaParam.sagaAlias) {
+      if (callee === `${sagaParam.sagaAlias}.step`) {
+        return analyzeSagaStepCall(node, args, false, opts, warnings, stats);
+      }
+      if (callee === `${sagaParam.sagaAlias}.tryStep`) {
+        return analyzeSagaStepCall(node, args, true, opts, warnings, stats);
+      }
+    }
     if (sagaParam.isDestructured) {
       if (sagaParam.stepAlias && callee === sagaParam.stepAlias) {
         return analyzeSagaStepCall(node, args, false, opts, warnings, stats);

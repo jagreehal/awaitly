@@ -15,7 +15,7 @@ describe("Dep Source Tracking", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getCart: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('getCart', () => deps.getCart('123'));
           });
         }
@@ -35,7 +35,7 @@ describe("Dep Source Tracking", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { fetchUser: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, ctx) => {
+          return await workflow(async ({ step, ctx }) => {
             await step('getUser', () => ctx.deps.fetchUser('1'));
           });
         }
@@ -57,7 +57,7 @@ describe("Dep Source Tracking", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getCart: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('getCart', () => {
               const id = transform('123');
               return deps.getCart(id);
@@ -82,7 +82,7 @@ describe("Dep Source Tracking", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getCart: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('getCart', step.dep('getCart', () => deps.getCart('123')));
           });
         }
@@ -102,7 +102,7 @@ describe("Dep Source Tracking", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getCart: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('getCart', step.dep('cartService', () => deps.getCart('123')));
           });
         }
@@ -125,7 +125,7 @@ describe("Dep Source Tracking", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getCart: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('getCart', () => deps.getCart('123'), { dep: 'cartRetrieval' });
           });
         }

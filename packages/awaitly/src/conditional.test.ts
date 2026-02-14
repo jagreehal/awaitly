@@ -247,7 +247,7 @@ describe("Conditional Helpers", () => {
       const workflowId = "test-workflow";
       const onEvent = (event: WorkflowEvent<unknown, RequestContext>) => events.push(event);
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const ctx: ConditionalContext<RequestContext> = { workflowId, onEvent, context: requestContext };
         const { when } = createConditionalHelpers(ctx);
 
@@ -303,7 +303,7 @@ describe("Conditional Helpers", () => {
         onEvent: (event) => events.push(event),
       });
 
-      await workflow(async (step) => {
+      await workflow(async ({ step }) => {
         const user = await step('fetchUser', () => fetchUser());
 
         // Use conditional helper without ctx - no step_skipped events
@@ -332,7 +332,7 @@ describe("Conditional Helpers", () => {
         onEvent: (event) => events.push(event),
       });
 
-      await workflow(async (step, deps, ctx) => {
+      await workflow(async ({ step, deps, ctx }) => {
         const user = await step('fetchUser', () => fetchUser());
 
         // ctx can be passed directly to createConditionalHelpers (same shape)
@@ -359,7 +359,7 @@ describe("Conditional Helpers", () => {
       const workflow = createWorkflow("workflow", { fetchUser });
 
       // Code that doesn't use ctx parameter still works (TypeScript allows unused parameters)
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         const user = await step('fetchUser', () => fetchUser());
         return user;
       });

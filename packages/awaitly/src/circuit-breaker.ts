@@ -19,7 +19,7 @@
  *   halfOpenMax: 3,
  * });
  *
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   const data = await breaker.execute(
  *     () => step(() => callExternalApi()),
  *     { name: 'external-api' }

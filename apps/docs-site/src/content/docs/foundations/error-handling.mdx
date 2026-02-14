@@ -38,7 +38,7 @@ Errors from `step()` propagate automatically to the workflow result. **Never wra
 
 ```typescript
 // ❌ WRONG - try/catch defeats typed error propagation
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   try {
     const payment = await step('makePayment', () => deps.makePayment());
   } catch (error) {
@@ -47,7 +47,7 @@ const result = await workflow(async (step) => {
 });
 
 // ✅ CORRECT - errors propagate to workflow result
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const payment = await step('makePayment', () => deps.makePayment());
   return payment;
 });
@@ -82,7 +82,7 @@ const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* 
 
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts, sendEmail });
 
-const result = await workflow(async (step) => { /* ... */ });
+const result = await workflow(async ({ step, deps }) => { /* ... */ });
 // result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | UnexpectedError
 ```
 
@@ -98,8 +98,8 @@ const badOperation = async (): AsyncResult<string, 'KNOWN_ERROR'> => {
 };
 
 const workflow = createWorkflow('workflow', { badOperation });
-const result = await workflow(async (step) => {
-  return await step('badOperation', () => badOperation());
+const result = await workflow(async ({ step, deps }) => {
+  return await step('badOperation', () => deps.badOperation());
 });
 
 if (!result.ok && result.error.type === 'UNEXPECTED') {
@@ -457,12 +457,12 @@ const fetchUserFromApi = async (id: string): AsyncResult<User, NetworkError | No
 
 const workflow = createWorkflow('workflow', { fetchUserFromApi });
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const user = await step.retry(
     'fetchUser',
     () => step.withTimeout(
       'fetchUser',
-      () => fetchUserFromApi('123'),
+      () => deps.fetchUserFromApi('123'),
       { ms: 3000 }
     ),
     {

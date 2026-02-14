@@ -147,7 +147,7 @@ export interface WorkflowHarness<E, Deps> {
    * Run the workflow with scripted outcomes.
    */
   run<T>(
-    fn: (step: MockStep<E>, deps: Deps) => Promise<T>
+    fn: (context: { step: MockStep<E>; deps: Deps }) => Promise<T>
   ): Promise<Result<T, E | unknown>>;
 
   /**
@@ -155,7 +155,7 @@ export interface WorkflowHarness<E, Deps> {
    */
   runWithInput<T, TInput>(
     input: TInput,
-    fn: (step: MockStep<E>, deps: Deps, input: TInput) => Promise<T>
+    fn: (context: { step: MockStep<E>; deps: Deps; input: TInput }) => Promise<T>
   ): Promise<Result<T, E | unknown>>;
 
   /**
@@ -203,7 +203,7 @@ export interface WorkflowHarness<E, Deps> {
  * ]);
  *
  * // Run the workflow
- * const result = await harness.run(async (step, { fetchUser, chargeCard }) => {
+ * const result = await harness.run(async ({ step, deps: { fetchUser, chargeCard } }) => {
  *   const user = await step(() => fetchUser('1'), 'fetch-user');
  *   const charge = await step(() => chargeCard(100), 'charge-card');
  *   return { user, charge };
@@ -422,12 +422,12 @@ export function createWorkflowHarness<
   }
 
   async function run<T>(
-    fn: (step: MockStep<E>, deps: Deps) => Promise<T>
+    fn: (context: { step: MockStep<E>; deps: Deps }) => Promise<T>
   ): Promise<Result<T, E | unknown>> {
     const mockStep = createMockStep();
 
     try {
-      const value = await fn(mockStep, deps);
+      const value = await fn({ step: mockStep, deps });
       return ok(value);
     } catch (error) {
       if (isTestEarlyExit(error)) {
@@ -439,12 +439,12 @@ export function createWorkflowHarness<
 
   async function runWithInput<T, TInput>(
     input: TInput,
-    fn: (step: MockStep<E>, deps: Deps, input: TInput) => Promise<T>
+    fn: (context: { step: MockStep<E>; deps: Deps; input: TInput }) => Promise<T>
   ): Promise<Result<T, E | unknown>> {
     const mockStep = createMockStep();
 
     try {
-      const value = await fn(mockStep, deps, input);
+      const value = await fn({ step: mockStep, deps, input });
       return ok(value);
     } catch (error) {
       if (isTestEarlyExit(error)) {
@@ -838,8 +838,7 @@ export interface SagaHarness<E, Deps> extends WorkflowHarness<E, Deps> {
    */
   runSaga<T>(
     fn: (
-      saga: MockSagaContext<E>,
-      deps: Deps
+      context: { saga: MockSagaContext<E>; deps: Deps }
     ) => Promise<T>
   ): Promise<Result<T, E | unknown>>;
 }
@@ -873,7 +872,7 @@ export interface SagaStepOptions<T> {
  *   errOutcome('OUT_OF_STOCK'),                      // reserveInventory fails
  * ]);
  *
- * const result = await harness.runSaga(async (saga, deps) => {
+ * const result = await harness.runSaga(async ({ saga, deps }) => {
  *   const payment = await saga.step(
  *     'charge-payment',
  *     () => deps.chargePayment({ amount: 100 }),
@@ -913,7 +912,7 @@ export function createSagaHarness<
   let compensationStack: Array<{ name?: string; value: unknown; compensate: (value: unknown) => void | Promise<void> }> = [];
 
   async function runSaga<T>(
-    fn: (saga: MockSagaContext<E>, deps: Deps) => Promise<T>
+    fn: (context: { saga: MockSagaContext<E>; deps: Deps }) => Promise<T>
   ): Promise<Result<T, E | unknown>> {
     // Reset compensation tracking
     compensations = [];
@@ -926,8 +925,8 @@ export function createSagaHarness<
       ): Promise<StepT> => {
         // Use the base harness step mechanism
         try {
-          const result = await (baseHarness as unknown as { run: (fn: (step: MockStep<E>, deps: Deps) => Promise<StepT>) => Promise<Result<StepT, E | unknown>> }).run(
-            async (step) => step(operation)
+          const result = await (baseHarness as unknown as { run: (fn: (context: { step: MockStep<E>; deps: Deps }) => Promise<StepT>) => Promise<Result<StepT, E | unknown>> }).run(
+            async ({ step }) => step(operation)
           );
 
           if (!result.ok) {
@@ -977,7 +976,7 @@ export function createSagaHarness<
     }
 
     try {
-      const value = await fn(sagaContext, deps);
+      const value = await fn({ saga: sagaContext, deps });
       return ok(value);
     } catch (error) {
       if (isTestEarlyExit(error)) {
@@ -1072,7 +1071,7 @@ export interface EventAssertionOptions {
  * const events: WorkflowEvent[] = [];
  * const workflow = createWorkflow({ fetchUser }, { onEvent: (e) => events.push(e) });
  *
- * await workflow(async (step) => step(() => fetchUser('1'), { name: 'fetch-user' }));
+ * await workflow(async ({ step }) => step(() => fetchUser('1'), { name: 'fetch-user' }));
  *
  * const result = assertEventSequence(events, [
  *   'workflow_start',

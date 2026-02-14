@@ -35,7 +35,7 @@ describe("Skill Examples", () => {
         return id === "1" ? ok({ id, name: "Alice" }) : err("NOT_FOUND");
       }
 
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         // Explicit ID form - step('id', () => fn())
         const user = await step('getUser', () => getUser("1"));
         return user;
@@ -54,7 +54,7 @@ describe("Skill Examples", () => {
 
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step, deps) => {
+      const result = await workflow(async ({ step, deps }) => {
         // Explicit ID form - step('id', () => deps.fn())
         const user = await step('getUser', () => deps.getUser("1"));
         return user;
@@ -82,7 +82,7 @@ describe("Skill Examples", () => {
 
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step, deps) => {
+      const result = await workflow(async ({ step, deps }) => {
         const user = await step('getUser', () => deps.getUser("1"));
         const order = await step('createOrder', () => deps.createOrder(user));
         return order;
@@ -104,7 +104,7 @@ describe("Skill Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", deps);
-      const result = await workflow(async (step, deps) => {
+      const result = await workflow(async ({ step, deps }) => {
         return await step('getUser', () => deps.getUser());
       });
 
@@ -124,7 +124,7 @@ describe("Skill Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", deps);
-      const result = await workflow(async (step, deps) => {
+      const result = await workflow(async ({ step, deps }) => {
         return await step('getUser', () => deps.getUser("123"));
       });
 
@@ -145,7 +145,7 @@ describe("Skill Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", deps);
-      const result = await workflow(async (step, deps) => {
+      const result = await workflow(async ({ step, deps }) => {
         return await step('badOperation', () => deps.badOperation());
       });
 
@@ -162,7 +162,7 @@ describe("Skill Examples", () => {
       const deps = {};
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         const data = await step.try(
           "parse",
           () => JSON.parse('{"valid": true}'),
@@ -179,7 +179,7 @@ describe("Skill Examples", () => {
       const deps = {};
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         const data = await step.try(
           "parse",
           () => JSON.parse("not valid json"),
@@ -196,7 +196,7 @@ describe("Skill Examples", () => {
       const deps = {};
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step) => {
+      const result = await workflow(async ({ step }) => {
         // step.try returns the unwrapped value directly, NOT a Result
         const parsed = await step.try(
           "parse",
@@ -230,7 +230,7 @@ describe("Skill Examples", () => {
       }
 
       // Simple workflow using closures
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const user = await step('getUser', () => getUser("user-1"));
         const order = await step('createOrder', () => createOrder(user));
         return order;
@@ -255,7 +255,7 @@ describe("Skill Examples", () => {
       }
 
       // Without options, run() wraps all errors as UnexpectedError
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const user = await step('getUser', () => getUser());
         const order = await step('createOrder', () => createOrder());
         return order;
@@ -289,7 +289,7 @@ describe("Skill Examples", () => {
 
       // With catchUnexpected, errors are typed
       const result = await run<{ orderId: string }, MyErrors>(
-        async (step) => {
+        async ({ step }) => {
           const user = await step('getUser', () => getUser());
           const order = await step('createOrder', () => createOrder());
           return order;
@@ -305,7 +305,7 @@ describe("Skill Examples", () => {
     });
 
     it("run() with step.try for throwing APIs", async () => {
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const parsed = await step.try(
           "parse",
           () => JSON.parse('{"name": "Alice"}'),
@@ -335,7 +335,7 @@ describe("Skill Examples", () => {
       // Simulate HTTP handler with typed errors via catchUnexpected
       async function handleRequest(userId: string) {
         const result = await run<Order, MyErrors>(
-          async (step) => {
+          async ({ step }) => {
             const user = await step('getUser', () => getUser(userId));
             const order = await step('createOrder', () => createOrder(user));
             return order;
@@ -376,7 +376,7 @@ describe("Skill Examples", () => {
       }
 
       // Without options, errors are UnexpectedError
-      const result = await run(async (step) => {
+      const result = await run(async ({ step }) => {
         const user = await step('getUser', () => getUser("unknown"));
         return user;
       });
@@ -415,7 +415,7 @@ describe("Skill Examples", () => {
 
       // Simulate HTTP handler with complete boundary error handling
       async function handleRequest(userId: string, useTimeout = false) {
-        const result = await processOrder(async (step, deps) => {
+        const result = await processOrder(async ({ step, deps }) => {
           const user = useTimeout
             ? await step.withTimeout('getUser', () => deps.getUser(userId), { ms: 50 })
             : await step('getUser', () => deps.getUser(userId));
@@ -472,7 +472,7 @@ describe("Skill Examples", () => {
 
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step, deps) => {
+      const result = await workflow(async ({ step, deps }) => {
         return await step.retry('fetchData', () => deps.fetchData(), { attempts: 3 });
       });
 
@@ -490,7 +490,7 @@ describe("Skill Examples", () => {
 
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step, deps) => {
+      const result = await workflow(async ({ step, deps }) => {
         return await step.withTimeout('fastOperation', () => deps.fastOperation(), { ms: 5000 });
       });
 
@@ -508,7 +508,7 @@ describe("Skill Examples", () => {
 
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step, deps) => {
+      const result = await workflow(async ({ step, deps }) => {
         return await step.withTimeout('slowOperation', () => deps.slowOperation(), { ms: 50 });
       });
 
@@ -527,7 +527,7 @@ describe("Skill Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", deps);
-      const result = await workflow(async (step, deps) => step('op', () => deps.op()));
+      const result = await workflow(async ({ step, deps }) => step('op', () => deps.op()));
 
       const error = unwrapErr(result);
       expect(error).toBe("FORBIDDEN");
@@ -541,7 +541,7 @@ describe("Skill Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", deps);
-      const result = await workflow(async (step, deps) => step('op', () => deps.op()));
+      const result = await workflow(async ({ step, deps }) => step('op', () => deps.op()));
 
       const error = unwrapErr(result);
       expect(error).toEqual({ type: "NOT_FOUND", userId: "123" });
@@ -556,7 +556,7 @@ describe("Skill Examples", () => {
 
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step, deps) => {
+      const result = await workflow(async ({ step, deps }) => {
         const numbers = await step('getData', () => deps.getData());
         // Synchronous computation - no step() needed
         const doubled = numbers.map((n) => n * 2);
@@ -585,7 +585,7 @@ describe("Skill Examples", () => {
 
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async (step, deps) => {
+      const result = await workflow(async ({ step, deps }) => {
         const [user, posts] = await step('fetchUserAndPosts', () => allAsync([
           deps.getUser("1"),
           deps.getPosts("1"),

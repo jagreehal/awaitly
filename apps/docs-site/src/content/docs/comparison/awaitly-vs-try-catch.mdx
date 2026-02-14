@@ -199,14 +199,14 @@ import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow('workflow', { fetchUser, validateAge, createAccount });
 
-const result = await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('123'));
+const result = await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('123'));
   // If fetchUser fails, we stop here and return the error
 
-  const validated = await step('validateAge', () => validateAge(user));
+  const validated = await step('validateAge', () => deps.validateAge(user));
   // If validateAge fails, we stop here
 
-  const account = await step('createAccount', () => createAccount(validated));
+  const account = await step('createAccount', () => deps.createAccount(validated));
   // If createAccount fails, we stop here
 
   return account;
@@ -256,17 +256,14 @@ const results = await Promise.all([
   fetchUser('3'),
 ]);
 
+// Collect all outcomes (successes and failures)
 const settled = Awaitly.allSettled(results);
-// Always succeeds - collects all outcomes
+// See [Awaitly.allSettled](/reference/api/) for the exact return shape.
 
+// Partition into successes and failures
 const [successes, failures] = Awaitly.partition(results);
 console.log(`Found ${successes.length} users`);
 console.log(`Failed to find ${failures.length} users`);
-/*
-Output:
-Found 2 users
-Failed to find 1 users
-*/
 ```
   </TabItem>
   <TabItem label="try/catch">
@@ -353,24 +350,26 @@ You don't have to rewrite everything. Wrap existing code:
 ```typescript
 import { Awaitly } from 'awaitly';
 
-// Wrap sync code
-const result1 = Awaitly.from(() => JSON.parse(jsonString));
+// Sync: Awaitly.from(fn, onError)
+const result1 = Awaitly.from(() => JSON.parse(jsonString), () => 'PARSE_ERROR' as const);
 
-// Wrap promises
-const result2 = await Awaitly.fromPromise(fetch('/api/data'));
-
-// Wrap with custom error type
-const result3 = await Awaitly.tryAsync(
-  () => riskyOperation(),
-  (thrown) => ({
-    type: 'OPERATION_FAILED' as const,
-    cause: thrown,
-  })
+// Async (outside workflows): Awaitly.fromPromise(promise, onError)
+const result2 = await Awaitly.fromPromise(
+  fetch('/api/data').then(r => r.json()),
+  () => 'FETCH_ERROR' as const
 );
+
+// With error context from the cause
+const result3 = Awaitly.from(
+  () => JSON.parse(data),
+  (cause) => ({ type: 'PARSE_ERROR' as const, message: String(cause) })
+);
+
+// Inside workflows: step.try('id', () => …, { error: 'MY_ERROR' })
 ```
 
 <Aside type="tip" title="Gradual adoption">
-You can adopt Result types gradually. Wrap boundary code (API calls, user input) with Result types while keeping internal code unchanged.
+You can adopt Result types gradually. Wrap boundary code (API calls, user input) with `Awaitly.from` / `Awaitly.fromPromise`, and use `step.try` inside workflow callbacks.
 </Aside>
 
 ## Summary

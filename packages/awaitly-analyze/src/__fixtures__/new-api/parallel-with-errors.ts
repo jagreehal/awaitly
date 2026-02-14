@@ -26,7 +26,7 @@ export const userDashboardWorkflow = createWorkflow("userDashboardWorkflow", {
 });
 
 export async function loadUserDashboard(userId: string) {
-  return await userDashboardWorkflow(async (step, deps) => {
+  return await userDashboardWorkflow(async ({ step, deps }) => {
     const { profile, activity } = await step.parallel('Fetch profile and activity', {
       profile: () => deps.fetchProfile(userId),
       activity: () => deps.fetchActivity(userId),

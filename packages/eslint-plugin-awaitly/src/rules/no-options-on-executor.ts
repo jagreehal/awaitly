@@ -9,9 +9,9 @@ import type { CallExpression, Identifier, ObjectExpression, Property } from 'est
  *
  * Options passed to the executor are silently ignored, which is a common mistake.
  *
- * BAD:  await workflow({ cache: new Map() }, async (step) => { ... })
+ * BAD:  await workflow({ cache: new Map() }, async ({ step }) => { ... })
  * GOOD: const workflow = createWorkflow('workflow', deps, { cache: new Map() });
- *       await workflow(async (step) => { ... });
+ *       await workflow(async ({ step }) => { ... });
  */
 
 const KNOWN_OPTION_KEYS = new Set([
@@ -113,7 +113,7 @@ const rule: Rule.RuleModule = {
       optionsOnExecutor:
         'Workflow options ({{ keys }}) passed to executor are ignored. Pass options to createWorkflow() instead:\n' +
         '  const workflow = createWorkflow(\'workflow\', deps, { {{ keys }} });\n' +
-        '  await workflow(async (step) => { ... });',
+        '  await workflow(async ({ step }) => { ... });',
     },
   },
 
@@ -123,7 +123,7 @@ const rule: Rule.RuleModule = {
         // Only check calls that look like workflow executors
         if (!isLikelyWorkflowCall(node)) return;
 
-        // Check for pattern: workflow({ optionsKey: value }, async (step) => { ... })
+        // Check for pattern: workflow({ optionsKey: value }, async ({ step }) => { ... })
         const args = node.arguments;
 
         // Need at least 2 arguments: options object and callback

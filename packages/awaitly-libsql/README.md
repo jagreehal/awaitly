@@ -30,7 +30,7 @@ const store = await createLibSqlPersistence({
 
 const result = await durable.run(
   { fetchUser, createOrder },
-  async (step, { fetchUser, createOrder }) => {
+  async ({ step, deps: { fetchUser, createOrder } }) => {
     const user = await step("fetchUser", () => fetchUser("123"), { key: "fetch-user" });
     const order = await step("createOrder", () => createOrder(user), { key: "create-order" });
     return order;
