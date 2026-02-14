@@ -40,7 +40,7 @@ import { createWorkflow } from 'awaitly/workflow';
 // Execute workflow
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts });
 
-await workflow(async (step, deps) => {
+await workflow(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
@@ -58,7 +58,7 @@ const workflow2 = createWorkflow('workflow', { fetchUser, fetchPosts }, {
   snapshot: restoredSnapshot,
 });
 
-await workflow2(async (step, deps) => {
+await workflow2(async ({ step, deps }) => {
   // These steps return cached values - no actual fetch
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });

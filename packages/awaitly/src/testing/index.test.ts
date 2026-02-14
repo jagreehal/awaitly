@@ -44,7 +44,7 @@ describe("Testing Harness", () => {
         okOutcome({ txId: "tx-123" }),
       ]);
 
-      const result = await harness.run(async (step, { fetchUser, chargeCard }) => {
+      const result = await harness.run(async ({ step, deps: { fetchUser, chargeCard } }) => {
         const user = await step("fetch-user", () => fetchUser("1"));
         const payment = await step("charge-card", () => chargeCard(100));
         return { user, payment };
@@ -65,7 +65,7 @@ describe("Testing Harness", () => {
 
       harness.script([errOutcome("NOT_FOUND")]);
 
-      const result = await harness.run(async (step, { fetchUser }) => {
+      const result = await harness.run(async ({ step, deps: { fetchUser } }) => {
         const user = await step("fetch-user", () => fetchUser("1"));
         return user;
       });
@@ -84,7 +84,7 @@ describe("Testing Harness", () => {
 
       harness.script([throwOutcome(new Error("Network error"))]);
 
-      const result = await harness.run(async (step, { fetchUser }) => {
+      const result = await harness.run(async ({ step, deps: { fetchUser } }) => {
         const user = await step("fetch-user", () => fetchUser());
         return user;
       });
@@ -105,7 +105,7 @@ describe("Testing Harness", () => {
       harness.script([okOutcome({ id: "1" })]);
       harness.scriptStep("charge-card", errOutcome("FAILED"));
 
-      const result = await harness.run(async (step, { fetchUser, chargeCard }) => {
+      const result = await harness.run(async ({ step, deps: { fetchUser, chargeCard } }) => {
         const user = await step("fetch-user", () => fetchUser());
         const payment = await step("charge-card", () => chargeCard());
         return { user, payment };
@@ -126,7 +126,7 @@ describe("Testing Harness", () => {
 
       harness.script([okOutcome({ id: "1", name: "Alice" })]);
 
-      const result = await harness.run(async (step, { fetchUser }) => {
+      const result = await harness.run(async ({ step, deps: { fetchUser } }) => {
         const user = await step.try("fetch-user", () => fetchUser(), {
           error: "FETCH_FAILED" as const,
         });
@@ -148,7 +148,7 @@ describe("Testing Harness", () => {
 
       harness.script([errOutcome({ code: "NETWORK_ERROR", message: "Network error" })]);
 
-      const result = await harness.run(async (step, { fetchUser }) => {
+      const result = await harness.run(async ({ step, deps: { fetchUser } }) => {
         const user = await step.try("fetch-user", () => fetchUser(), {
           onError: (e) => ({
             code: "NETWORK_ERROR" as const,
@@ -171,7 +171,7 @@ describe("Testing Harness", () => {
 
       const result = await harness.runWithInput(
         { userId: "user-123" },
-        async (step, { fetchUser }, input) => {
+        async ({ step, deps: { fetchUser }, args: input }) => {
           const user = await step("fetch-user", () => fetchUser(input.userId));
           return user;
         }
@@ -190,7 +190,7 @@ describe("Testing Harness", () => {
 
       harness.script([okOutcome({ id: "1" })]);
 
-      await harness.run(async (step, { fetchUser }) => {
+      await harness.run(async ({ step, deps: { fetchUser } }) => {
         return step("fetch-user", () => fetchUser(), { key: "user:1" });
       });
 
@@ -209,7 +209,7 @@ describe("Testing Harness", () => {
 
       harness.script([okOutcome({ id: "1", name: "Alice" })]);
 
-      await harness.run(async (step, { fetchUser }) => {
+      await harness.run(async ({ step, deps: { fetchUser } }) => {
         return step("fetch-user", () => fetchUser());
       });
 
@@ -232,7 +232,7 @@ describe("Testing Harness", () => {
         okOutcome({ txId: "tx-1" }),
       ]);
 
-      await harness.run(async (step, { fetchUser, chargeCard }) => {
+      await harness.run(async ({ step, deps: { fetchUser, chargeCard } }) => {
         await step("fetch-user", () => fetchUser());
         await step("charge-card", () => chargeCard());
         return "done";
@@ -255,7 +255,7 @@ describe("Testing Harness", () => {
         okOutcome({ txId: "tx-1" }),
       ]);
 
-      await harness.run(async (step, { fetchUser, chargeCard }) => {
+      await harness.run(async ({ step, deps: { fetchUser, chargeCard } }) => {
         await step("fetch-user", () => fetchUser());
         await step("charge-card", () => chargeCard());
         return "done";
@@ -274,7 +274,7 @@ describe("Testing Harness", () => {
 
       harness.script([okOutcome({ id: "1" })]);
 
-      await harness.run(async (step, { fetchUser }) => {
+      await harness.run(async ({ step, deps: { fetchUser } }) => {
         return step("fetch-user", () => fetchUser());
       });
 
@@ -290,7 +290,7 @@ describe("Testing Harness", () => {
 
       harness.script([okOutcome({ id: "1" })]);
 
-      await harness.run(async (step, { fetchUser }) => {
+      await harness.run(async ({ step, deps: { fetchUser } }) => {
         return step("fetch-user", () => fetchUser());
       });
 
@@ -306,7 +306,7 @@ describe("Testing Harness", () => {
 
       harness.script([okOutcome({ id: "1", name: "Alice" })]);
 
-      const result = await harness.run(async (step, { fetchUser }) => {
+      const result = await harness.run(async ({ step, deps: { fetchUser } }) => {
         return step("fetch-user", () => fetchUser());
       });
 
@@ -324,7 +324,7 @@ describe("Testing Harness", () => {
 
       harness.script([okOutcome({ id: "1" })]);
 
-      await harness.run(async (step, { fetchUser }) => {
+      await harness.run(async ({ step, deps: { fetchUser } }) => {
         return step("fetch-user", () => fetchUser());
       });
 

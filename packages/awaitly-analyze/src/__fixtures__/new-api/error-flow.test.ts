@@ -22,7 +22,7 @@ describe("Error Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}), b: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('getUser', () => deps.a(), { errors: ['NOT_FOUND', 'UNAUTHORIZED'] });
             await step('getPosts', () => deps.b(), { errors: ['FETCH_ERROR'] });
           });
@@ -42,7 +42,7 @@ describe("Error Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}), b: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('withErrors', () => deps.a(), { errors: ['ERROR1'] });
             await step('withoutErrors', () => deps.b());
           });
@@ -61,7 +61,7 @@ describe("Error Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}), b: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('step1', () => deps.a(), { errors: ['SHARED_ERROR', 'ERROR1'] });
             await step('step2', () => deps.b(), { errors: ['SHARED_ERROR', 'ERROR2'] });
           });
@@ -83,7 +83,7 @@ describe("Error Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}), b: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('step1', () => deps.a(), { errors: ['TARGET_ERROR'] });
             await step('step2', () => deps.b(), { errors: ['OTHER_ERROR'] });
             await step('step3', () => deps.a(), { errors: ['TARGET_ERROR'] });
@@ -106,7 +106,7 @@ describe("Error Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('step1', () => deps.a(), { errors: ['ERROR_A', 'ERROR_B'] });
           });
         }
@@ -126,7 +126,7 @@ describe("Error Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('step1', () => deps.a(), { errors: ['ERROR_A', 'ERROR_B'] });
           });
         }
@@ -145,7 +145,7 @@ describe("Error Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('step1', () => deps.a(), { errors: ['ERROR_A'] });
           });
         }
@@ -166,7 +166,7 @@ describe("Error Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('getUser', () => deps.a(), { errors: ['NOT_FOUND'] });
           });
         }
@@ -189,7 +189,7 @@ describe("Error Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}) });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('getUser', () => deps.a(), { errors: ['NOT_FOUND', 'UNAUTHORIZED'] });
           });
         }

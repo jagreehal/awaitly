@@ -179,7 +179,7 @@ import { SnapshotDecodeError } from "../persistence";
  *
  * const getPosts = createWorkflow({ fetchUser, fetchPosts });
  *
- * const result = await getPosts(async (step) => {
+ * const result = await getPosts(async ({ step }) => {
  *   const user = await step(fetchUser('1'));
  *   const posts = await step(fetchPosts(user.id));
  *   return { user, posts };
@@ -189,8 +189,8 @@ import { SnapshotDecodeError } from "../persistence";
  *
  * @example
  * ```typescript
- * // With destructuring in callback (optional but convenient)
- * const result = await getPosts(async (step, { fetchUser, fetchPosts }) => {
+ * // With destructured deps in callback
+ * const result = await getPosts(async ({ step, deps: { fetchUser, fetchPosts } }) => {
  *   const user = await step(fetchUser('1'));
  *   const posts = await step(fetchPosts(user.id));
  *   return { user, posts };
@@ -215,7 +215,7 @@ import { SnapshotDecodeError } from "../persistence";
  * const cache = new Map<string, Result<unknown, unknown>>();
  * const workflow = createWorkflow({ fetchUser }, { cache });
  *
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   // Function-wrapped pattern with key - cached and emits step_complete
  *   const user1 = await step(() => fetchUser('1'), { key: 'user:1' });
  *
@@ -249,7 +249,7 @@ import { SnapshotDecodeError } from "../persistence";
  * const savedState = { steps: new Map([['user:1', { result: ok({ id: '1', name: 'Alice' }) }]]) };
  * const workflow = createWorkflow({ fetchUser }, { resumeState: savedState });
  *
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   // This step uses cached result from savedState (fetchUser not called)
  *   const user = await step(() => fetchUser('1'), { key: 'user:1' });
  *   return user;
@@ -263,7 +263,7 @@ import { SnapshotDecodeError } from "../persistence";
  *
  * const result = await workflow(
  *   { userId: '1' }, // Typed arguments
- *   async (step, { fetchUser, fetchPosts }, { userId }) => {
+ *   async ({ step, deps: { fetchUser, fetchPosts }, args: { userId } }) => {
  *     const user = await step(fetchUser(userId));
  *     const posts = await step(fetchPosts(user.id));
  *     return { user, posts };
@@ -799,7 +799,7 @@ export function createWorkflow<
           `passed to workflow executor. Options are ignored here.\n` +
           `Pass options to createWorkflow() instead:\n` +
           `  const workflow = createWorkflow('${workflowName}', deps, { ${matchedOptions.join(", ")} });\n` +
-          `  await workflow(async (step) => { ... });`
+          `  await workflow(async ({ step }) => { ... });`
         );
       }
     }
@@ -2188,14 +2188,14 @@ export function createWorkflow<
 
     // Wrap the user's callback to pass cached step, deps, args (when present), and workflow context
     const wrappedFn = hasArgs
-      ? (step: RunStep<E>) => (userFn as (step: RunStep<E>, deps: Deps, args: Args, ctx: WorkflowContext<C>) => T | Promise<T>)(createCachedStep(step), depsActual, args as Args, workflowContext)
-      : (step: RunStep<E>) => (userFn as (step: RunStep<E>, deps: Deps, ctx: WorkflowContext<C>) => T | Promise<T>)(createCachedStep(step), depsActual, workflowContext);
+      ? ({ step }: { step: RunStep<E> }) => (userFn as (context: { step: RunStep<E>; deps: Deps; args: Args; ctx: WorkflowContext<C> }) => T | Promise<T>)({ step: createCachedStep(step), deps: depsActual, args: args as Args, ctx: workflowContext })
+      : ({ step }: { step: RunStep<E> }) => (userFn as (context: { step: RunStep<E>; deps: Deps; ctx: WorkflowContext<C> }) => T | Promise<T>)({ step: createCachedStep(step), deps: depsActual, ctx: workflowContext });
 
     // Always use run() with catchUnexpected (default or user-provided). Closed error union E | U.
     let result: Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>;
 
     try {
-      result = await run<T, E | U, C>(wrappedFn as (step: RunStep<E | U>) => Promise<T> | T, {
+      result = await run<T, E | U, C>(wrappedFn as (context: { step: RunStep<E | U> }) => Promise<T> | T, {
         onError: onErrorHandler as ((error: E | U, stepName?: string, ctx?: C) => void) | undefined,
         onEvent: onEventHandler as ((event: WorkflowEvent<E | U | UnexpectedError, C>, ctx: C) => void) | undefined,
         catchUnexpected: catchUnexpected as (cause: unknown) => U,

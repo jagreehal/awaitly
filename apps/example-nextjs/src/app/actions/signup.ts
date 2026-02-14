@@ -14,7 +14,7 @@ export async function signup(
   email: string,
   password: string
 ): Promise<SignupActionResult> {
-  const result = await signupWorkflow(async (step, deps) => {
+  const result = await signupWorkflow(async ({ step, deps }) => {
     const validEmail = await step("validateEmail", () =>
       deps.validateEmail(email)
     );

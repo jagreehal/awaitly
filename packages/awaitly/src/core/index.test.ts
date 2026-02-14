@@ -957,7 +957,7 @@ describe("ErrorOf and Errors utilities - auto-extract error types", () => {
       { user: { id: string; name: string }; posts: string[] },
       AppError
     >(
-      async (step) => {
+      async ({ step }) => {
         const user = await step('fetchUser', () => fetchUser("123"));
         const posts = await step('fetchPosts', () => fetchPosts(user.id));
         return { user, posts };
@@ -986,7 +986,7 @@ describe("ErrorOf and Errors utilities - auto-extract error types", () => {
       { user: { id: string; name: string }; posts: string[] },
       AppError
     >(
-      async (step) => {
+      async ({ step }) => {
         const user = await step('fetchUser', () => fetchUser("unknown")); // Will fail
         const posts = await step('fetchPosts', () => fetchPosts(user.id));
         return { user, posts };
@@ -1012,7 +1012,7 @@ describe("ErrorOf and Errors utilities - auto-extract error types", () => {
       { user: { id: string; name: string } },
       AppError
     >(
-      async (step) => {
+      async ({ step }) => {
         const input = await step('validateInput', () => validateInput("hello"));
         const user = await step('fetchUser', () => fetchUser(input));
         return { user };
@@ -1125,7 +1125,7 @@ describe("Real-world usage patterns", () => {
       { user: { id: string; name: string }; posts: string[] },
       AppError
     >(
-      async (step) => {
+      async ({ step }) => {
         const user = await step('fetchUser', () => fetchUser("123"));
         const posts = await step('fetchPosts', () => fetchPosts(user.id));
         return { user, posts };
@@ -1149,7 +1149,7 @@ describe("Real-world usage patterns", () => {
       { user: { id: string; name: string }; posts: string[] },
       AppError
     >(
-      async (step) => {
+      async ({ step }) => {
         const user = await step('fetchUser', () => fetchUser("unknown")); // Will fail
         const posts = await step('fetchPosts', () => fetchPosts(user.id));
         return { user, posts };

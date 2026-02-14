@@ -17,7 +17,7 @@ describe("Workflow Strict Option", () => {
           getUser: async () => ok({}),
         }, { strict: true });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('getUser', () => deps.getUser('1'), { errors: [] });
           });
         }
@@ -35,7 +35,7 @@ describe("Workflow Strict Option", () => {
           getUser: async () => ok({}),
         }, { strict: false });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('getUser', () => deps.getUser('1'));
           });
         }
@@ -52,7 +52,7 @@ describe("Workflow Strict Option", () => {
           getUser: async () => ok({}),
         });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('getUser', () => deps.getUser('1'));
           });
         }
@@ -71,7 +71,7 @@ describe("Workflow Strict Option", () => {
           getUser: async () => ok({}),
         }, { errors: ['NOT_FOUND', 'UNAUTHORIZED'], strict: true });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('getUser', () => deps.getUser('1'), { errors: ['NOT_FOUND'] });
           });
         }
@@ -89,7 +89,7 @@ describe("Workflow Strict Option", () => {
           getUser: async () => ok({}),
         }, { errors: workflowErrors, strict: true });
         export async function run() {
-          return await workflow(async (step, deps) => {
+          return await workflow(async ({ step, deps }) => {
             await step('getUser', () => deps.getUser('1'), { errors: ['ERROR_A'] });
           });
         }

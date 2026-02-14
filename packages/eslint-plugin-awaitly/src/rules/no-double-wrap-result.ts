@@ -13,10 +13,10 @@ import type {
  * Detects returning ok() or err() from workflow executor functions.
  * Workflow executors should return raw values - awaitly wraps them automatically.
  *
- * BAD:  run(async (step) => { return ok({ user }); })      - Double-wrapped
- * BAD:  createWorkflow('workflow', deps)(async (step) => ok(value))    - Double-wrapped
- * GOOD: run(async (step) => { return { user }; })          - Raw value
- * GOOD: createWorkflow('workflow', deps)(async (step) => value)        - Raw value
+ * BAD:  run(async ({ step }) => { return ok({ user }); })      - Double-wrapped
+ * BAD:  createWorkflow('workflow', deps)(async ({ step }) => ok(value))    - Double-wrapped
+ * GOOD: run(async ({ step }) => { return { user }; })          - Raw value
+ * GOOD: createWorkflow('workflow', deps)(async ({ step }) => value)        - Raw value
  */
 
 const WORKFLOW_CALLERS = new Set(['run', 'createWorkflow']);
@@ -51,19 +51,19 @@ function tracesToCreateWorkflow(node: Node): boolean {
 function isWorkflowCall(node: CallExpression): boolean {
   const { callee } = node;
 
-  // Direct: run(async (step) => ...)
+  // Direct: run(async ({ step }) => ...)
   if (callee.type === 'Identifier' && WORKFLOW_CALLERS.has(callee.name)) {
     return true;
   }
 
-  // Chained: createWorkflow('workflow', deps)(async (step) => ...)
+  // Chained: createWorkflow('workflow', deps)(async ({ step }) => ...)
   // The outer call's callee is another CallExpression
   if (callee.type === 'CallExpression') {
     const innerCallee = callee.callee;
     if (innerCallee.type === 'Identifier' && innerCallee.name === 'createWorkflow') {
       return true;
     }
-    // Handle createWorkflow('workflow', deps).with(...)(async (step) => ...)
+    // Handle createWorkflow('workflow', deps).with(...)(async ({ step }) => ...)
     // where the inner call is on a member of createWorkflow result
     if (innerCallee.type === 'MemberExpression') {
       const { object, property } = innerCallee;
@@ -83,7 +83,7 @@ function isWorkflowCall(node: CallExpression): boolean {
     }
   }
 
-  // Member: run.strict(async (step) => ...) or createWorkflow(deps).run(async (step) => ...)
+  // Member: run.strict(async ({ step }) => ...) or createWorkflow(deps).run(async ({ step }) => ...)
   if (callee.type === 'MemberExpression') {
     const { object, property } = callee;
 

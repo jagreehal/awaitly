@@ -33,7 +33,7 @@ const fetchUser = async (id: string) => ({ id, name: 'Alice' });
 export const testWorkflow = createWorkflow('testWorkflow', { fetchUser });
 
 export async function run(userId: string) {
-  return await testWorkflow(async (step, deps) => {
+  return await testWorkflow(async ({ step, deps }) => {
     const user = await step(() => deps.fetchUser(userId), { key: 'user' });
     return user;
   });
@@ -52,14 +52,14 @@ export const workflowA = createWorkflow('workflowA', deps);
 export const workflowB = createWorkflow('workflowB', deps);
 
 export async function runA() {
-  return workflowA(async (step, d) => {
+  return workflowA(async ({ step, deps: d }) => {
     await step('a', () => d.a());
     return {};
   });
 }
 
 export async function runB() {
-  return workflowB(async (step, d) => {
+  return workflowB(async ({ step, deps: d }) => {
     await step('b', () => d.b());
     return {};
   });

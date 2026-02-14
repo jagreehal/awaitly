@@ -109,7 +109,7 @@ async function processOrder(orderId: string) {
 ```typescript
 import { run } from "awaitly/run";
 
-const result = await run(async (step) => {
+const result = await run(async ({ step }) => {
   const order = await step('getOrder', () => getOrder(orderId)); // unwraps ok, exits on err
   const user = await step('getUser', () => getUser(order.userId)); // same
   const payment = await step('charge', () => charge(order.total)); // same
@@ -171,7 +171,7 @@ const deps = {
 
 const workflow = createWorkflow(deps);
 
-const result = await workflow(async (step, deps) => {
+const result = await workflow(async ({ step, deps }) => {
   const user = await step('getUser', () => deps.getUser(userId));
   const order = await step('getOrder', () => deps.getOrder(orderId));
   return { user, order };
@@ -244,7 +244,7 @@ const deps = {
 // 2. Create and run a workflow
 const workflow = createWorkflow(deps);
 
-const result = await workflow(async (step, deps) => {
+const result = await workflow(async ({ step, deps }) => {
   return await step('loadTask', () => deps.loadTask("t-1"));
 });
 
@@ -356,7 +356,7 @@ const transfer = createWorkflow(deps);
 
 // In an HTTP handler
 async function handler(fromUserId: string, toUserId: string, amount: number) {
-  const result = await transfer(async (step, deps) => {
+  const result = await transfer(async ({ step, deps }) => {
     const fromUser = await step('getUser', () => deps.getUser(fromUserId));
     const toUser = await step('getUser', () => deps.getUser(toUserId));
     await step('validateBalance', () => deps.validateBalance(fromUser, amount));
@@ -436,7 +436,7 @@ TypeScript will force you to handle both. This is intentional.
 Add resilience exactly where you need it - no nested try/catch or custom retry loops.
 
 ```typescript
-const result = await workflow(async (step, deps) => {
+const result = await workflow(async ({ step, deps }) => {
   // Retry 3 times with exponential backoff, timeout after 5 seconds
   const task = await step.retry("loadTask", () => deps.loadTask("t-1"), {
     attempts: 3,
@@ -452,7 +452,7 @@ const result = await workflow(async (step, deps) => {
 Use stable keys to ensure a step only runs once, even if the workflow crashes and restarts.
 
 ```typescript
-const result = await processPayment(async (step) => {
+const result = await processPayment(async ({ step }) => {
   // If the workflow crashes after charging but before saving,
   // the next run skips the charge - it's already cached.
   const charge = await step('chargeCard', () => chargeCard(amount), {
@@ -483,7 +483,7 @@ const workflow = createWorkflow({ fetchUser, fetchPosts }, {
   onEvent: collector.handleEvent, // Automatically collects step_complete events
 });
 
-await workflow(async (step, deps) => {
+await workflow(async ({ step, deps }) => {
   // Only steps with keys are saved
   const user = await step('fetchUser', () => deps.fetchUser("1"), { key: "user:1" });
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
@@ -524,7 +524,7 @@ const workflow = createWorkflow({ fetchUser, fetchPosts }, {
   resumeState: savedState, // Pre-populates cache from saved state
 });
 
-await workflow(async (step, deps) => {
+await workflow(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser("1"), { key: "user:1" }); // ✅ Cache hit
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` }); // ✅ Cache hit
   return { user, posts };
@@ -578,7 +578,7 @@ const requireApproval = createApprovalStep({
   },
 });
 
-const result = await refundWorkflow(async (step, deps) => {
+const result = await refundWorkflow(async ({ step, deps }) => {
   const refund = await step('calculateRefund', () => deps.calculateRefund(orderId));
 
   // Workflow pauses here until someone approves
@@ -605,7 +605,7 @@ const workflow = createWorkflow({ fetchOrder, chargeCard }, {
   onEvent: viz.handleEvent,
 });
 
-await workflow(async (step, deps) => {
+await workflow(async ({ step, deps }) => {
   const order = await step("fetchOrder", () => deps.fetchOrder("order_456"));
   const payment = await step("chargeCard", () => deps.chargeCard(order.total));
   return { order, payment };
@@ -748,7 +748,7 @@ Use it only when:
 import { run } from "awaitly/run";
 
 const result = await run<Output, "NOT_FOUND" | "FETCH_ERROR">(
-  async (step) => {
+  async ({ step }) => {
     const user = await step('fetchUser', () => fetchUser(userId)); // thunk for consistency
     return user;
   },

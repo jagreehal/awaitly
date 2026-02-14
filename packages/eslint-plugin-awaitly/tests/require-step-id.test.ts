@@ -161,7 +161,7 @@ describe('require-step-id', () => {
   describe('valid cases - saga.step / saga.tryStep', () => {
     it('allows saga.step with name first and options', () => {
       const code = `
-        orderSaga(async (saga, deps) => {
+        orderSaga(async ({ saga, deps }) => {
           saga.step('createOrder', () => deps.createOrder(), { compensate: (o) => deps.cancelOrder(o) });
         });
       `;
@@ -171,7 +171,7 @@ describe('require-step-id', () => {
 
     it('allows saga.tryStep with name first and options', () => {
       const code = `
-        orderSaga(async (saga, deps) => {
+        orderSaga(async ({ saga, deps }) => {
           saga.tryStep('riskyOp', () => deps.riskyOp(), { error: 'FAILED', compensate: () => deps.undo() });
         });
       `;
@@ -181,7 +181,7 @@ describe('require-step-id', () => {
 
     it('allows ctx.step with name first', () => {
       const code = `
-        orderSaga(async (ctx, deps) => {
+        orderSaga(async ({ ctx, deps }) => {
           ctx.step('reserve', () => reserve());
         });
       `;
@@ -336,7 +336,7 @@ describe('require-step-id', () => {
   describe('invalid cases - saga.step / saga.tryStep', () => {
     it('reports when saga.step has operation first (missing name)', () => {
       const code = `
-        orderSaga(async (saga, deps) => {
+        orderSaga(async ({ saga, deps }) => {
           saga.step(() => deps.createOrder(), { compensate: () => deps.cancelOrder() });
         });
       `;
@@ -348,7 +348,7 @@ describe('require-step-id', () => {
 
     it('reports when saga.tryStep has operation first (missing name)', () => {
       const code = `
-        orderSaga(async (saga, deps) => {
+        orderSaga(async ({ saga, deps }) => {
           saga.tryStep(() => deps.riskyOp(), { error: 'FAILED' });
         });
       `;
@@ -360,7 +360,7 @@ describe('require-step-id', () => {
 
     it('reports when saga.step has no arguments', () => {
       const code = `
-        orderSaga(async (saga, deps) => {
+        orderSaga(async ({ saga, deps }) => {
           saga.step();
         });
       `;
@@ -371,7 +371,7 @@ describe('require-step-id', () => {
 
     it('reports when destructured tryStep has operation first (missing name)', () => {
       const code = `
-        orderSaga(async ({ step, tryStep }, deps) => {
+        orderSaga(async ({ step, tryStep, deps }) => {
           tryStep(() => deps.riskyOp(), { error: 'FAILED' });
         });
       `;
@@ -383,7 +383,7 @@ describe('require-step-id', () => {
 
     it('reports when saga.step has empty string name', () => {
       const code = `
-        orderSaga(async (saga, deps) => {
+        orderSaga(async ({ saga, deps }) => {
           saga.step('', () => deps.createOrder(), { compensate: () => deps.cancelOrder() });
         });
       `;
@@ -395,7 +395,7 @@ describe('require-step-id', () => {
 
     it('reports when tryStep has empty string name', () => {
       const code = `
-        orderSaga(async ({ step, tryStep }, deps) => {
+        orderSaga(async ({ step, tryStep, deps }) => {
           tryStep('', () => deps.riskyOp(), { error: 'FAILED' });
         });
       `;

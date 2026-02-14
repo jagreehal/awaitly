@@ -63,7 +63,7 @@ describe("Durable Execution", () => {
 
       const result = await durable.run(
         { fetchUser, createOrder, sendEmail },
-        async (step, { fetchUser, createOrder, sendEmail }) => {
+        async ({ step, deps: { fetchUser, createOrder, sendEmail } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           const order = await step("create-order", () => createOrder(user.id));
           await step("send-email", () => sendEmail(order.orderId));
@@ -88,7 +88,7 @@ describe("Durable Execution", () => {
     it("succeeds without passing store (uses default in-memory store)", async () => {
       const result = await durable.run(
         { fetchUser, createOrder, sendEmail },
-        async (step, { fetchUser, createOrder, sendEmail }) => {
+        async ({ step, deps: { fetchUser, createOrder, sendEmail } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           const order = await step("create-order", () => createOrder(user.id));
           await step("send-email", () => sendEmail(order.orderId));
@@ -117,7 +117,7 @@ describe("Durable Execution", () => {
 
       const result1 = await durable.run(
         { stepWithSideEffect, failingStep },
-        async (step, { stepWithSideEffect, failingStep }) => {
+        async ({ step, deps: { stepWithSideEffect, failingStep } }) => {
           const value = await step("side-effect-step", () => stepWithSideEffect());
           await step("fail-step", () => failingStep());
           return value;
@@ -130,7 +130,7 @@ describe("Durable Execution", () => {
 
       const result2 = await durable.run(
         { stepWithSideEffect, failingStep },
-        async (step, { stepWithSideEffect, failingStep }) => {
+        async ({ step, deps: { stepWithSideEffect, failingStep } }) => {
           const value = await step("side-effect-step", () => stepWithSideEffect());
           await step("fail-step", () => failingStep());
           return value;
@@ -148,7 +148,7 @@ describe("Durable Execution", () => {
 
       const result = await durable.run(
         { fetchUser, createOrder },
-        async (step, { fetchUser, createOrder }) => {
+        async ({ step, deps: { fetchUser, createOrder } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           const order = await step("create-order", () => createOrder(user.id));
           return order;
@@ -172,7 +172,7 @@ describe("Durable Execution", () => {
 
       const result = await durable.run(
         { fetchUser, createOrder },
-        async (step, { fetchUser, createOrder }) => {
+        async ({ step, deps: { fetchUser, createOrder } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           // This will fail
           await step("create-order", () => createOrder("fail"));
@@ -209,7 +209,7 @@ describe("Durable Execution", () => {
       // First run - completes successfully
       const result1 = await durable.run(
         { step1Op, step2Op },
-        async (step, { step1Op, step2Op }) => {
+        async ({ step, deps: { step1Op, step2Op } }) => {
           const r1 = await step("step-1", () => step1Op());
           const r2 = await step("step-2", () => step2Op());
           return { r1, r2 };
@@ -245,7 +245,7 @@ describe("Durable Execution", () => {
       // Second run with partial state - step-1 should be skipped
       const result2 = await durable.run(
         { step1Op, step2Op },
-        async (step, { step1Op, step2Op }) => {
+        async ({ step, deps: { step1Op, step2Op } }) => {
           const r1 = await step("step-1", () => step1Op());
           const r2 = await step("step-2", () => step2Op());
           return { r1, r2 };
@@ -284,7 +284,7 @@ describe("Durable Execution", () => {
       // Run 1: fails at step 2; step 1 ran once, state left in store
       const run1 = await durable.run(
         { firstStep, secondStep },
-        async (step, { firstStep, secondStep }) => {
+        async ({ step, deps: { firstStep, secondStep } }) => {
           await step("step-1", () => firstStep());
           await step("step-2", () => secondStep());
           return "done";
@@ -302,7 +302,7 @@ describe("Durable Execution", () => {
       // Run 2 (resume): same id and store; step 1 must not run again
       const run2 = await durable.run(
         { firstStep, secondStep },
-        async (step, { firstStep, secondStep }) => {
+        async ({ step, deps: { firstStep, secondStep } }) => {
           await step("step-1", () => firstStep());
           await step("step-2", () => secondStep());
           return "done";
@@ -331,7 +331,7 @@ describe("Durable Execution", () => {
 
       const result = await durable.run(
         { fetchUser },
-        async (step, { fetchUser }) => {
+        async ({ step, deps: { fetchUser } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
@@ -362,7 +362,7 @@ describe("Durable Execution", () => {
       // Try to run with version 2 - should be rejected as mismatch
       const result = await durable.run(
         { fetchUser },
-        async (step, { fetchUser }) => {
+        async ({ step, deps: { fetchUser } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
@@ -405,7 +405,7 @@ describe("Durable Execution", () => {
 
       const result = await durable.run(
         { fetchUser },
-        async (step, { fetchUser }) => {
+        async ({ step, deps: { fetchUser } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
@@ -442,7 +442,7 @@ describe("Durable Execution", () => {
       // Try to run with version 2 - should be rejected
       const result = await durable.run(
         { fetchUser },
-        async (step, { fetchUser }) => {
+        async ({ step, deps: { fetchUser } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
@@ -475,7 +475,7 @@ describe("Durable Execution", () => {
 
       const result = await durable.run(
         { fetchUser },
-        async (step, { fetchUser }) => {
+        async ({ step, deps: { fetchUser } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
@@ -497,7 +497,7 @@ describe("Durable Execution", () => {
 
       const result = await durable.run(
         { fetchUser },
-        async (step) => step("u", () => fetchUser("1")),
+        async ({ step }) => step("u", () => fetchUser("1")),
         { id: "test-throw", store, version: 2, onVersionMismatch: () => "throw" }
       );
 
@@ -515,7 +515,7 @@ describe("Durable Execution", () => {
 
       const result = await durable.run(
         { fetchUser },
-        async (step, { fetchUser }) => {
+        async ({ step, deps: { fetchUser } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
@@ -551,7 +551,7 @@ describe("Durable Execution", () => {
       // Start first workflow
       const first = durable.run(
         { slowFetch },
-        async (step, { slowFetch }) => {
+        async ({ step, deps: { slowFetch } }) => {
           return await step("slow", () => slowFetch("123"));
         },
         {
@@ -566,7 +566,7 @@ describe("Durable Execution", () => {
       // Try to start second with same ID
       const second = await durable.run(
         { slowFetch },
-        async (step, { slowFetch }) => {
+        async ({ step, deps: { slowFetch } }) => {
           return await step("slow", () => slowFetch("456"));
         },
         {
@@ -605,7 +605,7 @@ describe("Durable Execution", () => {
       const [result1, result2] = await Promise.all([
         durable.run(
           { trackFetch },
-          async (step, { trackFetch }) => {
+          async ({ step, deps: { trackFetch } }) => {
             return await step("track", () => trackFetch("1"));
           },
           {
@@ -616,7 +616,7 @@ describe("Durable Execution", () => {
         ),
         durable.run(
           { trackFetch },
-          async (step, { trackFetch }) => {
+          async ({ step, deps: { trackFetch } }) => {
             return await step("track", () => trackFetch("2"));
           },
           {
@@ -648,7 +648,7 @@ describe("Durable Execution", () => {
       await expect(
         durable.run(
           { fetchUser },
-          async (step, { fetchUser }) => {
+          async ({ step, deps: { fetchUser } }) => {
             const user = await step("fetch-user", () => fetchUser("123"));
             return user;
           },
@@ -680,7 +680,7 @@ describe("Durable Execution", () => {
 
       const result = await durable.run(
         { fetchUser },
-        async (step, { fetchUser }) => {
+        async ({ step, deps: { fetchUser } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
@@ -707,7 +707,7 @@ describe("Durable Execution", () => {
       // Start workflow and cancel during execution
       const resultPromise = durable.run(
         { slowOp },
-        async (step, { slowOp }) => {
+        async ({ step, deps: { slowOp } }) => {
           const first = await step("step-1", () => slowOp("1"));
           const second = await step("step-2", () => slowOp("2"));
           return { first, second };
@@ -757,7 +757,7 @@ describe("Durable Execution", () => {
 
       const result = await durable.run(
         { fetchUser },
-        async (step, { fetchUser }) => {
+        async ({ step, deps: { fetchUser } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
@@ -784,7 +784,7 @@ describe("Durable Execution", () => {
       await expect(
         durable.run(
           { fetchUser },
-          async (step, { fetchUser }) => {
+          async ({ step, deps: { fetchUser } }) => {
             const user = await step("fetch-user", () => fetchUser("123"));
             return user;
           },
@@ -811,7 +811,7 @@ describe("Durable Execution", () => {
 
       const result = await durable.run(
         { fetchUser },
-        async (step, { fetchUser }) => {
+        async ({ step, deps: { fetchUser } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
@@ -837,7 +837,7 @@ describe("Durable Execution", () => {
       await expect(
         durable.run(
           { fetchUser },
-          async (step, { fetchUser }) => {
+          async ({ step, deps: { fetchUser } }) => {
             const user = await step("fetch-user", () => fetchUser("123"));
             return user;
           },
@@ -862,7 +862,7 @@ describe("Durable Execution", () => {
 
       const result = await durable.run(
         { fetchUser },
-        async (step, { fetchUser }) => {
+        async ({ step, deps: { fetchUser } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },
@@ -901,7 +901,7 @@ describe("Durable Execution", () => {
           okStep: async (): AsyncResult<{ value: number }, "NEVER"> => ok({ value: 123 }),
           failStep: async (): AsyncResult<never, "FAIL"> => err("FAIL"),
         },
-        async (step, { okStep, failStep }) => {
+        async ({ step, deps: { okStep, failStep } }) => {
           await step("lossy:1", () => okStep());
           await step("fail:1", () => failStep());
           return 0;
@@ -926,7 +926,7 @@ describe("Durable Execution", () => {
       // Create state by running incomplete workflow
       await durable.run(
         { fetchUser },
-        async (step, { fetchUser }) => {
+        async ({ step, deps: { fetchUser } }) => {
           await step("fetch", () => fetchUser("unknown"));
           return null;
         },
@@ -946,7 +946,7 @@ describe("Durable Execution", () => {
       // Create state
       await durable.run(
         { fetchUser },
-        async (step, { fetchUser }) => {
+        async ({ step, deps: { fetchUser } }) => {
           await step("fetch", () => fetchUser("unknown"));
           return null;
         },
@@ -1040,7 +1040,7 @@ describe("Durable Execution", () => {
       for (const id of ["workflow-1", "workflow-2", "workflow-3"]) {
         await durable.run(
           { fetchUser },
-          async (step, { fetchUser }) => {
+          async ({ step, deps: { fetchUser } }) => {
             await step("fetch", () => fetchUser("unknown"));
             return null;
           },
@@ -1107,7 +1107,7 @@ describe("Durable Execution", () => {
       const id = "reason-in-process";
       const first = durable.run(
         { fetchUser },
-        async (step, { fetchUser }) => {
+        async ({ step, deps: { fetchUser } }) => {
           await delay(50);
           return step("u", () => fetchUser("1"));
         },
@@ -1115,7 +1115,7 @@ describe("Durable Execution", () => {
       );
       const second = durable.run(
         { fetchUser },
-        async (step) => step("u2", () => fetchUser("2")),
+        async ({ step }) => step("u2", () => fetchUser("2")),
         { id, store }
       );
       const secondResult = await second;
@@ -1137,7 +1137,7 @@ describe("Durable Execution", () => {
       };
       const result = await durable.run(
         { fetchUser },
-        async (step, { fetchUser }) => {
+        async ({ step, deps: { fetchUser } }) => {
           const user = await step("fetch-user", () => fetchUser("123"));
           return user;
         },

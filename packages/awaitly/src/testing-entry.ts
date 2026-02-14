@@ -13,7 +13,7 @@
  *
  * const harness = createWorkflowHarness({ fetchUser: mockFetchUser });
  *
- * const result = await harness.run(async (step) => {
+ * const result = await harness.run(async ({ step }) => {
  *   const user = await step(mockFetchUser('1'));
  *   return user;
  * });

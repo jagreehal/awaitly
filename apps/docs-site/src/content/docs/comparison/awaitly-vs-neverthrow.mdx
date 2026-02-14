@@ -16,7 +16,8 @@ Both awaitly and [neverthrow](https://github.com/supermacro/neverthrow) provide 
 | Async result | `AsyncResult<T, E>` | `ResultAsync<T, E>` |
 | Method style | Functions | Methods |
 | Workflow orchestration | Built-in | Not included |
-| Automatic error inference | Yes | No |
+| Workflow error inference from deps | Yes | No |
+| Step IDs + events / tracing | Yes | No |
 
 ## Creating Results
 
@@ -52,7 +53,7 @@ Result { _value: 5 }
 </Tabs>
 
 <Aside type="note">
-Both libraries use the same `ok()` and `err()` constructors, making migration straightforward.
+Both libraries use the familiar Ok/Err pattern. neverthrow exports `ok`/`err` top-level; awaitly exports them via `Awaitly.ok`/`Awaitly.err` (and may also expose named exports from `'awaitly'`). The pattern is the same; the import style differs.
 </Aside>
 
 ## Checking Results
@@ -150,6 +151,23 @@ Result { _error: { code: 'NOT_FOUND', status: 404 } }
 ```
   </TabItem>
 </Tabs>
+
+### Pipeline style (awaitly)
+
+awaitly provides `Awaitly.pipe` and `Awaitly.R` for left-to-right composition. `Awaitly.R` exposes curried combinators that work inside `pipe`:
+
+```typescript
+import { Awaitly } from 'awaitly';
+
+const result = Awaitly.pipe(
+  Awaitly.ok(5),
+  Awaitly.R.map((n) => n * 2),
+  Awaitly.R.mapError((e) => e.toUpperCase())
+);
+// { ok: true, value: 10 }
+```
+
+See [Functional Utilities](/guides/functional-utilities/) for the full set of combinators and async helpers.
 
 ## Chaining Operations
 
@@ -249,16 +267,12 @@ if (result.ok) {
   </TabItem>
   <TabItem label="neverthrow">
 ```typescript
-import { okAsync, errAsync, ResultAsync } from 'neverthrow';
+import { ok, err, ResultAsync } from 'neverthrow';
 
-const fetchUser = (id: string): ResultAsync<User, 'NOT_FOUND'> => {
-  return ResultAsync.fromPromise(
-    db.find(id),
-    () => 'NOT_FOUND' as const
-  );
-};
+const fetchUser = (id: string): ResultAsync<User, 'NOT_FOUND' | 'DB_ERROR'> =>
+  ResultAsync.fromPromise(db.find(id), () => 'DB_ERROR' as const)
+    .andThen((user) => (user ? ok(user) : err('NOT_FOUND' as const)));
 
-// Chain with methods
 const result = await fetchUser('123');
 if (result.isOk()) {
   console.log(result.value.name);
@@ -266,6 +280,10 @@ if (result.isOk()) {
 ```
   </TabItem>
 </Tabs>
+
+<Aside type="note">
+`db.find(id)` typically resolves to `User | null` rather than rejecting, so modelling "not found" requires an extra `andThen` step in neverthrow. In awaitly the typed error is returned directly.
+</Aside>
 
 ## Batch Operations
 
@@ -324,7 +342,7 @@ const result = Awaitly.ok(42);
 // Throws if err
 const value1 = Awaitly.unwrap(result); // 42
 
-// Default value
+// Default value (does not throw)
 const value2 = Awaitly.unwrapOr(result, 0); // 42
 
 // Computed default
@@ -340,14 +358,20 @@ import { ok } from 'neverthrow';
 
 const result = ok(42);
 
-// Throws if err
-const value1 = result.unwrapOr(0); // neverthrow doesn't have unwrap()
+// Default value (does not throw)
+const value1 = result.unwrapOr(0); // 42
 
-// Default value
-const value2 = result.unwrapOr(0); // 42
+// Pattern match
+const value2 = result.match(
+  (v) => v,
+  (_e) => 0
+); // 42
 
-// neverthrow doesn't have unwrapOrElse
+// In tests only (throws on Err)
+const value3 = result._unsafeUnwrap(); // 42
 ```
+
+awaitly: `unwrap()` throws on Err; `unwrapOr`/`unwrapOrElse` never throw. neverthrow's throwing equivalent is `_unsafeUnwrap()` (intended for tests); for computed defaults use `match()`.
   </TabItem>
 </Tabs>
 
@@ -382,7 +406,7 @@ Output:
   </TabItem>
   <TabItem label="neverthrow">
 ```typescript
-import { ok, err } from 'neverthrow';
+import { ok, err, ResultAsync } from 'neverthrow';
 
 const parseId = (s: string) => {
   const n = parseInt(s, 10);
@@ -507,15 +531,8 @@ import { Awaitly } from 'awaitly';
 
 const results = [Awaitly.ok(1), Awaitly.err('ERROR_A'), Awaitly.ok(3), Awaitly.err('ERROR_B')];
 const settled = Awaitly.allSettled(results);
-/*
-Output:
-{
-  ok: false,
-  error: ['ERROR_A', 'ERROR_B'],
-  successes: [1, 3],
-  failures: ['ERROR_A', 'ERROR_B']
-}
-*/
+// Returns a Result with collected errors (and, depending on API, may include successes/failures).
+// See [Awaitly.allSettled](/reference/api/) for the exact return shape.
 
 // For fail-fast behavior, use all() instead
 const failFast = Awaitly.all(results);
@@ -547,12 +564,12 @@ Result { _error: 'ERROR_A' }
 </Tabs>
 
 <Aside type="note">
-awaitly's `allSettled` provides both errors and successes in the result, giving you more information to work with.
+awaitly can collect all errors; see [Awaitly.allSettled](/reference/api/) (or the functional `allSettled` / `allSettledAsync` entry points) for the exact return shape.
 </Aside>
 
 ## Wrapping Throwing Functions
 
-### fromThrowable / tryCatch
+### fromThrowable / from / fromPromise
 
 Safely wrap functions that might throw exceptions.
 
@@ -561,53 +578,45 @@ Safely wrap functions that might throw exceptions.
 ```typescript
 import { Awaitly } from 'awaitly';
 
-// Wrap a throwing function (sync: from; async: tryAsync)
+// Sync: Awaitly.from(fn, onError)
 const parseJson = (s: string) =>
   Awaitly.from(
     () => JSON.parse(s),
     (e) => ({ type: 'PARSE_ERROR' as const, message: String(e) })
   );
 
-const valid = parseJson('{"name": "Alice"}');
-/*
-Output:
-{ ok: true, value: { name: 'Alice' } }
-*/
+// Async (outside workflows): Awaitly.fromPromise(promise, onError)
+const fetchSafe = (url: string) =>
+  Awaitly.fromPromise(fetch(url).then(r => r.json()), () => 'FETCH_ERROR' as const);
 
+// Inside workflows: step.try('id', () => …, { error: 'MY_ERROR' })
+
+const valid = parseJson('{"name": "Alice"}');
 const invalid = parseJson('not json');
-/*
-Output:
-{ ok: false, error: { type: 'PARSE_ERROR', message: '...' } }
-*/
 ```
   </TabItem>
   <TabItem label="neverthrow">
 ```typescript
-import { Result } from 'neverthrow';
+import { Result, ResultAsync } from 'neverthrow';
 
-// Create a safe version of a throwing function
+// Sync: Result.fromThrowable(fn, onError)
 const safeJsonParse = Result.fromThrowable(
   JSON.parse,
   (e) => ({ type: 'PARSE_ERROR' as const, message: String(e) })
 );
 
-const valid = safeJsonParse('{"name": "Alice"}');
-/*
-Output:
-Result { _value: { name: 'Alice' } }
-*/
+// Async: ResultAsync.fromPromise(promise, onError)
+const fetchSafe = (url: string) =>
+  ResultAsync.fromPromise(fetch(url).then(r => r.json()), () => 'FETCH_ERROR' as const);
 
+const valid = safeJsonParse('{"name": "Alice"}');
 const invalid = safeJsonParse('not json');
-/*
-Output:
-Result { _error: { type: 'PARSE_ERROR', message: '...' } }
-*/
 ```
   </TabItem>
 </Tabs>
 
 <Aside type="note">
-`Awaitly.from` executes immediately and returns a Result. neverthrow's `fromThrowable` returns a new function that you then call. For async code use `Awaitly.tryAsync`.
+awaitly: `Awaitly.from()` runs immediately and returns a Result; `Awaitly.fromPromise()` for existing Promises. Inside a workflow callback you can wrap throwing code with `step.try('id', () => …, { error })` so failures become typed errors. neverthrow: `Result.fromThrowable` returns a wrapped function; `ResultAsync.fromPromise` for Promises.
 </Aside>
 
 ## Generator-Based Composition
@@ -624,10 +633,10 @@ import { createWorkflow } from 'awaitly/workflow';
 // awaitly uses familiar async/await - no generators needed
 const workflow = createWorkflow('workflow', { parseId, fetchUser, sendEmail });
 
-const result = await workflow(async (step) => {
-  const id = await step('parseId', () => parseId('42'));
-  const user = await step('fetchUser', () => fetchUser(id));
-  await step('sendEmail', () => sendEmail(user.email));
+const result = await workflow(async ({ step, deps }) => {
+  const id = await step('parseId', () => deps.parseId('42'));
+  const user = await step('fetchUser', () => deps.fetchUser(id));
+  await step('sendEmail', () => deps.sendEmail(user.email));
   return user;
 });
 
@@ -636,27 +645,25 @@ const result = await workflow(async (step) => {
   </TabItem>
   <TabItem label="neverthrow">
 ```typescript
-import { safeTry, ok, err } from 'neverthrow';
+import { safeTry, ok } from 'neverthrow';
 
-// neverthrow uses generators for imperative-style composition
+// parseId, fetchUser, sendEmail must return Result or ResultAsync for safeTry
 const result = safeTry(function* () {
-  const id = yield* parseId('42').safeUnwrap();
-  const user = yield* fetchUser(id).safeUnwrap();
-  yield* sendEmail(user.email).safeUnwrap();
+  const id = yield* parseId('42');      // yield* the Result directly
+  const user = yield* fetchUser(id);     // Result or ResultAsync supported
+  yield* sendEmail(user.email);
   return ok(user);
 });
-
-// Errors short-circuit via generator yield
 ```
   </TabItem>
 </Tabs>
 
 <Aside type="tip" title="Why async/await?">
-awaitly chose async/await over generators because:
-- Most TypeScript developers already know async/await
-- Better IDE support and debugging experience
-- No special `.safeUnwrap()` method needed
-- Works naturally with existing async code
+Both approaches give imperative short-circuiting. The difference is what comes with it:
+- **neverthrow `safeTry`** — generators give short-circuiting without a workflow engine
+- **awaitly workflows** — async/await gives short-circuiting plus step IDs, retry/timeout/cache, and inferred error types
+
+The "generators vs async/await" syntax is not the main differentiator — the workflow engine is.
 </Aside>
 
 ## What awaitly Adds: Workflow Orchestration
@@ -678,10 +685,10 @@ const chargeCard = async (amount: number): AsyncResult<Receipt, 'PAYMENT_DECLINE
 // Error types automatically inferred from all dependencies
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail, chargeCard });
 
-const result = await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('123'));
-  await step('chargeCard', () => chargeCard(99.99));
-  await step('sendEmail', () => sendEmail(user.email));
+const result = await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('123'));
+  await step('chargeCard', () => deps.chargeCard(99.99));
+  await step('sendEmail', () => deps.sendEmail(user.email));
   return user;
 });
 
@@ -694,9 +701,9 @@ const result = await workflow(async (step) => {
 Inside workflows you can use a neverthrow-style API: `step.run` (unwrap), `step.andThen` (chain), `step.match` (pattern match). They run through the full step engine (events, retry, cache).
 
 ```typescript
-const result = await workflow(async (step) => {
-  const user = await step.run('fetchUser', () => fetchUser('123'));
-  const enriched = await step.andThen('enrich', user, (u) => enrichUser(u));
+const result = await workflow(async ({ step, deps }) => {
+  const user = await step.run('fetchUser', () => deps.fetchUser('123'));
+  const enriched = await step.andThen('enrich', user, (u) => deps.enrichUser(u));
   return step.match('format', enriched, {
     ok: (e) => e.displayName,
     err: () => 'Unknown',
@@ -709,18 +716,18 @@ See [Steps — Effect-style ergonomics](/foundations/step/#effect-style-ergonomi
 ### Built-in Retry and Timeout
 
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   // Retry with exponential backoff
   const user = await step.retry(
     'fetchUser',
-    () => fetchUser('123'),
+    () => deps.fetchUser('123'),
     { attempts: 3, backoff: 'exponential', delayMs: 100 }
   );
 
   // Timeout protection
   const data = await step.withTimeout(
     'slowOp',
-    () => slowOperation(),
+    () => deps.slowOperation(),
     { ms: 5000 }
   );
 
@@ -747,8 +754,8 @@ const workflow = createWorkflow('workflow', deps, {
   snapshot: await store.load('wf-1'), // Resume from saved snapshot (or null)
 });
 
-const result = await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+const result = await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
 await store.save('wf-1', workflow.getSnapshot());
@@ -774,23 +781,21 @@ await store.save('wf-1', workflow.getSnapshot());
 
 ```typescript
 // neverthrow: method chaining
-import { ok, err } from 'neverthrow';
+import { ok } from 'neverthrow';
 const result = ok(5).map(n => n * 2).mapErr(e => e.toUpperCase());
 
-// awaitly: standalone functions
+// awaitly: standalone functions (no special helpers required)
 import { Awaitly } from 'awaitly';
-const result = Awaitly.mapError(Awaitly.map(Awaitly.ok(5), n => n * 2), e => e.toUpperCase());
 
-// Or use pipe pattern with Awaitly.R
-const piped = Awaitly.pipe(
-  Awaitly.ok(5),
-  Awaitly.R.map(n => n * 2),
-  Awaitly.R.mapError(e => e.toUpperCase())
-);
+const base = Awaitly.ok(5);
+const doubled = Awaitly.map(base, (n) => n * 2);
+const result = Awaitly.mapError(doubled, (e) => e.toUpperCase());
 ```
 
+For pipeline style, use `Awaitly.pipe` and `Awaitly.R` as shown in [Pipeline style (awaitly)](#pipeline-style-awaitly) above, or a small `pipe` helper of your own to compose `Awaitly.map` / `Awaitly.mapError`.
+
 <Aside type="note">
-awaitly uses standalone functions instead of methods, which works better with tree-shaking and functional composition. See [Functional Utilities](/guides/functional-utilities/) for pipe-based composition patterns.
+awaitly uses standalone functions instead of methods. This works well with tree-shaking and makes the control flow explicit. Pipeline style is supported via `Awaitly.pipe` and `Awaitly.R` (demonstrated above) and documented in [Functional Utilities](/guides/functional-utilities/).
 </Aside>
 
 ## Next Steps

@@ -9,7 +9,7 @@
  * import { createWebhookHandler, createExpressHandler } from 'awaitly/webhook';
  *
  * const handler = createWebhookHandler(workflow, async (req, run) => {
- *   const result = await run(async (step) => {
+ *   const result = await run(async ({ step }) => {
  *     const user = await step(fetchUser(req.body.userId));
  *     return user;
  *   });

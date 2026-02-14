@@ -71,7 +71,7 @@ import { durable } from 'awaitly/durable';
 
 const result = await durable.run(
   { fetchUser, createOrder, sendEmail },
-  async (step, { fetchUser, createOrder, sendEmail }) => {
+  async ({ step, deps: { fetchUser, createOrder, sendEmail } }) => {
     const user = await step('fetchUser', () => fetchUser('123'), { key: 'fetch-user' });
     const order = await step('createOrder', () => createOrder(user), { key: 'create-order' });
     await step('sendEmail', () => sendEmail(order), { key: 'send-email' });
@@ -95,7 +95,7 @@ const store = postgres('postgresql://localhost/mydb');
 
 const result = await durable.run(
   { fetchUser, createOrder, sendEmail },
-  async (step, { fetchUser, createOrder, sendEmail }) => {
+  async ({ step, deps: { fetchUser, createOrder, sendEmail } }) => {
     const user = await step('fetchUser', () => fetchUser('123'), { key: 'fetch-user' });
     const order = await step('createOrder', () => createOrder(user), { key: 'create-order' });
     await step('sendEmail', () => sendEmail(order), { key: 'send-email' });

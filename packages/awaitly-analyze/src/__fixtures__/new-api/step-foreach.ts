@@ -29,7 +29,7 @@ export const batchWorkflow = createWorkflow("batchWorkflow", {
 
 // Simple run form
 export async function processItemsSimple(items: string[]) {
-  return await batchWorkflow(async (step, deps) => {
+  return await batchWorkflow(async ({ step, deps }) => {
     await step.forEach('process-items', items, {
       maxIterations: 100,
       stepIdPattern: 'process-{i}',
@@ -43,7 +43,7 @@ export async function processItemsSimple(items: string[]) {
 
 // Complex item form with multiple steps in body
 export async function processItemsComplex(items: string[]) {
-  return await batchWorkflow(async (step, deps) => {
+  return await batchWorkflow(async ({ step, deps }) => {
     await step.forEach('process-items', items, {
       maxIterations: 50,
       stepIdPattern: 'item-{i}',

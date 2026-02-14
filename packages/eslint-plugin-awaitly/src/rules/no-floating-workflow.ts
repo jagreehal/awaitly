@@ -7,11 +7,11 @@ import type { CallExpression, Node } from 'estree';
  * Detects `run()` or workflow calls that are not awaited, returned, or assigned.
  * Floating workflows execute asynchronously without any way to handle their results.
  *
- * BAD:  run(async (step) => { ... });        - fire-and-forget
- * BAD:  myWorkflow(async (step) => { ... }); - fire-and-forget
- * GOOD: await run(async (step) => { ... });
- * GOOD: const result = await run(async (step) => { ... });
- * GOOD: return run(async (step) => { ... });
+ * BAD:  run(async ({ step }) => { ... });        - fire-and-forget
+ * BAD:  myWorkflow(async ({ step }) => { ... }); - fire-and-forget
+ * GOOD: await run(async ({ step }) => { ... });
+ * GOOD: const result = await run(async ({ step }) => { ... });
+ * GOOD: return run(async ({ step }) => { ... });
  */
 
 const WORKFLOW_FUNCTIONS = new Set(['run']);

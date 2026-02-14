@@ -48,7 +48,7 @@ describe("Features smoke: all major APIs work", () => {
     it("createVisualizer, handleEvent, render, renderAs(ascii|mermaid|json|logger|flowchart)", async () => {
       const viz = createVisualizer({ workflowName: "smoke" });
       const workflow = createWorkflow("smoke", { stubStep }, { onEvent: viz.handleEvent });
-      await workflow(async (step, { stubStep }) => {
+      await workflow(async ({ step, deps: { stubStep } }) => {
         await step("One", () => stubStep());
         return DONE;
       });
@@ -69,7 +69,7 @@ describe("Features smoke: all major APIs work", () => {
         export: { default: { provider: "kroki" } },
       });
       const workflow = createWorkflow("export-smoke", { stubStep }, { onEvent: viz.handleEvent });
-      await workflow(async (step, { stubStep }) => {
+      await workflow(async ({ step, deps: { stubStep } }) => {
         await step("A", () => stubStep());
         return DONE;
       });
@@ -92,7 +92,7 @@ describe("Features smoke: all major APIs work", () => {
     it("htmlRenderer, renderToHTML produce valid HTML", async () => {
       const viz = createVisualizer({ workflowName: "html-smoke" });
       const workflow = createWorkflow("html-smoke", { stubStep }, { onEvent: viz.handleEvent });
-      await workflow(async (step, { stubStep }) => {
+      await workflow(async ({ step, deps: { stubStep } }) => {
         await step("Step", () => stubStep());
         return DONE;
       });
@@ -114,7 +114,7 @@ describe("Features smoke: all major APIs work", () => {
     it("createEventCollector, visualizeEvents, combineEventHandlers", async () => {
       const collector = createEventCollector({ workflowName: "collect" });
       const workflow = createWorkflow("collect", { stubStep }, { onEvent: collector.handleEvent });
-      await workflow(async (step, { stubStep }) => {
+      await workflow(async ({ step, deps: { stubStep } }) => {
         await step("X", () => stubStep());
         return DONE;
       });
@@ -127,7 +127,7 @@ describe("Features smoke: all major APIs work", () => {
       const viz2 = createVisualizer({ workflowName: "combined" });
       const combined = combineEventHandlers(viz2.handleEvent, (e) => events.push(e));
       const workflow2 = createWorkflow("combined", { stubStep }, { onEvent: combined });
-      await workflow2(async (step, { stubStep }) => {
+      await workflow2(async ({ step, deps: { stubStep } }) => {
         await step("Y", () => stubStep());
         return DONE;
       });
@@ -147,7 +147,7 @@ describe("Features smoke: all major APIs work", () => {
         { stubStep },
         { onEvent: collector.handleEvent }
       );
-      await workflow(async (step, { stubStep }) => {
+      await workflow(async ({ step, deps: { stubStep } }) => {
         await step("Pre", () => stubStep());
         const iff = trackIf("cond", true, { emit: collector.handleDecisionEvent });
         iff.takeBranch("then");
@@ -169,7 +169,7 @@ describe("Features smoke: all major APIs work", () => {
     it("createTimeTravelController, seek, stepForward, stepBackward, onStateChange", async () => {
       const tt = createTimeTravelController();
       const workflow = createWorkflow("tt-smoke", { stubStep }, { onEvent: tt.handleEvent });
-      await workflow(async (step, { stubStep }) => {
+      await workflow(async ({ step, deps: { stubStep } }) => {
         await step("A", () => stubStep());
         await step("B", () => stubStep());
         return DONE;

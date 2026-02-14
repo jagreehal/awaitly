@@ -15,9 +15,9 @@ AI streams are typically **single-use AsyncIterables**. You must accumulate cont
 <Tabs>
   <TabItem label="Pattern">
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   // Stream the AI response
-  const stream = await step('generateStream', () => generateStream(prompt));
+  const stream = await step('generateStream', () => deps.generateStream(prompt));
 
   // Accumulate while iterating (streams are single-use!)
   let text = '';
@@ -34,7 +34,7 @@ const result = await workflow(async (step) => {
   <TabItem label="Common Mistake">
 ```typescript
 // WRONG: Can't iterate a stream twice
-const stream = await step('generateStream', () => generateStream(prompt));
+const stream = await step('generateStream', () => deps.generateStream(prompt));
 
 // First iteration consumes the stream
 for await (const chunk of stream) {
@@ -64,11 +64,11 @@ AI models with tool calling often complete in multiple phases:
 4. **Final phase**: Model returns `finish_reason: "stop"` with final response
 
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   let messages = [{ role: 'user', content: prompt }];
 
   while (true) {
-    const response = await step('chat', () => chat(messages), {
+    const response = await step('chat', () => deps.chat(messages), {
       key: `chat:${messages.length}`
     });
 
@@ -196,7 +196,7 @@ function createToolExecutors(step: RunStep<AppError>) {
 }
 
 // Usage in workflow
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const tools = createToolExecutors(step);
 
   // Tools are now step-wrapped
@@ -237,7 +237,7 @@ const chatWorkflow = createWorkflow('workflow', { ...toolImplementations,
 });
 
 // Execute workflow
-const result = await chatWorkflow(async (step) => {
+const result = await chatWorkflow(async ({ step, deps }) => {
   let messages: Message[] = [{ role: 'user', content: 'What is the weather?' }];
   let iterations = 0;
   const maxIterations = 10;
@@ -342,7 +342,7 @@ See [Troubleshooting: Double-wrapping](/guides/troubleshooting/#returning-ok-fro
 AI APIs can fail in various ways. Use `step.try` for SDK calls that throw:
 
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   // For SDK calls that throw on error
   const response = await step.try(
     'openaiChat',

@@ -138,7 +138,7 @@ const ir = analyze.source(`
   });
 
   async function run(id: string) {
-    return await workflow(async (step, deps) => {
+    return await workflow(async ({ step, deps }) => {
       const user = await step('fetchUser', () => deps.fetchUser(id), { key: 'user' });
       return user;
     });
@@ -420,7 +420,7 @@ Awaitly.createWorkflow({...});
 
 // Default imports
 import Awaitly from 'awaitly';
-Awaitly.run(async (step) => {...});
+Awaitly.run(async ({ step }) => {...});
 ```
 
 ## Types

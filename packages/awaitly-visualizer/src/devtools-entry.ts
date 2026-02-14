@@ -13,7 +13,7 @@
  *   onEvent: devtools.handleEvent,
  * });
  *
- * await workflow(async (step) => { ... });
+ * await workflow(async ({ step }) => { ... });
  *
  * // View timeline
  * console.log(devtools.getTimeline());

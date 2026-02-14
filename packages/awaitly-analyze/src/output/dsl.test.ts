@@ -30,7 +30,7 @@ describe("renderWorkflowDSL", () => {
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("w", { fetch: async () => ok({}) });
       export async function run() {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           await step('a', () => fetch());
           return {};
         });
@@ -51,7 +51,7 @@ describe("renderWorkflowDSL", () => {
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("w", { fetch: async () => ok({}) });
       export async function run() {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           await step('getBatch', () => fetch(), { key: "getBatch", name: "Get batch" });
           return {};
         });
@@ -71,7 +71,7 @@ describe("renderWorkflowDSL", () => {
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("w", { a: async () => ok(1), b: async () => ok(2) });
       export async function run() {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           await step('x', () => a());
           await step('y', () => b());
           return {};
@@ -93,7 +93,7 @@ describe("renderWorkflowDSL", () => {
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("w", { fetch: async () => ok({}) });
       export async function run() {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           if (true) {
             await step('thenStep', () => fetch());
           } else {
@@ -117,7 +117,7 @@ describe("renderWorkflowDSL", () => {
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("w", { pay: async () => ok({}) });
       export async function run() {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           const items = [1];
           for (const _ of items) {
             await step('pay', () => pay());

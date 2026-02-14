@@ -44,7 +44,7 @@ const zodToResult = <T>(
 const workflow = createWorkflow('workflow', { validate: (data: unknown) => Promise.resolve(zodToResult(UserSchema, data)),
 });
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const user = await step('validate', () => deps.validate({ email: 'test@example.com', age: 25 }));
   return user; // User type, not unknown
 });

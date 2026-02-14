@@ -37,9 +37,9 @@ const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* 
 // Error types inferred from dependencies
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
-const result = await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'));
-  await step('sendEmail', () => sendEmail(user.email));
+const result = await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'));
+  await step('sendEmail', () => deps.sendEmail(user.email));
   return user;
 });
 /*
@@ -126,8 +126,8 @@ const checkout = createWorkflow('workflow', { validateOrder,
 });
 
 // Can reuse with different inputs
-await checkout(async (step) => { /* ... */ });
-await checkout(async (step) => { /* different flow */ });
+await checkout(async ({ step, deps }) => { /* ... */ });
+await checkout(async ({ step, deps }) => { /* different flow */ });
 ```
   </TabItem>
   <TabItem label="Example: run">
@@ -153,9 +153,9 @@ const workflow = createWorkflow('workflow', deps, {
   cache: new Map(),
 });
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   // This step runs once, even if workflow is called multiple times
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
 /*
@@ -177,9 +177,9 @@ const workflow = createWorkflow('workflow', deps, {
   resumeState: savedState, // From a previous run
 });
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   // Cached steps return their saved values
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
 ```
@@ -197,7 +197,7 @@ const workflow = createWorkflow('workflow', deps, {
   streamStore: createMemoryStreamStore(),
 });
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const writer = step.getWritable<string>({ namespace: 'tokens' });
 
   await writer.write('Hello');
@@ -247,7 +247,7 @@ Workflow error unions are always closed. By default, thrown exceptions become `U
 // Default - error union is E | UnexpectedError
 const workflow = createWorkflow('workflow', deps);
 
-const result = await workflow(async (step) => { /* ... */ });
+const result = await workflow(async ({ step, deps }) => { /* ... */ });
 // result.error: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
 ```
   </TabItem>
@@ -261,7 +261,7 @@ const workflow = createWorkflow('workflow', deps, {
   })
 });
 
-const result = await workflow(async (step) => { /* ... */ });
+const result = await workflow(async ({ step, deps }) => { /* ... */ });
 // result.error: 'NOT_FOUND' | 'ORDER_FAILED' | { type: 'UNEXPECTED', cause: unknown }
 ```
   </TabItem>
@@ -288,9 +288,9 @@ const workflow = createWorkflow('workflow', deps, {
 });
 
 // Start workflow
-const resultPromise = workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'fetch-user' });
-  await step('sendEmail', () => sendEmail(user.email), { key: 'send-email' });
+const resultPromise = workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'fetch-user' });
+  await step('sendEmail', () => deps.sendEmail(user.email), { key: 'send-email' });
   return user;
 });
 
@@ -321,7 +321,7 @@ Cancelled: timeout
 Steps using `step.withTimeout` can receive the workflow signal:
 
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   // Signal fires on EITHER timeout OR workflow cancellation
   const data = await step.withTimeout(
     'fetchUrl',
@@ -335,7 +335,7 @@ const result = await workflow(async (step) => {
 Or access the signal directly via context:
 
 ```typescript
-const result = await workflow(async (step, deps, ctx) => {
+const result = await workflow(async ({ step, deps, ctx }) => {
   // Manual signal access
   const response = await fetch(url, { signal: ctx.signal });
 
@@ -359,11 +359,11 @@ const workflow = createWorkflow('workflow', { fetchUser }, {
 });
 
 // Normal run - uses creation-time options
-await workflow(async (step) => { /* ... */ });
+await workflow(async ({ step, deps }) => { /* ... */ });
 
 // Per-run options override creation-time
-await workflow.run(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'));
+await workflow.run(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'));
   return user;
 }, {
   onEvent: vizualizer.handleEvent,  // Override for this run only
@@ -379,8 +379,8 @@ const visualized = workflow.with({
 });
 
 // All calls use viz.handleEvent
-await visualized(async (step) => { /* ... */ });
-await visualized(async (step) => { /* ... */ });
+await visualized(async ({ step, deps }) => { /* ... */ });
+await visualized(async ({ step, deps }) => { /* ... */ });
 
 // Chaining works
 const w = workflow
@@ -460,35 +460,39 @@ const checkout = createWorkflow('workflow', { validateEmail,
   saveReceipt,
 });
 
-const result = await checkout(async (step) => {
+const result = await checkout(async ({ step, deps }) => {
   // Use steps from all dependencies
-  await step('validateEmail', () => validateEmail(input.email));
-  await step('validatePassword', () => validatePassword(input.password));
-  await step('chargeCard', () => chargeCard(input.amount));
-  await step('saveReceipt', () => saveReceipt(input.orderId));
+  await step('validateEmail', () => deps.validateEmail(input.email));
+  await step('validatePassword', () => deps.validatePassword(input.password));
+  await step('chargeCard', () => deps.chargeCard(input.amount));
+  await step('saveReceipt', () => deps.saveReceipt(input.orderId));
 });
 ```
 
-## Context
+## Workflow input (args)
 
-Pass context through workflow execution:
+Pass input to a workflow as a single object. The callback receives it as `args`:
 
 ```typescript
 const workflow = createWorkflow('workflow', deps);
 
 const result = await workflow(
-  async (step, context) => {
-    console.log('User ID:', context.userId);
-    const user = await step('fetchUser', () => fetchUser(context.userId));
+  { userId: '123', requestId: 'abc' },
+  async ({ step, deps, args }) => {
+    console.log('User ID:', args.userId);
+    const user = await step('fetchUser', () => deps.fetchUser(args.userId));
     return user;
-  },
-  { context: { userId: '123', requestId: 'abc' } }
+  }
 );
 /*
 Output:
 User ID: 123
 */
 ```
+
+<Aside type="tip" title="Callback context">
+The workflow callback always receives one argument: a context object `{ step, deps, args?, ctx }`. When you pass input, call `workflow(args, fn)` with **args as an object**; it appears as `args` in the callback. Per-run execution context (e.g. for events) is set via `createContext` in options or `workflow.run(fn, { createContext })`, and is available as `ctx`.
+</Aside>
 
 ## Next
 

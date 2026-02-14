@@ -71,7 +71,7 @@ async function runCheckout(
     onEvent: opts.onEvent,
   });
 
-  return workflow(async (step, { fetchCart, validateCart, processPayment, completeOrder }) => {
+  return workflow(async ({ step, deps: { fetchCart, validateCart, processPayment, completeOrder } }) => {
     const cart = await step("fetchCart", () => fetchCart(cartId));
     await step("validateCart", () => validateCart(cart));
     const payment = await step("processPayment", () => processPayment(cart));

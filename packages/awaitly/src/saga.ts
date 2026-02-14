@@ -11,7 +11,7 @@
  *
  * const checkout = createSagaWorkflow('checkout', { reserveInventory, chargeCard, sendEmail });
  *
- * const result = await checkout(async (saga) => {
+ * const result = await checkout(async ({ saga }) => {
  *   const reservation = await saga.step(
  *     'reserveInventory',
  *     () => reserveInventory(items),
@@ -222,14 +222,14 @@ type ErrorsOfDeps<Deps extends Record<string, AnyResultFn>> = {
  * ```typescript
  * const saga = createSagaWorkflow('checkout', { reserveInventory, chargeCard });
  *
- * const result = await saga(async (ctx) => {
- *   const reservation = await ctx.step(
+ * const result = await saga(async ({ saga }) => {
+ *   const reservation = await saga.step(
  *     'reserveInventory',
  *     () => reserveInventory(items),
  *     { compensate: (res) => releaseInventory(res.id) }
  *   );
  *
- *   const payment = await ctx.step(
+ *   const payment = await saga.step(
  *     'chargeCard',
  *     () => chargeCard(amount),
  *     { compensate: (p) => refundPayment(p.txId) }
@@ -246,7 +246,7 @@ export function createSagaWorkflow<
   deps: Deps,
   options?: SagaWorkflowOptions<ErrorsOfDeps<Deps>>
 ): <T>(
-  fn: (saga: SagaContext<ErrorsOfDeps<Deps>>, deps: Deps) => Promise<T>
+  fn: (context: { saga: SagaContext<ErrorsOfDeps<Deps>>; deps: Deps }) => Promise<T>
 ) => Promise<SagaResult<T, ErrorsOfDeps<Deps>>> {
   type E = ErrorsOfDeps<Deps>;
 
@@ -257,7 +257,7 @@ export function createSagaWorkflow<
   }
 
   return async <T>(
-    fn: (saga: SagaContext<E>, deps: Deps) => Promise<T>
+    fn: (context: { saga: SagaContext<E>; deps: Deps }) => Promise<T>
   ): Promise<SagaResult<T, E | UnexpectedError | SagaCompensationError>> => {
     const sagaId = crypto.randomUUID();
     const startTime = performance.now();
@@ -405,7 +405,7 @@ export function createSagaWorkflow<
     };
 
     try {
-      const result = await fn(sagaContext, deps);
+      const result = await fn({ saga: sagaContext, deps });
 
       const durationMs = performance.now() - startTime;
       emitEvent({
@@ -479,7 +479,7 @@ export function createSagaWorkflow<
  *
  * @example
  * ```typescript
- * const result = await runSaga<CheckoutResult, CheckoutError>(async (saga) => {
+ * const result = await runSaga<CheckoutResult, CheckoutError>(async ({ saga }) => {
  *   const reservation = await saga.step(
  *     'reserveInventory',
  *     () => reserveInventory(items),
@@ -490,7 +490,7 @@ export function createSagaWorkflow<
  * ```
  */
 export async function runSaga<T, E>(
-  fn: (saga: SagaContext<E>) => Promise<T>,
+  fn: (context: { saga: SagaContext<E> }) => Promise<T>,
   options?: Omit<SagaWorkflowOptions<E>, "onEvent"> & {
     onEvent?: (event: SagaEvent) => void;
   }
@@ -637,7 +637,7 @@ export async function runSaga<T, E>(
   };
 
   try {
-    const result = await fn(sagaContext);
+    const result = await fn({ saga: sagaContext });
 
     const durationMs = performance.now() - startTime;
     emitEvent({

@@ -13,7 +13,7 @@
  * const streamStore = createMemoryStreamStore();
  * const workflow = createWorkflow(deps, { streamStore });
  *
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   const writer = step.getWritable<string>({ namespace: 'tokens' });
  *
  *   await step(() => generateAI({

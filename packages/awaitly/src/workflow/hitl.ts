@@ -105,7 +105,7 @@ export function pendingApproval(
  *
  * // Use in workflow
  * const workflow = createWorkflow({ requireManagerApproval });
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   const approval = await step(requireManagerApproval, { key: 'manager-approval' });
  *   // If pending, workflow exits with PendingApproval error
  *   // If approved, continues with approval value
@@ -127,7 +127,7 @@ export function pendingApproval(
  *   onEvent: collector.handleEvent,
  * });
  *
- * const result = await workflow(async (step) => {
+ * const result = await workflow(async ({ step }) => {
  *   const approval = await step(requireApproval, { key: 'approval:1' });
  *   return approval;
  * });
@@ -140,7 +140,7 @@ export function pendingApproval(
  *
  *   // Resume workflow
  *   const workflow2 = createWorkflow({ requireApproval }, { resumeState });
- *   const result2 = await workflow2(async (step) => {
+ *   const result2 = await workflow2(async ({ step }) => {
  *     const approval = await step(requireApproval, { key: 'approval:1' });
  *     return approval; // Now succeeds with injected value
  *   });

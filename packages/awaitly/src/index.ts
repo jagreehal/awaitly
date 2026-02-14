@@ -17,7 +17,7 @@
  * }
  *
  * // Compose with run() - clean do-notation style
- * const result = await run(async (step) => {
+ * const result = await run(async ({ step }) => {
  *   const user = await step(getUser(id));
  *   const posts = await step(getPosts(user.id));
  *   return { user, posts };

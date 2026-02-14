@@ -45,9 +45,9 @@ const workflow = createWorkflow('workflow', deps, {
   cache: new Map(),
 });
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   // Cached with key 'user:1'
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
 ```
@@ -76,7 +76,7 @@ Pass a function, not the result of calling:
 
 ```typescript
 // With thunk - can be cached (ID required as first argument)
-const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 ```
 
 ### Cache Scope
@@ -88,14 +88,14 @@ const cache = new Map();
 const workflow = createWorkflow('workflow', deps, { cache });
 
 // First run - fetches user
-await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
 
 // Second run - uses cached value (no fetch)
-await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
 ```
@@ -113,9 +113,9 @@ const workflow = createWorkflow('workflow', { fetchUser, fetchPosts },
   { onEvent: collector.handleEvent }
 );
 
-await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
-  const posts = await step('fetchPosts', () => fetchPosts(user.id), { key: `posts:${user.id}` });
+await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
+  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
 
@@ -133,8 +133,8 @@ Workflow state is captured as a **WorkflowSnapshot** (JSON-serializable). Use `w
 
 ```typescript
 const workflow = createWorkflow('workflow', deps);
-await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
 
@@ -152,9 +152,9 @@ const workflow = createWorkflow('workflow', { fetchUser, fetchPosts },
   { snapshot: snapshot ?? undefined }
 );
 
-await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
-  const posts = await step('fetchPosts', () => fetchPosts(user.id), { key: `posts:${user.id}` });
+await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
+  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
 ```
@@ -178,12 +178,12 @@ const snapshot = await store.load('wf-123');
 
 const workflow = createWorkflow('workflow', deps, { snapshot });
 
-const result = await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+const result = await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 
   await store.save('wf-123', workflow.getSnapshot());
 
-  const posts = await step('fetchPosts', () => fetchPosts(user.id), { key: `posts:${user.id}` });
+  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
 
@@ -197,9 +197,9 @@ const snapshot = await store.load('wf-123');
 
 const workflow = createWorkflow('workflow', deps, { snapshot });
 
-await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
-  const posts = await step('fetchPosts', () => fetchPosts(user.id), { key: `posts:${user.id}` });
+await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
+  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
 ```
@@ -255,11 +255,11 @@ const workflow = createWorkflow('workflow', deps, { cache });
 Use step keys for idempotent operations:
 
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   // Payment only processes once, even on retry
   const payment = await step(
     'processPayment',
-    () => processPayment(orderId, amount),
+    () => deps.processPayment(orderId, amount),
     { key: `payment:${orderId}` }
   );
 
@@ -280,15 +280,15 @@ Errors are cached by default. If a step fails, subsequent runs return the same e
 
 ```typescript
 // First run - fetchUser returns err('NOT_FOUND')
-await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('999'), { key: 'user:999' });
+await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('999'), { key: 'user:999' });
   return user;
 });
 // result.error === 'NOT_FOUND'
 
 // Second run - returns cached error (no fetch)
-await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('999'), { key: 'user:999' });
+await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('999'), { key: 'user:999' });
   return user;
 });
 // result.error === 'NOT_FOUND' (from cache)
@@ -325,9 +325,10 @@ async function runWithRecovery(workflowId: string) {
     { snapshot }
   );
 
-  const result = await workflow(async (step) => {
+  const result = await workflow(async ({ step, deps }) => {
     const user = await step(
-      () => fetchUser('1'),
+      'fetchUser',
+      () => deps.fetchUser('1'),
       { key: 'user:1' }
     );
 
@@ -335,7 +336,8 @@ async function runWithRecovery(workflowId: string) {
     await store.save(workflowId, workflow.getSnapshot());
 
     const payment = await step(
-      () => processPayment(user.id, 100),
+      'processPayment',
+      () => deps.processPayment(user.id, 100),
       { key: `payment:${user.id}` }
     );
 
@@ -343,7 +345,8 @@ async function runWithRecovery(workflowId: string) {
     await store.save(workflowId, workflow.getSnapshot());
 
     await step(
-      () => sendConfirmation(user.email, payment.id),
+      'sendConfirmation',
+      () => deps.sendConfirmation(user.email, payment.id),
       { key: `confirm:${payment.id}` }
     );
 

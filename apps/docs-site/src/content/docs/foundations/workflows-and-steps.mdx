@@ -115,9 +115,9 @@ const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* 
 // Error types inferred from dependencies
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
-const result = await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'));
-  await step('sendEmail', () => sendEmail(user.email));
+const result = await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'));
+  await step('sendEmail', () => deps.sendEmail(user.email));
   return user;
 });
 
@@ -168,7 +168,7 @@ See [Troubleshooting: Double-wrapping](/guides/troubleshooting/#returning-ok-fro
 Use the first argument (step id) for visualization; use options for caching, retry, and timeout:
 
 ```typescript
-const user = await step('Fetch user', () => fetchUser('1'), {
+const user = await step('Fetch user', () => deps.fetchUser('1'), {
   key: 'user:1',            // For caching/deduplication
   retry: { attempts: 3 },   // Retry on failure
   timeout: { ms: 5000 },     // Timeout after 5 seconds
@@ -181,7 +181,7 @@ Pass a function (thunk) instead of calling directly to enable caching:
 
 ```typescript
 // With thunk - can be cached (ID required as first argument)
-const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 ```
 
 <Aside type="note">
@@ -241,7 +241,7 @@ const data = await step.fromResult(
 ```typescript
 const user = await step.retry(
   'fetchUser',
-  () => fetchUser('1'),
+  () => deps.fetchUser('1'),
   {
     attempts: 3,
     backoff: 'exponential',  // 'fixed' | 'linear' | 'exponential'
@@ -347,13 +347,13 @@ await step.sleep("poll-delay", "2s", {
 ### Rate limiting example
 
 ```typescript
-const result = await workflow(async (step) => {
-  const data = await step('fetchData', () => fetchData());
+const result = await workflow(async ({ step, deps }) => {
+  const data = await step('fetchData', () => deps.fetchData());
   
   // Respect rate limits - wait 1 second between requests
   await step.sleep("rate-limit-delay", "1s");
   
-  const moreData = await step('fetchMoreData', () => fetchMoreData());
+  const moreData = await step('fetchMoreData', () => deps.fetchMoreData());
   return { data, moreData };
 });
 ```
@@ -361,13 +361,13 @@ const result = await workflow(async (step) => {
 ### Polling example
 
 ```typescript
-const result = await workflow(async (step) => {
-  let status = await step('checkStatus', () => checkStatus());
+const result = await workflow(async ({ step, deps }) => {
+  let status = await step('checkStatus', () => deps.checkStatus());
   
   // Poll every 2 seconds until complete
   while (status !== "complete") {
     await step.sleep("poll-interval", "2s");
-    status = await step('checkStatus', () => checkStatus());
+    status = await step('checkStatus', () => deps.checkStatus());
   }
   
   return status;
@@ -384,7 +384,7 @@ const result = await workflow(async (step) => {
 const controller = new AbortController();
 const workflow = createWorkflow('workflow', { }, { signal: controller.signal });
 
-const resultPromise = workflow(async (step) => {
+const resultPromise = workflow(async ({ step, deps }) => {
   await step.sleep("long-sleep", "10s");
   return "completed";
 });
@@ -430,12 +430,12 @@ Run multiple steps concurrently:
 ```typescript
 import { allAsync } from 'awaitly';
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const [user, posts, comments] = await step('fetchUserData', () =>
     allAsync([
-      fetchUser('1'),
-      fetchPosts('1'),
-      fetchComments('1'),
+      deps.fetchUser('1'),
+      deps.fetchPosts('1'),
+      deps.fetchComments('1'),
     ])
   );
   return { user, posts, comments };
@@ -453,12 +453,12 @@ Output (any fails):
 ```typescript
 import { allSettled } from 'awaitly';
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const results = await step('fetchAllSettled', () =>
     Promise.all([
-      fetchUser('1'),
-      fetchPosts('1'),
-      fetchComments('1'),
+      deps.fetchUser('1'),
+      deps.fetchPosts('1'),
+      deps.fetchComments('1'),
     ]).then(allSettled)
   );
   // results contains all outcomes, even failures
@@ -496,9 +496,9 @@ const workflow = createWorkflow('workflow', deps, {
   cache: new Map(),
 });
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   // This step runs once, even if workflow is called multiple times
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
 ```
@@ -516,9 +516,9 @@ const workflow = createWorkflow('workflow', deps, {
   resumeState: savedState, // From a previous run
 });
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   // Cached steps return their saved values
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
 ```
@@ -536,7 +536,7 @@ const workflow = createWorkflow('workflow', deps, {
   streamStore: createMemoryStreamStore(),
 });
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const writer = step.getWritable<string>({ namespace: 'tokens' });
 
   await writer.write('Hello');
@@ -603,9 +603,9 @@ const workflow = createWorkflow('workflow', deps, {
 });
 
 // Start workflow
-const resultPromise = workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'fetch-user' });
-  await step('sendEmail', () => sendEmail(user.email), { key: 'send-email' });
+const resultPromise = workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'fetch-user' });
+  await step('sendEmail', () => deps.sendEmail(user.email), { key: 'send-email' });
   return user;
 });
 
@@ -636,7 +636,7 @@ Cancelled: timeout
 Steps using `step.withTimeout` can receive the workflow signal:
 
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   // Signal fires on EITHER timeout OR workflow cancellation
   const data = await step.withTimeout(
     'fetchUrl',
@@ -650,7 +650,7 @@ const result = await workflow(async (step) => {
 Or access the signal directly via context:
 
 ```typescript
-const result = await workflow(async (step, deps, ctx) => {
+const result = await workflow(async ({ step, deps, ctx }) => {
   // Manual signal access
   const response = await fetch(url, { signal: ctx.signal });
 
@@ -674,11 +674,11 @@ const workflow = createWorkflow('workflow', { fetchUser }, {
 });
 
 // Normal run - uses creation-time options
-await workflow(async (step) => { /* ... */ });
+await workflow(async ({ step, deps }) => { /* ... */ });
 
 // Per-run options override creation-time
-await workflow.run(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'));
+await workflow.run(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'));
   return user;
 }, {
   onEvent: vizualizer.handleEvent,  // Override for this run only
@@ -694,8 +694,8 @@ const visualized = workflow.with({
 });
 
 // All calls use viz.handleEvent
-await visualized(async (step) => { /* ... */ });
-await visualized(async (step) => { /* ... */ });
+await visualized(async ({ step, deps }) => { /* ... */ });
+await visualized(async ({ step, deps }) => { /* ... */ });
 
 // Chaining works
 const w = workflow
@@ -761,20 +761,20 @@ const w2 = workflow.with({ onEvent: handlerB });
 await w2.run(fn, { onEvent: handlerC });
 ```
 
-## Context
+## Workflow input (args)
 
-Pass context through workflow execution:
+Pass input to a workflow as a single object. The callback receives it as `args`:
 
 ```typescript
 const workflow = createWorkflow('workflow', deps);
 
 const result = await workflow(
-  async (step, context) => {
-    console.log('User ID:', context.userId);
-    const user = await step('fetchUser', () => fetchUser(context.userId));
+  { userId: '123', requestId: 'abc' },
+  async ({ step, deps, args }) => {
+    console.log('User ID:', args.userId);
+    const user = await step('fetchUser', () => deps.fetchUser(args.userId));
     return user;
-  },
-  { context: { userId: '123', requestId: 'abc' } }
+  }
 );
 /*
 Output:
@@ -796,12 +796,12 @@ const checkout = createWorkflow('workflow', { validateEmail,
   saveReceipt,
 });
 
-const result = await checkout(async (step) => {
+const result = await checkout(async ({ step, deps }) => {
   // Use steps from all dependencies
-  await step('validateEmail', () => validateEmail(input.email));
-  await step('validatePassword', () => validatePassword(input.password));
-  await step('chargeCard', () => chargeCard(input.amount));
-  await step('saveReceipt', () => saveReceipt(input.orderId));
+  await step('validateEmail', () => deps.validateEmail(input.email));
+  await step('validatePassword', () => deps.validatePassword(input.password));
+  await step('chargeCard', () => deps.chargeCard(input.amount));
+  await step('saveReceipt', () => deps.saveReceipt(input.orderId));
 });
 ```
 
@@ -836,10 +836,10 @@ const sendWelcome = async (email: string): AsyncResult<void, 'EMAIL_FAILED'> =>
 
 const onboardUser = createWorkflow('workflow', { fetchUser, fetchPosts, sendWelcome });
 
-const result = await onboardUser(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'));
-  const posts = await step('fetchPosts', () => fetchPosts(user.id));
-  await step('sendWelcome', () => sendWelcome(user.email));
+const result = await onboardUser(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'));
+  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));
+  await step('sendWelcome', () => deps.sendWelcome(user.email));
 
   return { user, postCount: posts.length };
 });

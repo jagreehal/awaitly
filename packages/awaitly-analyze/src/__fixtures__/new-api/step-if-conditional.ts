@@ -33,7 +33,7 @@ export const dashboardWorkflow = createWorkflow("dashboardWorkflow", {
 });
 
 export async function loadDashboard(userId: string) {
-  return await dashboardWorkflow(async (step, deps) => {
+  return await dashboardWorkflow(async ({ step, deps }) => {
     const user = await step('getUser', () => deps.fetchUser(userId), {
       errors: ['NOT_FOUND'],
       out: 'user',

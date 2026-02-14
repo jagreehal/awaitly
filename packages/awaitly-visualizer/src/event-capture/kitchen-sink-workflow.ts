@@ -173,7 +173,7 @@ export async function runProcessOrder(
     onEvent: opts.onEvent,
   });
 
-  const result = await workflow(async (step, deps, ctx) => {
+  const result = await workflow(async ({ step, deps, ctx }) => {
     // Step 1: fetchCart (sequential)
     const cart = await step("fetchCart", () => deps.fetchCart(cartId));
 
@@ -296,7 +296,7 @@ export async function runProcessOrderWithHooks(opts: RunOptions = {}) {
     onAfterStep: () => {},
   });
 
-  const result = await workflow(async (step, deps, ctx) => {
+  const result = await workflow(async ({ step, deps, ctx }) => {
     const cart = await step("fetchCart", () => deps.fetchCart("cart-1"), {
       key: "fetchCart",
     });

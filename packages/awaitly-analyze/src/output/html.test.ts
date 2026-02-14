@@ -16,7 +16,7 @@ describe("extractNodeMetadata", () => {
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("w", { fetch: async () => ok({}) });
       export async function run() {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           await step('fetchData', () => fetch());
           return {};
         });
@@ -40,7 +40,7 @@ describe("extractNodeMetadata", () => {
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("w", { a: async () => ok(1), b: async () => ok(2) });
       export async function run(flag: boolean) {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           if (flag) {
             await step('a', () => a());
           } else {
@@ -66,7 +66,7 @@ describe("extractNodeMetadata", () => {
       import { createWorkflow, ok, allAsync } from "awaitly";
       const w = createWorkflow("w", { a: async () => ok(1), b: async () => ok(2) });
       export async function run() {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           await allAsync(
             step('a', () => a()),
             step('b', () => b())
@@ -92,7 +92,7 @@ describe("extractNodeMetadata", () => {
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("w", { a: async () => ok(1), b: async () => ok(2) });
       export async function run() {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           await step('x', () => a());
           await step('y', () => b());
           return {};
@@ -121,7 +121,7 @@ describe("generateInteractiveHTML", () => {
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("checkout", { fetch: async () => ok({}) });
       export async function run() {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           await step('validate', () => fetch());
           return {};
         });
@@ -147,7 +147,7 @@ describe("generateInteractiveHTML", () => {
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("payment", { charge: async () => ok({}) });
       export async function run() {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           await step('charge', () => charge());
           return {};
         });
@@ -170,7 +170,7 @@ describe("generateInteractiveHTML", () => {
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("w", { f: async () => ok({}) });
       export async function run() {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           await step('x', () => f());
           return {};
         });
@@ -193,7 +193,7 @@ describe("generateInteractiveHTML", () => {
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("w", { f: async () => ok({}) });
       export async function run() {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           await step('x', () => f());
           return {};
         });
@@ -215,7 +215,7 @@ describe("generateInteractiveHTML", () => {
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("w", { f: async () => ok({}) });
       export async function run() {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           await step('x', () => f());
           return {};
         });
@@ -240,7 +240,7 @@ describe("generateInteractiveHTML", () => {
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("w", { f: async () => ok({}) });
       export async function run() {
-        return await w(async (step) => {
+        return await w(async ({ step }) => {
           await step('x', () => f());
           return {};
         });

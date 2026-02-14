@@ -138,10 +138,10 @@ import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow('workflow', { fetchUser, validateOrder, chargeCard });
 
-const result = await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('123'));
-  const order = await step('validateOrder', () => validateOrder(orderData));
-  const receipt = await step('chargeCard', () => chargeCard(user.id, order.total));
+const result = await workflow(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('123'));
+  const order = await step('validateOrder', () => deps.validateOrder(orderData));
+  const receipt = await step('chargeCard', () => deps.chargeCard(user.id, order.total));
   return { user, order, receipt };
 });
 
@@ -197,8 +197,8 @@ const settled = await Awaitly.allSettledAsync([
   fetchUser('2'),
   fetchUser('3'),
 ]);
-// settled.successes = [user1, user3]
-// settled.failures = ['NOT_FOUND']
+// Returns a Result with collected outcomes
+// See [Awaitly.allSettledAsync](/reference/api/) for the exact return shape.
 ```
   </TabItem>
   <TabItem label="Promise">
@@ -271,13 +271,13 @@ const fetchUserForApi = async (id: string) => {
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 
-const workflow = createWorkflow('workflow', { fetchData });
+const workflow = createWorkflow('workflow', { fetchData, slowOperation });
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   // Built-in retry with exponential backoff
   const data = await step.retry(
     'fetchData',
-    () => fetchData(),
+    () => deps.fetchData(),
     {
       attempts: 3,
       backoff: 'exponential',
@@ -288,7 +288,7 @@ const result = await workflow(async (step) => {
   // Built-in timeout
   const slow = await step.withTimeout(
     'slowOp',
-    () => slowOperation(),
+    () => deps.slowOperation(),
     { ms: 5000 }
   );
 
@@ -340,7 +340,7 @@ You can adopt awaitly incrementally. Here's how to wrap existing Promise-based c
 ```typescript
 import { Awaitly, type AsyncResult } from 'awaitly';
 
-// Wrap an existing async function
+// Wrap an existing async function manually
 const safeFetchUser = async (id: string): AsyncResult<User, 'FETCH_ERROR'> => {
   try {
     const user = await legacyFetchUser(id); // existing Promise function
@@ -350,12 +350,20 @@ const safeFetchUser = async (id: string): AsyncResult<User, 'FETCH_ERROR'> => {
   }
 };
 
-// Or use from for sync throwing functions
+// Or use Awaitly.fromPromise to wrap a Promise directly
+const safeResult = await Awaitly.fromPromise(
+  legacyFetchUser('123'),
+  () => 'FETCH_ERROR' as const
+);
+
+// Sync: Awaitly.from(fn, onError) for throwing functions
 const safeJsonParse = (s: string) =>
   Awaitly.from(
     () => JSON.parse(s),
     () => 'PARSE_ERROR' as const
   );
+
+// Inside workflows: step.try('id', () => …, { error: 'MY_ERROR' })
 ```
 
 ## When to Use Each

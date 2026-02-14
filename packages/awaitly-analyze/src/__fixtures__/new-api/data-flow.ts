@@ -36,7 +36,7 @@ export const userReportWorkflow = createWorkflow("userReportWorkflow", {
 });
 
 export async function generateUserReport(userId: string) {
-  return await userReportWorkflow(async (step, deps) => {
+  return await userReportWorkflow(async ({ step, deps }) => {
     // Step writes to 'user' key
     const user = await step('fetchUser', () => deps.fetchUser(userId), {
       errors: ['USER_NOT_FOUND'],

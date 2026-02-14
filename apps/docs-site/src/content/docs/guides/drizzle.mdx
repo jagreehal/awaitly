@@ -41,7 +41,7 @@ const findUser = async (id: string): AsyncResult<typeof users.$inferSelect, DbEr
 // Use in a workflow
 const workflow = createWorkflow('workflow', { findUser });
 
-const result = await workflow(async (step) => {
+const result = await workflow(async ({ step, deps }) => {
   const user = await step('findUser', () => deps.findUser('user-123'));
   return user;
 });

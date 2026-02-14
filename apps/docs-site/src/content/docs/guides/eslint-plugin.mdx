@@ -176,11 +176,11 @@ Detects when workflow options (`cache`, `onEvent`, `resumeState`, etc.) are pass
 
 ```typescript
 // Bad - options are ignored
-await workflow({ cache: new Map() }, async (step) => { ... });
+await workflow({ cache: new Map() }, async ({ step }) => { ... });
 
 // Good - options passed to createWorkflow
 const workflow = createWorkflow('workflow', deps, { cache: new Map() });
-await workflow(async (step) => { ... });
+await workflow(async ({ step, deps }) => { ... });
 ```
 
 ### `awaitly/no-double-wrap-result`
@@ -195,14 +195,14 @@ run(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'));
   return ok({ user });
 });
-createWorkflow('workflow', deps)(async (step) => err({ type: 'FAILED' }));
+createWorkflow('workflow', deps)(async ({ step, deps }) => err({ type: 'FAILED' }));
 
 // Good - return raw value
 run(async (step) => {
   const user = await step('fetchUser', () => fetchUser('1'));
   return { user };
 });
-createWorkflow('workflow', deps)(async (step) => value);
+createWorkflow('workflow', deps)(async ({ step, deps }) => value);
 ```
 
 ## Why these rules?

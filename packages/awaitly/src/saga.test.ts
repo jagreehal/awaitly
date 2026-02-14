@@ -15,7 +15,7 @@ describe("Saga / Compensation Pattern", () => {
 
       const saga = createSagaWorkflow("saga", { step1, step2 });
 
-      const result = await saga(async (ctx) => {
+      const result = await saga(async ({ saga: ctx }) => {
         const r1 = await ctx.step('step1', () => step1());
         const r2 = await ctx.step('step2', () => step2());
         return { r1, r2 };
@@ -49,7 +49,7 @@ describe("Saga / Compensation Pattern", () => {
 
       const saga = createSagaWorkflow("checkout", { reserveInventory, chargeCard, sendEmail });
 
-      const result = await saga(async (ctx) => {
+      const result = await saga(async ({ saga: ctx }) => {
         const reservation = await ctx.step('reserveInventory', () => reserveInventory(), {
           compensate: compensate1,
         });
@@ -85,7 +85,7 @@ describe("Saga / Compensation Pattern", () => {
 
       const saga = createSagaWorkflow("checkout", { reserveInventory, chargeCard });
 
-      const result = await saga(async (ctx) => {
+      const result = await saga(async ({ saga: ctx }) => {
         const reservation = await ctx.step("reserve", () => reserveInventory(), {
           compensate: compensate1,
         });
@@ -114,7 +114,7 @@ describe("Saga / Compensation Pattern", () => {
 
       let recordedCompensations: Array<{ name?: string; hasValue: boolean }> = [];
 
-      await saga(async (ctx) => {
+      await saga(async ({ saga: ctx }) => {
         await ctx.step("step1", () => step1(), {
           compensate: () => {},
         });
@@ -143,7 +143,7 @@ describe("Saga / Compensation Pattern", () => {
         { onEvent: (e) => events.push(e as SagaEvent) }
       );
 
-      await saga(async (ctx) => {
+      await saga(async ({ saga: ctx }) => {
         await ctx.step("step1", () => step1());
         return {};
       });
@@ -164,7 +164,7 @@ describe("Saga / Compensation Pattern", () => {
         { onEvent: (e) => events.push(e as SagaEvent) }
       );
 
-      await saga(async (ctx) => {
+      await saga(async ({ saga: ctx }) => {
         await ctx.step("step1", () => step1(), {
           compensate,
         });
@@ -185,7 +185,7 @@ describe("Saga / Compensation Pattern", () => {
 
       type MyError = "STEP_ERROR" | "STEP2_ERROR";
 
-      const result = await runSaga<string, MyError>(async (ctx) => {
+      const result = await runSaga<string, MyError>(async ({ saga: ctx }) => {
         const value = await ctx.tryStep(
           "step1",
           () => Promise.resolve("success"),
@@ -216,7 +216,7 @@ describe("Saga / Compensation Pattern", () => {
     it("should use onError mapper for thrown errors", async () => {
       type MappedError = { type: "MAPPED_ERROR"; message: string };
 
-      const result = await runSaga<Record<string, never>, MappedError>(async (ctx) => {
+      const result = await runSaga<Record<string, never>, MappedError>(async ({ saga: ctx }) => {
         await ctx.tryStep(
           "mapped-step",
           () => {
@@ -243,7 +243,7 @@ describe("Saga / Compensation Pattern", () => {
     it("should work without deps object", async () => {
       type MyError = "STEP1_ERROR" | "STEP2_ERROR";
 
-      const result = await runSaga<{ value: string }, MyError>(async (ctx) => {
+      const result = await runSaga<{ value: string }, MyError>(async ({ saga: ctx }) => {
         const v1 = await ctx.step("step1", () => ok("hello"), {
           compensate: () => {},
         });
@@ -264,7 +264,7 @@ describe("Saga / Compensation Pattern", () => {
     it("should run compensations on failure", async () => {
       const compensationOrder: string[] = [];
 
-      const result = await runSaga<{ value: string }, "FAIL">(async (ctx) => {
+      const result = await runSaga<{ value: string }, "FAIL">(async ({ saga: ctx }) => {
         await ctx.step("step1", () => ok("a"), {
           compensate: () => {
             compensationOrder.push("comp1");

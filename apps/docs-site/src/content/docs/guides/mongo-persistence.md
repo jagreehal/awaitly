@@ -28,7 +28,7 @@ const store = mongo('mongodb://localhost:27017/mydb');
 
 // Execute + persist
 const workflow = createWorkflow('workflow', { fetchUser, createOrder });
-await workflow(async (step, deps) => {
+await workflow(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('123'), { key: 'fetch-user' });
   const order = await step('createOrder', () => deps.createOrder(user), { key: 'create-order' });
   return order;

@@ -394,7 +394,7 @@ export const durable = {
    * - **Serialization**: State is JSON-serialized; complex objects may lose fidelity
    *
    * @param deps - Workflow dependencies (Result-returning functions)
-   * @param fn - Workflow function receiving (step, deps, ctx)
+   * @param fn - Workflow function receiving ({ step, deps, ctx })
    * @param options - Durable execution options
    * @returns AsyncResult with workflow result or error
    *
@@ -405,7 +405,7 @@ export const durable = {
    * // Zero-config: uses in-memory store (per process)
    * const result = await durable.run(
    *   { fetchUser, createOrder, sendEmail },
-   *   async (step, { fetchUser, createOrder, sendEmail }) => {
+   *   async ({ step, deps: { fetchUser, createOrder, sendEmail } }) => {
    *     const user = await step(() => fetchUser('123'), { key: 'fetch-user' });
    *     const order = await step(() => createOrder(user), { key: 'create-order' });
    *     await step(() => sendEmail(order), { key: 'send-email' });
@@ -433,9 +433,7 @@ export const durable = {
   >(
     deps: Deps,
     fn: (
-      step: RunStep<ErrorsOfDeps<Deps>>,
-      deps: Deps,
-      ctx: WorkflowContext<C>
+      context: { step: RunStep<ErrorsOfDeps<Deps>>; deps: Deps; ctx: WorkflowContext<C> }
     ) => T | Promise<T>,
     options: DurableOptions<C>
   ): Promise<
