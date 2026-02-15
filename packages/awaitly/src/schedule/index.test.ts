@@ -162,10 +162,10 @@ describe("Schedule", () => {
       const second = runner.next(undefined);
 
       expect(first.done).toBe(false);
-      expect(first.value.output).toBe(1);
+      if (!first.done) expect(first.value.output).toBe(1);
 
       expect(second.done).toBe(false);
-      expect(second.value.output).toBe(10);
+      if (!second.done) expect(second.value.output).toBe(10);
     });
 
     it("union advances internal schedule state across iterations", () => {
@@ -227,8 +227,8 @@ describe("Schedule", () => {
 
       expect(step1.done).toBe(false);
       expect(step2.done).toBe(false);
-      expect(step1.value.output[0]).toBe(0);
-      expect(step2.value.output[0]).toBe(1);
+      if (!step1.done) expect(step1.value.output[0]).toBe(0);
+      if (!step2.done) expect(step2.value.output[0]).toBe(1);
     });
   });
 

@@ -88,33 +88,31 @@ if (!userResult.ok) return userResult;
 const order = await step('createOrder', () => deps.createOrder(userResult.value));
 ```
 
-### R3: Normalize errors with `error.type ?? error`
+### R3: Handle `"UNEXPECTED_ERROR"` at boundaries, normalize other errors with `error.type ?? error`
 
-Errors can be strings (`'NOT_FOUND'`) or objects (`{ type: 'NOT_FOUND', id }`). Always normalize when switching:
-
-```typescript
-switch (result.error.type ?? result.error) {
-  case 'NOT_FOUND': return { status: 404 };
-  case 'ORDER_FAILED': return { status: 400 };
-  case UNEXPECTED_ERROR: return { status: 500 };
-}
-```
-
-### R4: Handle UnexpectedError at boundaries
-
-`UnexpectedError` represents any thrown exception escaping a dep. It must be handled at HTTP/API boundaries.
+Errors can be strings (`'NOT_FOUND'`), objects (`{ type: 'NOT_FOUND', id }`), or the `"UNEXPECTED_ERROR"` string for uncaught exceptions. Always check for `"UNEXPECTED_ERROR"` first (it's a plain string, not an object), then normalize the rest:
 
 ```typescript
 import { Awaitly } from 'awaitly';
 
 if (!result.ok) {
-  if ((result.error.type ?? result.error) === Awaitly.UNEXPECTED_ERROR) {
-    console.error('Bug:', result.error.cause);
+  if (result.error === Awaitly.UNEXPECTED_ERROR) {
+    // result.cause has the original thrown Error
+    console.error('Bug:', result.cause);
     return { status: 500 };
   }
-  // handle typed errors
+
+  // Typed errors: normalize with .type ?? error for mixed string/object unions
+  switch (result.error.type ?? result.error) {
+    case 'NOT_FOUND': return { status: 404 };
+    case 'ORDER_FAILED': return { status: 400 };
+  }
 }
 ```
+
+### R4: `"UNEXPECTED_ERROR"` is a string in the error union
+
+`run()` and `createWorkflow` always include `"UNEXPECTED_ERROR"` in the error union. It represents any thrown exception escaping a dep. The original thrown value is in `result.cause`, not `result.error.cause`.
 
 ### R5: All async work inside workflows must go through step()
 
@@ -144,10 +142,14 @@ const result = await workflow(async ({ step, deps }) => {
 
 // Handle errors at the boundary
 if (!result.ok) {
-  switch (result.error.type ?? result.error) {
-    case 'PAYMENT_FAILED':
-      await handleFailedPayment(result.error);
-      break;
+  if (result.error === Awaitly.UNEXPECTED_ERROR) {
+    console.error('Bug:', result.cause);
+  } else {
+    switch (result.error.type ?? result.error) {
+      case 'PAYMENT_FAILED':
+        await handleFailedPayment(result.error);
+        break;
+    }
   }
 }
 ```
@@ -196,10 +198,10 @@ Synchronous computation and pure logic are allowed inside workflows. Only async 
 | Import | `awaitly/run` | `awaitly/workflow` |
 | Step syntax | `step('id', promiseOrResult)` or `step('id', () => promiseOrResult)` | `step('id', deps.fn(args))` or `step('id', () => deps.fn(args))` |
 | Deps | Closures | Injected deps object |
-| Error types | Manual (`catchUnexpected`) or `UnexpectedError` | Auto-inferred from deps |
+| Error types | Manual type params: `run<T, E>(fn)` → `E \| "UNEXPECTED_ERROR"`; use `ErrorOf`/`Errors` utilities to derive E; or `catchUnexpected` for custom unexpected type | Auto-inferred from deps |
 | Features | Basic step execution | Retries, timeout, state persistence, caching |
 | Bundle | Smaller | Larger |
-| Best for | Single-use, wrapping throwing APIs | Shared deps, DI, testing, typed errors |
+| Best for | Single-use, wrapping throwing APIs | Shared deps, DI, testing, typed errors (best DX) |
 
 ### Use `run()` when:
 - Single-use workflow (not reused across files)
@@ -240,29 +242,63 @@ async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
 
 For single-use workflows where deps are available via closures.
 
-**With typed errors** (use `catchUnexpected`):
+**Best DX: derive E with `ErrorOf` / `Errors` utilities:**
 ```typescript
 import { run } from 'awaitly/run';
+import { type ErrorOf, type Errors } from 'awaitly';
 
-type MyErrors = 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED';
+// Single dep: ErrorOf<typeof fn>
+type RunErrors = ErrorOf<typeof getUser>;
+const result = await run<Order, RunErrors>(async ({ step }) => {
+  const user = await step('getUser', getUser(userId));
+  return user;
+});
+// result.error is: 'NOT_FOUND' | 'UNEXPECTED_ERROR'
 
-  const result = await run<Order, MyErrors>(
-    async ({ step }) => {
-      const user = await step('getUser', getUser(userId));
-      const order = await step('createOrder', createOrder(user));
-      return order;
-    },
-  { catchUnexpected: () => 'UNEXPECTED' as const }
-);
+// Multiple deps: Errors<[...]> (union of all dep errors)
+type AllErrors = Errors<[typeof getUser, typeof createOrder]>;
+const result2 = await run<Order, AllErrors>(async ({ step }) => {
+  const user = await step('getUser', getUser(userId));
+  const order = await step('createOrder', createOrder(user));
+  return order;
+});
+// result2.error is: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED_ERROR'
 ```
 
-**Without options** (errors wrapped as `UnexpectedError`):
+**With explicit E** (manual type params):
+```typescript
+const result = await run<Order, 'NOT_FOUND' | 'ORDER_FAILED'>(
+  async ({ step }) => {
+    const user = await step('getUser', getUser(userId));
+    const order = await step('createOrder', createOrder(user));
+    return order;
+  }
+);
+// result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED_ERROR'
+```
+
+**With `catchUnexpected`** (custom unexpected type — replaces `"UNEXPECTED_ERROR"` with your type):
+```typescript
+type MyErrors = 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED';
+
+const result = await run<Order, MyErrors>(
+  async ({ step }) => {
+    const user = await step('getUser', getUser(userId));
+    const order = await step('createOrder', createOrder(user));
+    return order;
+  },
+  { catchUnexpected: () => 'UNEXPECTED' as const }
+);
+// result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED' (custom unexpected)
+```
+
+**Without type params** (error is `"UNEXPECTED_ERROR"` only):
 ```typescript
 const result = await run(async ({ step }) => {
   const user = await step('getUser', getUser(userId));
   return user;
 });
-// result.error is UnexpectedError - access original via result.error.cause.error
+// result.error is: 'UNEXPECTED_ERROR' (step error types not preserved at compile time)
 ```
 
 ### Step 2b: Use `createWorkflow('name', deps)` for DI cases
@@ -546,10 +582,10 @@ Start with strings. Migrate to objects when you need context.
 
 ### Simple: run() with closures
 
-`run()` without options wraps ALL errors as `UnexpectedError`. To get typed errors, use `catchUnexpected`:
+Use `ErrorOf`/`Errors` to derive error types. `"UNEXPECTED_ERROR"` is always included automatically:
 
 ```typescript
-import { Awaitly, type AsyncResult } from 'awaitly';
+import { Awaitly, type AsyncResult, type Errors } from 'awaitly';
 import { run } from 'awaitly/run';
 
 // deps return Results, never throw
@@ -562,47 +598,63 @@ async function createOrder(user: User): AsyncResult<Order, 'ORDER_FAILED'> {
   // ...
 }
 
+// Derive errors from deps
+type RunErrors = Errors<[typeof getUser, typeof createOrder]>;
+
+// Execute workflow with typed errors
+export async function handleRequest(userId: string) {
+  const result = await run<Order, RunErrors>(
+    async ({ step }) => {
+      const user = await step('getUser', getUser(userId));
+      const order = await step('createOrder', createOrder(user));
+      return order;
+    }
+  );
+  // result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED_ERROR'
+
+  if (result.ok) {
+    return { status: 200, body: result.value };
+  }
+
+  // Check for unexpected errors first (it's a plain string)
+  if (result.error === Awaitly.UNEXPECTED_ERROR) {
+    console.error('Bug:', result.cause);
+    return { status: 500 };
+  }
+
+  switch (result.error) {
+    case 'NOT_FOUND': return { status: 404 };
+    case 'ORDER_FAILED': return { status: 400 };
+  }
+}
+```
+
+**With `catchUnexpected`** (custom unexpected type):
+```typescript
 type MyErrors = 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED';
 
-// Execute workflow with catchUnexpected for typed errors
-export async function handleRequest(userId: string) {
 const result = await run<Order, MyErrors>(
   async ({ step }) => {
     const user = await step('getUser', getUser(userId));
     const order = await step('createOrder', createOrder(user));
     return order;
   },
-  {
-    catchUnexpected: () => 'UNEXPECTED' as const,
-  }
+  { catchUnexpected: () => 'UNEXPECTED' as const }
 );
-
-  // Handle at boundary - all errors are typed
-  if (result.ok) {
-    return { status: 200, body: result.value };
-  }
-
-  switch (result.error) {
-    case 'NOT_FOUND': return { status: 404 };
-    case 'ORDER_FAILED': return { status: 400 };
-    case 'UNEXPECTED': return { status: 500 };
-  }
-}
+// result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED' (custom unexpected)
 ```
 
-**Without `catchUnexpected`**: errors are `UnexpectedError` with original error in `cause`:
+**Without type params** (only `"UNEXPECTED_ERROR"` in the type):
 ```typescript
 const result = await run(async ({ step }) => {
   const user = await step('getUser', getUser(userId));
   return user;
 });
 
-if (!result.ok && result.error.type === Awaitly.UNEXPECTED_ERROR) {
-  // Access original error via cause
-  const cause = result.error.cause;
-  if (cause.type === 'STEP_FAILURE') {
-    console.log('Original error:', cause.error); // 'NOT_FOUND'
-  }
+if (!result.ok) {
+  // result.error is 'UNEXPECTED_ERROR'
+  // result.cause has the original thrown error
+  console.error('Failed:', result.cause);
 }
 ```
 
@@ -634,18 +686,20 @@ export async function handleRequest(userId: string) {
     return order;
   });
 
-  // 4. Handle at boundary with normalized error access
+  // 4. Handle at boundary — check "UNEXPECTED_ERROR" first (it's a plain string)
   if (result.ok) {
     return { status: 200, body: result.value };
+  }
+
+  if (result.error === Awaitly.UNEXPECTED_ERROR) {
+    console.error('Bug:', result.cause);
+    return { status: 500 };
   }
 
   switch (result.error.type ?? result.error) {
     case 'NOT_FOUND': return { status: 404 };
     case 'ORDER_FAILED': return { status: 400 };
     case 'STEP_TIMEOUT': return { status: 504 };
-    case Awaitly.UNEXPECTED_ERROR:
-      console.error(result.error.cause);
-      return { status: 500 };
   }
 }
 ```

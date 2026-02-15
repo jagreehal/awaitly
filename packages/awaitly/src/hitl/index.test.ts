@@ -3,8 +3,8 @@
  * Tests for hitl.ts - Human-in-the-Loop support
  */
 import { describe, it, expect, vi } from "vitest";
-import { AsyncResult, err, isErr, isOk, ok, Result } from "../core";
-import { createWorkflow } from "../workflow-entry";
+import { AsyncResult, err, isErr, isOk, ok, Result, type RunStep, type WorkflowEvent } from "../core";
+import { createWorkflow, type Workflow } from "../workflow-entry";
 import { ResumeState, createResumeStateCollector } from "../workflow";
 import {
   PendingApproval,
@@ -568,9 +568,10 @@ describe("HITL Orchestrator", () => {
 
       await orchestrator.execute(
         "test-workflow",
-        ({ resumeState, onEvent }) =>
-          createWorkflow("workflow", { fetchData, requireApproval }, { resumeState, onEvent }),
-        async ({ step, deps }) => {
+        (({ resumeState, onEvent }) =>
+          createWorkflow("workflow", { fetchData, requireApproval }, { resumeState, onEvent })) as (options: { resumeState?: ResumeState; onEvent: (event: WorkflowEvent<unknown>) => void }) => Workflow<unknown, unknown>,
+        async ({ step: rawStep }) => {
+          const step = rawStep as RunStep;
           await step('fetchData', () => fetchData());
           // Use step ID matching the approval key for proper orchestration
           return await step('test-approval', () => requireApproval());
@@ -687,9 +688,10 @@ describe("HITL Orchestrator", () => {
       // Should not throw despite notification failure
       const result = await orchestrator.execute(
         "test-workflow",
-        ({ resumeState, onEvent }) =>
-          createWorkflow("workflow", { requireApproval }, { resumeState, onEvent }),
-        async ({ step }) => {
+        (({ resumeState, onEvent }) =>
+          createWorkflow("workflow", { requireApproval }, { resumeState, onEvent })) as (options: { resumeState?: ResumeState; onEvent: (event: WorkflowEvent<unknown>) => void }) => Workflow<unknown, unknown>,
+        async ({ step: rawStep }) => {
+          const step = rawStep as RunStep;
           return await step('requireApproval', () => requireApproval());
         },
         {}
@@ -893,9 +895,10 @@ describe("HITL Orchestrator", () => {
 
       await orchestrator.execute(
         "real-workflow-name",
-        ({ resumeState, onEvent }) =>
-          createWorkflow("workflow", { maliciousApproval }, { resumeState, onEvent }),
-        async ({ step }) => {
+        (({ resumeState, onEvent }) =>
+          createWorkflow("workflow", { maliciousApproval }, { resumeState, onEvent })) as (options: { resumeState?: ResumeState; onEvent: (event: WorkflowEvent<unknown>) => void }) => Workflow<unknown, unknown>,
+        async ({ step: rawStep }) => {
+          const step = rawStep as RunStep;
           return await step('maliciousApproval', () => maliciousApproval());
         },
         {},

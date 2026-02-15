@@ -506,9 +506,11 @@ describe("Collection Utilities", () => {
       ]);
 
       expect(result).not.toBe("timeout");
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toEqual({ type: PROMISE_REJECTED, cause: expect.any(Error) });
+      if (typeof result !== "string") {
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error).toEqual({ type: PROMISE_REJECTED, cause: expect.any(Error) });
+        }
       }
     });
 
@@ -637,11 +639,13 @@ describe("Collection Utilities", () => {
       ]);
 
       expect(result).not.toBe("timeout");
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toHaveLength(2);
-        expect(result.error[0]).toEqual({ type: PROMISE_REJECTED, cause: expect.any(Error) });
-        expect(result.error[1]).toBe("nope");
+      if (typeof result !== "string") {
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error).toHaveLength(2);
+          expect(result.error[0]).toEqual({ type: PROMISE_REJECTED, cause: expect.any(Error) });
+          expect(result.error[1]).toBe("nope");
+        }
       }
     });
 

@@ -450,16 +450,12 @@ describe("createWebhookHandler", () => {
       {
         validateInput: (req) => ok({ userId: req.body.userId }),
         mapResult: (result) => {
-          // The workflow catches the throw and returns it as UnexpectedError
+          // The workflow catches the throw and returns it as "UNEXPECTED_ERROR" string
           if (result.ok) {
             return { status: 200, body: {} };
           }
-          // Check for UnexpectedError type
-          if (
-            typeof result.error === "object" &&
-            result.error !== null &&
-            (result.error as { type?: string }).type === "UNEXPECTED_ERROR"
-          ) {
+          // Check for UNEXPECTED_ERROR string (defaultCatchUnexpected returns the string)
+          if ((result.error as unknown) === "UNEXPECTED_ERROR") {
             return {
               status: 500,
               body: {
@@ -695,11 +691,8 @@ describe("createEventHandler", () => {
           if (result.ok) {
             return { success: true, ack: true };
           }
-          // Check for UnexpectedError type
-          const isUnexpected =
-            typeof result.error === "object" &&
-            result.error !== null &&
-            (result.error as { type?: string }).type === "UNEXPECTED_ERROR";
+          // Check for UNEXPECTED_ERROR string (defaultCatchUnexpected returns the string)
+          const isUnexpected = (result.error as unknown) === "UNEXPECTED_ERROR";
 
           return {
             success: false,

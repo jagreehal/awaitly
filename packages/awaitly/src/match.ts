@@ -231,19 +231,19 @@ export function when<
   Input extends Tagged,
   Remaining extends Tagged,
   Output,
-  Tag extends TagOf<Remaining>,
+  Tag extends TagOf<Input>,
   NewOutput,
 >(
   tagValue: Tag,
-  predicate: (value: MatchTag<Remaining, Tag>) => boolean,
-  handler: (value: MatchTag<Remaining, Tag>) => NewOutput
+  predicate: (value: MatchTag<Input, Tag>) => boolean,
+  handler: (value: MatchTag<Input, Tag>) => NewOutput
 ): (matcher: Matcher<Input, Remaining, Output>) => Matcher<Input, Remaining, Output | NewOutput> {
   return (matcher) => {
     const newHandlers = new Map(matcher.handlers);
     const existingHandler = matcher.handlers.get(tagValue);
 
     newHandlers.set(tagValue, (value: Tagged) => {
-      const typedValue = value as MatchTag<Remaining, Tag>;
+      const typedValue = value as MatchTag<Input, Tag>;
       if (predicate(typedValue)) {
         return handler(typedValue);
       }

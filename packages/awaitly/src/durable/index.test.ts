@@ -387,12 +387,13 @@ describe("Durable Execution", () => {
     it("should reject resume when store cannot expose metadata version", async () => {
       const storeData = new Map<string, { state: { steps: Map<string, unknown> }; metadata?: Record<string, unknown> }>();
       const store = {
-        save: vi.fn(async (runId, state, metadata) => {
-          storeData.set(runId, { state, metadata });
+        save: vi.fn(async (runId: string, state: unknown, metadata?: unknown) => {
+          storeData.set(runId, { state: state as { steps: Map<string, unknown> }, metadata: metadata as Record<string, unknown> | undefined });
         }),
-        load: vi.fn(async (runId) => storeData.get(runId)?.state),
+        load: vi.fn(async (runId: string) => storeData.get(runId)?.state),
         delete: vi.fn(async () => true),
         list: vi.fn(async () => []),
+        close: vi.fn(async () => {}),
       };
 
       // Save with version metadata, but store does not expose loadRaw
@@ -411,7 +412,7 @@ describe("Durable Execution", () => {
         },
         {
           id: "test-version-no-raw",
-          store,
+          store: store as unknown as SnapshotStore,
           version: 2,
         }
       );
@@ -431,13 +432,8 @@ describe("Durable Execution", () => {
       const store = createTestSnapshotStore();
 
       // Manually save state with version 1 (simulating incomplete workflow)
-      const partialState = {
-        steps: new Map([
-          ["fetch-user", { result: ok({ id: "123", name: "User 123" }) }]
-        ])
-      };
       // Save with metadata including version
-      await store.save("test-version", partialState, { version: 1 });
+      await store.save("test-version", { formatVersion: 1, steps: {}, execution: { status: "running" as const, lastUpdated: new Date().toISOString() }, metadata: { version: 1 } } as unknown as WorkflowSnapshot);
 
       // Try to run with version 2 - should be rejected
       const result = await durable.run(
@@ -466,12 +462,7 @@ describe("Durable Execution", () => {
 
     it("onVersionMismatch 'clear' deletes state and runs from scratch", async () => {
       const store = createTestSnapshotStore();
-      const partialState = {
-        steps: new Map([
-          ["fetch-user", { result: ok({ id: "123", name: "User 123" }) }]
-        ])
-      };
-      await store.save("test-clear", partialState, { version: 1 });
+      await store.save("test-clear", { formatVersion: 1, steps: {}, execution: { status: "running" as const, lastUpdated: new Date().toISOString() }, metadata: { version: 1 } } as unknown as WorkflowSnapshot);
 
       const result = await durable.run(
         { fetchUser },
@@ -493,7 +484,7 @@ describe("Durable Execution", () => {
 
     it("onVersionMismatch 'throw' returns VersionMismatchError", async () => {
       const store = createTestSnapshotStore();
-      await store.save("test-throw", { steps: new Map([["a", { result: ok(1) }]]) }, { version: 1 });
+      await store.save("test-throw", { formatVersion: 1, steps: {}, execution: { status: "running" as const, lastUpdated: new Date().toISOString() }, metadata: { version: 1 } } as unknown as WorkflowSnapshot);
 
       const result = await durable.run(
         { fetchUser },
@@ -511,7 +502,7 @@ describe("Durable Execution", () => {
 
     it("onVersionMismatch { migratedState } resumes with supplied state", async () => {
       const store = createTestSnapshotStore();
-      await store.save("test-migrate", { steps: new Map([["old-key", { result: ok("old") }]]) }, { version: 1 });
+      await store.save("test-migrate", { formatVersion: 1, steps: {}, execution: { status: "running" as const, lastUpdated: new Date().toISOString() }, metadata: { version: 1 } } as unknown as WorkflowSnapshot);
 
       const result = await durable.run(
         { fetchUser },
@@ -524,8 +515,10 @@ describe("Durable Execution", () => {
           store,
           version: 2,
           onVersionMismatch: () => ({
-            migratedState: {
-              steps: new Map([["fetch-user", { result: ok({ id: "123", name: "User 123" }) }]]),
+            migratedSnapshot: {
+              formatVersion: 1 as const,
+              steps: { "fetch-user": { ok: true as const, value: { id: "123", name: "User 123" } } },
+              execution: { status: "running" as const, lastUpdated: new Date().toISOString() },
             },
           }),
         }
@@ -773,12 +766,13 @@ describe("Durable Execution", () => {
     it("should return a PersistenceError when delete fails after success", async () => {
       const storeData = new Map<string, { state: { steps: Map<string, unknown> } }>();
       const store = {
-        save: vi.fn(async (runId, state) => {
-          storeData.set(runId, { state });
+        save: vi.fn(async (runId: string, state: unknown) => {
+          storeData.set(runId, { state: state as { steps: Map<string, unknown> } });
         }),
-        load: vi.fn(async (runId) => storeData.get(runId)?.state),
+        load: vi.fn(async (runId: string) => storeData.get(runId)?.state),
         delete: vi.fn().mockRejectedValue(new Error("Delete failed")),
         list: vi.fn(async () => []),
+        close: vi.fn(async () => {}),
       };
 
       await expect(
@@ -790,7 +784,7 @@ describe("Durable Execution", () => {
           },
           {
             id: "test-delete-error",
-            store,
+            store: store as unknown as SnapshotStore,
           }
         )
       ).resolves.toSatisfy((result: unknown) => {
@@ -807,6 +801,7 @@ describe("Durable Execution", () => {
         load: vi.fn().mockResolvedValue(undefined),
         delete: vi.fn().mockResolvedValue(true),
         list: vi.fn().mockResolvedValue([]),
+        close: vi.fn(async () => {}),
       };
 
       const result = await durable.run(
@@ -817,7 +812,7 @@ describe("Durable Execution", () => {
         },
         {
           id: "test-save-error-event",
-          store,
+          store: store as unknown as SnapshotStore,
           onEvent: (event) => events.push(event),
         }
       );
@@ -832,6 +827,7 @@ describe("Durable Execution", () => {
         load: vi.fn().mockRejectedValue(new Error("Load failed")),
         delete: vi.fn().mockResolvedValue(true),
         list: vi.fn().mockResolvedValue([]),
+        close: vi.fn(async () => {}),
       };
 
       await expect(
@@ -843,7 +839,7 @@ describe("Durable Execution", () => {
           },
           {
             id: "test-load-error",
-            store,
+            store: store as unknown as SnapshotStore,
           }
         )
       ).resolves.toMatchObject({ ok: false });
@@ -858,6 +854,7 @@ describe("Durable Execution", () => {
         load: vi.fn().mockResolvedValue(undefined),
         delete: vi.fn().mockResolvedValue(true),
         list: vi.fn().mockResolvedValue([]),
+        close: vi.fn(async () => {}),
       };
 
       const result = await durable.run(
@@ -868,7 +865,7 @@ describe("Durable Execution", () => {
         },
         {
           id: "test-persist-error",
-          store: failingStore,
+          store: failingStore as unknown as SnapshotStore,
           onEvent: (event) => events.push(event),
         }
       );
@@ -971,9 +968,10 @@ describe("Durable Execution", () => {
         load: vi.fn().mockResolvedValue(undefined),
         delete: vi.fn().mockRejectedValue(new Error("Delete failed")),
         list: vi.fn().mockResolvedValue([]),
+        close: vi.fn(async () => {}),
       };
 
-      await expect(durable.deleteState(store, "test-delete-error")).resolves.toBe(false);
+      await expect(durable.deleteState(store as unknown as SnapshotStore, "test-delete-error")).resolves.toBe(false);
     });
 
     it("durable.deleteStates returns { deleted: 0 } for empty ids", async () => {
@@ -1015,7 +1013,7 @@ describe("Durable Execution", () => {
 
     it("durable.deleteStates with continueOnError collects errors when looping", async () => {
       const store = createTestSnapshotStore();
-      await store.save("e1", { steps: new Map() });
+      await store.save("e1", { formatVersion: 1, steps: {}, execution: { status: "running" as const, lastUpdated: new Date().toISOString() } });
       const failingStore = {
         ...store,
         delete: vi.fn().mockImplementation(async (id: string) => {

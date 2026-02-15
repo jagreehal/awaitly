@@ -23,11 +23,14 @@ const { steps, autoPlay = true, loop = true } = Astro.props;
 </animated-workflow-diagram>
 
 <script>
-  const STATUS_ICONS = {
+  // @ts-nocheck - inline script; JSDoc not fully applied by Astro checker
+  /** @typedef {{ id: string; label: string; description?: string; duration: string }} DiagramStep */
+
+  const STATUS_ICONS = /** @type {Record<"completed"|"running"|"pending", string>} */ ({
     completed: `<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" class="size-3"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span>Step</span>`,
     running: `<svg class="size-3 animate-spin motion-reduce:animate-none" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg><span>Step</span>`,
     pending: `<svg fill="currentColor" viewBox="0 0 20 20" class="size-3"><circle cx="10" cy="10" r="3"/></svg><span>Step</span>`,
-  };
+  });
 
   const LINE_CLASS = "absolute left-1/2 -translate-x-1/2 w-0.5 z-0 bg-neutral-300 dark:bg-neutral-700";
   const NODE_CLASS = "relative flex justify-center mb-3 last:mb-0 workflow-node";
@@ -43,15 +46,17 @@ const { steps, autoPlay = true, loop = true } = Astro.props;
   const START_END_BTN = "start-end-btn inline-block rounded-full py-1.5 px-4 text-[0.6875rem] font-semibold uppercase tracking-wide cursor-default bg-neutral-900 dark:bg-neutral-700 text-white select-none";
 
   class AnimatedWorkflowDiagram extends HTMLElement {
-    diagramContainer;
-    steps = [];
+    /** @type {Element | null} */
+    diagramContainer = null;
+    /** @type {DiagramStep[]} */
+    steps = /** @type {DiagramStep[]} */ ([]);
     loop = false;
     currentStepIndex = -1;
     isPlaying = false;
 
     connectedCallback() {
-      this.diagramContainer = this.querySelector(".diagram-container");
-      this.steps = JSON.parse(this.dataset.steps || "[]");
+      this.diagramContainer = /** @type {HTMLElement | null} */ (this.querySelector(".diagram-container"));
+      this.steps = /** @type {DiagramStep[]} */ (JSON.parse(this.dataset.steps || "[]"));
       this.loop = this.dataset.loop === "true";
 
       this.renderDiagram();
@@ -61,9 +66,11 @@ const { steps, autoPlay = true, loop = true } = Astro.props;
     }
 
     renderDiagram() {
+      const container = /** @type {Element} */ (this.diagramContainer);
+      if (!container) return;
       const line = document.createElement("div");
       line.className = LINE_CLASS;
-      this.diagramContainer.appendChild(line);
+      container.appendChild(line);
 
       const startNode = document.createElement("div");
       startNode.className = START_END_NODE;
@@ -80,9 +87,9 @@ const { steps, autoPlay = true, loop = true } = Astro.props;
         }
       };
       startNode.appendChild(startBtn);
-      this.diagramContainer.appendChild(startNode);
+      container.appendChild(startNode);
 
-      this.steps.forEach((step) => {
+      (/** @type {DiagramStep[]} */ (this.steps)).forEach((step) => {
         const stepNode = document.createElement("div");
         stepNode.className = `${NODE_CLASS} pending node-${step.id}`;
 
@@ -99,7 +106,7 @@ const { steps, autoPlay = true, loop = true } = Astro.props;
 
         card.append(badge, stepInfo);
         stepNode.appendChild(card);
-        this.diagramContainer.appendChild(stepNode);
+        container.appendChild(stepNode);
       });
 
       const endNode = document.createElement("div");
@@ -108,10 +115,10 @@ const { steps, autoPlay = true, loop = true } = Astro.props;
       endBtn.className = START_END_BTN;
       endBtn.textContent = "END";
       endNode.appendChild(endBtn);
-      this.diagramContainer.appendChild(endNode);
+      container.appendChild(endNode);
 
       requestAnimationFrame(() => {
-        const containerRect = this.diagramContainer.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
         const startRect = startBtn.getBoundingClientRect();
         const endRect = endBtn.getBoundingClientRect();
         const lineTop = startRect.top + startRect.height / 2 - containerRect.top;
@@ -143,13 +150,16 @@ const { steps, autoPlay = true, loop = true } = Astro.props;
       }
 
       this.updateDiagram();
-      const duration = this.parseDuration(this.steps[this.currentStepIndex].duration);
+      const step = /** @type {DiagramStep} */ (this.steps[this.currentStepIndex]);
+      const duration = this.parseDuration(step.duration);
       setTimeout(() => this.advanceStep(), duration);
     }
 
     updateDiagram() {
-      this.steps.forEach((step, index) => {
-        const node = this.diagramContainer.querySelector(`.node-${step.id}`);
+      const container = /** @type {Element} */ (this.diagramContainer);
+      if (!container) return;
+      (/** @type {DiagramStep[]} */ (this.steps)).forEach((step, index) => {
+        const node = container.querySelector(`.node-${step.id}`);
         if (!node) return;
 
         const card = node.querySelector(".workflow-node-card");
@@ -160,6 +170,7 @@ const { steps, autoPlay = true, loop = true } = Astro.props;
         card.classList.remove(...CARD_ACTIVE_CLASSES);
         badge.classList.remove(...BADGE_ACTIVE_CLASSES);
 
+        /** @type {"completed" | "running" | "pending"} */
         let status;
         if (index < this.currentStepIndex) {
           status = "completed";
@@ -174,12 +185,17 @@ const { steps, autoPlay = true, loop = true } = Astro.props;
           card.classList.add(...CARD_ACTIVE_CLASSES);
           badge.classList.add(...BADGE_ACTIVE_CLASSES);
         }
-        badge.innerHTML = STATUS_ICONS[status];
+        badge.innerHTML = STATUS_ICONS[/** @type {keyof typeof STATUS_ICONS} */ (status)];
       });
     }
 
+    /**
+     * @param {string} duration
+     * @returns {number}
+     */
     parseDuration(duration) {
-      const match = duration.match(/^(\d+(?:\.\d+)?)(ms|s)$/);
+      const d = /** @type {string} */ (duration);
+      const match = d.match(/^(\d+(?:\.\d+)?)(ms|s)$/);
       if (!match) return 2000;
       return match[2] === "s" ? parseFloat(match[1]) * 1000 : parseFloat(match[1]);
     }

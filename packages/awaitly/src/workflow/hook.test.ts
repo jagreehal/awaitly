@@ -59,9 +59,10 @@ describe("hook primitive", () => {
       const state: ResumeState = { steps: new Map() };
       const updated = injectHook(state, { hookId: "h1", value: { paid: true } });
       expect(updated.steps.get("hook:h1")).toBeDefined();
-      expect(updated.steps.get("hook:h1")!.result.ok).toBe(true);
-      if (updated.steps.get("hook:h1")!.result.ok) {
-        expect(updated.steps.get("hook:h1")!.result.value).toEqual({ paid: true });
+      const hookResult = updated.steps.get("hook:h1")!.result;
+      expect(hookResult.ok).toBe(true);
+      if (hookResult.ok) {
+        expect(hookResult.value).toEqual({ paid: true });
       }
     });
 

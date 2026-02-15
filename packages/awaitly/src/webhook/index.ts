@@ -5,7 +5,7 @@
  * Framework-agnostic handlers that work with Express, Hono, Fastify, etc.
  */
 
-import { type Result, type AsyncResult, type RunStep, ok, err, isOk } from "../core";
+import { type Result, type AsyncResult, type RunStep, ok, err, isOk, isUnexpectedError } from "../core";
 import { type Workflow, type UnexpectedError } from "../workflow";
 
 // =============================================================================
@@ -531,12 +531,8 @@ export function createResultMapper<TOutput, TError>(
       };
     }
 
-    // Check if it's an UnexpectedError
-    if (
-      typeof result.error === "object" &&
-      result.error !== null &&
-      (result.error as { type?: string }).type === "UNEXPECTED_ERROR"
-    ) {
+    // Check if it's an UnexpectedError (string "UNEXPECTED_ERROR" or object { type: "UNEXPECTED_ERROR" })
+    if (isUnexpectedError(result.error)) {
       return {
         status: 500,
         body: {

@@ -4,7 +4,7 @@
  * This file verifies that all code examples work correctly and pass type checking.
  */
 import { describe, it, expect } from "vitest";
-import { Awaitly, type AsyncResult, type UnexpectedError } from "./index";
+import { Awaitly, type AsyncResult, type Result, type UnexpectedError } from "./index";
 const {
   ok,
   err,
@@ -159,10 +159,7 @@ describe("Skill Examples", () => {
 
   describe("R5: All async work inside workflows must go through step()", () => {
     it("step.try converts throwing functions to typed errors", async () => {
-      const deps = {};
-      const workflow = createWorkflow("workflow", deps);
-
-      const result = await workflow(async ({ step }) => {
+      const result = await run(async ({ step }) => {
         const data = await step.try(
           "parse",
           () => JSON.parse('{"valid": true}'),
@@ -176,10 +173,7 @@ describe("Skill Examples", () => {
     });
 
     it("step.try returns error on throw", async () => {
-      const deps = {};
-      const workflow = createWorkflow("workflow", deps);
-
-      const result = await workflow(async ({ step }) => {
+      const result = await run(async ({ step }) => {
         const data = await step.try(
           "parse",
           () => JSON.parse("not valid json"),
@@ -193,10 +187,7 @@ describe("Skill Examples", () => {
     });
 
     it("step.try returns unwrapped value, not Result (same control-flow as step)", async () => {
-      const deps = {};
-      const workflow = createWorkflow("workflow", deps);
-
-      const result = await workflow(async ({ step }) => {
+      const result = await run(async ({ step }) => {
         // step.try returns the unwrapped value directly, NOT a Result
         const parsed = await step.try(
           "parse",
@@ -241,7 +232,7 @@ describe("Skill Examples", () => {
       expect(value.total).toBe(100);
     });
 
-    it("run() exits on first error (wrapped as UnexpectedError)", async () => {
+    it("run() exits on first error (step errors pass through)", async () => {
       const callOrder: string[] = [];
 
       async function getUser(): AsyncResult<{ id: string }, "NOT_FOUND"> {
@@ -254,7 +245,7 @@ describe("Skill Examples", () => {
         return ok({ orderId: "123" });
       }
 
-      // Without options, run() wraps all errors as UnexpectedError
+      // Step errors pass through as-is (no wrapping)
       const result = await run(async ({ step }) => {
         const user = await step('getUser', () => getUser());
         const order = await step('createOrder', () => createOrder());
@@ -263,11 +254,8 @@ describe("Skill Examples", () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        // Error is UnexpectedError - access original via cause
-        expect(result.error.type).toBe(UNEXPECTED_ERROR);
-        const cause = result.error.cause as { type: string; error: unknown };
-        expect(cause.type).toBe("STEP_FAILURE");
-        expect(cause.error).toBe("NOT_FOUND");
+        // Step errors pass through directly — no UnexpectedError wrapper
+        expect(result.error).toBe("NOT_FOUND");
       }
       expect(callOrder).toEqual(["getUser"]);
     });
@@ -367,7 +355,7 @@ describe("Skill Examples", () => {
       expect(notFoundResponse.status).toBe(404);
     });
 
-    it("run() without options (UnexpectedError handling)", async () => {
+    it("run() without options (step errors pass through)", async () => {
       type User = { id: string; name: string };
 
       async function getUser(id: string): AsyncResult<User, "NOT_FOUND"> {
@@ -375,7 +363,7 @@ describe("Skill Examples", () => {
         return err("NOT_FOUND");
       }
 
-      // Without options, errors are UnexpectedError
+      // Step errors pass through as-is (no wrapping)
       const result = await run(async ({ step }) => {
         const user = await step('getUser', () => getUser("unknown"));
         return user;
@@ -383,11 +371,8 @@ describe("Skill Examples", () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.type).toBe(UNEXPECTED_ERROR);
-        // Access original error via cause
-        const cause = result.error.cause as { type: string; error: unknown };
-        expect(cause.type).toBe("STEP_FAILURE");
-        expect(cause.error).toBe("NOT_FOUND");
+        // Step errors pass through directly — no UnexpectedError wrapper
+        expect(result.error).toBe("NOT_FOUND");
       }
     });
   });
@@ -589,7 +574,7 @@ describe("Skill Examples", () => {
         const [user, posts] = await step('fetchUserAndPosts', () => allAsync([
           deps.getUser("1"),
           deps.getPosts("1"),
-        ]));
+        ]) as AsyncResult<readonly [{ id: string; name: string }, { id: string; title: string }[]], "NOT_FOUND" | "FETCH_ERROR">);
 
         return { user, posts };
       });
@@ -635,8 +620,8 @@ describe("Skill Examples", () => {
       });
 
       it("map passes through Err", () => {
-        const result = err("NOT_FOUND") as AsyncResult<{ name: string }, "NOT_FOUND">;
-        const upper = map(result, user => user.name.toUpperCase());
+        const result = err("NOT_FOUND") as Result<{ name: string }, "NOT_FOUND">;
+        const upper = map(result, (user: { name: string }) => user.name.toUpperCase());
         expect(unwrapErr(upper)).toBe("NOT_FOUND");
       });
 
@@ -657,7 +642,7 @@ describe("Skill Examples", () => {
       });
 
       it("andThen short-circuits on Err", () => {
-        const getUser = () => err("NOT_FOUND") as AsyncResult<{ id: string }, "NOT_FOUND">;
+        const getUser = () => err("NOT_FOUND") as Result<{ id: string }, "NOT_FOUND">;
         let ordersCalled = false;
         const getOrders = () => { ordersCalled = true; return ok([]); };
 
@@ -719,7 +704,7 @@ describe("Skill Examples", () => {
 
     describe("Type guards", () => {
       it("isOk narrows type on Ok", () => {
-        const result = ok("value") as AsyncResult<string, "ERROR">;
+        const result = ok("value") as Result<string, "ERROR">;
         if (isOk(result)) {
           expect(result.value).toBe("value");
         } else {
@@ -728,7 +713,7 @@ describe("Skill Examples", () => {
       });
 
       it("isErr narrows type on Err", () => {
-        const result = err("ERROR") as AsyncResult<string, "ERROR">;
+        const result = err("ERROR") as Result<string, "ERROR">;
         if (isErr(result)) {
           expect(result.error).toBe("ERROR");
         } else {

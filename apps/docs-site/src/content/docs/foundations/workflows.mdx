@@ -14,9 +14,9 @@ There are two ways to run workflows: `createWorkflow` for reusable workflows wit
 createWorkflow returns a function that produces:
 
          ┌─── Your success return type
-         │        ┌─── Union of all dependency error types + UnexpectedError
+         │        ┌─── Union of all dependency error types + 'UNEXPECTED_ERROR'
          ▼        ▼
-Result<Value, 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError>
+Result<Value, 'NOT_FOUND' | 'EMAIL_FAILED' | 'UNEXPECTED_ERROR'>
            ▲
            └─── Automatically inferred from dependencies!
 ```
@@ -44,7 +44,7 @@ const result = await workflow(async ({ step, deps }) => {
 });
 /*
 result.error is automatically typed as:
-'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
+'NOT_FOUND' | 'EMAIL_FAILED' | 'UNEXPECTED_ERROR'
 */
 ```
   </TabItem>
@@ -60,7 +60,7 @@ sendEmail: AsyncResult<void, 'EMAIL_FAILED'>
                              ▲
                              │ extracted
                              ▼
-workflow error = 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
+workflow error = 'NOT_FOUND' | 'EMAIL_FAILED' | 'UNEXPECTED_ERROR'
 ```
   </TabItem>
 </Tabs>
@@ -92,17 +92,55 @@ The value returned by `createWorkflow` has **`name`**, **`deps`**, **`options`**
 
 For one-off workflows where you specify error types manually:
 
+<Tabs>
+  <TabItem label="With ErrorOf (best DX)">
 ```typescript
 import { run } from 'awaitly/run';
+import { type Errors } from 'awaitly';
 
-const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED'>(
-  async (step) => {
+type RunErrors = Errors<[typeof fetchUser, typeof sendEmail]>;
+const result = await run<User, RunErrors>(
+  async ({ step }) => {
     const user = await step('fetchUser', () => fetchUser('1'));
     await step('sendEmail', () => sendEmail(user.email));
     return user;
   }
 );
+// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | 'UNEXPECTED_ERROR'
 ```
+  </TabItem>
+  <TabItem label="With catchUnexpected (custom)">
+```typescript
+import { run } from 'awaitly/run';
+
+const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED'>(
+  async ({ step }) => {
+    const user = await step('fetchUser', () => fetchUser('1'));
+    await step('sendEmail', () => sendEmail(user.email));
+    return user;
+  },
+  { catchUnexpected: (thrown) => ({ type: 'UNEXPECTED' as const, message: String(thrown) }) }
+);
+// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | { type: 'UNEXPECTED', message: string }
+```
+  </TabItem>
+  <TabItem label="Without type params">
+```typescript
+import { run } from 'awaitly/run';
+
+const result = await run(async ({ step }) => {
+  const user = await step('fetchUser', () => fetchUser('1'));
+  await step('sendEmail', () => sendEmail(user.email));
+  return user;
+});
+// result.error is: 'UNEXPECTED_ERROR' (step error types not preserved at compile time)
+```
+  </TabItem>
+</Tabs>
+
+<Aside type="tip" title="Deriving error types for run()">
+Use `ErrorOf<typeof fn>` for a single dep or `Errors<[typeof fn1, typeof fn2]>` for multiple deps to derive the error union. Your step errors are preserved in the result as `E | 'UNEXPECTED_ERROR'`. Use `catchUnexpected` only when you want a custom unexpected type instead of the default string.
+</Aside>
 
 ## When to use each
 
@@ -239,21 +277,21 @@ Failed: Send email EMAIL_FAILED
 
 ### catchUnexpected (custom unexpected type)
 
-Workflow error unions are always closed. By default, thrown exceptions become `UnexpectedError`. To use a custom type for unexpected errors (e.g. for exhaustive switches), pass `catchUnexpected`:
+By default, thrown exceptions become the string `"UNEXPECTED_ERROR"`. To replace it with your own type, pass `catchUnexpected`:
 
 <Tabs>
-  <TabItem label="Default (UnexpectedError)">
+  <TabItem label="Default ('UNEXPECTED_ERROR')">
 ```typescript
-// Default - error union is E | UnexpectedError
+// Default - error union includes 'UNEXPECTED_ERROR' string
 const workflow = createWorkflow('workflow', deps);
 
 const result = await workflow(async ({ step, deps }) => { /* ... */ });
-// result.error: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
+// result.error: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED_ERROR'
 ```
   </TabItem>
   <TabItem label="Custom unexpected type">
 ```typescript
-// Custom unexpected - closed union with your shape
+// Custom unexpected - your shape replaces 'UNEXPECTED_ERROR'
 const workflow = createWorkflow('workflow', deps, {
   catchUnexpected: (cause) => ({
     type: 'UNEXPECTED' as const,
@@ -265,14 +303,28 @@ const result = await workflow(async ({ step, deps }) => { /* ... */ });
 // result.error: 'NOT_FOUND' | 'ORDER_FAILED' | { type: 'UNEXPECTED', cause: unknown }
 ```
   </TabItem>
+  <TabItem label="run() with catchUnexpected">
+```typescript
+// Works with run() too
+const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED'>(
+  async ({ step }) => {
+    const user = await step('fetchUser', () => fetchUser('1'));
+    await step('sendEmail', () => sendEmail(user.email));
+    return user;
+  },
+  { catchUnexpected: (cause) => ({ type: 'UNEXPECTED' as const, cause }) }
+);
+// result.error: 'NOT_FOUND' | 'EMAIL_FAILED' | { type: 'UNEXPECTED', cause: unknown }
+```
+  </TabItem>
 </Tabs>
 
 With `catchUnexpected`:
-- The error union remains closed; your custom type replaces `UnexpectedError`.
+- Your custom type replaces `"UNEXPECTED_ERROR"` in the error union.
 - Use for exhaustive switch statements or when you want a single typed shape for all unexpected cases.
 
 <Aside type="tip" title="When to use catchUnexpected">
-Use `catchUnexpected` when you need a closed union with a custom unexpected shape (e.g. for exhaustive handling or consistent error reporting).
+Most users don't need `catchUnexpected`. The default `"UNEXPECTED_ERROR"` string works well — it's a simple, predictable value you can check with `result.error === 'UNEXPECTED_ERROR'`. Use `catchUnexpected` only when you need a custom shape (e.g. to include the cause in the error object itself).
 </Aside>
 
 ### signal (Cancellation)

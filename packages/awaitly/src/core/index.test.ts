@@ -56,6 +56,7 @@ import {
   recoverAsync,
   zip,
   zipAsync,
+  RunStep,
 } from ".";
 import { createWorkflow, run } from "../workflow-entry";
 
@@ -440,7 +441,7 @@ describe("map() and mapError()", () => {
 
     it("passes through err unchanged", () => {
       const result: Result<number, string> = err("failed");
-      const mapped = map(result, (n) => n * 2);
+      const mapped = map(result, (n: number) => n * 2);
       expect(mapped).toEqual({ ok: false, error: "failed" });
     });
 
@@ -1078,7 +1079,7 @@ describe("ErrorOf and Errors utilities - auto-extract error types", () => {
     const _resultStepWorks: ResultStepWorks = true;
 
     // step.try() REQUIRES either { error } or { onError } in options
-    type StepTryOptions = Parameters<RunStep<unknown>["try"]>[1];
+    type StepTryOptions = Parameters<RunStep<unknown>["try"]>[2];
 
     // Prove options must have error or onError (can't be just { stepName })
     type HasErrorOrOnError = StepTryOptions extends
@@ -1091,11 +1092,11 @@ describe("ErrorOf and Errors utilities - auto-extract error types", () => {
     // Valid options - have error mapping:
     const _validOptsError: StepTryOptions = {
       error: "NOT_FOUND" ,
-      name: "load",
+      key: "load",
     };
     const _validOptsOnError: StepTryOptions = {
       onError: () => "NOT_FOUND" ,
-      name: "load",
+      key: "load",
     };
 
     expect(_resultStepWorks).toBe(true);
@@ -1653,7 +1654,7 @@ describe("bimap() - transform both value and error", () => {
     const result: Result<number, string> = err("not_found");
     const mapped = bimap(
       result,
-      (n) => n * 2,
+      (n: number) => n * 2,
       (e) => ({ code: e.toUpperCase() })
     );
     expect(mapped).toEqual({ ok: false, error: { code: "NOT_FOUND" } });
@@ -1664,7 +1665,7 @@ describe("bimap() - transform both value and error", () => {
     const result: Result<number, string> = err("failed", { cause });
     const mapped = bimap(
       result,
-      (n) => n * 2,
+      (n: number) => n * 2,
       (e) => `wrapped: ${e}`
     );
 
@@ -2186,7 +2187,7 @@ describe("Type safety for new error types", () => {
     // This should compile - error type includes PromiseRejectedError
     if (isErr(result)) {
       const _e: { type: "PROMISE_REJECTED"; cause: unknown } | never =
-        result.error;
+        result.error as PromiseRejectedError;
       expect(_e).toBeDefined();
     }
   });
@@ -2199,7 +2200,7 @@ describe("Type safety for new error types", () => {
       const _e:
         | { type: "PROMISE_REJECTED"; cause: unknown }
         | { type: "EMPTY_INPUT"; message: string }
-        | never = result.error;
+        | never = result.error as PromiseRejectedError | { type: "EMPTY_INPUT"; message: string };
       expect(_e).toBeDefined();
     }
   });
@@ -2207,10 +2208,10 @@ describe("Type safety for new error types", () => {
   it("run without explicit types returns UnexpectedError", async () => {
     const result = await run(async () => 42);
 
-    // Without explicit types, error is UnexpectedError (safe default)
+    // Without explicit types, error is typeof UNEXPECTED_ERROR (string constant)
     // For typed errors, use run<T, E>(fn, { onError })
     if (isErr(result)) {
-      const _e: UnexpectedError = result.error;
+      const _e: typeof UNEXPECTED_ERROR = result.error;
       expect(_e).toBeDefined();
     }
   });
@@ -2225,7 +2226,7 @@ describe("matchError() - exhaustive error matching", () => {
     type FetchError = "NOT_FOUND" | "FETCH_ERROR";
     const error: FetchError | UnexpectedError = "NOT_FOUND";
 
-    const result = matchError(error, {
+    const result = matchError<FetchError, number>(error, {
       NOT_FOUND: () => 404,
       FETCH_ERROR: () => 500,
       UNEXPECTED_ERROR: () => 503,
@@ -2238,7 +2239,7 @@ describe("matchError() - exhaustive error matching", () => {
     type FetchError = "NOT_FOUND" | "FETCH_ERROR";
     const error: FetchError | UnexpectedError = "FETCH_ERROR";
 
-    const result = matchError(error, {
+    const result = matchError<FetchError, number>(error, {
       NOT_FOUND: () => 404,
       FETCH_ERROR: () => 500,
       UNEXPECTED_ERROR: () => 503,
@@ -2255,7 +2256,7 @@ describe("matchError() - exhaustive error matching", () => {
     };
     const error: FetchError | UnexpectedError = unexpectedError;
 
-    const result = matchError(error, {
+    const result = matchError<FetchError, number>(error, {
       NOT_FOUND: () => 404,
       FETCH_ERROR: () => 500,
       UNEXPECTED_ERROR: (e) => {
@@ -2271,7 +2272,7 @@ describe("matchError() - exhaustive error matching", () => {
     type AppError = "A" | "B";
     const error: AppError | UnexpectedError = "A";
 
-    const result = matchError(error, {
+    const result = matchError<AppError, string>(error, {
       A: (e) => {
         expect(e).toBe("A");
         return "matched-A";
@@ -2302,10 +2303,10 @@ describe("matchError() - exhaustive error matching", () => {
     type FetchError = "NOT_FOUND" | "TIMEOUT";
     const error: FetchError | UnexpectedError = "NOT_FOUND";
 
-    const result = matchError(error, {
+    const result = matchError<FetchError, { code: number; message: string }>(error, {
       NOT_FOUND: () => ({ code: 404, message: "Not found" }),
       TIMEOUT: () => ({ code: 408, message: "Timeout" }),
-      UNEXPECTED_ERROR: (e) => ({ code: 500, message: "Unexpected", cause: e }),
+      UNEXPECTED_ERROR: (e) => ({ code: 500, message: "Unexpected" }),
     });
 
     expect(result).toEqual({ code: 404, message: "Not found" });
@@ -2324,7 +2325,7 @@ describe("matchError() - exhaustive error matching", () => {
     const result = await fetchUser("unknown");
 
     if (!result.ok) {
-      const httpStatus = matchError(result.error, {
+      const httpStatus = matchError<FetchError, number>(result.error, {
         NOT_FOUND: () => 404,
         FETCH_ERROR: () => 500,
         UNEXPECTED_ERROR: () => 503,
@@ -2337,7 +2338,7 @@ describe("matchError() - exhaustive error matching", () => {
     type AppError = "UNEXPECTED_ERROR" | "OTHER";
     const error: AppError | UnexpectedError = "UNEXPECTED_ERROR";
 
-    matchError(error, {
+    matchError<AppError, number>(error, {
       OTHER: () => 200,
       UNEXPECTED_ERROR: (e) => {
         expect(typeof e).toBe("object");

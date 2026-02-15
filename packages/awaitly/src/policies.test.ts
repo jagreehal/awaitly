@@ -302,7 +302,7 @@ describe("policies", () => {
     it("deep merges retry options", () => {
       const merged = mergePolicies(
         retryPolicy({ attempts: 3, backoff: "exponential" }),
-        retryPolicy({ initialDelay: 500 })
+        retryPolicy({ attempts: 3, initialDelay: 500 })
       );
 
       expect(merged.retry?.attempts).toBe(3);

@@ -97,7 +97,7 @@ export interface TaggedErrorConstructor<
  * This enables the Effect.js-style syntax: `class X extends TaggedError("X")<Props> {}`
  * @internal
  */
-interface TaggedErrorClassFactory<Tag extends string> {
+export interface TaggedErrorClassFactory<Tag extends string> {
   new <Props extends Record<string, unknown> = Record<string, never>>(
     ...args: ConstructorArgs<Props>
   ): TaggedErrorInstance<Tag, Props>;

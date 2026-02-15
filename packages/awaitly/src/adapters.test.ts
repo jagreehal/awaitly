@@ -385,7 +385,7 @@ describe("fromEvent() with invalid emitter", () => {
     // Object without on/off or addEventListener/removeEventListener
     const notAnEmitter = { foo: "bar" };
 
-    const result = await fromEvent<string>(notAnEmitter as EventEmitterLike, {
+    const result = await fromEvent<string>(notAnEmitter as unknown as EventEmitterLike, {
       success: "data",
     });
 

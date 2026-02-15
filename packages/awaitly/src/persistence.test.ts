@@ -18,6 +18,9 @@ import {
 } from "./persistence";
 import { ok } from "./core";
 
+type SerializedError = Extract<SerializedCause, { type: "error" }>;
+type SerializedThrown = Extract<SerializedCause, { type: "thrown" }>;
+
 describe("Persistence", () => {
   describe("createMemoryCache", () => {
     it("should create a basic cache", () => {
@@ -329,7 +332,7 @@ describe("Persistence", () => {
     describe("serializeError", () => {
       it("should serialize basic Error", () => {
         const error = new Error("Something went wrong");
-        const serialized = serializeError(error);
+        const serialized = serializeError(error) as SerializedError;
 
         expect(serialized.type).toBe("error");
         expect(serialized.name).toBe("Error");
@@ -339,7 +342,7 @@ describe("Persistence", () => {
 
       it("should serialize custom error name", () => {
         const error = new TypeError("Invalid type");
-        const serialized = serializeError(error);
+        const serialized = serializeError(error) as SerializedError;
 
         expect(serialized.type).toBe("error");
         expect(serialized.name).toBe("TypeError");
@@ -351,12 +354,13 @@ describe("Persistence", () => {
         const error = new Error("Outer error");
         (error as Error & { cause: Error }).cause = cause;
 
-        const serialized = serializeError(error);
+        const serialized = serializeError(error) as SerializedError;
 
         expect(serialized.type).toBe("error");
         expect(serialized.cause).toBeDefined();
         expect(serialized.cause?.type).toBe("error");
-        expect(serialized.cause?.message).toBe("Root cause");
+        const serializedCause = serialized.cause as SerializedError | undefined;
+        expect(serializedCause?.message).toBe("Root cause");
       });
 
       it("should handle nested cause chain", () => {
@@ -366,17 +370,19 @@ describe("Persistence", () => {
         (middle as Error & { cause: Error }).cause = root;
         (outer as Error & { cause: Error }).cause = middle;
 
-        const serialized = serializeError(outer);
+        const serialized = serializeError(outer) as SerializedError;
 
         expect(serialized.message).toBe("Outer");
-        expect(serialized.cause?.message).toBe("Middle");
-        expect(serialized.cause?.cause?.message).toBe("Root");
+        const middleCause = serialized.cause as SerializedError | undefined;
+        expect(middleCause?.message).toBe("Middle");
+        const rootCause = middleCause?.cause as SerializedError | undefined;
+        expect(rootCause?.message).toBe("Root");
       });
     });
 
     describe("serializeThrown", () => {
       it("should serialize string throws", () => {
-        const serialized = serializeThrown("simple error");
+        const serialized = serializeThrown("simple error") as SerializedThrown;
 
         expect(serialized.type).toBe("thrown");
         expect(serialized.originalType).toBe("string");
@@ -385,7 +391,7 @@ describe("Persistence", () => {
       });
 
       it("should serialize number throws", () => {
-        const serialized = serializeThrown(42);
+        const serialized = serializeThrown(42) as SerializedThrown;
 
         expect(serialized.type).toBe("thrown");
         expect(serialized.originalType).toBe("number");
@@ -394,7 +400,7 @@ describe("Persistence", () => {
       });
 
       it("should serialize boolean throws", () => {
-        const serialized = serializeThrown(false);
+        const serialized = serializeThrown(false) as SerializedThrown;
 
         expect(serialized.type).toBe("thrown");
         expect(serialized.originalType).toBe("boolean");
@@ -402,7 +408,7 @@ describe("Persistence", () => {
       });
 
       it("should serialize null throws", () => {
-        const serialized = serializeThrown(null);
+        const serialized = serializeThrown(null) as SerializedThrown;
 
         expect(serialized.type).toBe("thrown");
         expect(serialized.originalType).toBe("null");
@@ -411,7 +417,7 @@ describe("Persistence", () => {
 
       it("should serialize object throws", () => {
         const obj = { code: "NOT_FOUND", id: "123" };
-        const serialized = serializeThrown(obj);
+        const serialized = serializeThrown(obj) as SerializedThrown;
 
         expect(serialized.type).toBe("thrown");
         expect(serialized.originalType).toBe("Object");
@@ -422,7 +428,7 @@ describe("Persistence", () => {
         const circular: Record<string, unknown> = { name: "test" };
         circular.self = circular;
 
-        const serialized = serializeThrown(circular);
+        const serialized = serializeThrown(circular) as SerializedThrown;
 
         expect(serialized.type).toBe("thrown");
         expect(serialized.stringRepresentation).toBeDefined();
@@ -432,7 +438,7 @@ describe("Persistence", () => {
 
       it("should handle symbols", () => {
         const sym = Symbol("test");
-        const serialized = serializeThrown(sym);
+        const serialized = serializeThrown(sym) as SerializedThrown;
 
         expect(serialized.type).toBe("thrown");
         expect(serialized.originalType).toBe("symbol");
@@ -441,7 +447,7 @@ describe("Persistence", () => {
 
       it("should handle functions", () => {
         const fn = () => "test";
-        const serialized = serializeThrown(fn);
+        const serialized = serializeThrown(fn) as SerializedThrown;
 
         expect(serialized.type).toBe("thrown");
         expect(serialized.originalType).toBe("function");
@@ -457,7 +463,7 @@ describe("Persistence", () => {
           stack: "Error: Invalid type\n    at test.ts:1:1",
         };
 
-        const error = deserializeCauseNew(serialized);
+        const error = deserializeCauseNew(serialized) as Error;
 
         expect(error).toBeInstanceOf(Error);
         expect(error.name).toBe("TypeError");
@@ -645,6 +651,7 @@ describe("Persistence", () => {
     it("should accept err result with cause", () => {
       const result: StepResult = {
         ok: false,
+        error: "Failed",
         cause: {
           type: "error",
           name: "Error",
@@ -657,6 +664,7 @@ describe("Persistence", () => {
     it("should accept err result with meta", () => {
       const result: StepResult = {
         ok: false,
+        error: "test",
         cause: {
           type: "thrown",
           originalType: "string",
@@ -665,7 +673,9 @@ describe("Persistence", () => {
         meta: { origin: "throw" },
       };
       expect(result.ok).toBe(false);
-      expect(result.meta?.origin).toBe("throw");
+      if (!result.ok) {
+        expect(result.meta?.origin).toBe("throw");
+      }
     });
   });
 
@@ -679,14 +689,14 @@ describe("Persistence", () => {
     });
 
     it("SnapshotMismatchError should be instanceof Error", () => {
-      const error = new SnapshotMismatchError("Unknown steps");
+      const error = new SnapshotMismatchError("Unknown steps", "unknown_steps");
       expect(error).toBeInstanceOf(Error);
       expect(error).toBeInstanceOf(SnapshotMismatchError);
       expect(error.name).toBe("SnapshotMismatchError");
     });
 
     it("SnapshotDecodeError should be instanceof Error", () => {
-      const error = new SnapshotDecodeError("Decode failed");
+      const error = new SnapshotDecodeError("Decode failed", "step-1");
       expect(error).toBeInstanceOf(Error);
       expect(error).toBeInstanceOf(SnapshotDecodeError);
       expect(error.name).toBe("SnapshotDecodeError");
