@@ -14,19 +14,21 @@ import type { CallExpression, MemberExpression } from 'estree';
  * GOOD: step('fetchUser', () => fetchUser('1')) - thunk, step controls execution
  */
 
-const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'run']);
+const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'run', 'andThen', 'match', 'map']);
+
+// Methods where the executor/function argument is at index 2 (3rd arg) instead of index 1 (2nd arg)
+// step.andThen('id', value, fn, options?) - fn is 3rd arg
+// step.match('id', result, handlers, options?) - handlers is 3rd arg (object, won't trigger)
+// step.map('id', items, mapper, options?) - mapper is 3rd arg
+const EXECUTOR_AT_INDEX_2 = new Set(['andThen', 'match', 'map']);
 
 function isDirectStepCall(node: CallExpression): boolean {
   const { callee } = node;
   return callee.type === 'Identifier' && callee.name === 'step';
 }
 
-function isStepCall(node: CallExpression): boolean {
+function getStepMethodName(node: CallExpression): string | null {
   const { callee } = node;
-
-  if (isDirectStepCall(node)) return true;
-
-  // step.try(), step.retry(), step.withTimeout(), step.fromResult()
   if (callee.type === 'MemberExpression') {
     const { object, property } = callee as MemberExpression;
     if (
@@ -35,11 +37,15 @@ function isStepCall(node: CallExpression): boolean {
       property.type === 'Identifier' &&
       STEP_METHODS.has(property.name)
     ) {
-      return true;
+      return property.name;
     }
   }
+  return null;
+}
 
-  return false;
+function isStepCall(node: CallExpression): boolean {
+  if (isDirectStepCall(node)) return true;
+  return getStepMethodName(node) !== null;
 }
 
 function isStringLiteral(node: unknown): node is { type: 'Literal'; value: string } {
@@ -116,9 +122,12 @@ const rule: Rule.RuleModule = {
             executorArg = args[0];
           }
         } else {
-          // step.retry('id', fn, opts), step.run('id', resultOrGetter, opts): when first arg is string, executor is second
+          // For step.method calls, determine executor position based on method
+          const methodName = getStepMethodName(node);
           if (args.length > 0 && isStringLiteral(args[0])) {
-            executorArg = args[1];
+            // step.andThen('id', value, fn, opts) / step.map('id', items, mapper, opts) - executor at index 2
+            // step.retry('id', fn, opts) / step.run('id', resultOrGetter, opts) - executor at index 1
+            executorArg = methodName && EXECUTOR_AT_INDEX_2.has(methodName) ? args[2] : args[1];
           } else {
             executorArg = args[0];
           }

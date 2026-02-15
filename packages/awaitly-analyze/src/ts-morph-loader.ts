@@ -15,7 +15,7 @@ export function loadTsMorph(): TsMorphModule {
   if (cached) return cached;
 
   try {
-    // Use createRequire for ESM compatibility
+    // Use createRequire for ESM compatibility (optional peer dependency - cannot static import)
     // In CJS builds, tsup handles import.meta.url → __filename conversion
     const require = createRequire(import.meta.url);
     cached = require("ts-morph") as TsMorphModule;

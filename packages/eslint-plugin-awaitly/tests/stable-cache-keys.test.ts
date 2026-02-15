@@ -78,5 +78,47 @@ describe('stable-cache-keys', () => {
       expect(messages).toHaveLength(1);
       expect(messages[0].message).toContain('nanoid');
     });
+
+    it('reports Date.now() in step.run key', () => {
+      const code = `step.run('fetchUser', () => fetchUser(id), { key: \`user:\${Date.now()}\` });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('Date.now');
+    });
+
+    it('reports Math.random() in step.andThen key', () => {
+      const code = `step.andThen('enrich', user, (u) => enrichUser(u), { key: \`enrich:\${Math.random()}\` });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('Math.random');
+    });
+
+    it('reports Date.now() in step.match key', () => {
+      const code = `step.match('handle', result, { ok: (v) => v, err: (e) => e }, { key: \`handle:\${Date.now()}\` });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('Date.now');
+    });
+
+    it('reports Math.random() in step.map key', () => {
+      const code = `step.map('fetchUsers', userIds, (id) => fetchUser(id), { key: \`users:\${Math.random()}\` });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('Math.random');
+    });
+
+    it('reports Date.now() in step.all key', () => {
+      const code = `step.all('fetchAll', { a: () => fetchA(), b: () => fetchB() }, { key: \`all:\${Date.now()}\` });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('Date.now');
+    });
+
+    it('reports uuid() in step.allSettled key', () => {
+      const code = `step.allSettled('fetchAll', () => allSettledAsync([fetchA(), fetchB()]), { key: \`all:\${uuid()}\` });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('uuid');
+    });
   });
 });

@@ -19,12 +19,16 @@ export default tseslint.config(
           varsIgnorePattern: "^_",
         },
       ],
-      // Ban dynamic import() - use static imports for predictable bundling and tree-shaking
+      // Ban dynamic import() and require() - use static imports for predictable bundling and tree-shaking
       "no-restricted-syntax": [
         "error",
         {
           selector: "ImportExpression",
           message: "Dynamic import() is not allowed. Use static import instead.",
+        },
+        {
+          selector: "CallExpression[callee.name='require']",
+          message: "require() is not allowed. Use static import instead.",
         },
       ],
     },
