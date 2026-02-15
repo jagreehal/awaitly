@@ -1,5 +1,13 @@
 # awaitly-analyze
 
+## 0.14.1
+
+### Patch Changes
+
+- Updated dependencies [5eec7cc]
+  - awaitly@1.25.0
+  - awaitly-visualizer@14.0.0
+
 ## 0.14.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "awaitly-postgres",
-  "version": "14.0.0",
+  "version": "15.0.0",
   "type": "module",
   "description": "PostgreSQL persistence adapter for awaitly workflows",
   "main": "./dist/index.cjs",
