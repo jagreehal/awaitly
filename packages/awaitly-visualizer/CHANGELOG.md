@@ -1,5 +1,12 @@
 # awaitly-visualizer
 
+## 15.0.0
+
+### Patch Changes
+
+- Updated dependencies [fe5dddf]
+  - awaitly@1.26.0
+
 ## 14.0.0
 
 ### Patch Changes
