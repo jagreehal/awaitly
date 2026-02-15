@@ -1,6 +1,6 @@
 {
   "name": "awaitly-analyze",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "type": "module",
   "description": "Static workflow analysis for awaitly. Analyze workflow source code to extract structure, types, and generate visualizations.",
   "main": "./dist/index.cjs",
