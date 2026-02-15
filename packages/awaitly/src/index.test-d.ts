@@ -63,8 +63,7 @@ declare const fetchPosts: (userId: string) => AsyncResult<Post[], "FETCH_ERROR">
 declare const validateUser: (user: User) => Result<User, "INVALID_USER">;
 
 // =============================================================================
-// TEST 1: run() with onError includes UnexpectedError (sound behavior)
-// For a closed union, use run.strict() with catchUnexpected
+// TEST 1: run<T, E>() with explicit E — caller owns the error union
 // =============================================================================
 
 
@@ -83,8 +82,8 @@ async function _test1() {
   );
 
   if (!result.ok) {
-    // Error type includes UnexpectedError because exceptions are always possible
-    expectType<AppError | UnexpectedError>(result.error);
+    // With explicit E, error type is E | "UNEXPECTED_ERROR" — caller owns the union
+    expectType<AppError | typeof UNEXPECTED_ERROR>(result.error);
   }
 }
 
@@ -469,7 +468,7 @@ function _test6d() {
 
 // =============================================================================
 // TEST 7: run() with no explicit types - error type is UnexpectedError
-// Safe default for simple usage
+// Default when E is not specified
 // =============================================================================
 
 async function _test7() {
@@ -481,9 +480,91 @@ async function _test7() {
     expectType<number>(result.value);
   }
   if (!result.ok) {
-    // Without explicit types, error is UnexpectedError (safe default)
-    // For typed errors, use run<T, E>(fn, { onError })
-    expectType<UnexpectedError>(result.error);
+    // Without explicit E, error type defaults to "UNEXPECTED_ERROR"
+    // For step errors + UNEXPECTED_ERROR, use run<T, E>(fn). For closed union, use run.strict(...)
+    expectType<typeof UNEXPECTED_ERROR>(result.error);
+  }
+}
+
+// =============================================================================
+// TEST 7b: run<T, E>(fn) without catchUnexpected - caller owns error union
+// =============================================================================
+
+async function _test7b() {
+  type LoadErrors = "NOT_FOUND" | "FETCH_ERROR";
+
+  const result = await run<{ user: User }, LoadErrors>(async ({ step }) => {
+    const user = await step("fetchUser", () => fetchUser("123"));
+    return { user };
+  });
+
+  if (result.ok) {
+    expectType<{ user: User }>(result.value);
+  }
+  if (!result.ok) {
+    // With explicit E, error type is E | "UNEXPECTED_ERROR" — caller owns the union
+    expectType<LoadErrors | typeof UNEXPECTED_ERROR>(result.error);
+  }
+}
+
+// =============================================================================
+// TEST 7c: run<T, E>(fn, { onError }) without catchUnexpected - caller owns error union
+// =============================================================================
+
+async function _test7c() {
+  type LoadErrors = "NOT_FOUND" | "FETCH_ERROR";
+
+  const result = await run<{ user: User }, LoadErrors>(
+    async ({ step }) => {
+      const user = await step("fetchUser", () => fetchUser("123"));
+      return { user };
+    },
+    {
+      onError: (error) => {
+        // With explicit E, error type is E | "UNEXPECTED_ERROR"
+        expectType<LoadErrors | typeof UNEXPECTED_ERROR>(error);
+      },
+    }
+  );
+
+  if (!result.ok) {
+    expectType<LoadErrors | typeof UNEXPECTED_ERROR>(result.error);
+  }
+}
+
+// =============================================================================
+// TEST 7d: run(fn) without explicit E accepts typed step operations
+// Error type is UnexpectedError (E defaults to never)
+// =============================================================================
+
+async function _test7d() {
+  const result = await run(async ({ step }) => {
+    const user = await step("fetchUser", () => fetchUser("123"));
+    return { user };
+  });
+
+  if (!result.ok) {
+    // Without explicit E, error type is "UNEXPECTED_ERROR"
+    expectType<typeof UNEXPECTED_ERROR>(result.error);
+  }
+}
+
+// =============================================================================
+// TEST 7e: run(fn) without explicit E accepts step.parallel object form
+// =============================================================================
+
+async function _test7e() {
+  const result = await run(async ({ step }) => {
+    const data = await step.parallel("Fetch user + posts", {
+      user: () => fetchUser("1"),
+      posts: () => fetchPosts("1"),
+    });
+    return data;
+  });
+
+  if (!result.ok) {
+    // Same as 7d - without explicit E, error type is "UNEXPECTED_ERROR"
+    expectType<typeof UNEXPECTED_ERROR>(result.error);
   }
 }
 

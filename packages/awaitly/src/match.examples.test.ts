@@ -530,23 +530,23 @@ describe("Match Documentation Examples", () => {
 
   describe("best practices", () => {
     it("extracted handlers for complex logic", () => {
-      const handleCreated = (e: Extract<Event, { _tag: "UserCreated" }>) => {
+      const handleCreated = (e: { _tag: "UserCreated"; userId: string; name: string }) => {
         return `Created: ${e.name}`;
       };
 
-      const handleUpdated = (e: Extract<Event, { _tag: "UserUpdated" }>) => {
+      const handleUpdated = (e: { _tag: "UserUpdated"; userId: string }) => {
         return `Updated: ${e.userId}`;
       };
 
-      const handleDeleted = (e: Extract<Event, { _tag: "UserDeleted" }>) => {
+      const handleDeleted = (e: { _tag: "UserDeleted"; userId: string }) => {
         return `Deleted: ${e.userId}`;
       };
 
       function handleEvent(event: Event): string {
         return Match.value(event)
-          .pipe(Match.tag("UserCreated", handleCreated))
-          .pipe(Match.tag("UserUpdated", handleUpdated))
-          .pipe(Match.tag("UserDeleted", handleDeleted))
+          .pipe(Match.tag("UserCreated", (e) => handleCreated(e)))
+          .pipe(Match.tag("UserUpdated", (e) => handleUpdated(e)))
+          .pipe(Match.tag("UserDeleted", (e) => handleDeleted(e)))
           .pipe(Match.exhaustive);
       }
 

@@ -178,6 +178,7 @@ export default defineConfig({
         tslib: require.resolve("tslib"),
       },
     },
+    // @ts-expect-error Tailwind Vite plugin types target Vite 7; Astro uses Vite 6. Runtime compatible.
     plugins: [tailwindcss()],
   },
 });

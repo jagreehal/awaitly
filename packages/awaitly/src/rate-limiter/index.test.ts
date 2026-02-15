@@ -9,7 +9,7 @@ import {
   isQueueFullError,
   rateLimiterPresets,
 } from ".";
-import { ok, err } from "../core";
+import { ok, err, type Result } from "../core";
 
 describe("Rate Limiter", () => {
   beforeEach(() => {
@@ -353,7 +353,7 @@ describe("Rate Limiter", () => {
 
       // Start a long operation
       limiter.executeResult(
-        () => new Promise((resolve) => setTimeout(() => resolve(ok(1)), 1000))
+        () => new Promise<Result<number, never>>((resolve) => setTimeout(() => resolve(ok(1)), 1000))
       );
 
       const result = await limiter.executeResult(() => ok(2));

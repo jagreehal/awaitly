@@ -171,7 +171,7 @@ function testPatternMatching(error: TransferError) {
       `Need ${e.required}, have ${e.available}`,
     DependencyFailed: (e) =>
       `${e.service} unavailable (retryable: ${e.retryable})`,
-    TransferFailed: (e) => `Transfer failed: ${e.reason}`,
+    TransferFailed: (e: TransferFailed) => `Transfer failed: ${e.reason}`,
     TransferLimitExceeded: (e) =>
       `Limit ${e.limit} exceeded, attempted ${e.attempted}`,
     AccountFrozen: (e) => `Account ${e.userId} frozen: ${e.reason}`,
@@ -222,6 +222,7 @@ type _Props = PropsOf<UserNotFound>; // { userId: string }
 function testErrorChaining() {
   try {
     // risky operation
+    return ok(undefined);
   } catch (e) {
     return err(
       new DependencyFailed({
@@ -275,7 +276,7 @@ async function handleTransferExample(
         e.retryable
           ? json(503, { error: "Service unavailable", retryAfter: 30 })
           : json(500, { error: "Internal error" }),
-      TransferFailed: (e) => json(400, { error: e.reason }),
+      TransferFailed: (e: TransferFailed) => json(400, { error: e.reason }),
       TransferLimitExceeded: (e) =>
         json(400, {
           error: "Transfer limit exceeded",
@@ -382,7 +383,7 @@ describe("tagged-error examples", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error._tag).toBe("UserNotFound");
+      expect((result.error as { _tag: string })._tag).toBe("UserNotFound");
     }
   });
 

@@ -2215,44 +2215,24 @@ export function createWorkflow<
 
     // Check if the error is a wrapped WorkflowCancelledError
     // There are two paths:
-    // 1. Default mapper: run() wraps it as UnexpectedError { cause: { type: 'UNCAUGHT_EXCEPTION', thrown: WorkflowCancelledError } }
-    // 2. Strict mode with catchUnexpected: run() already mapped it, result.cause is WorkflowCancelledError
+    // 1. result.cause is WorkflowCancelledError (both default and custom catchUnexpected)
+    // 2. AbortError thrown during abort - synthesize WorkflowCancelledError
     if (!result.ok) {
       let cancelledError: WorkflowCancelledError | undefined;
 
-      // Path 1: Default mapper (UnexpectedError) - cancellation is result.error with cause.thrown = WorkflowCancelledError
-      if (isUnexpectedError(result.error)) {
-        const unexpectedCause = result.error.cause;
-        if (
-          unexpectedCause &&
-          typeof unexpectedCause === "object" &&
-          "type" in unexpectedCause &&
-          unexpectedCause.type === "UNCAUGHT_EXCEPTION" &&
-          "thrown" in unexpectedCause &&
-          isWorkflowCancelled(unexpectedCause.thrown)
-        ) {
-          cancelledError = unexpectedCause.thrown as WorkflowCancelledError;
-        }
-      }
-
-      // Path 2: Custom catchUnexpected - result.cause is WorkflowCancelledError, result.error is mapped
-      if (!cancelledError && isWorkflowCancelled(result.cause)) {
+      // Path 1: result.cause is WorkflowCancelledError (both default and custom catchUnexpected)
+      if (isWorkflowCancelled(result.cause)) {
         cancelledError = result.cause as WorkflowCancelledError;
       }
 
-      // Path 3: AbortError thrown during abort (e.g. step.sleep) - treat as cancellation
-      // So result.cause becomes WorkflowCancelledError and we emit workflow_cancelled
+      // Path 2: AbortError thrown during abort (e.g. step.sleep) - treat as cancellation
+      // The thrown AbortError is in result.cause
       if (
         !cancelledError &&
         abortedDuringExecution &&
-        isUnexpectedError(result.error) &&
-        result.error.cause &&
-        typeof result.error.cause === "object" &&
-        "type" in result.error.cause &&
-        result.error.cause.type === "UNCAUGHT_EXCEPTION" &&
-        "thrown" in result.error.cause
+        isUnexpectedError(result.error)
       ) {
-        const thrown = result.error.cause.thrown;
+        const thrown = result.cause;
         const isAbortError =
           thrown != null &&
           typeof thrown === "object" &&
@@ -2283,7 +2263,7 @@ export function createWorkflow<
           reason: cancelledError.reason,
           lastStepKey: cancelledError.lastStepKey,
         });
-        // Path 3: We synthesized cancelledError from AbortError - ensure result.cause is WorkflowCancelledError
+        // Path 2: We synthesized cancelledError from AbortError - ensure result.cause is WorkflowCancelledError
         if (cancelledError && !isWorkflowCancelled(result.cause)) {
           return err(result.error, { cause: cancelledError }) as Result<T, E | U, unknown>;
         }

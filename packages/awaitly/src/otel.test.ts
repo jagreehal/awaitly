@@ -30,7 +30,6 @@ describe("Autotel Adapter", () => {
         workflowId: "wf-1",
         ts: Date.now(),
         durationMs: 100,
-        result: {},
       });
 
       expect(adapter.getActiveSpansCount().workflows).toBe(0);
@@ -64,7 +63,6 @@ describe("Autotel Adapter", () => {
         stepKey: "user:1",
         ts: Date.now(),
         durationMs: 45,
-        result: {},
       });
 
       expect(adapter.getActiveSpansCount().steps).toBe(0);
@@ -94,7 +92,6 @@ describe("Autotel Adapter", () => {
         name: "Fetch user",
         ts: Date.now(),
         durationMs: 45,
-        result: {},
       });
 
       const metrics = adapter.getMetrics();
@@ -186,7 +183,6 @@ describe("Autotel Adapter", () => {
         workflowId: "wf-1",
         stepKey: "user:1",
         ts: Date.now(),
-        result: {},
       });
 
       adapter.handleEvent({
@@ -231,7 +227,6 @@ describe("Autotel Adapter", () => {
         name: "Fetch user",
         ts: Date.now(),
         durationMs: 45,
-        result: {},
       });
 
       const metrics = adapter.getMetrics();

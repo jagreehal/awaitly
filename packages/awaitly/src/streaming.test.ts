@@ -2,7 +2,7 @@
  * Tests for streaming functionality
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { ok, isOk, isErr, isUnexpectedError } from "./core";
+import { ok, isOk, isErr, UNEXPECTED_ERROR } from "./core";
 import { createWorkflow, createResumeStateCollector, type WorkflowEvent } from "./workflow";
 import {
   createMemoryStreamStore,
@@ -493,7 +493,7 @@ describe("createWorkflow with streaming", () => {
 
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
-      expect(isUnexpectedError(result.error)).toBe(true);
+      expect(result.error).toBe(UNEXPECTED_ERROR);
     }
   });
 

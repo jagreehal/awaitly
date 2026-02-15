@@ -15,14 +15,14 @@ const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { ...
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts, sendEmail });
 
 const result = await workflow(async (step) => { ... });
-// result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | UnexpectedError
+// result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | 'UNEXPECTED_ERROR'
 ```
 
 Add a new dependency? The error union updates automatically.
 
-## UnexpectedError
+## `"UNEXPECTED_ERROR"`
 
-If code throws an exception (not a returned error), it becomes an `UnexpectedError`:
+If code throws an exception (not a returned error), it becomes the string `"UNEXPECTED_ERROR"`. The original thrown value is in `result.cause`:
 
 ```typescript
 const badOperation = async (): AsyncResult<string, 'KNOWN_ERROR'> => {
@@ -34,8 +34,8 @@ const result = await workflow(async (step) => {
   return await step('badOperation', () => badOperation());
 });
 
-if (!result.ok && result.error.type === 'UNEXPECTED') {
-  console.log(result.error.cause); // The original Error object
+if (!result.ok && result.error === 'UNEXPECTED_ERROR') {
+  console.log(result.cause); // The original Error object
 }
 ```
 
@@ -112,7 +112,21 @@ TypeScript ensures you handle all known error cases.
 
 ## Custom unexpected errors
 
-Workflow error unions are always closed. By default, thrown exceptions become `UnexpectedError`. To use a custom type for unexpected errors, pass `catchUnexpected`:
+By default, thrown exceptions become the string `"UNEXPECTED_ERROR"`. With `run()`, use `ErrorOf`/`Errors` to derive error types from your deps:
+
+```typescript
+import { type Errors } from 'awaitly';
+
+type RunErrors = Errors<[typeof fetchUser, typeof fetchPosts]>;
+const result = await run<User, RunErrors>(async ({ step }) => {
+  const user = await step('fetchUser', () => fetchUser('1'));
+  const posts = await step('fetchPosts', () => fetchPosts(user.id));
+  return user;
+});
+// result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | 'UNEXPECTED_ERROR'
+```
+
+To replace `"UNEXPECTED_ERROR"` with a custom type, pass `catchUnexpected`:
 
 ```typescript
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts },

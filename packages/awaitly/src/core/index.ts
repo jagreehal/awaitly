@@ -168,17 +168,15 @@ export type UnexpectedError = {
 
 /**
  * Default mapper for unexpected causes (uncaught exceptions, cancellation, etc.).
- * Returns the legacy UnexpectedError object shape so the default error union is E | UnexpectedError.
- * Used when createWorkflow() is called without catchUnexpected.
+ * Returns the UNEXPECTED_ERROR string constant. The thrown value is preserved
+ * in the Result's cause field, so no information is lost.
+ * Used when run() is called without catchUnexpected.
  *
- * @param cause - The thrown value or WorkflowCancelledError
- * @returns UnexpectedError with cause: { type: "UNCAUGHT_EXCEPTION", thrown: cause }
+ * @param _cause - The thrown value (preserved in Result cause, not embedded here)
+ * @returns The UNEXPECTED_ERROR string constant
  */
-export function defaultCatchUnexpected(cause: unknown): UnexpectedError {
-  return {
-    type: "UNEXPECTED_ERROR",
-    cause: { type: "UNCAUGHT_EXCEPTION", thrown: cause },
-  };
+export function defaultCatchUnexpected(_cause: unknown): typeof UNEXPECTED_ERROR {
+  return UNEXPECTED_ERROR;
 }
 
 export type PromiseRejectedError = { type: typeof PROMISE_REJECTED; cause: unknown };
@@ -297,10 +295,11 @@ export const isErr = <T, E, C>(r: Result<T, E, C>): r is Err<E, C> => !r.ok;
  *
  * @remarks When to use: Distinguish unexpected failures from your typed error union.
  */
-export const isUnexpectedError = (e: unknown): e is UnexpectedError =>
-  typeof e === "object" &&
-  e !== null &&
-  (e as UnexpectedError).type === "UNEXPECTED_ERROR";
+export const isUnexpectedError = (e: unknown): e is UnexpectedError | typeof UNEXPECTED_ERROR =>
+  e === UNEXPECTED_ERROR ||
+  (typeof e === "object" &&
+    e !== null &&
+    (e as UnexpectedError).type === "UNEXPECTED_ERROR");
 
 /**
  * Checks if an error is a PromiseRejectedError.
@@ -362,18 +361,19 @@ export function matchError<E extends string, R>(
   error: E | UnexpectedError,
   handlers: MatchErrorHandlers<E, R>
 ): R {
-  // Handle UnexpectedError objects
-  if (isUnexpectedError(error)) {
-    return handlers.UNEXPECTED_ERROR(error);
-  }
-  // Handle the string literal "UNEXPECTED_ERROR" - wrap it in an UnexpectedError object
-  // to maintain the typed contract that UNEXPECTED_ERROR handler receives an object
+  // Handle the string literal "UNEXPECTED_ERROR" first - wrap it in an UnexpectedError object
+  // to maintain the typed contract that UNEXPECTED_ERROR handler receives an object.
+  // Must check before isUnexpectedError() since that also matches the string form.
   if (error === "UNEXPECTED_ERROR") {
     const syntheticError: UnexpectedError = {
       type: UNEXPECTED_ERROR,
       cause: { type: "UNCAUGHT_EXCEPTION", thrown: error },
     };
     return handlers.UNEXPECTED_ERROR(syntheticError);
+  }
+  // Handle UnexpectedError objects
+  if (isUnexpectedError(error)) {
+    return handlers.UNEXPECTED_ERROR(error as UnexpectedError);
   }
   // Cast to the excluded type since we've handled UNEXPECTED_ERROR above
   type StringErrors = Exclude<E, "UNEXPECTED_ERROR">;
@@ -1089,7 +1089,7 @@ export interface RunStep<E = unknown> {
   sleep(
     id: string,
     duration: DurationInput,
-    options?: { key?: string; ttl?: number; description?: string }
+    options?: { key?: string; ttl?: number; description?: string; signal?: AbortSignal }
   ): Promise<void>;
 
   // ===========================================================================
@@ -2338,12 +2338,13 @@ const DEFAULT_RETRY_CONFIG = {
  *
  * For automatic error type inference from static dependencies, use `createWorkflow()`.
  *
- * ## Closed error union
+ * ## Error union
  *
- * `run()` always returns a closed error type. Options determine the union:
+ * `run()` returns:
  * - **`catchUnexpected`**: Maps uncaught exceptions to your type E → `Result<T, E>`
- * - **`onError`** (no catchUnexpected): Typed errors plus unexpected → `Result<T, E | UnexpectedError>`
- * - **No options**: All errors as UnexpectedError → `Result<T, UnexpectedError>`
+ * - **No catchUnexpected**: Step errors pass through + `"UNEXPECTED_ERROR"` for exceptions → `Result<T, E | "UNEXPECTED_ERROR">`
+ *
+ * When `E` is not specified, it defaults to `never`, giving `Result<T, "UNEXPECTED_ERROR">`.
  *
  * @see createWorkflow - For static dependencies with auto error inference
  */
@@ -2357,42 +2358,32 @@ export function run<T, E, C = void>(
 ): AsyncResult<T, E, unknown>;
 
 /**
- * run() with onError (no catchUnexpected): Result<T, E | UnexpectedError>.
+ * run() without catchUnexpected.
+ * Always adds typeof UNEXPECTED_ERROR to the error union so callers know
+ * uncaught exceptions are possible. Step errors pass through as-is.
+ * When E is never (default), step is RunStep<unknown> so any operation is allowed.
  */
-export function run<T, E, C = void>(
-  fn: (context: { step: RunStep<E | UnexpectedError> }) => Promise<T> | T,
-  options: {
-    onError: (error: E | UnexpectedError, stepName?: string, ctx?: C) => void;
-    onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
-    workflowId?: string;
-    workflowName?: string;
-    context?: C;
-    /** @internal External signal for workflow-level cancellation. */
-    _workflowSignal?: AbortSignal;
-  }
-): AsyncResult<T, E | UnexpectedError, unknown>;
-
-/**
- * run() with no options: Result<T, UnexpectedError>.
- * All errors (typed or thrown) are returned as UnexpectedError.
- */
-export function run<T, C = void>(
-  fn: (context: { step: RunStep }) => Promise<T> | T,
+export function run<T, E = never, C = void>(
+  fn: (context: {
+    step: [E] extends [never] ? RunStep<unknown> : RunStep<E>;
+  }) => Promise<T> | T,
   options?: {
-    onEvent?: (event: WorkflowEvent<UnexpectedError, C>, ctx: C) => void;
+    onError?: (error: E | typeof UNEXPECTED_ERROR, stepName?: string, ctx?: C) => void;
+    onEvent?: (event: WorkflowEvent<E | typeof UNEXPECTED_ERROR, C>, ctx: C) => void;
     workflowId?: string;
     workflowName?: string;
     context?: C;
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
   }
-): AsyncResult<T, UnexpectedError, unknown>;
+): AsyncResult<T, E | typeof UNEXPECTED_ERROR, unknown>;
 
 // Implementation
 export async function run<T, E, C = void>(
-  fn: (context: { step: RunStep<E | UnexpectedError> }) => Promise<T> | T,
+  fn: (context: { step: RunStep<E> }) => Promise<T> | T,
   options?: RunOptions<E, C>
-): AsyncResult<T, E | UnexpectedError> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): AsyncResult<T, any> {
   const {
     onError,
     onEvent,
@@ -2406,7 +2397,7 @@ export async function run<T, E, C = void>(
     : ({} as RunOptions<E, C>);
 
   const workflowId = providedWorkflowId ?? crypto.randomUUID();
-  const wrapMode = !onError && !catchUnexpected;
+  const effectiveCatchUnexpected = catchUnexpected ?? defaultCatchUnexpected;
 
   // Track active scopes as a stack for proper nesting
   // When a step succeeds, only the innermost race scope gets the winner
@@ -2460,69 +2451,14 @@ export async function run<T, E, C = void>(
   // Local type guard that narrows to EarlyExit<E> specifically
   const isEarlyExitE = (e: unknown): e is EarlyExit<E> => isEarlyExit(e);
 
+  // Step errors always pass through — they are typed Result errors.
+  // Only truly uncaught exceptions get mapped via effectiveCatchUnexpected.
   const wrapForStep = (
     error: unknown,
-    meta?: StepFailureMeta
-  ): E | UnexpectedError => {
-    if (!wrapMode) {
-      return error as E;
-    }
-
-    if (meta?.origin === "result") {
-      return {
-        type: "UNEXPECTED_ERROR",
-        cause: {
-          type: "STEP_FAILURE",
-          origin: "result",
-          error,
-          ...(meta.resultCause !== undefined
-            ? { cause: meta.resultCause }
-            : {}),
-        },
-      };
-    }
-
-    if (meta?.origin === "throw") {
-      return {
-        type: "UNEXPECTED_ERROR",
-        cause: {
-          type: "STEP_FAILURE",
-          origin: "throw",
-          error,
-          thrown: meta.thrown,
-        },
-      };
-    }
-
-    return {
-      type: "UNEXPECTED_ERROR",
-      cause: {
-        type: "STEP_FAILURE",
-        origin: "result",
-        error,
-      },
-    };
+    _meta?: StepFailureMeta
+  ): E => {
+    return error as E;
   };
-
-  const unexpectedFromFailure = (failure: EarlyExit<E>): UnexpectedError => ({
-    type: "UNEXPECTED_ERROR",
-    cause:
-      failure.meta.origin === "result"
-        ? {
-            type: "STEP_FAILURE" as const,
-            origin: "result" as const,
-            error: failure.error,
-            ...(failure.meta.resultCause !== undefined
-              ? { cause: failure.meta.resultCause }
-              : {}),
-          }
-        : {
-            type: "STEP_FAILURE" as const,
-            origin: "throw" as const,
-            error: failure.error,
-            thrown: failure.meta.thrown,
-          },
-  });
 
   // Helper to check if a value is a Result (has ok property) vs a function
   const isResultLike = (value: unknown): value is Result<unknown, unknown, unknown> | Promise<Result<unknown, unknown, unknown>> => {
@@ -2864,73 +2800,41 @@ export async function run<T, E, C = void>(
               });
             }
 
-            // Handle the error based on mode
+            // Handle the error using effectiveCatchUnexpected
             const totalDurationMs = performance.now() - overallStartTime;
 
-            if (catchUnexpected) {
-              let mappedError: E;
-              try {
-                mappedError = catchUnexpected(thrown) as unknown as E;
-              } catch (mapperError) {
-                throw createMapperException(mapperError);
-              }
-              emitEvent({
-                type: "step_error",
-                workflowId,
-                stepId,
-                stepKey,
-                name: stepName,
-                description: stepDescription,
-                ts: Date.now(),
-                durationMs: totalDurationMs,
-                error: mappedError,
-              });
-              if (explicitKey) {
-                emitEvent({
-                  type: "step_complete",
-                  workflowId,
-                  stepKey: explicitKey,
-                  name: stepName,
-                  description: stepDescription,
-                  ts: Date.now(),
-                  durationMs: totalDurationMs,
-                  result: err(mappedError, { cause: thrown }),
-                  meta: { origin: "throw", thrown },
-                });
-              }
-              onError?.(mappedError as E, stepName, context);
-              throw earlyExit(mappedError as E, { origin: "throw", thrown });
-            } else {
-              const unexpectedError: UnexpectedError = {
-                type: "UNEXPECTED_ERROR",
-                cause: { type: "UNCAUGHT_EXCEPTION", thrown },
-              };
-              emitEvent({
-                type: "step_error",
-                workflowId,
-                stepId,
-                stepKey,
-                name: stepName,
-                description: stepDescription,
-                ts: Date.now(),
-                durationMs: totalDurationMs,
-                error: unexpectedError,
-              });
-              if (explicitKey) {
-                emitEvent({
-                  type: "step_complete",
-                  workflowId,
-                  stepKey: explicitKey,
-                  name: stepName,
-                  description: stepDescription,
-                  ts: Date.now(),
-                  durationMs: totalDurationMs,
-                  result: err(unexpectedError, { cause: thrown }),
-                  meta: { origin: "throw", thrown },
-                });
-              }
-              throw thrown;
+            let mappedError: E | UnexpectedError;
+            try {
+              mappedError = effectiveCatchUnexpected(thrown) as E | UnexpectedError;
+            } catch (mapperError) {
+              throw createMapperException(mapperError);
             }
+            emitEvent({
+              type: "step_error",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              description: stepDescription,
+              ts: Date.now(),
+              durationMs: totalDurationMs,
+              error: mappedError,
+            });
+            if (explicitKey) {
+              emitEvent({
+                type: "step_complete",
+                workflowId,
+                stepKey: explicitKey,
+                name: stepName,
+                description: stepDescription,
+                ts: Date.now(),
+                durationMs: totalDurationMs,
+                result: err(mappedError, { cause: thrown }),
+                meta: { origin: "throw", thrown },
+              });
+            }
+            onError?.(mappedError as E, stepName, context);
+            throw earlyExit(mappedError as E, { origin: "throw", thrown });
           }
         }
 
@@ -2966,8 +2870,8 @@ export async function run<T, E, C = void>(
             meta: { origin: "result", resultCause: errorResult.cause },
           });
         }
-        onError?.(errorResult.error as unknown as E, stepName, context);
-        throw earlyExit(errorResult.error as unknown as E, {
+        onError?.(wrappedError as unknown as E, stepName, context);
+        throw earlyExit(wrappedError as unknown as E, {
           origin: "result",
           resultCause: errorResult.cause,
         });
@@ -3062,8 +2966,8 @@ export async function run<T, E, C = void>(
               meta: { origin: "throw", thrown: error },
             });
           }
-          onError?.(mapped as unknown as E, stepName, context);
-          throw earlyExit(mapped as unknown as E, { origin: "throw", thrown: error });
+          onError?.(wrappedError as unknown as E, stepName, context);
+          throw earlyExit(wrappedError as unknown as E, { origin: "throw", thrown: error });
         }
       })();
     };
@@ -3162,8 +3066,8 @@ export async function run<T, E, C = void>(
               meta: { origin: "result", resultCause: result.error },
             });
           }
-          onError?.(mapped as unknown as E, stepName, context);
-          throw earlyExit(mapped as unknown as E, {
+          onError?.(wrappedError as unknown as E, stepName, context);
+          throw earlyExit(wrappedError as unknown as E, {
             origin: "result",
             resultCause: result.error,
           });
@@ -3865,35 +3769,12 @@ export async function run<T, E, C = void>(
         ? error.meta.thrown
         : error.meta.resultCause;
 
-      if (catchUnexpected || onError) {
-        return err(error.error, { cause: originalCause });
-      }
-      // If the error is already an UnexpectedError (e.g., from resumed state),
-      // return it directly without wrapping in another STEP_FAILURE
-      if (isUnexpectedError(error.error)) {
-        return err(error.error, { cause: originalCause });
-      }
-      // If the error is a STEP_TIMEOUT, return it directly without wrapping
-      // This provides better DX: users get STEP_TIMEOUT directly in result.error
-      if (isStepTimeoutError(error.error)) {
-        return err(error.error, { cause: originalCause });
-      }
-      const unexpectedError = unexpectedFromFailure(error);
-      return err(unexpectedError, { cause: originalCause });
+      return err(error.error, { cause: originalCause });
     }
 
-    if (catchUnexpected) {
-      const mapped = catchUnexpected(error);
-      onError?.(mapped, "unexpected", context);
-      return err(mapped, { cause: error });
-    }
-
-    const unexpectedError: UnexpectedError = {
-      type: "UNEXPECTED_ERROR",
-      cause: { type: "UNCAUGHT_EXCEPTION", thrown: error },
-    };
-    onError?.(unexpectedError as unknown as E, "unexpected", context);
-    return err(unexpectedError, { cause: error });
+    const mapped = effectiveCatchUnexpected(error);
+    onError?.(mapped as E, "unexpected", context);
+    return err(mapped, { cause: error });
   }
 }
 

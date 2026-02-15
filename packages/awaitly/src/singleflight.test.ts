@@ -412,7 +412,7 @@ describe("singleflight() throw handling", () => {
       throw new Error(`Failed for ${id}`);
     };
 
-    const fetchOnce = singleflight(throwingFetch as () => AsyncResult<never, never>, {
+    const fetchOnce = singleflight(throwingFetch as unknown as (id: string) => AsyncResult<never, never>, {
       key: (id: string) => `user:${id}`,
     });
 

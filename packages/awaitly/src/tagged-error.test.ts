@@ -308,9 +308,9 @@ describe("TaggedError", () => {
       });
 
       const result = TaggedError.match(error, {
-        NotFoundError: (e) => `Not found: ${e.resource} ${e.id}`,
-        ValidationError: (e) => `Invalid: ${e.field}`,
-        NetworkError: (e) => `Network: ${e.url}`,
+        NotFoundError: (e: NotFoundError) => `Not found: ${e.resource} ${e.id}`,
+        ValidationError: (e: ValidationError) => `Invalid: ${e.field}`,
+        NetworkError: (e: NetworkError) => `Network: ${e.url}`,
       });
 
       expect(result).toBe("Not found: User 123");
@@ -323,9 +323,9 @@ describe("TaggedError", () => {
       });
 
       const result = TaggedError.match(error, {
-        NotFoundError: (e) => `Not found: ${e.id}`,
-        ValidationError: (e) => `Invalid ${e.field}: ${e.reason}`,
-        NetworkError: (e) => `Network: ${e.url}`,
+        NotFoundError: (e: NotFoundError) => `Not found: ${e.id}`,
+        ValidationError: (e: ValidationError) => `Invalid ${e.field}: ${e.reason}`,
+        NetworkError: (e: NetworkError) => `Network: ${e.url}`,
       });
 
       expect(result).toBe("Invalid email: invalid");
@@ -355,9 +355,9 @@ describe("TaggedError", () => {
         resource: "User",
       });
 
-      const result = TaggedError.matchPartial(
+      const result = TaggedError.matchPartial<TestAppError, { NotFoundError: (e: NotFoundError) => string }, string>(
         error,
-        { NotFoundError: (e) => `Not found: ${e.id}` },
+        { NotFoundError: (e: NotFoundError) => `Not found: ${e.id}` },
         (e) => `Other: ${e.message}`
       );
 
@@ -370,9 +370,9 @@ describe("TaggedError", () => {
         reason: "invalid",
       });
 
-      const result = TaggedError.matchPartial(
+      const result = TaggedError.matchPartial<TestAppError, { NotFoundError: (e: NotFoundError) => string }, string>(
         error,
-        { NotFoundError: (e) => `Not found: ${e.id}` },
+        { NotFoundError: (e: NotFoundError) => `Not found: ${e.id}` },
         (e) => `Fallback: ${e._tag}`
       );
 

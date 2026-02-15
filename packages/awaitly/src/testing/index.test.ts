@@ -17,6 +17,7 @@ import {
 } from ".";
 import { ok, err } from "../core";
 import type { AsyncResult } from "../core";
+import type { AnyResultFn } from "../workflow";
 
 describe("Testing Harness", () => {
   describe("createWorkflowHarness", () => {
@@ -122,7 +123,7 @@ describe("Testing Harness", () => {
         throw new Error("Network error");
       };
 
-      const harness = createWorkflowHarness({ fetchUser });
+      const harness = createWorkflowHarness({ fetchUser } as unknown as { fetchUser: AnyResultFn });
 
       harness.script([okOutcome({ id: "1", name: "Alice" })]);
 
@@ -144,7 +145,7 @@ describe("Testing Harness", () => {
         throw new Error("Network error");
       };
 
-      const harness = createWorkflowHarness({ fetchUser });
+      const harness = createWorkflowHarness({ fetchUser } as unknown as { fetchUser: AnyResultFn });
 
       harness.script([errOutcome({ code: "NETWORK_ERROR", message: "Network error" })]);
 
@@ -171,7 +172,7 @@ describe("Testing Harness", () => {
 
       const result = await harness.runWithInput(
         { userId: "user-123" },
-        async ({ step, deps: { fetchUser }, args: input }) => {
+        async ({ step, deps: { fetchUser }, input }) => {
           const user = await step("fetch-user", () => fetchUser(input.userId));
           return user;
         }

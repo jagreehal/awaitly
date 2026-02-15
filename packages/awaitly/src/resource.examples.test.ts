@@ -125,7 +125,7 @@ describe("resource-management", () => {
     it("getUsers function example", async () => {
       const closeCalls: string[] = [];
 
-      async function getUsers(): AsyncResult<User[], "DB_ERROR"> {
+      async function getUsers(): AsyncResult<User[], "DB_ERROR" | ResourceCleanupError> {
         return withScope(async (scope) => {
           // scope.add returns the value directly
           const db = scope.add({
@@ -553,7 +553,7 @@ describe("resource-management", () => {
             "ok" in result.error.originalResult &&
             !result.error.originalResult.ok
           ) {
-            return result.error.originalResult;
+            return;
           }
         }
       }

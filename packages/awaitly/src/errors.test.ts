@@ -288,15 +288,15 @@ describe("Pattern Matching", () => {
     const error: AwaitlyError = new TimeoutError({ ms: 5000 });
 
     const result = TaggedError.match(error, {
-      TimeoutError: (e) => `timeout:${e.ms}`,
-      RetryExhaustedError: (e) => `retry:${e.attempts}`,
+      TimeoutError: (e: TimeoutError) => `timeout:${e.ms}`,
+      RetryExhaustedError: (e: RetryExhaustedError) => `retry:${e.attempts}`,
       RateLimitError: () => "rate",
-      CircuitBreakerOpenError: (e) => `circuit:${e.circuitName}`,
-      ValidationError: (e) => `validation:${e.field}`,
-      NotFoundError: (e) => `notfound:${e.resource}`,
+      CircuitBreakerOpenError: (e: CircuitBreakerOpenError) => `circuit:${e.circuitName}`,
+      ValidationError: (e: ValidationError) => `validation:${e.field}`,
+      NotFoundError: (e: NotFoundError) => `notfound:${e.resource}`,
       UnauthorizedError: () => "unauthorized",
-      NetworkError: (e) => `network:${e.reason}`,
-      CompensationError: (e) => `compensation:${e.step}`,
+      NetworkError: (e: NetworkError) => `network:${e.reason}`,
+      CompensationError: (e: CompensationError) => `compensation:${e.step}`,
     });
 
     expect(result).toBe("timeout:5000");
@@ -305,10 +305,10 @@ describe("Pattern Matching", () => {
   it("matches partially with fallback", () => {
     const error: AwaitlyError = new NetworkError({ reason: "DNS error" });
 
-    const result = TaggedError.matchPartial(
+    const result = TaggedError.matchPartial<AwaitlyError, { TimeoutError: (e: TimeoutError) => string }, string>(
       error,
       {
-        TimeoutError: (e) => `timeout:${e.ms}`,
+        TimeoutError: (e: TimeoutError) => `timeout:${e.ms}`,
       },
       (e) => `other:${e._tag}`
     );

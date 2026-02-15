@@ -82,9 +82,9 @@ describe("README Examples", () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.type).toBe(UNEXPECTED_ERROR);
-        // Check that cause is defined
-        expect(result.error.cause).toBeDefined();
+        expect(result.error).toBe(UNEXPECTED_ERROR);
+        // Check that cause is defined (thrown value is on result.cause, not error.cause)
+        expect(result.cause).toBeDefined();
       }
     });
   });
@@ -166,7 +166,7 @@ describe("README Examples", () => {
           return ok({ id: userId, balance: 1000 });
         },
 
-        validateBalance: (user: User, amount: number): AsyncResult<void, InsufficientFunds> => {
+        validateBalance: async (user: User, amount: number): AsyncResult<void, InsufficientFunds> => {
           if (user.balance < amount) {
             return err({ type: "INSUFFICIENT_FUNDS", required: amount, available: user.balance });
           }
@@ -192,21 +192,26 @@ describe("README Examples", () => {
         // TypeScript knows ALL possible errors - map them to HTTP responses
         if (result.ok) return { statusCode: 200, body: result.value };
 
+        if ((result.error as unknown) === UNEXPECTED_ERROR) {
+          return { statusCode: 500, body: { message: "Internal error" } };
+        }
+
         switch (result.error.type) {
           case "USER_NOT_FOUND":
             return { statusCode: 404, body: { message: "User not found", userId: result.error.userId } };
           case "INSUFFICIENT_FUNDS":
             return { statusCode: 400, body: result.error };
           case "TRANSFER_FAILED":
-          case UNEXPECTED_ERROR:
             return { statusCode: 500, body: { message: "Internal error" } };
+          default:
+            return { statusCode: 500, body: { message: "Unknown error" } };
         }
       }
 
       const response = await handler("user1", "user2", 100);
-      expect(response.statusCode).toBe(200);
-      if (response.statusCode === 200) {
-        expect(response.body.transactionId).toBe("tx-12345");
+      expect(response!.statusCode).toBe(200);
+      if (response!.statusCode === 200) {
+        expect((response!.body as { transactionId: string }).transactionId).toBe("tx-12345");
       }
     });
   });
@@ -231,18 +236,18 @@ describe("README Examples", () => {
       if (result.ok) {
         expect.fail("Should have failed");
       } else {
-        switch (result.error.type) {
-          case "TASK_NOT_FOUND":
-            expect(result.error.id).toBe("missing");
-            break;
+        if ((result.error as unknown) === UNEXPECTED_ERROR) {
+          // Log the cause for debugging (it's the original thrown error)
+          expect(result.cause).toBeDefined();
+        } else {
+          switch (result.error.type) {
+            case "TASK_NOT_FOUND":
+              expect(result.error.id).toBe("missing");
+              break;
 
-          case UNEXPECTED_ERROR:
-            // Log the cause for debugging (it's the original thrown error)
-            expect(result.error.cause).toBeDefined();
-            break;
-
-          default:
-            expect.fail("Unexpected error type");
+            default:
+              expect.fail("Unexpected error type");
+          }
         }
       }
     });
@@ -441,7 +446,7 @@ describe("README Examples", () => {
       const workflow = createWorkflow("workflow", {});
       const result = await workflow(async ({ step }) => {
         // Wrap throwing code
-        const data = await step.try("httpFetch", () => Promise.resolve({ foo: "bar" }), { error: "HTTP_FAILED" as const });
+        const data = await (step as unknown as { try: <T, Err>(id: string, op: () => Promise<T>, opts: { error: Err }) => Promise<T> }).try("httpFetch", () => Promise.resolve({ foo: "bar" }), { error: "HTTP_FAILED" as const });
         return data;
       });
 

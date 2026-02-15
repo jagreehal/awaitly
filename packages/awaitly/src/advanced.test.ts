@@ -162,11 +162,12 @@ describe('Advanced Examples', () => {
       // Mock fetch
       global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
 
-      const result = await workflow(async ({ step }) => {
+      const result = await workflow(async ({ step: _step }) => {
+        const step = _step as unknown as { try: <T, Err>(id: string, op: () => Promise<T>, opts: { onError: (e: unknown) => Err }) => Promise<T> };
         const data = await step.try(
           "fetch-api",
           () => fetch('/api/data'),
-          { onError: (e) => ({ type: 'API_ERROR' as const, message: String(e) }) }
+          { onError: (e: unknown) => ({ type: 'API_ERROR' as const, message: String(e) }) }
         );
 
         return data;
@@ -192,11 +193,12 @@ describe('Advanced Examples', () => {
 
       const workflow = createWorkflow("workflow", {});
 
-      const result = await workflow(async ({ step }) => {
+      const result = await workflow(async ({ step: _step }) => {
+        const step = _step as unknown as { try: <T, Err>(id: string, op: () => T, opts: { onError: (e: unknown) => Err }) => Promise<T> };
         const parsed = await step.try(
           "validate-schema",
           () => schema.parse(null),
-          { onError: (e) => ({ type: 'VALIDATION_ERROR' as const, issues: (e as { issues: string[] }).issues }) }
+          { onError: (e: unknown) => ({ type: 'VALIDATION_ERROR' as const, issues: (e as { issues: string[] }).issues }) }
         );
 
         return parsed;
@@ -355,9 +357,9 @@ describe('Advanced Examples', () => {
     });
 
     it('should work with match() - error case', () => {
-      const result = err('NOT_FOUND');
+      const result = err('NOT_FOUND') as Result<{ name: string }, string>;
       const message = match(result, {
-        ok: (user) => `Hello ${user.name}`,
+        ok: (user: { name: string }) => `Hello ${user.name}`,
         err: (error) => `Error: ${error}`,
       });
 
@@ -372,7 +374,7 @@ describe('Advanced Examples', () => {
         ok([{ id: 1, title: 'Hello' }]);
 
       const userResult = await fetchUser('1');
-      const userPosts = await andThen(userResult, (user) => fetchPosts(user.id));
+      const userPosts = await (andThen as <T, U, E, F, C1, C2>(r: Result<T, E, C1>, fn: (value: T) => Result<U, F, C2> | AsyncResult<U, F, C2>) => Result<U, E | F, C1 | C2> | AsyncResult<U, E | F, C1 | C2>)(userResult, (user) => fetchPosts(user.id));
 
       expect(userPosts.ok).toBe(true);
       if (userPosts.ok) {
@@ -419,7 +421,9 @@ describe('Advanced Examples', () => {
       });
 
       expect(result.ok).toBe(false);
-      expect(isPendingApproval(result.error)).toBe(true);
+      if (!result.ok) {
+        expect(isPendingApproval(result.error)).toBe(true);
+      }
 
       if (!result.ok && isPendingApproval(result.error)) {
         expect(result.error.reason).toBe('Waiting for manager approval');
@@ -455,7 +459,9 @@ describe('Advanced Examples', () => {
       });
 
       expect(result1.ok).toBe(false);
-      expect(isPendingApproval(result1.error)).toBe(true);
+      if (!result1.ok) {
+        expect(isPendingApproval(result1.error)).toBe(true);
+      }
 
       // Save state
       const savedState = collector.getResumeState();
@@ -523,7 +529,7 @@ describe('Advanced Examples', () => {
       const workflow = createWorkflow("workflow", {});
 
       const result = await workflow(async ({ step }) => {
-        const validated = await step('fromNeverthrow', () => fromNeverthrow(ntResult));
+        const validated = await step('fromNeverthrow', () => fromNeverthrow(ntResult) as Result<User, never>);
         return validated;
       });
 
