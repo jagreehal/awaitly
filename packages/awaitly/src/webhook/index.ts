@@ -263,8 +263,8 @@ export function defaultUnexpectedErrorMapper(
  * const handler = createWebhookHandler(
  *   checkoutWorkflow,
  *   async ({ step, deps, args: input }) => {
- *     const charge = await step(() => deps.chargeCard(input.amount));
- *     await step(() => deps.sendEmail(input.email, charge.receiptUrl));
+ *     const charge = await step('chargeCard', () => deps.chargeCard(input.amount));
+ *     await step('sendEmail', () => deps.sendEmail(input.email, charge.receiptUrl));
  *     return { chargeId: charge.id };
  *   },
  *   {
@@ -831,7 +831,7 @@ export type EventHandler<TPayload = unknown> = (
  * const handler = createEventHandler(
  *   checkoutWorkflow,
  *   async ({ step, deps, args: payload }) => {
- *     const charge = await step(() => deps.chargeCard(payload.amount));
+ *     const charge = await step('chargeCard', () => deps.chargeCard(payload.amount));
  *     return { chargeId: charge.id };
  *   },
  *   {

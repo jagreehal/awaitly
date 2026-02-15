@@ -1,14 +1,57 @@
-/**
- * Tests for fetch.ts - Type-safe fetch helpers
- */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { ok, err } from "./core";
 import {
   fetchJson,
   fetchText,
   fetchBlob,
   fetchArrayBuffer,
-  type DefaultFetchError,
+  fetchResponse,
+  type FetchHttpError,
+  type FetchParseError,
+  type FetchDecodeError,
+  type FetchTimeoutError,
+  type FetchAbortError,
+  type FetchNetworkError,
 } from "./fetch";
+
+// Helper: create a mock Response
+function mockResponse(opts: {
+  ok?: boolean;
+  status?: number;
+  statusText?: string;
+  body?: string;
+  headers?: Record<string, string>;
+}): Response {
+  const status = opts.status ?? 200;
+  return {
+    ok: opts.ok ?? (status >= 200 && status < 300),
+    status,
+    statusText: opts.statusText ?? "OK",
+    headers: new Headers(opts.headers ?? {}),
+    text: vi.fn().mockResolvedValue(opts.body ?? ""),
+    json: vi.fn().mockImplementation(async () => JSON.parse(opts.body ?? "")),
+    blob: vi.fn().mockResolvedValue(new Blob([opts.body ?? ""])),
+    arrayBuffer: vi
+      .fn()
+      .mockResolvedValue(new TextEncoder().encode(opts.body ?? "").buffer),
+  } as unknown as Response;
+}
+
+// Helper: mock fetch that hangs until signal aborts
+function mockHangingFetch() {
+  global.fetch = vi.fn().mockImplementation(
+    (_url: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        if (init?.signal?.aborted) {
+          reject(new DOMException("The operation was aborted.", "AbortError"));
+          return;
+        }
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("The operation was aborted.", "AbortError"));
+        });
+      }),
+  );
+}
 
 describe("fetch helpers", () => {
   let originalFetch: typeof global.fetch;
@@ -23,35 +66,41 @@ describe("fetch helpers", () => {
   });
 
   // ===========================================================================
-  // fetchJson Tests
+  // fetchJson
   // ===========================================================================
 
   describe("fetchJson", () => {
-    it("should return parsed JSON on successful response", async () => {
-      const mockData = { id: 1, name: "Alice" };
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        text: async () => JSON.stringify(mockData),
-      } as Response);
+    it("should parse JSON on success", async () => {
+      const data = { id: 1, name: "Alice" };
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({ body: JSON.stringify(data) }),
+      );
 
-      const result = await fetchJson<typeof mockData>("/api/users/1");
+      const result = await fetchJson<typeof data>("/api/users/1");
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value).toEqual(mockData);
+        expect(result.value).toEqual(data);
       }
-      expect(global.fetch).toHaveBeenCalledWith("/api/users/1", {});
     });
 
-    it("should handle empty JSON response", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        text: async () => "",
-      } as Response);
+    it("should return null for 204 No Content", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({ status: 204, statusText: "No Content", body: "" }),
+      );
+
+      const result = await fetchJson("/api/delete");
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBeNull();
+      }
+    });
+
+    it("should return null for 200 with empty body", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({ body: "" }),
+      );
 
       const result = await fetchJson("/api/empty");
 
@@ -61,210 +110,117 @@ describe("fetch helpers", () => {
       }
     });
 
-    it("should return NOT_FOUND error for 404 status", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 404,
-        statusText: "Not Found",
-        text: async () => "",
-      } as Response);
+    it("should return FetchHttpError for non-2xx status", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({
+          status: 404,
+          ok: false,
+          statusText: "Not Found",
+          body: JSON.stringify({ message: "not found" }),
+          headers: { "content-type": "application/json" },
+        }),
+      );
 
       const result = await fetchJson("/api/users/999");
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe("NOT_FOUND");
-        expect(result.cause).toEqual({ status: 404, statusText: "Not Found" });
+        const error = result.error as FetchHttpError;
+        expect(error._tag).toBe("FetchHttpError");
+        expect(error.status).toBe(404);
+        expect(error.statusText).toBe("Not Found");
+        expect(error.body).toEqual({ message: "not found" });
       }
     });
 
-    it("should return BAD_REQUEST error for 400 status", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 400,
-        statusText: "Bad Request",
-        text: async () => "",
-      } as Response);
+    it("should return FetchParseError for invalid JSON", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({ body: "not valid json {" }),
+      );
 
-      const result = await fetchJson("/api/users");
+      const result = await fetchJson("/api/bad-json");
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe("BAD_REQUEST");
+        const error = result.error as FetchParseError;
+        expect(error._tag).toBe("FetchParseError");
+        expect(error.text).toBe("not valid json {");
+        expect(error.cause).toBeInstanceOf(SyntaxError);
       }
     });
 
-    it("should return UNAUTHORIZED error for 401 status", async () => {
+    it("should return FetchParseError when reading response body fails", async () => {
+      const cause = new Error("Body stream read failed");
       global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-        statusText: "Unauthorized",
-        text: async () => "",
-      } as Response);
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: new Headers({ "content-type": "application/json" }),
+        text: vi.fn().mockRejectedValue(cause),
+      } as unknown as Response);
 
-      const result = await fetchJson("/api/protected");
+      const result = await fetchJson("/api/body-read-error");
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe("UNAUTHORIZED");
+        const error = result.error as FetchParseError;
+        expect(error._tag).toBe("FetchParseError");
+        expect(error.cause).toBe(cause);
       }
     });
 
-    it("should return FORBIDDEN error for 403 status", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 403,
-        statusText: "Forbidden",
-        text: async () => "",
-      } as Response);
-
-      const result = await fetchJson("/api/admin");
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe("FORBIDDEN");
-      }
-    });
-
-    it("should return SERVER_ERROR error for 500 status", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 500,
-        statusText: "Internal Server Error",
-        text: async () => "",
-      } as Response);
-
-      const result = await fetchJson("/api/error");
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe("SERVER_ERROR");
-      }
-    });
-
-    it("should return SERVER_ERROR error for other 5xx status codes", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 503,
-        statusText: "Service Unavailable",
-        text: async () => "",
-      } as Response);
-
-      const result = await fetchJson("/api/service");
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe("SERVER_ERROR");
-      }
-    });
-
-    it("should return NETWORK_ERROR when fetch rejects", async () => {
-      const networkError = new Error("Network error");
+    it("should return FetchNetworkError when fetch rejects", async () => {
+      const networkError = new Error("Failed to fetch");
       global.fetch = vi.fn().mockRejectedValue(networkError);
 
       const result = await fetchJson("/api/users/1");
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe("NETWORK_ERROR");
-        expect(result.cause).toBe(networkError);
+        const error = result.error as FetchNetworkError;
+        expect(error._tag).toBe("FetchNetworkError");
+        expect(error.cause).toBe(networkError);
       }
     });
 
-    it("should return NETWORK_ERROR for invalid JSON", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        text: async () => "invalid json {",
-      } as Response);
-
-      const result = await fetchJson("/api/invalid-json");
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe("NETWORK_ERROR");
-      }
-    });
-
-    it("should use custom error mapper function", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 404,
-        statusText: "Not Found",
-        text: async () => "",
-      } as Response);
-
-      const result = await fetchJson<
-        { id: number },
-        "USER_NOT_FOUND" | "API_ERROR"
-      >("/api/users/999", {
-        error: (status) => {
-          if (status === 404) return "USER_NOT_FOUND" as const;
-          return "API_ERROR" as const;
-        },
+    it("should retry on failure when retry option is set", async () => {
+      const goodResponse = mockResponse({
+        body: JSON.stringify({ id: 1, name: "Alice" }),
       });
+      global.fetch = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Network error"))
+        .mockResolvedValueOnce(goodResponse);
+
+      const result = await fetchJson("/api/users/1", { retry: 2 });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toEqual({ id: 1, name: "Alice" });
+      }
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("should return last error when retries exhausted", async () => {
+      const networkError = new Error("Network error");
+      global.fetch = vi.fn().mockRejectedValue(networkError);
+
+      const result = await fetchJson("/api/users/1", { retry: 2 });
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe("USER_NOT_FOUND");
+        expect((result.error as FetchNetworkError)._tag).toBe(
+          "FetchNetworkError",
+        );
+        expect((result.error as FetchNetworkError).cause).toBe(networkError);
       }
+      expect(global.fetch).toHaveBeenCalledTimes(2);
     });
 
-    it("should use custom error mapper function for multiple status codes", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 429,
-        statusText: "Too Many Requests",
-        text: async () => "",
-      } as Response);
-
-      const result = await fetchJson<
-        { id: number },
-        "USER_NOT_FOUND" | "RATE_LIMITED" | "API_ERROR"
-      >("/api/users/1", {
-        error: (status) => {
-          if (status === 404) return "USER_NOT_FOUND" as const;
-          if (status === 429) return "RATE_LIMITED" as const;
-          return "API_ERROR" as const;
-        },
-      });
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe("RATE_LIMITED");
-      }
-    });
-
-    it("should use single error value for all HTTP errors", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 500,
-        statusText: "Internal Server Error",
-        text: async () => "",
-      } as Response);
-
-      const result = await fetchJson<{ id: number }, "API_ERROR">(
-        "/api/users/1",
-        {
-          error: "API_ERROR" as const,
-        }
+    it("should pass fetch options through", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({ body: JSON.stringify({ id: 1 }) }),
       );
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe("API_ERROR");
-      }
-    });
-
-    it("should pass fetch options to fetch", async () => {
-      const mockData = { id: 1 };
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        text: async () => JSON.stringify(mockData),
-      } as Response);
 
       await fetchJson("/api/users", {
         method: "POST",
@@ -272,128 +228,109 @@ describe("fetch helpers", () => {
         body: JSON.stringify({ name: "Alice" }),
       });
 
-      expect(global.fetch).toHaveBeenCalledWith("/api/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "Alice" }),
-      });
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/users",
+        expect.objectContaining({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "Alice" }),
+        }),
+      );
     });
 
     it("should work with URL object", async () => {
-      const mockData = { id: 1 };
       const url = new URL("/api/users/1", "https://example.com");
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        text: async () => JSON.stringify(mockData),
-      } as Response);
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({ body: JSON.stringify({ id: 1 }) }),
+      );
 
-      const result = await fetchJson<typeof mockData>(url);
+      const result = await fetchJson(url);
 
       expect(result.ok).toBe(true);
-      expect(global.fetch).toHaveBeenCalledWith(url, {});
-    });
-
-    it("should work with Request object", async () => {
-      const mockData = { id: 1 };
-      const request = new Request("https://example.com/api/users/1");
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        text: async () => JSON.stringify(mockData),
-      } as Response);
-
-      const result = await fetchJson<typeof mockData>(request);
-
-      expect(result.ok).toBe(true);
-      expect(global.fetch).toHaveBeenCalledWith(request, {});
+      expect(global.fetch).toHaveBeenCalledWith(url, expect.any(Object));
     });
   });
 
   // ===========================================================================
-  // fetchText Tests
+  // fetchText
   // ===========================================================================
 
   describe("fetchText", () => {
-    it("should return text on successful response", async () => {
-      const textData = "Hello, World!";
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        text: async () => textData,
-      } as Response);
+    it("should return text on success", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({ body: "Hello, World!" }),
+      );
 
       const result = await fetchText("/api/text");
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value).toBe(textData);
+        expect(result.value).toBe("Hello, World!");
       }
     });
 
-    it("should return error for non-2xx response", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 404,
-        statusText: "Not Found",
-        text: async () => "",
-      } as Response);
-
-      const result = await fetchText("/api/missing");
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe("NOT_FOUND");
-      }
-    });
-
-    it("should return NETWORK_ERROR when fetch rejects", async () => {
-      const networkError = new Error("Network error");
-      global.fetch = vi.fn().mockRejectedValue(networkError);
+    it("should return FetchHttpError for non-2xx", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({ status: 500, ok: false, statusText: "Internal Server Error", body: "error" }),
+      );
 
       const result = await fetchText("/api/text");
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe("NETWORK_ERROR");
+        const error = result.error as FetchHttpError;
+        expect(error._tag).toBe("FetchHttpError");
+        expect(error.status).toBe(500);
       }
     });
 
-    it("should use custom error mapper", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 500,
-        statusText: "Internal Server Error",
-        text: async () => "",
-      } as Response);
+    it("should return FetchNetworkError on rejection", async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error("Network error"));
 
-      const result = await fetchText<"CUSTOM_ERROR">("/api/text", {
-        error: "CUSTOM_ERROR" as const,
-      });
+      const result = await fetchText("/api/text");
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe("CUSTOM_ERROR");
+        expect((result.error as FetchNetworkError)._tag).toBe("FetchNetworkError");
+      }
+    });
+
+    it("should return FetchNetworkError when reading success body fails", async () => {
+      const cause = new Error("Text stream read failed");
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: new Headers(),
+        text: vi.fn().mockRejectedValue(cause),
+      } as unknown as Response);
+
+      const result = await fetchText("/api/text");
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        const error = result.error as FetchNetworkError;
+        expect(error._tag).toBe("FetchNetworkError");
+        expect(error.cause).toBe(cause);
       }
     });
   });
 
   // ===========================================================================
-  // fetchBlob Tests
+  // fetchBlob
   // ===========================================================================
 
   describe("fetchBlob", () => {
-    it("should return Blob on successful response", async () => {
+    it("should return Blob on success", async () => {
       const blobData = new Blob(["test"], { type: "text/plain" });
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         statusText: "OK",
-        blob: async () => blobData,
-      } as Response);
+        headers: new Headers(),
+        blob: vi.fn().mockResolvedValue(blobData),
+        text: vi.fn().mockResolvedValue("test"),
+      } as unknown as Response);
 
       const result = await fetchBlob("/api/blob");
 
@@ -403,48 +340,35 @@ describe("fetch helpers", () => {
       }
     });
 
-    it("should return error for non-2xx response", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 404,
-        statusText: "Not Found",
-        blob: async () => new Blob(),
-      } as Response);
+    it("should return FetchHttpError for non-2xx", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({ status: 404, ok: false, statusText: "Not Found", body: "" }),
+      );
 
       const result = await fetchBlob("/api/missing");
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe("NOT_FOUND");
-      }
-    });
-
-    it("should return NETWORK_ERROR when fetch rejects", async () => {
-      const networkError = new Error("Network error");
-      global.fetch = vi.fn().mockRejectedValue(networkError);
-
-      const result = await fetchBlob("/api/blob");
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe("NETWORK_ERROR");
+        expect((result.error as FetchHttpError)._tag).toBe("FetchHttpError");
       }
     });
   });
 
   // ===========================================================================
-  // fetchArrayBuffer Tests
+  // fetchArrayBuffer
   // ===========================================================================
 
   describe("fetchArrayBuffer", () => {
-    it("should return ArrayBuffer on successful response", async () => {
+    it("should return ArrayBuffer on success", async () => {
       const bufferData = new ArrayBuffer(8);
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         statusText: "OK",
-        arrayBuffer: async () => bufferData,
-      } as Response);
+        headers: new Headers(),
+        arrayBuffer: vi.fn().mockResolvedValue(bufferData),
+        text: vi.fn().mockResolvedValue(""),
+      } as unknown as Response);
 
       const result = await fetchArrayBuffer("/api/binary");
 
@@ -454,174 +378,561 @@ describe("fetch helpers", () => {
       }
     });
 
-    it("should return error for non-2xx response", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 404,
-        statusText: "Not Found",
-        arrayBuffer: async () => new ArrayBuffer(0),
-      } as Response);
-
-      const result = await fetchArrayBuffer("/api/missing");
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe("NOT_FOUND");
-      }
-    });
-
-    it("should return NETWORK_ERROR when fetch rejects", async () => {
-      const networkError = new Error("Network error");
-      global.fetch = vi.fn().mockRejectedValue(networkError);
-
-      const result = await fetchArrayBuffer("/api/binary");
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe("NETWORK_ERROR");
-      }
-    });
-  });
-
-  // ===========================================================================
-  // Error Mapping Tests
-  // ===========================================================================
-
-  describe("error mapping", () => {
-    it("should map all default status codes correctly", async () => {
-      const testCases: Array<{ status: number; expected: DefaultFetchError }> =
-        [
-          { status: 400, expected: "BAD_REQUEST" },
-          { status: 401, expected: "UNAUTHORIZED" },
-          { status: 403, expected: "FORBIDDEN" },
-          { status: 404, expected: "NOT_FOUND" },
-          { status: 500, expected: "SERVER_ERROR" },
-          { status: 502, expected: "SERVER_ERROR" },
-          { status: 503, expected: "SERVER_ERROR" },
-        ];
-
-      for (const { status, expected } of testCases) {
-        global.fetch = vi.fn().mockResolvedValue({
-          ok: false,
-          status,
-          statusText: "Error",
-          text: async () => "",
-        } as Response);
-
-        const result = await fetchJson("/api/test");
-
-        expect(result.ok).toBe(false);
-        if (!result.ok) {
-          expect(result.error).toBe(expected);
-        }
-      }
-    });
-
-    it("should pass response object to custom error mapper", async () => {
-      const mockResponse = {
-        ok: false,
-        status: 404,
-        statusText: "Not Found",
-        headers: new Headers({ "X-Custom": "value" }),
-        text: async () => "",
-      } as Response;
-
-      global.fetch = vi.fn().mockResolvedValue(mockResponse);
-
-      const errorMapper = vi.fn((status, response) => {
-        expect(response).toBe(mockResponse);
-        return "CUSTOM_ERROR" as const;
-      });
-
-      await fetchJson("/api/test", { error: errorMapper });
-
-      expect(errorMapper).toHaveBeenCalledWith(404, mockResponse);
-    });
-
-    it("should handle custom error mapper that returns different types", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 404,
-        statusText: "Not Found",
-        text: async () => "",
-      } as Response);
-
-      // Error mapper returning object
-      const result1 = await fetchJson<{ id: number }, { code: number }>(
-        "/api/test",
-        {
-          error: (status) => ({ code: status }),
-        }
+    it("should return FetchHttpError for non-2xx", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({ status: 403, ok: false, statusText: "Forbidden", body: "" }),
       );
 
-      expect(result1.ok).toBe(false);
-      if (!result1.ok) {
-        expect(result1.error).toEqual({ code: 404 });
-      }
+      const result = await fetchArrayBuffer("/api/protected");
 
-      // Error mapper returning number
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 500,
-        statusText: "Error",
-        text: async () => "",
-      } as Response);
-
-      const result2 = await fetchJson<{ id: number }, number>("/api/test", {
-        error: (status) => status,
-      });
-
-      expect(result2.ok).toBe(false);
-      if (!result2.ok) {
-        expect(result2.error).toBe(500);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect((result.error as FetchHttpError)._tag).toBe("FetchHttpError");
+        expect((result.error as FetchHttpError).status).toBe(403);
       }
     });
   });
 
   // ===========================================================================
-  // Integration Tests
+  // fetchResponse
   // ===========================================================================
 
-  describe("integration with workflows", () => {
-    it("should work with step() in workflows", async () => {
-      const mockData = { id: 1, name: "Alice" };
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        text: async () => JSON.stringify(mockData),
-      } as Response);
+  describe("fetchResponse", () => {
+    it("should return Response for 2xx status", async () => {
+      const resp = mockResponse({ body: "ok" });
+      global.fetch = vi.fn().mockResolvedValue(resp);
 
-      // Simulate workflow usage
-      const fetchUser = async () => {
-        return await fetchJson<typeof mockData>("/api/users/1");
-      };
-
-      const result = await fetchUser();
+      const result = await fetchResponse("/api/data");
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value).toEqual(mockData);
+        expect(result.value).toBe(resp);
       }
     });
 
-    it("should propagate errors correctly in workflows", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 404,
-        statusText: "Not Found",
-        text: async () => "",
-      } as Response);
+    it("should return Response for non-2xx status (no error checking)", async () => {
+      const resp = mockResponse({ status: 404, ok: false, statusText: "Not Found" });
+      global.fetch = vi.fn().mockResolvedValue(resp);
 
-      const fetchUser = async () => {
-        return await fetchJson<{ id: number }>("/api/users/999");
-      };
+      const result = await fetchResponse("/api/missing");
 
-      const result = await fetchUser();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe(resp);
+        expect(result.value.status).toBe(404);
+      }
+    });
+
+    it("should return FetchNetworkError on rejection", async () => {
+      const cause = new Error("Network error");
+      global.fetch = vi.fn().mockRejectedValue(cause);
+
+      const result = await fetchResponse("/api/data");
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe("NOT_FOUND");
+        const error = result.error as FetchNetworkError;
+        expect(error._tag).toBe("FetchNetworkError");
+        expect(error.cause).toBe(cause);
+      }
+    });
+  });
+
+  // ===========================================================================
+  // Timeout
+  // ===========================================================================
+
+  describe("timeout", () => {
+    it("should return FetchTimeoutError when request times out", async () => {
+      mockHangingFetch();
+
+      const result = await fetchJson("/api/slow", { timeoutMs: 10 });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        const error = result.error as FetchTimeoutError;
+        expect(error._tag).toBe("FetchTimeoutError");
+        expect(error.ms).toBe(10);
+      }
+    });
+
+    it("should succeed if response arrives before timeout", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({ body: JSON.stringify({ ok: true }) }),
+      );
+
+      const result = await fetchJson("/api/fast", { timeoutMs: 5000 });
+
+      expect(result.ok).toBe(true);
+    });
+
+    it("should work with fetchResponse", async () => {
+      mockHangingFetch();
+
+      const result = await fetchResponse("/api/slow", { timeoutMs: 10 });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect((result.error as FetchTimeoutError)._tag).toBe("FetchTimeoutError");
+      }
+    });
+  });
+
+  // ===========================================================================
+  // Abort
+  // ===========================================================================
+
+  describe("abort", () => {
+    it("should return FetchAbortError when user signal aborts", async () => {
+      mockHangingFetch();
+      const controller = new AbortController();
+
+      setTimeout(() => controller.abort("user cancelled"), 5);
+
+      const result = await fetchJson("/api/data", { signal: controller.signal });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        const error = result.error as FetchAbortError;
+        expect(error._tag).toBe("FetchAbortError");
+        expect(error.reason).toBe("user cancelled");
+      }
+    });
+
+    it("should return FetchAbortError for pre-aborted signal", async () => {
+      mockHangingFetch();
+      const controller = new AbortController();
+      controller.abort("already cancelled");
+
+      const result = await fetchJson("/api/data", { signal: controller.signal });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        const error = result.error as FetchAbortError;
+        expect(error._tag).toBe("FetchAbortError");
+        expect(error.reason).toBe("already cancelled");
+      }
+    });
+
+    it("should work with fetchResponse", async () => {
+      mockHangingFetch();
+      const controller = new AbortController();
+
+      setTimeout(() => controller.abort("cancelled"), 5);
+
+      const result = await fetchResponse("/api/data", { signal: controller.signal });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect((result.error as FetchAbortError)._tag).toBe("FetchAbortError");
+      }
+    });
+  });
+
+  // ===========================================================================
+  // Decode
+  // ===========================================================================
+
+  describe("decode", () => {
+    it("should return decoded value on success", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({ body: JSON.stringify({ name: "Alice", age: 30 }) }),
+      );
+
+      const decode = (raw: unknown) => {
+        const data = raw as { name: unknown; age: unknown };
+        if (typeof data.name !== "string") {
+          return err({ issues: [{ path: "name", expected: "string" }] });
+        }
+        return ok({ name: data.name, age: data.age });
+      };
+
+      const result = await fetchJson<{ name: string; age: unknown }>("/api/user", { decode });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toEqual({ name: "Alice", age: 30 });
+      }
+    });
+
+    it("should return FetchDecodeError when decode fails", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({ body: JSON.stringify({ name: 123 }) }),
+      );
+
+      const issues = [{ path: "name", expected: "string", got: "number" }];
+      const decode = (_raw: unknown) => err({ issues });
+
+      const result = await fetchJson("/api/user", { decode });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        const error = result.error as FetchDecodeError;
+        expect(error._tag).toBe("FetchDecodeError");
+        expect(error.issues).toEqual(issues);
+      }
+    });
+  });
+
+  // ===========================================================================
+  // errorBody
+  // ===========================================================================
+
+  describe("errorBody", () => {
+    it("should read JSON error body by default", async () => {
+      const errorPayload = { code: "USER_NOT_FOUND", message: "User not found" };
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({
+          status: 404,
+          ok: false,
+          statusText: "Not Found",
+          body: JSON.stringify(errorPayload),
+        }),
+      );
+
+      const result = await fetchJson("/api/users/999");
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        const error = result.error as FetchHttpError;
+        expect(error.body).toEqual(errorPayload);
+      }
+    });
+
+    it("should read text error body as fallback", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({
+          status: 500,
+          ok: false,
+          statusText: "Internal Server Error",
+          body: "Something went wrong",
+        }),
+      );
+
+      const result = await fetchJson("/api/error");
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        const error = result.error as FetchHttpError;
+        expect(error.body).toBe("Something went wrong");
+      }
+    });
+
+    it("should exclude body for empty error responses", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({
+          status: 404,
+          ok: false,
+          statusText: "Not Found",
+          body: "",
+        }),
+      );
+
+      const result = await fetchJson("/api/empty-error");
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        const error = result.error as FetchHttpError;
+        expect(error).not.toHaveProperty("body");
+      }
+    });
+
+    it("should use custom errorBody reader", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({
+          status: 422,
+          ok: false,
+          statusText: "Unprocessable Entity",
+          body: JSON.stringify({ errors: [{ field: "email", message: "invalid" }] }),
+        }),
+      );
+
+      type ApiError = { errors: Array<{ field: string; message: string }> };
+      const errorBody = async (res: Response): Promise<ApiError> => {
+        const text = await res.text();
+        return JSON.parse(text) as ApiError;
+      };
+
+      const result = await fetchJson("/api/validate", { errorBody });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        const error = result.error as FetchHttpError<ApiError>;
+        expect(error.body?.errors[0]).toEqual({ field: "email", message: "invalid" });
+      }
+    });
+  });
+
+  // ===========================================================================
+  // strictContentType
+  // ===========================================================================
+
+  describe("strictContentType", () => {
+    it("should return FetchParseError on content-type mismatch", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({
+          body: "<html>Not JSON</html>",
+          headers: { "content-type": "text/html" },
+        }),
+      );
+
+      const result = await fetchJson("/api/wrong-type", { strictContentType: true });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        const error = result.error as FetchParseError;
+        expect(error._tag).toBe("FetchParseError");
+        expect(error.text).toBe("<html>Not JSON</html>");
+      }
+    });
+
+    it("should succeed when content-type matches", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({
+          body: JSON.stringify({ ok: true }),
+          headers: { "content-type": "application/json; charset=utf-8" },
+        }),
+      );
+
+      const result = await fetchJson("/api/correct-type", { strictContentType: true });
+
+      expect(result.ok).toBe(true);
+    });
+
+    it("should accept application/problem+json as JSON content-type", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({
+          body: JSON.stringify({ type: "about:blank", title: "Not Found" }),
+          headers: { "content-type": "application/problem+json" },
+        }),
+      );
+
+      const result = await fetchJson("/api/problem", { strictContentType: true });
+
+      expect(result.ok).toBe(true);
+    });
+
+    it("should accept application/vnd.api+json as JSON content-type", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({
+          body: JSON.stringify({ data: [] }),
+          headers: { "content-type": "application/vnd.api+json" },
+        }),
+      );
+
+      const result = await fetchJson("/api/jsonapi", { strictContentType: true });
+
+      expect(result.ok).toBe(true);
+    });
+
+    it("should ignore content-type when not strict", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({
+          body: JSON.stringify({ ok: true }),
+          headers: { "content-type": "text/html" },
+        }),
+      );
+
+      const result = await fetchJson("/api/any-type");
+
+      expect(result.ok).toBe(true);
+    });
+  });
+
+  // ===========================================================================
+  // mapError
+  // ===========================================================================
+
+  describe("mapError", () => {
+    it("should map HTTP errors to custom domain errors", async () => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({
+          status: 404,
+          ok: false,
+          statusText: "Not Found",
+          body: JSON.stringify({ message: "not found" }),
+        }),
+      );
+
+      const mapError = (httpError: FetchHttpError) => ({
+        code: "USER_NOT_FOUND" as const,
+        status: httpError.status,
+      });
+
+      const result = await fetchJson("/api/users/999", { mapError });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toEqual({ code: "USER_NOT_FOUND", status: 404 });
+      }
+    });
+
+    it("should not affect non-HTTP errors", async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error("Network error"));
+
+      const mapError = (_httpError: FetchHttpError) => ({ code: "MAPPED" });
+
+      const result = await fetchJson("/api/data", { mapError });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        // Should be FetchNetworkError, not mapped
+        expect((result.error as FetchNetworkError)._tag).toBe("FetchNetworkError");
+      }
+    });
+
+    it("should evaluate retryOn against FetchHttpError before mapError (parity with other fetch helpers)", async () => {
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          mockResponse({
+            status: 500,
+            ok: false,
+            statusText: "Internal Server Error",
+            body: JSON.stringify({ message: "try again" }),
+          }),
+        )
+        .mockResolvedValueOnce(
+          mockResponse({
+            body: JSON.stringify({ ok: true }),
+          }),
+        );
+
+      const mapError = (_httpError: FetchHttpError) => ({
+        code: "MAPPED_HTTP_ERROR" as const,
+      });
+
+      const result = await fetchJson<
+        { ok: boolean },
+        unknown,
+        { code: "MAPPED_HTTP_ERROR" }
+      >("/api/retry-map-error", {
+        mapError,
+        retry: {
+          attempts: 2,
+          retryOn: (error) =>
+            typeof error === "object" &&
+            error !== null &&
+            "_tag" in error &&
+            (error as { _tag: unknown })._tag === "FetchHttpError",
+        },
+      });
+
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toEqual({ ok: true });
+      }
+    });
+  });
+
+  // ===========================================================================
+  // Signal composition
+  // ===========================================================================
+
+  describe("signal composition", () => {
+    it("should compose timeout with user signal", async () => {
+      mockHangingFetch();
+      const controller = new AbortController();
+
+      // Timeout at 10ms, don't abort user signal
+      const result = await fetchJson("/api/slow", {
+        timeoutMs: 10,
+        signal: controller.signal,
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        // Timeout should fire first
+        expect((result.error as FetchTimeoutError)._tag).toBe("FetchTimeoutError");
+      }
+    });
+
+    it("should return FetchAbortError when user aborts before timeout", async () => {
+      mockHangingFetch();
+      const controller = new AbortController();
+
+      // Abort immediately, timeout at 5000ms
+      setTimeout(() => controller.abort("user abort"), 1);
+
+      const result = await fetchJson("/api/data", {
+        timeoutMs: 5000,
+        signal: controller.signal,
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect((result.error as FetchAbortError)._tag).toBe("FetchAbortError");
+        expect((result.error as FetchAbortError).reason).toBe("user abort");
+      }
+    });
+
+    it("should respect pre-aborted signal on Request input", async () => {
+      mockHangingFetch();
+      const controller = new AbortController();
+      controller.abort("request aborted");
+      const request = new Request("https://example.com/api/data", {
+        signal: controller.signal,
+      });
+
+      const result = await fetchJson(request, { timeoutMs: 10 });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect((result.error as FetchAbortError)._tag).toBe("FetchAbortError");
+        expect((result.error as FetchAbortError).reason).toBe("request aborted");
+      }
+    });
+
+    it("should respect Request signal abort before timeout", async () => {
+      mockHangingFetch();
+      const controller = new AbortController();
+      const request = new Request("https://example.com/api/data", {
+        signal: controller.signal,
+      });
+
+      setTimeout(() => controller.abort("request abort"), 1);
+
+      const result = await fetchJson(request, { timeoutMs: 50 });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect((result.error as FetchAbortError)._tag).toBe("FetchAbortError");
+        expect((result.error as FetchAbortError).reason).toBe("request abort");
+      }
+    });
+
+    it("should allow overriding Request signal with null", async () => {
+      mockHangingFetch();
+      const controller = new AbortController();
+      controller.abort("request aborted");
+      const request = new Request("https://example.com/api/data", {
+        signal: controller.signal,
+      });
+
+      const result = await fetchJson(request, { signal: null, timeoutMs: 10 });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect((result.error as FetchTimeoutError)._tag).toBe("FetchTimeoutError");
+        expect((result.error as FetchTimeoutError).ms).toBe(10);
+      }
+    });
+
+    it("should preserve Request signal when init.signal is undefined", async () => {
+      mockHangingFetch();
+      const controller = new AbortController();
+      controller.abort("request aborted");
+      const request = new Request("https://example.com/api/data", {
+        signal: controller.signal,
+      });
+
+      const result = await fetchJson(request, { signal: undefined, timeoutMs: 10 });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect((result.error as FetchAbortError)._tag).toBe("FetchAbortError");
+        expect((result.error as FetchAbortError).reason).toBe("request aborted");
       }
     });
   });

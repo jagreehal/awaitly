@@ -14,9 +14,9 @@
  * });
  *
  * const result = await runSaga(bookingWorkflow, async ({ step }) => {
- *   const flight = await step('reserveFlight', flightDetails);
- *   const hotel = await step('reserveHotel', hotelDetails);
- *   const payment = await step('chargeCard', paymentDetails);
+ *   const flight = await step('reserveFlight', () => reserveFlight(flightDetails));
+ *   const hotel = await step('reserveHotel', () => reserveHotel(hotelDetails));
+ *   const payment = await step('chargeCard', () => chargeCard(paymentDetails));
  *   return { flight, hotel, payment };
  * });
  * // If chargeCard fails, reserveHotel and reserveFlight are automatically compensated

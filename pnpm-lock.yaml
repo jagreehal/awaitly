@@ -206,6 +206,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.0.18
         version: 4.0.18(vitest@4.0.18(@types/node@25.2.3)(jiti@2.6.1)(jsdom@28.0.0)(lightningcss@1.30.2)(yaml@2.8.2))
+      eslint-plugin-awaitly:
+        specifier: workspace:*
+        version: link:../eslint-plugin-awaitly
       pino:
         specifier: ^10.3.1
         version: 10.3.1

@@ -214,6 +214,33 @@ export function fetchText<TError = DefaultFetchError>(
 
 This DRY approach means bug fixes and improvements happen in one place.
 
+### Behavior of the awaitly/fetch module
+
+The real `awaitly/fetch` module (`fetchJson`, `fetchText`, `fetchBlob`, `fetchArrayBuffer`) follows the same pattern but uses typed errors and matches standard fetch semantics:
+
+**Typing**
+
+- You can pass your own generic for the success type: `fetchJson<MyType>(url)` so the result is `AsyncResult<MyType | null, ...>`. Use the optional `decode` option to validate at runtime (e.g. with Zod) and get a typed `T`.
+
+**Signal and Request**
+
+- Options extend `RequestInit`, so you can pass standard fetch options (`method`, `headers`, `body`, `cache`, etc.) as well as awaitly’s `signal` and `timeoutMs`.
+- When the URL is a `Request` that already has a `signal`: only **explicit `signal: null`** clears it (disconnects from the request’s abort). Passing `signal: undefined` or omitting `signal` preserves the request’s signal. This matches standard fetch behavior.
+- `timeoutMs` composes with the chosen signal (internal timeout that aborts the request).
+
+**AsyncResult contract (no throws)**
+
+- All failures are returned as `err(...)`, never thrown:
+  - **fetchJson**: network/abort/timeout → `FetchNetworkError` / `FetchAbortError` / `FetchTimeoutError`; HTTP non-2xx → `FetchHttpError`; body read failure or invalid JSON → `FetchParseError`; decode failure → `FetchDecodeError`.
+  - **fetchText**, **fetchBlob**, **fetchArrayBuffer**: body read failures (e.g. stream error) → `FetchNetworkError`; other failures as above.
+
+So reading the success body (e.g. `response.text()`) never escapes as a thrown promise; it is always turned into a typed error result.
+
+**Resilience**
+
+- You can pass **`retry`** in options to get retries without using a step: same backoff and `retryOn` semantics as `step.retry`. Use a number for attempts only (`retry: 3`) or a full `RetryOptions` object (`retry: { attempts: 3, retryOn: (err) => ... }`). Default: no retry. So `import { fetchJson } from 'awaitly/fetch'` gives you a super-powered fetch (no throw, typed errors, timeout, signal, optional retry) in one place.
+- If you use workflows, you can still combine with `step.retry` when you want step-level retry; the fetch `retry` option is for when you’re not in a step.
+
 ### Step 6: Add to Build (Library Authors)
 
 If you're contributing to awaitly or building a plugin, add your entry point to the build:

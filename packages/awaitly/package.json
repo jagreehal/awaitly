@@ -219,6 +219,7 @@
     "@types/node": "^25.2.3",
     "@types/picomatch": "^4.0.2",
     "@vitest/coverage-v8": "^4.0.18",
+    "eslint-plugin-awaitly": "workspace:*",
     "pino": "^10.3.1",
     "tsd": "^0.33.0",
     "tsup": "^8.5.1",

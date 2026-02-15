@@ -13,7 +13,7 @@
  *   .pipe(Schedule.andThen(Schedule.spaced(Duration.minutes(1))))
  *
  * // Use with workflows
- * const result = await step(fetchData, { schedule })
+ * const result = await step('fetchData', () => fetchData(), { schedule })
  * ```
  */
 

@@ -133,6 +133,18 @@ describe('require-thunk-for-key', () => {
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
+
+    it('allows step.andThen with function and key', () => {
+      const code = `step.andThen('enrich', user, (u) => enrichUser(u), { key: 'enrich:1' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows step.map with mapper function and key', () => {
+      const code = `step.map('fetchUsers', userIds, (id) => fetchUser(id), { key: 'users:1' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
   });
 
   describe('invalid cases', () => {
@@ -183,6 +195,20 @@ describe('require-thunk-for-key', () => {
 
     it('reports step.run with key and immediate call (second arg)', () => {
       const code = `step.run('fetchUser', fetchUser('1'), { key: 'user:1' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-thunk-for-key');
+    });
+
+    it('reports step.andThen with key and immediate call (third arg)', () => {
+      const code = `step.andThen('enrich', user, enrichUser(config), { key: 'enrich:1' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-thunk-for-key');
+    });
+
+    it('reports step.map with key and immediate call (third arg)', () => {
+      const code = `step.map('fetchUsers', userIds, createMapper(), { key: 'users:1' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
       expect(messages[0].ruleId).toBe('awaitly/require-thunk-for-key');

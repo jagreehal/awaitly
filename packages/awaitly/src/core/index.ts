@@ -2130,6 +2130,63 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const DEFAULT_RETRY_ASYNC_CONFIG = {
+  backoff: "exponential" as BackoffStrategy,
+  initialDelay: 100,
+  maxDelay: 30000,
+  jitter: true,
+  retryOn: (_error: unknown, _attempt: number) => true,
+  onRetry: (_error: unknown, _attempt: number, _delayMs: number) => {},
+} as const;
+
+/**
+ * Run an async function with retry. Reuses the same backoff and retryOn semantics as step.retry.
+ * Use this when you want retries without the workflow/step machinery (e.g. in fetch).
+ *
+ * @param fn - Function that returns a Promise<Result<T, E>>
+ * @param options - Retry configuration (attempts, backoff, retryOn, etc.)
+ * @returns Promise that resolves to the last Result (ok or err). Rejects only if fn throws and retryOn returns false.
+ */
+export async function retryAsync<T, E>(
+  fn: () => Promise<Result<T, E>>,
+  options: RetryOptions
+): Promise<Result<T, E>> {
+  const attempts = Math.max(1, options.attempts);
+  const effective = {
+    backoff: options.backoff ?? DEFAULT_RETRY_ASYNC_CONFIG.backoff,
+    initialDelay: options.initialDelay ?? DEFAULT_RETRY_ASYNC_CONFIG.initialDelay,
+    maxDelay: options.maxDelay ?? DEFAULT_RETRY_ASYNC_CONFIG.maxDelay,
+    jitter: options.jitter ?? DEFAULT_RETRY_ASYNC_CONFIG.jitter,
+    retryOn: options.retryOn ?? DEFAULT_RETRY_ASYNC_CONFIG.retryOn,
+    onRetry: options.onRetry ?? DEFAULT_RETRY_ASYNC_CONFIG.onRetry,
+  };
+
+  let lastResult: Result<T, E> | undefined;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const result = await fn();
+      if (result.ok) return result;
+      lastResult = result;
+      if (attempt < attempts && effective.retryOn(result.error, attempt)) {
+        const delay = calculateRetryDelay(attempt, effective);
+        effective.onRetry(result.error, attempt, delay);
+        await sleep(delay);
+        continue;
+      }
+      return result;
+    } catch (thrown) {
+      if (attempt < attempts && effective.retryOn(thrown, attempt)) {
+        const delay = calculateRetryDelay(attempt, effective);
+        effective.onRetry(thrown, attempt, delay);
+        await sleep(delay);
+        continue;
+      }
+      throw thrown;
+    }
+  }
+  return lastResult!;
+}
+
 /**
  * Symbol used internally to identify timeout rejection.
  */

@@ -8,6 +8,7 @@ import noFloatingResult from './rules/no-floating-result.js';
 import requireResultHandling from './rules/require-result-handling.js';
 import noOptionsOnExecutor from './rules/no-options-on-executor.js';
 import noDoubleWrapResult from './rules/no-double-wrap-result.js';
+import noDynamicImport from './rules/no-dynamic-import.js';
 
 const rules = {
   'no-immediate-execution': noImmediateExecution,
@@ -19,6 +20,7 @@ const rules = {
   'require-result-handling': requireResultHandling,
   'no-options-on-executor': noOptionsOnExecutor,
   'no-double-wrap-result': noDoubleWrapResult,
+  'no-dynamic-import': noDynamicImport,
 };
 
 const configs: Record<string, Linter.Config[]> = {
@@ -37,6 +39,7 @@ const configs: Record<string, Linter.Config[]> = {
         'awaitly/require-result-handling': 'warn',
         'awaitly/no-options-on-executor': 'error',
         'awaitly/no-double-wrap-result': 'error',
+        'awaitly/no-dynamic-import': 'error',
       },
     },
   ],

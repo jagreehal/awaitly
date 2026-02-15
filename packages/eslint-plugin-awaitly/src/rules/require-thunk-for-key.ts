@@ -16,15 +16,14 @@ import type { CallExpression, MemberExpression, ObjectExpression, Property, Iden
  * GOOD: step(fetchUser, { key: 'user:1' }) - fetchUser is a function reference (thunk)
  */
 
-const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'run']);
+const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'run', 'andThen', 'map']);
 
-function isStepCall(node: CallExpression): boolean {
+// Methods where the executor/function argument is at index 2 (3rd arg) instead of index 1 (2nd arg)
+// Note: step.match is excluded - its 3rd arg is a handlers object, not an executor
+const EXECUTOR_AT_INDEX_2 = new Set(['andThen', 'map']);
+
+function getStepMethodName(node: CallExpression): string | null {
   const { callee } = node;
-
-  if (callee.type === 'Identifier' && callee.name === 'step') {
-    return true;
-  }
-
   if (callee.type === 'MemberExpression') {
     const { object, property } = callee as MemberExpression;
     if (
@@ -33,11 +32,16 @@ function isStepCall(node: CallExpression): boolean {
       property.type === 'Identifier' &&
       STEP_METHODS.has(property.name)
     ) {
-      return true;
+      return property.name;
     }
   }
+  return null;
+}
 
-  return false;
+function isStepCall(node: CallExpression): boolean {
+  const { callee } = node;
+  if (callee.type === 'Identifier' && callee.name === 'step') return true;
+  return getStepMethodName(node) !== null;
 }
 
 function isThunk(node: unknown): boolean {
@@ -321,6 +325,8 @@ const rule: Rule.RuleModule = {
 
         // Determine which argument is the executor based on API pattern
         // step('id', executor, options?) - first arg is string literal, executor is second
+        // step.andThen('id', value, fn, options?) - executor at index 2
+        // step.map('id', items, mapper, options?) - executor at index 2
         // Legacy: step(executor, options) - first arg is the executor
         const args = node.arguments;
         let executorArg = args[0];
@@ -328,7 +334,8 @@ const rule: Rule.RuleModule = {
 
         const hasExplicitId = isStringLiteral(args[0]);
         if (hasExplicitId) {
-          executorArg = args[1];
+          const methodName = getStepMethodName(node);
+          executorArg = methodName && EXECUTOR_AT_INDEX_2.has(methodName) ? args[2] : args[1];
           if (!executorArg) return;
         }
 

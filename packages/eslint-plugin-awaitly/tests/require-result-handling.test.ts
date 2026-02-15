@@ -174,6 +174,24 @@ describe('require-result-handling', () => {
       expect(messages).toHaveLength(1);
     });
 
+    it('reports .value access without .ok check from step.allSettled()', () => {
+      const code = `
+        const result = await step.allSettled('fetchAll', () => allSettledAsync([fetchA(), fetchB()]));
+        console.log(result.value);
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+    });
+
+    it('reports .value access without .ok check from step.all()', () => {
+      const code = `
+        const result = await step.all('fetchAll', { a: () => fetchA(), b: () => fetchB() });
+        console.log(result.value);
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+    });
+
     it('reports multiple unsafe accesses', () => {
       const code = `
         const result = await run(async ({ step }) => 42);

@@ -926,7 +926,7 @@ export function createSagaHarness<
         // Use the base harness step mechanism
         try {
           const result = await (baseHarness as unknown as { run: (fn: (context: { step: MockStep<E>; deps: Deps }) => Promise<StepT>) => Promise<Result<StepT, E | unknown>> }).run(
-            async ({ step }) => step(operation)
+            async ({ step }) => step('saga-step', operation)
           );
 
           if (!result.ok) {

@@ -131,12 +131,12 @@ function emitSkipped<C = unknown>(
  * @example
  * ```typescript
  * const result = await workflow(async ({ step }) => {
- *   const user = await step(fetchUser(id));
+ *   const user = await step('fetchUser', () => fetchUser(id));
  *
  *   // Only runs if user is premium
  *   const premium = await when(
  *     user.isPremium,
- *     () => step(() => fetchPremiumData(user.id), { name: 'premium-data' }),
+ *     () => step('fetchPremiumData', () => fetchPremiumData(user.id)),
  *     { name: 'check-premium', reason: 'User is not premium' }
  *   );
  *
