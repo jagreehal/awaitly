@@ -1,5 +1,19 @@
 # awaitly-analyze
 
+## 0.16.0
+
+### Minor Changes
+
+- 2fae4a4: - Add render-md-mermaid GitHub workflow and tests
+  - Add payment flow diagram fixture and tests
+  - Update docs, DSL, HTML, and Mermaid output; static analyzer and types
+
+### Patch Changes
+
+- Updated dependencies [2fae4a4]
+  - awaitly-visualizer@16.0.0
+  - awaitly@1.27.0
+
 ## 0.15.0
 
 ### Minor Changes
