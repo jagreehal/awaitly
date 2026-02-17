@@ -1,5 +1,13 @@
 # awaitly
 
+## 1.27.0
+
+### Minor Changes
+
+- 2fae4a4: - Add render-md-mermaid GitHub workflow and tests
+  - Add payment flow diagram fixture and tests
+  - Update docs, DSL, HTML, and Mermaid output; static analyzer and types
+
 ## 1.26.0
 
 ### Minor Changes
