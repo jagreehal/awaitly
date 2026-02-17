@@ -243,7 +243,7 @@ function truncate(str: string, maxLen: number): string {
  */
 function generateSimpleMermaid(ir: StaticWorkflowIR): string {
   const lines: string[] = [];
-  lines.push("flowchart TB");
+  lines.push("flowchart TD");
 
   const steps = collectSteps(ir.root.children);
 

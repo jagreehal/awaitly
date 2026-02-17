@@ -27,14 +27,18 @@ import {
 // =============================================================================
 
 export interface MermaidOptions {
-  /** Diagram direction: TB (top-bottom), LR (left-right), etc. */
-  direction?: "TB" | "LR" | "BT" | "RL";
+  /** Diagram direction: TD/TB (top-down), LR (left-right), etc. */
+  direction?: "TD" | "TB" | "LR" | "BT" | "RL";
   /** Show step keys in labels */
   showKeys?: boolean;
   /** Show condition labels on edges */
   showConditions?: boolean;
   /** Use subgraphs for parallel/race blocks */
   useSubgraphs?: boolean;
+  /** Show inline error exit nodes on main flow for steps with declared errors */
+  showInlineErrors?: boolean;
+  /** Expand retry steps into separate retry logic nodes */
+  expandRetry?: boolean;
   /** Custom node styles */
   styles?: MermaidStyles;
 }
@@ -51,13 +55,17 @@ export interface MermaidStyles {
   workflowRef?: string;
   start?: string;
   end?: string;
+  errorExit?: string;
+  retryLogic?: string;
 }
 
 const DEFAULT_OPTIONS: Required<MermaidOptions> = {
-  direction: "TB",
+  direction: "TD",
   showKeys: false,
   showConditions: true,
   useSubgraphs: true,
+  showInlineErrors: false,
+  expandRetry: false,
   styles: {
     step: "fill:#e1f5fe,stroke:#01579b",
     sagaStep: "fill:#e8eaf6,stroke:#1a237e",
@@ -70,6 +78,8 @@ const DEFAULT_OPTIONS: Required<MermaidOptions> = {
     workflowRef: "fill:#e0f2f1,stroke:#004d40",
     start: "fill:#c8e6c9,stroke:#2e7d32",
     end: "fill:#ffcdd2,stroke:#c62828",
+    errorExit: "fill:#ffcdd2,stroke:#c62828,stroke-width:2px",
+    retryLogic: "fill:#fff3e0,stroke:#e65100",
   },
 };
 
@@ -78,19 +88,22 @@ const DEFAULT_OPTIONS: Required<MermaidOptions> = {
 // =============================================================================
 
 /**
- * Generate a Mermaid flowchart from static workflow IR.
+ * Internal: render the static Mermaid flowchart and return structured result
+ * for reuse by renderEnhancedMermaid.
  */
-export function renderStaticMermaid(
+function renderStaticMermaidInternal(
   ir: StaticWorkflowIR,
-  options: MermaidOptions = {}
-): string {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
+  opts: Required<MermaidOptions>,
+  stepLabelAnnotations?: Map<string, string[]>
+): { lines: string[]; context: RenderContext } {
   const context: RenderContext = {
     opts,
     nodeCounter: 0,
     edges: [],
     subgraphs: [],
     styleClasses: new Map(),
+    stepIdMap: new Map(),
+    stepLabelAnnotations,
   };
 
   const lines: string[] = [];
@@ -162,6 +175,12 @@ export function renderStaticMermaid(
   lines.push(`  classDef workflowRefStyle ${opts.styles.workflowRef}`);
   lines.push(`  classDef startStyle ${opts.styles.start}`);
   lines.push(`  classDef endStyle ${opts.styles.end}`);
+  if (opts.showInlineErrors) {
+    lines.push(`  classDef errorExitStyle ${opts.styles.errorExit}`);
+  }
+  if (opts.expandRetry) {
+    lines.push(`  classDef retryLogicStyle ${opts.styles.retryLogic}`);
+  }
 
   // Apply styles
   lines.push(`  class ${startId} startStyle`);
@@ -171,6 +190,18 @@ export function renderStaticMermaid(
     lines.push(`  class ${nodeId} ${styleClass}`);
   }
 
+  return { lines, context };
+}
+
+/**
+ * Generate a Mermaid flowchart from static workflow IR.
+ */
+export function renderStaticMermaid(
+  ir: StaticWorkflowIR,
+  options: MermaidOptions = {}
+): string {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const { lines } = renderStaticMermaidInternal(ir, opts);
   return lines.join("\n");
 }
 
@@ -184,6 +215,10 @@ interface RenderContext {
   edges: Edge[];
   subgraphs: Subgraph[];
   styleClasses: Map<string, string>;
+  /** Map from IR stepId to mermaid node ID (for overlay features) */
+  stepIdMap: Map<string, string>;
+  /** Optional label annotations appended to step labels (stepId -> annotation lines) */
+  stepLabelAnnotations?: Map<string, string[]>;
 }
 
 interface Edge {
@@ -290,6 +325,33 @@ function renderNode(
   }
 }
 
+/**
+ * Step kind suffix for Mermaid label from callee and node metadata.
+ * Returns empty string if callee is not a known step.* helper.
+ */
+function getStepKindSuffix(node: StaticStepNode): string {
+  const callee = node.callee;
+  if (!callee) return "";
+  if (callee === "step.sleep") {
+    return node.sleepDuration ? ` (Sleep: ${node.sleepDuration})` : " (Sleep)";
+  }
+  if (callee === "step.retry") {
+    const attempts = node.retry?.attempts;
+    return attempts != null && attempts !== "<dynamic>" ? ` (Retry: ${attempts})` : " (Retry)";
+  }
+  if (callee === "step.withTimeout") {
+    const ms = node.timeout?.ms;
+    return ms != null && ms !== "<dynamic>" ? ` (Timeout: ${ms}ms)` : " (Timeout)";
+  }
+  if (callee === "step.try") return " (Try)";
+  if (callee === "step.fromResult") return " (FromResult)";
+  if (callee === "step.run") return " (Run)";
+  if (callee === "step.andThen") return " (AndThen)";
+  if (callee === "step.match") return " (Match)";
+  if (callee === "step.map") return " (Map)";
+  return "";
+}
+
 function renderStepNode(
   node: StaticStepNode,
   context: RenderContext,
@@ -298,24 +360,112 @@ function renderStepNode(
   const nodeId = `step_${++context.nodeCounter}`;
   let label = node.name ?? (node.callee ? extractFunctionName(node.callee) : "step");
 
+  // Determine if retry should be expanded into a separate node
+  const isRetryStep =
+    node.callee === "step.retry" ||
+    (!node.callee?.startsWith("step.") && node.retry);
+  const shouldExpandRetry = context.opts.expandRetry && isRetryStep && node.retry;
+
+  const kindSuffix = getStepKindSuffix(node);
+  if (shouldExpandRetry) {
+    // When expanding retry, don't add retry suffix to the step label
+    // Strip retry suffix from kind suffix if present
+    if (kindSuffix && !kindSuffix.includes("Retry")) {
+      label += kindSuffix;
+    }
+  } else if (kindSuffix) {
+    label += kindSuffix;
+  } else {
+    // When callee is a regular step() with retry/timeout options
+    if (node.retry) {
+      const attempts = node.retry.attempts;
+      label += attempts != null && attempts !== "<dynamic>" ? ` (Retry: ${attempts})` : " (Retry)";
+    }
+    if (node.timeout) {
+      const ms = node.timeout.ms;
+      label += ms != null && ms !== "<dynamic>" ? ` (Timeout: ${ms}ms)` : " (Timeout)";
+    }
+  }
+
   if (context.opts.showKeys && node.key) {
     label = `${label}\\n[${node.key}]`;
   }
 
-  // Add retry/timeout indicators
-  if (node.retry) {
-    label += "\\n(retry)";
-  }
-  if (node.timeout) {
-    label += "\\n(timeout)";
+  if (node.depSource) {
+    label += `\\n(dep: ${node.depSource})`;
   }
 
-  lines.push(`  ${nodeId}[${escapeLabel(label)}]`);
+  // Apply label annotations from enhanced renderer (data flow, errors)
+  if (context.stepLabelAnnotations && node.stepId) {
+    const annotations = context.stepLabelAnnotations.get(node.stepId);
+    if (annotations) {
+      for (const annotation of annotations) {
+        label += `\\n${annotation}`;
+      }
+    }
+  }
+
+  lines.push(`  ${nodeId}["${escapeLabel(label)}"]`);
   context.styleClasses.set(nodeId, "stepStyle");
+
+  // Track step ID -> mermaid node ID for overlay features
+  if (node.stepId) {
+    context.stepIdMap.set(node.stepId, nodeId);
+  }
+
+  // Track the last node IDs that continue the normal flow
+  let lastNodeIds: string[] = [nodeId];
+
+  // Expand retry into a separate retry logic node
+  if (shouldExpandRetry) {
+    const retryId = `retry_${context.nodeCounter}`;
+    const attempts = node.retry!.attempts;
+    const retryLabel =
+      attempts != null && attempts !== "<dynamic>"
+        ? `Retry Logic (${attempts} attempts)`
+        : "Retry Logic";
+    lines.push(`  ${retryId}{"${escapeLabel(retryLabel)}"}`);
+    context.styleClasses.set(retryId, "retryLogicStyle");
+
+    // Step connects to retry node
+    context.edges.push({ from: nodeId, to: retryId });
+
+    // Retry node has two outcomes
+    const retrySuccessId = `retry_ok_${context.nodeCounter}`;
+    lines.push(`  ${retrySuccessId}["Success"]`);
+    context.styleClasses.set(retrySuccessId, "stepStyle");
+    context.edges.push({ from: retryId, to: retrySuccessId, label: "Success" });
+
+    // "Retries Exhausted" terminal node
+    const retryFailId = `retry_fail_${context.nodeCounter}`;
+    lines.push(`  ${retryFailId}["Retries Exhausted"]`);
+    context.styleClasses.set(retryFailId, "errorExitStyle");
+    context.edges.push({
+      from: retryId,
+      to: retryFailId,
+      label: "Retries Exhausted",
+    });
+
+    lastNodeIds = [retrySuccessId];
+  }
+
+  // Inline error exit nodes for steps with declared errors
+  if (context.opts.showInlineErrors && node.errors && node.errors.length > 0) {
+    for (const errorName of node.errors) {
+      const errNodeId = `err_${nodeId}_${sanitizeId(errorName)}`;
+      lines.push(`  ${errNodeId}["${escapeLabel(errorName)}"]`);
+      context.styleClasses.set(errNodeId, "errorExitStyle");
+      context.edges.push({
+        from: nodeId,
+        to: errNodeId,
+        label: errorName,
+      });
+    }
+  }
 
   return {
     firstNodeId: nodeId,
-    lastNodeIds: [nodeId],
+    lastNodeIds,
   };
 }
 
@@ -338,7 +488,7 @@ function renderSagaStepNode(
     label += "\\n(try)";
   }
 
-  lines.push(`  ${nodeId}[${escapeLabel(label)}]`);
+  lines.push(`  ${nodeId}["${escapeLabel(label)}"]`);
   context.styleClasses.set(nodeId, "sagaStepStyle");
 
   return {
@@ -355,7 +505,7 @@ function renderStreamNode(
   const nodeId = `stream_${++context.nodeCounter}`;
   const label = node.namespace ? `stream:${node.namespace}` : `stream:${node.streamType}`;
 
-  lines.push(`  ${nodeId}[/${escapeLabel(label)}/]`);
+  lines.push(`  ${nodeId}[/"${escapeLabel(label)}"/]`);
   context.styleClasses.set(nodeId, "streamStyle");
 
   return {
@@ -381,9 +531,10 @@ function renderParallelNode(
   const joinId = `parallel_join_${++context.nodeCounter}`;
 
   // Fork node (diamond shape for parallel) - include name if present
+  const modeLabel = node.mode === "allSettled" ? "AllSettled" : node.mode;
   const parallelLabel = node.name
-    ? `${escapeLabel(node.name)} (${node.mode})`
-    : `Parallel (${node.mode})`;
+    ? `${escapeLabel(node.name)} (${modeLabel})`
+    : `Parallel (${modeLabel})`;
   lines.push(`  ${forkId}{{"${parallelLabel}"}}`);
   context.styleClasses.set(forkId, "parallelStyle");
 
@@ -469,7 +620,7 @@ function renderConditionalNode(
 
   // Decision diamond
   const conditionLabel = truncate(node.condition, 30);
-  lines.push(`  ${decisionId}{${escapeLabel(conditionLabel)}}`);
+  lines.push(`  ${decisionId}{"${escapeLabel(conditionLabel)}"}`);
   context.styleClasses.set(decisionId, "conditionalStyle");
 
   const lastNodeIds: string[] = [];
@@ -522,10 +673,18 @@ function renderDecisionNode(
 
   // Decision diamond - use conditionLabel for better readability
   const label = node.conditionLabel || truncate(node.condition, 30);
-  lines.push(`  ${nodeId}{${escapeLabel(label)}}`);
+  lines.push(`  ${nodeId}{"${escapeLabel(label)}"}`);
   context.styleClasses.set(nodeId, "conditionalStyle");
 
   const lastNodeIds: string[] = [];
+
+  // Determine semantic edge labels from conditionLabel
+  const hasSemanticLabel =
+    node.conditionLabel && node.conditionLabel !== "<dynamic>";
+  const trueBranchLabel = hasSemanticLabel ? node.conditionLabel : "true";
+  const falseBranchLabel = hasSemanticLabel
+    ? `Not ${node.conditionLabel}`
+    : "false";
 
   // True/consequent branch
   const trueResult = renderNodes(node.consequent, context, lines);
@@ -533,7 +692,7 @@ function renderDecisionNode(
     context.edges.push({
       from: nodeId,
       to: trueResult.firstNodeId,
-      label: "true",
+      label: trueBranchLabel,
     });
     lastNodeIds.push(...trueResult.lastNodeIds);
   }
@@ -545,7 +704,7 @@ function renderDecisionNode(
       context.edges.push({
         from: nodeId,
         to: falseResult.firstNodeId,
-        label: "false",
+        label: falseBranchLabel,
       });
       lastNodeIds.push(...falseResult.lastNodeIds);
     }
@@ -569,7 +728,7 @@ function renderSwitchNode(
 
   // Switch diamond
   const exprLabel = truncate(node.expression, 30);
-  lines.push(`  ${switchId}{${escapeLabel(`switch: ${exprLabel}`)}}`);
+  lines.push(`  ${switchId}{"${escapeLabel(`switch: ${exprLabel}`)}"}`);
   context.styleClasses.set(switchId, "switchStyle");
 
   const lastNodeIds: string[] = [];
@@ -615,7 +774,7 @@ function renderLoopNode(
   const loopLabel = node.iterSource
     ? `${node.loopType}: ${truncate(node.iterSource, 20)}`
     : node.loopType;
-  lines.push(`  ${loopStartId}([${escapeLabel(loopLabel)}])`);
+  lines.push(`  ${loopStartId}(["${escapeLabel(loopLabel)}"])`);
   context.styleClasses.set(loopStartId, "loopStyle");
 
   // Loop body
@@ -631,7 +790,7 @@ function renderLoopNode(
   }
 
   // Loop end check
-  lines.push(`  ${loopEndId}([Continue?])`);
+  lines.push(`  ${loopEndId}(["Continue?"])`);
   context.styleClasses.set(loopEndId, "loopStyle");
 
   // Connect body end to loop check
@@ -823,77 +982,57 @@ const DEFAULT_ENHANCED_OPTIONS: EnhancedMermaidOptions = {
 
 /**
  * Generate an enhanced Mermaid diagram with data flow and error annotations.
+ * Uses renderStaticMermaid as the base and overlays data-flow edges and
+ * error annotations from the error-flow analyzer.
  */
 export function renderEnhancedMermaid(
   ir: StaticWorkflowIR,
   options: EnhancedMermaidOptions = {}
 ): string {
   const opts = { ...DEFAULT_ENHANCED_OPTIONS, ...options };
-  const lines: string[] = [];
 
   // Build data flow and error analysis
   const dataFlow = buildDataFlowGraph(ir);
   const errorFlow = analyzeErrorFlow(ir);
 
-  // Flowchart header
-  lines.push(`flowchart ${opts.direction}`);
-  lines.push("");
-  lines.push(`  %% Enhanced Workflow: ${ir.root.workflowName}`);
-  lines.push("");
-
-  // Start node
-  lines.push("  start((Start))");
-  lines.push("");
-
-  // Render all steps with enhanced info
-  lines.push("  %% Steps");
-  const stepIdMap = new Map<string, string>(); // stepId -> mermaid node id
-  let nodeCounter = 0;
-
+  // Build step label annotations from data flow and error analysis
+  const stepLabelAnnotations = new Map<string, string[]>();
   for (const stepError of errorFlow.stepErrors) {
-    const mermaidId = `step_${++nodeCounter}`;
-    stepIdMap.set(stepError.stepId, mermaidId);
+    const annotations: string[] = [];
 
-    // Build label with optional error annotations
-    let label = stepError.stepName ?? stepError.stepId;
-
-    // Add out annotation for data flow
+    // Data flow annotation
     if (opts.showDataFlow) {
       const dataNode = dataFlow.nodes.find(n => n.id === stepError.stepId);
       if (dataNode?.writes) {
-        label += `\\nout: ${dataNode.writes}`;
+        annotations.push(`out: ${dataNode.writes}`);
       }
     }
 
-    // Add error annotations
+    // Error annotation
     if (opts.showErrors && stepError.errors.length > 0) {
       const errorList = stepError.errors.slice(0, 2).join(", ");
       const suffix = stepError.errors.length > 2 ? "..." : "";
-      label += `\\nerrors: ${errorList}${suffix}`;
+      annotations.push(`errors: ${errorList}${suffix}`);
     }
 
-    lines.push(`  ${mermaidId}["${escapeLabel(label)}"]`);
-  }
-
-  // End node
-  lines.push("");
-  lines.push("  end_node((End))");
-  lines.push("");
-
-  // Control flow edges (sequential order for now)
-  lines.push("  %% Control Flow");
-  const stepIds = Array.from(stepIdMap.keys());
-  if (stepIds.length > 0) {
-    lines.push(`  start --> ${stepIdMap.get(stepIds[0])}`);
-    for (let i = 0; i < stepIds.length - 1; i++) {
-      lines.push(`  ${stepIdMap.get(stepIds[i])} --> ${stepIdMap.get(stepIds[i + 1])}`);
+    if (annotations.length > 0) {
+      stepLabelAnnotations.set(stepError.stepId, annotations);
     }
-    lines.push(`  ${stepIdMap.get(stepIds[stepIds.length - 1])} --> end_node`);
-  } else {
-    lines.push("  start --> end_node");
   }
 
-  // Data flow edges
+  // Use static renderer with inline errors enabled as the base
+  const baseOpts: Required<MermaidOptions> = {
+    ...DEFAULT_OPTIONS,
+    ...opts,
+    showInlineErrors: opts.showInlineErrors ?? false,
+    expandRetry: opts.expandRetry ?? false,
+  };
+  const { lines, context } = renderStaticMermaidInternal(ir, baseOpts, stepLabelAnnotations);
+
+  // Use stepIdMap from the static renderer context
+  const stepIdMap = context.stepIdMap;
+
+  // Overlay: data flow edges
   if (opts.showDataFlow && dataFlow.edges.length > 0) {
     lines.push("");
     lines.push("  %% Data Flow");
@@ -906,7 +1045,7 @@ export function renderEnhancedMermaid(
     }
   }
 
-  // Error nodes (optional)
+  // Overlay: error nodes in subgraph (from error-flow analysis)
   if (opts.showErrorNodes && errorFlow.allErrors.length > 0) {
     lines.push("");
     lines.push("  %% Error Types");
@@ -927,30 +1066,22 @@ export function renderEnhancedMermaid(
     }
   }
 
-  // Styles
-  lines.push("");
-  lines.push("  %% Styles");
-  lines.push(`  classDef stepStyle ${opts.styles?.step ?? DEFAULT_OPTIONS.styles.step}`);
-  lines.push(`  classDef startStyle ${opts.styles?.start ?? DEFAULT_OPTIONS.styles.start}`);
-  lines.push(`  classDef endStyle ${opts.styles?.end ?? DEFAULT_OPTIONS.styles.end}`);
+  // Overlay: additional enhanced styles
   lines.push("  classDef errorStyle fill:#ffcdd2,stroke:#c62828");
   lines.push("  classDef noErrorStyle fill:#fff3cd,stroke:#856404");
   lines.push("  classDef dataFlowStyle stroke:#1565c0,stroke-width:2px,stroke-dasharray:5");
 
-  lines.push("");
-  lines.push("  class start startStyle");
-  lines.push("  class end_node endStyle");
-
-  for (const [stepId, mermaidId] of stepIdMap) {
-    const hasErrors = errorFlow.stepErrors.find(s => s.stepId === stepId)?.errors.length ?? 0;
-    if (opts.highlightMissingErrors && hasErrors === 0) {
-      lines.push(`  class ${mermaidId} noErrorStyle`);
-    } else {
-      lines.push(`  class ${mermaidId} stepStyle`);
+  // Apply missing-error highlighting
+  if (opts.highlightMissingErrors) {
+    for (const [stepId, mermaidId] of stepIdMap) {
+      const hasErrors = errorFlow.stepErrors.find(s => s.stepId === stepId)?.errors.length ?? 0;
+      if (hasErrors === 0) {
+        lines.push(`  class ${mermaidId} noErrorStyle`);
+      }
     }
   }
 
-  // Style error nodes
+  // Style error subgraph nodes
   if (opts.showErrorNodes) {
     for (const error of errorFlow.allErrors) {
       lines.push(`  class err_${sanitizeId(error)} errorStyle`);

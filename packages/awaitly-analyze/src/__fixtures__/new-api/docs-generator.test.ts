@@ -92,7 +92,7 @@ describe("Markdown Documentation Generator", () => {
 
       expect(docs).toContain("## Flow Diagram");
       expect(docs).toContain("```mermaid");
-      expect(docs).toContain("flowchart TB");
+      expect(docs).toContain("flowchart TD");
     });
 
     it("can use custom title", () => {

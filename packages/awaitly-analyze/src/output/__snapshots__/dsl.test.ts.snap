@@ -18,7 +18,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "validate",
         "inputType": undefined,
-        "label": "<missing>",
+        "label": "<missing> (dep: validateToken)",
         "location": {
           "column": 29,
           "endColumn": 6,
@@ -44,7 +44,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "refresh",
         "inputType": undefined,
-        "label": "<missing>",
+        "label": "<missing> (dep: refreshToken)",
         "location": {
           "column": 30,
           "endColumn": 8,
@@ -110,7 +110,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "user",
         "inputType": undefined,
-        "label": "<missing>",
+        "label": "<missing> (dep: fetchUser)",
         "location": {
           "column": 23,
           "endColumn": 6,
@@ -136,7 +136,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "audit",
         "inputType": undefined,
-        "label": "<missing>",
+        "label": "<missing> (dep: auditAdmin)",
         "location": {
           "column": 6,
           "endColumn": 8,
@@ -202,7 +202,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "<missing>",
         "inputType": undefined,
-        "label": "<missing>",
+        "label": "<missing> (dep: fetchUser)",
         "location": {
           "column": 23,
           "endColumn": 57,
@@ -265,7 +265,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "user-data",
         "inputType": undefined,
-        "label": "<missing>",
+        "label": "<missing> (dep: fetchUserData)",
         "location": {
           "column": 27,
           "endColumn": 6,
@@ -279,7 +279,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "notify",
         "inputType": undefined,
-        "label": "<missing>",
+        "label": "<missing> (dep: sendNotification)",
         "location": {
           "column": 10,
           "endColumn": 6,
@@ -340,7 +340,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "user",
         "inputType": undefined,
-        "label": "<missing>",
+        "label": "<missing> (dep: fetchUser)",
         "location": {
           "column": 23,
           "endColumn": 6,
@@ -454,7 +454,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "user",
         "inputType": undefined,
-        "label": "<missing>",
+        "label": "<missing> (dep: fetchUser)",
         "location": {
           "column": 23,
           "endColumn": 6,
@@ -592,7 +592,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "user",
         "inputType": undefined,
-        "label": "Fetch User",
+        "label": "Fetch User (dep: fetchUser)",
         "location": {
           "column": 23,
           "endColumn": 6,
@@ -618,7 +618,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "discount",
         "inputType": undefined,
-        "label": "Apply Discount",
+        "label": "Apply Discount (dep: applyDiscount)",
         "location": {
           "column": 12,
           "endColumn": 8,
@@ -632,7 +632,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "posts",
         "inputType": undefined,
-        "label": "Fetch Posts",
+        "label": "Fetch Posts (dep: fetchPosts)",
         "location": {
           "column": 24,
           "endColumn": 6,
@@ -703,7 +703,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "user",
         "inputType": undefined,
-        "label": "<missing>",
+        "label": "<missing> (dep: fetchUser)",
         "location": {
           "column": 6,
           "endColumn": 8,

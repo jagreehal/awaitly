@@ -25,7 +25,7 @@ describe("Enhanced Mermaid Rendering", () => {
     const results = analyzeWorkflowSource(source);
     const mermaid = renderEnhancedMermaid(results[0]);
 
-    expect(mermaid).toContain("flowchart TB");
+    expect(mermaid).toContain("flowchart TD");
     expect(mermaid).toContain("getUser");
     expect(mermaid).toContain("getPosts");
     expect(mermaid).toContain("out: user");

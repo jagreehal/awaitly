@@ -134,6 +134,51 @@ describe("renderWorkflowDSL", () => {
     expect(dsl.transitions.some((t) => t.event === "done")).toBe(true);
   });
 
+  it("includes step kind suffixes and dep in DSL labels", () => {
+    const source = `
+      const { createWorkflow } = await import("awaitly");
+      const w = createWorkflow("w", {});
+      async function run() {
+        return await w(async ({ step, deps }) => {
+          await step.sleep("pause", "5s");
+          await step.retry("retry-op", () => deps.fetch(), { attempts: 2 });
+          await step.withTimeout("timeout-op", () => deps.slow(), { ms: 1000 });
+          await step.try("try-op", () => deps.risky(), { error: "ERR" });
+          await step("dep-step", step.dep("userService", () => deps.getUser()));
+        });
+      }
+    `;
+    const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+    expect(results).toHaveLength(1);
+    const dsl = renderWorkflowDSL(results[0]!);
+    const stepStates = dsl.states.filter(s => s.type === "step");
+    const labels = stepStates.map(s => s.label);
+    expect(labels.some(l => l.includes("(Sleep: 5s)"))).toBe(true);
+    expect(labels.some(l => l.includes("(Retry: 2)"))).toBe(true);
+    expect(labels.some(l => l.includes("(Timeout: 1000ms)"))).toBe(true);
+    expect(labels.some(l => l.includes("(Try)"))).toBe(true);
+    expect(labels.some(l => l.includes("(dep: userService)"))).toBe(true);
+  });
+
+  it("shows AllSettled in DSL parallel label", () => {
+    const source = `
+      const { createWorkflow, allSettledAsync } = await import("awaitly");
+      const w = createWorkflow("w", {});
+      async function run() {
+        return await w(async ({ step, deps }) => {
+          await step.allSettled("Fetch all", () =>
+            allSettledAsync([deps.fetchA(), deps.fetchB()])
+          );
+        });
+      }
+    `;
+    const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+    expect(results).toHaveLength(1);
+    const dsl = renderWorkflowDSL(results[0]!);
+    const decisionStates = dsl.states.filter(s => s.type === "decision");
+    expect(decisionStates.some(s => s.label.includes("AllSettled"))).toBe(true);
+  });
+
   describe("Fixture-based DSL output", () => {
     beforeEach(() => {
       resetIdCounter();
