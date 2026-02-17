@@ -417,7 +417,7 @@ async function run() {
         stepNode = firstChild as StaticStepNode;
       }
 
-      expect(stepNode?.callee).toBe("deps.fetchUser");
+      expect(stepNode?.callee).toBe("step.retry");
       expect(stepNode?.depSource).toBe("fetchUser");
       expect(stepNode?.depLocation).toBeDefined();
       expect(stepNode?.depLocation?.line).toBeGreaterThan(0);
@@ -450,7 +450,7 @@ async function run() {
         stepNode = firstChild as StaticStepNode;
       }
 
-      expect(stepNode?.callee).toBe("deps.fetchUser");
+      expect(stepNode?.callee).toBe("step.withTimeout");
       expect(stepNode?.depSource).toBe("fetchUser");
       expect(stepNode?.depLocation).toBeDefined();
       expect(stepNode?.depLocation?.line).toBeGreaterThan(0);
@@ -482,7 +482,7 @@ async function run() {
         stepNode = firstChild as StaticStepNode;
       }
 
-      expect(stepNode?.callee).toBe("deps.fetchUser");
+      expect(stepNode?.callee).toBe("step.retry");
       expect(stepNode?.outputType).toBeDefined();
     });
 
@@ -514,7 +514,7 @@ async function run() {
         stepNode = firstChild as StaticStepNode;
       }
 
-      expect(stepNode?.callee).toBe("deps.fetchUser");
+      expect(stepNode?.callee).toBe("step.retry");
       expect(stepNode?.depSource).toBe("fetchUser");
     });
 
@@ -546,7 +546,7 @@ async function run() {
         stepNode = firstChild as StaticStepNode;
       }
 
-      expect(stepNode?.callee).toBe("deps.fetchUser");
+      expect(stepNode?.callee).toBe("step.withTimeout");
       expect(stepNode?.depSource).toBe("fetchUser");
     });
 
@@ -576,7 +576,7 @@ async function run() {
         stepNode = firstChild as StaticStepNode;
       }
 
-      expect(stepNode?.callee).toBe("deps.fetchUser");
+      expect(stepNode?.callee).toBe("step.retry");
       expect(stepNode?.depSource).toBe("userService");
     });
 
@@ -606,7 +606,7 @@ async function run() {
         stepNode = firstChild as StaticStepNode;
       }
 
-      expect(stepNode?.callee).toBe("deps.fetchUser");
+      expect(stepNode?.callee).toBe("step.withTimeout");
       expect(stepNode?.depSource).toBe("userService");
     });
 
@@ -2660,7 +2660,8 @@ async function run() {
       }
 
       expect(stepNode?.type).toBe("step");
-      expect(stepNode?.callee).toBe("deps.fetchData");
+      expect(stepNode?.callee).toBe("step.retry");
+      expect(stepNode?.depSource).toBe("fetchData");
       expect(stepNode?.retry?.attempts).toBe(5);
       expect(stepNode?.retry?.backoff).toBe("linear");
     });
@@ -2692,7 +2693,8 @@ async function run() {
       }
 
       expect(stepNode?.type).toBe("step");
-      expect(stepNode?.callee).toBe("deps.fetchData");
+      expect(stepNode?.callee).toBe("step.withTimeout");
+      expect(stepNode?.depSource).toBe("fetchData");
       expect(stepNode?.timeout?.ms).toBe(3000);
     });
   });
@@ -3531,7 +3533,7 @@ async function run() {
 
       const mermaid = renderStaticMermaid(results[0]);
 
-      expect(mermaid).toContain("flowchart TB");
+      expect(mermaid).toContain("flowchart TD");
       expect(mermaid).toContain("Fetch User");
     });
 
@@ -3554,7 +3556,7 @@ async function run() {
 
       const mermaid = renderStaticMermaid(results[0]);
 
-      expect(mermaid).toContain("flowchart TB");
+      expect(mermaid).toContain("flowchart TD");
       expect(mermaid).toContain("Fetch posts and friends");
     });
   });
@@ -5360,6 +5362,257 @@ async function run() {
       });
 
       expect(mermaid).toContain("Fastest source");
+    });
+
+    it("should include step.x kind suffixes with values and dep in labels", () => {
+      const source = `
+        const { createWorkflow } = await import("awaitly");
+        const w = createWorkflow("w", {});
+        async function run() {
+          return await w(async ({ step, deps }) => {
+            await step.sleep("pause", "5s");
+            await step.retry("retry-op", () => deps.fetch(), { attempts: 2 });
+            await step.withTimeout("timeout-op", () => deps.slow(), { ms: 1000 });
+            await step.try("try-op", () => deps.risky(), { error: "ERR" });
+            await step.fromResult("fr-op", () => deps.resultOp(), {});
+            await step("dep-step", step.dep("userService", () => deps.getUser()));
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const mermaid = renderStaticMermaid(results[0]);
+      expect(mermaid).toContain("(Sleep: 5s)");
+      expect(mermaid).toContain("(Retry: 2)");
+      expect(mermaid).toContain("(Timeout: 1000ms)");
+      expect(mermaid).toContain("(Try)");
+      expect(mermaid).toContain("(FromResult)");
+      expect(mermaid).toContain("(dep: userService)");
+    });
+
+    it("should detect step.allSettled and show AllSettled in Mermaid", () => {
+      const source = `
+        const { createWorkflow, allSettledAsync } = await import("awaitly");
+        const w = createWorkflow("w", {});
+        async function run() {
+          return await w(async ({ step, deps }) => {
+            await step.allSettled("Fetch all", () =>
+              allSettledAsync([deps.fetchA(), deps.fetchB()])
+            );
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const parallelNode = findNodesByType<StaticParallelNode>(results[0].root, "parallel")[0];
+      expect(parallelNode).toBeDefined();
+      expect(parallelNode!.mode).toBe("allSettled");
+      expect(parallelNode!.callee).toBe("step.allSettled");
+      const mermaid = renderStaticMermaid(results[0]);
+      expect(mermaid).toContain("AllSettled");
+    });
+
+    it("should set callee to step.retry and step.withTimeout consistently", () => {
+      const source = `
+        const { createWorkflow } = await import("awaitly");
+        const w = createWorkflow("w", {});
+        async function run() {
+          return await w(async ({ step, deps }) => {
+            await step.retry("retry-op", () => deps.fetch(), { attempts: 3 });
+            await step.withTimeout("timeout-op", () => deps.slow(), { ms: 5000 });
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      const retryStep = steps.find(s => s.stepId === "retry-op");
+      const timeoutStep = steps.find(s => s.stepId === "timeout-op");
+      expect(retryStep).toBeDefined();
+      expect(retryStep!.callee).toBe("step.retry");
+      expect(retryStep!.depSource).toBe("fetch");
+      expect(timeoutStep).toBeDefined();
+      expect(timeoutStep!.callee).toBe("step.withTimeout");
+      expect(timeoutStep!.depSource).toBe("slow");
+    });
+
+    it("should extract sleep duration into IR", () => {
+      const source = `
+        const { createWorkflow } = await import("awaitly");
+        const w = createWorkflow("w", {});
+        async function run() {
+          return await w(async ({ step }) => {
+            await step.sleep("short-pause", "500ms");
+            await step.sleep("long-pause", "1h");
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      const shortPause = steps.find(s => s.stepId === "short-pause");
+      const longPause = steps.find(s => s.stepId === "long-pause");
+      expect(shortPause).toBeDefined();
+      expect(shortPause!.sleepDuration).toBe("500ms");
+      expect(longPause).toBeDefined();
+      expect(longPause!.sleepDuration).toBe("1h");
+    });
+
+    it("should extract sleep duration when passed as a helper call expression", () => {
+      const source = `
+        const { createWorkflow } = await import("awaitly");
+        const w = createWorkflow("w", {});
+        const seconds = (n: number) => n + "s";
+        async function run() {
+          return await w(async ({ step }) => {
+            await step.sleep("pause", seconds(5));
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const steps = collectStepNodes(results[0].root);
+      const pause = steps.find(s => s.stepId === "pause");
+      expect(pause).toBeDefined();
+      expect(pause!.sleepDuration).toBe("seconds(5)");
+    });
+
+    it("should show richer labels for regular step with retry/timeout options", () => {
+      const source = `
+        const { createWorkflow } = await import("awaitly");
+        const w = createWorkflow("w", {});
+        async function run() {
+          return await w(async ({ step, deps }) => {
+            await step("fetch-data", () => deps.getData(), { retry: { attempts: 5 }, timeout: { ms: 3000 } });
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const mermaid = renderStaticMermaid(results[0]);
+      expect(mermaid).toContain("(Retry: 5)");
+      expect(mermaid).toContain("(Timeout: 3000ms)");
+    });
+
+    it("should use semantic conditionLabel on decision edges instead of true/false", () => {
+      const source = `
+        const { createWorkflow } = await import("awaitly");
+        const w = createWorkflow("w", {});
+        async function run() {
+          return await w(async ({ step, deps }) => {
+            if (step.if("check", "Valid", () => true)) {
+              await step("then-step", () => deps.doWork());
+            } else {
+              await step("else-step", () => deps.fallback());
+            }
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const mermaid = renderStaticMermaid(results[0]);
+      // True branch should use conditionLabel "Valid"
+      expect(mermaid).toContain("|Valid|");
+      // False branch should use "Not Valid"
+      expect(mermaid).toContain("|Not Valid|");
+      // Should NOT contain raw "true"/"false" labels for this decision
+      expect(mermaid).not.toMatch(/\|true\|/);
+      expect(mermaid).not.toMatch(/\|false\|/);
+    });
+
+    it("should render inline error exit nodes when showInlineErrors is enabled", () => {
+      const source = `
+        const { createWorkflow } = await import("awaitly");
+        const w = createWorkflow("w", {});
+        async function run() {
+          return await w(async ({ step, deps }) => {
+            await step("risky-step", () => deps.riskyOp(), {
+              errors: ["TimeoutError", "NetworkError"],
+            });
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const mermaid = renderStaticMermaid(results[0], { showInlineErrors: true });
+      // Error exit nodes appear in the output
+      expect(mermaid).toContain("TimeoutError");
+      expect(mermaid).toContain("NetworkError");
+      // Error edges from step to error nodes
+      expect(mermaid).toContain("|TimeoutError|");
+      expect(mermaid).toContain("|NetworkError|");
+      // Error exit style is defined
+      expect(mermaid).toContain("classDef errorExitStyle");
+    });
+
+    it("should NOT render inline error nodes when showInlineErrors is disabled (default)", () => {
+      const source = `
+        const { createWorkflow } = await import("awaitly");
+        const w = createWorkflow("w", {});
+        async function run() {
+          return await w(async ({ step, deps }) => {
+            await step("risky-step", () => deps.riskyOp(), {
+              errors: ["TimeoutError"],
+            });
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const mermaid = renderStaticMermaid(results[0]);
+      // No error exit nodes without the option
+      expect(mermaid).not.toContain("|TimeoutError|");
+      expect(mermaid).not.toContain("classDef errorExitStyle");
+    });
+
+    it("should expand retry step into retry logic node when expandRetry is enabled", () => {
+      const source = `
+        const { createWorkflow } = await import("awaitly");
+        const w = createWorkflow("w", {});
+        async function run() {
+          return await w(async ({ step, deps }) => {
+            await step.retry("retry-op", () => deps.fetch(), { attempts: 3 });
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const mermaid = renderStaticMermaid(results[0], { expandRetry: true });
+      // Retry logic node with attempts
+      expect(mermaid).toContain("Retry Logic");
+      expect(mermaid).toContain("3 attempts");
+      // Two outcome edges
+      expect(mermaid).toContain("|Success|");
+      expect(mermaid).toContain("|Retries Exhausted|");
+      // Style
+      expect(mermaid).toContain("classDef retryLogicStyle");
+    });
+
+    it("should combine showInlineErrors and expandRetry options", () => {
+      const source = `
+        const { createWorkflow } = await import("awaitly");
+        const w = createWorkflow("w", {});
+        async function run() {
+          return await w(async ({ step, deps }) => {
+            await step.retry("retry-op", () => deps.fetch(), {
+              attempts: 2,
+              errors: ["FetchError"],
+            });
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source, undefined, { assumeImported: true });
+      expect(results).toHaveLength(1);
+      const mermaid = renderStaticMermaid(results[0], {
+        showInlineErrors: true,
+        expandRetry: true,
+      });
+      // Both retry expansion and inline errors
+      expect(mermaid).toContain("Retry Logic");
+      expect(mermaid).toContain("|Success|");
+      expect(mermaid).toContain("|Retries Exhausted|");
+      expect(mermaid).toContain("FetchError");
+      expect(mermaid).toContain("|FetchError|");
     });
   });
 

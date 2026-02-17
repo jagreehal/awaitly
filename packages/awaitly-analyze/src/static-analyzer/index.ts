@@ -2048,17 +2048,17 @@ function analyzeCallExpression(
   // Effect-style ergonomics methods
   // step.run() - unwrap AsyncResult directly
   if (isStepMethodCall(callee, "run", context)) {
-    return analyzeStepCall(node, args, opts, warnings, stats);
+    return analyzeStepCall(node, args, opts, warnings, stats, { displayCallee: "step.run" });
   }
 
   // step.andThen() - chain AsyncResults
   if (isStepMethodCall(callee, "andThen", context)) {
-    return analyzeStepCall(node, args, opts, warnings, stats);
+    return analyzeStepCall(node, args, opts, warnings, stats, { displayCallee: "step.andThen" });
   }
 
   // step.match() - pattern matching (treated as a step call)
   if (isStepMethodCall(callee, "match", context)) {
-    return analyzeStepCall(node, args, opts, warnings, stats);
+    return analyzeStepCall(node, args, opts, warnings, stats, { displayCallee: "step.match" });
   }
 
   // step.all() - alias for step.parallel()
@@ -2066,9 +2066,14 @@ function analyzeCallExpression(
     return analyzeParallelCall(node, args, "all", opts, warnings, stats, sagaContext, context);
   }
 
+  // step.allSettled() - parallel with allSettled mode
+  if (isStepMethodCall(callee, "allSettled", context)) {
+    return analyzeParallelCall(node, args, "allSettled", opts, warnings, stats, sagaContext, context);
+  }
+
   // step.map() - parallel batch mapping (similar to parallel)
   if (isStepMethodCall(callee, "map", context)) {
-    return analyzeStepCall(node, args, opts, warnings, stats);
+    return analyzeStepCall(node, args, opts, warnings, stats, { displayCallee: "step.map" });
   }
 
   // step.parallel() call
@@ -2221,11 +2226,25 @@ function analyzeStepSleepCall(
     }
   }
 
+  // Extract duration from second argument (e.g. "5s", "1h", seconds(5))
+  let sleepDuration: string | undefined;
+  if (args[1]) {
+    if (Node.isStringLiteral(args[1])) {
+      sleepDuration = args[1].getLiteralValue();
+    } else if (Node.isNoSubstitutionTemplateLiteral(args[1])) {
+      sleepDuration = args[1].getLiteralValue();
+    } else {
+      // Helper calls or other expressions: use source text (e.g. seconds(5))
+      sleepDuration = args[1].getText();
+    }
+  }
+
   const stepNode: StaticStepNode = {
     id: generateId(),
     type: "step",
     stepId,
     callee: "step.sleep",
+    sleepDuration,
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
 
@@ -2316,7 +2335,8 @@ function analyzeStepCall(
   args: Node[],
   opts: Required<AnalyzerOptions>,
   warnings: AnalysisWarning[],
-  stats: AnalysisStats
+  stats: AnalysisStats,
+  stepCallOptions?: { displayCallee: string }
 ): StaticStepNode {
   const { Node } = loadTsMorph();
   stats.totalSteps++;
@@ -2484,6 +2504,10 @@ function analyzeStepCall(
     }
   }
 
+  if (stepCallOptions?.displayCallee) {
+    stepNode.callee = stepCallOptions.displayCallee;
+  }
+
   return stepNode;
 }
 
@@ -2552,7 +2576,7 @@ function analyzeStepRetryCall(
     id: generateId(),
     type: "step",
     stepId,
-    callee: operationCallee,
+    callee: "step.retry",
     depSource: depSourceOverride ?? normalizeCalleeToDepSource(operationCallee),
     name: stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
@@ -2566,6 +2590,9 @@ function analyzeStepRetryCall(
     const options = extractStepOptions(args[2]);
     if (options.key) stepNode.key = options.key;
     if (options.dep) stepNode.depSource = options.dep;
+    if (options.errors) stepNode.errors = options.errors;
+    if (options.out) stepNode.out = options.out;
+    if (options.reads) stepNode.reads = options.reads;
   }
 
   if (opts.includeLocations && innerCallNode && Node.isCallExpression(innerCallNode)) {
@@ -2624,7 +2651,7 @@ function analyzeStepTimeoutCall(
     id: generateId(),
     type: "step",
     stepId,
-    callee: operationCallee,
+    callee: "step.withTimeout",
     depSource: depSourceOverride ?? normalizeCalleeToDepSource(operationCallee),
     name: stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
@@ -2695,7 +2722,7 @@ function analyzeStepTryCall(
     id: generateId(),
     type: "step",
     stepId,
-    callee: operationCallee ?? "step.try",
+    callee: "step.try",
     depSource: depSourceOverride ?? normalizeCalleeToDepSource(operationCallee),
     name: stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
@@ -2765,7 +2792,7 @@ function analyzeStepFromResultCall(
     id: generateId(),
     type: "step",
     stepId,
-    callee: operationCallee ?? "step.fromResult",
+    callee: "step.fromResult",
     depSource: depSourceOverride ?? normalizeCalleeToDepSource(operationCallee),
     name: stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
@@ -2822,7 +2849,7 @@ function analyzeParallelCall(
     type: "parallel",
     mode,
     children: [],
-    callee: "step.parallel",
+    callee: mode === "allSettled" ? "step.allSettled" : "step.parallel",
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
 

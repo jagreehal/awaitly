@@ -87,6 +87,8 @@ export interface StaticStepNode extends StaticBaseNode {
   outputType?: string;
   /** Source location of the step callee's definition (e.g. where deps.getBatch is defined) */
   depLocation?: SourceLocation;
+  /** Sleep duration string for step.sleep() (e.g. "5s", "1h") */
+  sleepDuration?: string;
 }
 
 /**

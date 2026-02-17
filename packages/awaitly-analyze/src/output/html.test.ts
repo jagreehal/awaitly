@@ -253,6 +253,6 @@ describe("generateInteractiveHTML", () => {
     const html = generateInteractiveHTML(mermaid, metadata);
 
     expect(html).toContain('<pre class="mermaid">');
-    expect(html).toContain("flowchart TB");
+    expect(html).toContain("flowchart TD");
   });
 });

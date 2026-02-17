@@ -155,9 +155,50 @@ function processNode(node: StaticFlowNode, ctx: DSLContext): { firstId: string |
   }
 }
 
+/** Step kind suffix for DSL label from callee and node metadata. */
+function getDSLStepKindSuffix(node: StaticStepNode): string {
+  const callee = node.callee;
+  if (!callee) return "";
+  if (callee === "step.sleep") return node.sleepDuration ? ` (Sleep: ${node.sleepDuration})` : " (Sleep)";
+  if (callee === "step.retry") {
+    const attempts = node.retry?.attempts;
+    return attempts != null && attempts !== "<dynamic>" ? ` (Retry: ${attempts})` : " (Retry)";
+  }
+  if (callee === "step.withTimeout") {
+    const ms = node.timeout?.ms;
+    return ms != null && ms !== "<dynamic>" ? ` (Timeout: ${ms}ms)` : " (Timeout)";
+  }
+  if (callee === "step.try") return " (Try)";
+  if (callee === "step.fromResult") return " (FromResult)";
+  if (callee === "step.run") return " (Run)";
+  if (callee === "step.andThen") return " (AndThen)";
+  if (callee === "step.match") return " (Match)";
+  if (callee === "step.map") return " (Map)";
+  return "";
+}
+
 function processStep(node: StaticStepNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
   const id = stepStateId(node);
-  const label = node.name ?? (node.callee ? extractFunctionName(node.callee) : "step");
+  let label = node.name ?? (node.callee ? extractFunctionName(node.callee) : "step");
+
+  const kindSuffix = getDSLStepKindSuffix(node);
+  if (kindSuffix) {
+    label += kindSuffix;
+  } else {
+    if (node.retry) {
+      const attempts = node.retry.attempts;
+      label += attempts != null && attempts !== "<dynamic>" ? ` (Retry: ${attempts})` : " (Retry)";
+    }
+    if (node.timeout) {
+      const ms = node.timeout.ms;
+      label += ms != null && ms !== "<dynamic>" ? ` (Timeout: ${ms}ms)` : " (Timeout)";
+    }
+  }
+
+  if (node.depSource) {
+    label += ` (dep: ${node.depSource})`;
+  }
+
   addState(ctx, id, label, "step", {
     outputType: (node as StaticStepNode & { outputType?: string }).outputType,
     inputType: (node as StaticStepNode & { inputType?: string }).inputType,
@@ -187,7 +228,8 @@ function processSequence(node: StaticSequenceNode, ctx: DSLContext): { firstId: 
 function processParallel(node: StaticParallelNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
   const forkId = `parallel_fork_${++ctx.nodeCounter}`;
   const joinId = `parallel_join_${++ctx.nodeCounter}`;
-  const label = node.name ? `${node.name} (${node.mode})` : `Parallel (${node.mode})`;
+  const modeLabel = node.mode === "allSettled" ? "AllSettled" : node.mode;
+  const label = node.name ? `${node.name} (${modeLabel})` : `Parallel (${modeLabel})`;
   addState(ctx, forkId, label, "decision");
   addState(ctx, joinId, "Join", "join");
 
@@ -254,18 +296,26 @@ function processDecision(node: StaticDecisionNode, ctx: DSLContext): { firstId: 
   const label = node.conditionLabel || truncate(node.condition, 40);
   addState(ctx, decisionId, label, "decision", { location: mapLocation(node.location) });
 
+  // Use semantic edge labels from conditionLabel when available
+  const hasSemanticLabel =
+    node.conditionLabel && node.conditionLabel !== "<dynamic>";
+  const trueEvent = hasSemanticLabel ? node.conditionLabel : "true";
+  const falseEvent = hasSemanticLabel
+    ? `Not ${node.conditionLabel}`
+    : "false";
+
   const lastIds: string[] = [];
 
   const trueResult = processNodes(node.consequent, ctx, []);
   if (trueResult.firstId) {
-    link(ctx, decisionId, trueResult.firstId, "true", node.conditionLabel);
+    link(ctx, decisionId, trueResult.firstId, trueEvent, node.conditionLabel);
     lastIds.push(...trueResult.lastIds);
   }
 
   if (node.alternate && node.alternate.length > 0) {
     const falseResult = processNodes(node.alternate, ctx, []);
     if (falseResult.firstId) {
-      link(ctx, decisionId, falseResult.firstId, "false", node.conditionLabel);
+      link(ctx, decisionId, falseResult.firstId, falseEvent, node.conditionLabel);
       lastIds.push(...falseResult.lastIds);
     }
   } else {
