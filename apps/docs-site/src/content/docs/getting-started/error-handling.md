@@ -14,7 +14,7 @@ const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { ...
 
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts, sendEmail });
 
-const result = await workflow(async (step) => { ... });
+const result = await workflow.run(async ({ step, deps }) => { ... });
 // result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | 'UNEXPECTED_ERROR'
 ```
 
@@ -30,7 +30,7 @@ const badOperation = async (): AsyncResult<string, 'KNOWN_ERROR'> => {
 };
 
 const workflow = createWorkflow('workflow', { badOperation });
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step, deps }) => {
   return await step('badOperation', () => badOperation());
 });
 
@@ -44,7 +44,7 @@ if (!result.ok && result.error === 'UNEXPECTED_ERROR') {
 Use `step.try` to convert thrown exceptions into typed errors:
 
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const data = await step.try(
     'fetchData',
     async () => {
@@ -71,7 +71,7 @@ const callApi = async (): AsyncResult<Data, ApiError> => {
   return err({ code: 'RATE_LIMITED', message: 'Too many requests' });
 };
 
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const data = await step.fromResult(
     'callApi',
     () => callApi(),

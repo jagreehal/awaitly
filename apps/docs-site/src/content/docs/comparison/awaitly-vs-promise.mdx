@@ -6,7 +6,23 @@ description: Comparing awaitly AsyncResult with native Promises and try/catch
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 import { Aside } from '@astrojs/starlight/components';
 
-Promises are JavaScript's native way to handle async operations. awaitly's `AsyncResult` builds on Promises to add typed error handling. This guide compares both approaches.
+Promises are JavaScript's native way to handle async operations — they're excellent at representing async completion and composing via `.then` / `await`. awaitly's `AsyncResult` builds on Promises to add typed errors and an explicit environment. This guide compares both approaches.
+
+## The Conceptual Difference
+
+**A Promise models:** "This async computation will eventually produce a value or reject." It's about **time** — when something finishes.
+
+**awaitly models:** "This computation may depend on an environment, may fail with a typed error, may perform async work, and composes predictably." It's about **effects** — what it needs, what it may fail with, and what it produces.
+
+**One sentence:** Promises model eventual values; awaitly models effectful computation.
+
+**Where Promises are incomplete (not "wrong"):**
+
+1. **Rejection is unstructured** — Any value can be thrown. Errors aren't declared in the type. `Promise<T>` tells you nothing about failure modes.
+2. **Composition loses failure information** — When you chain or combine promises, failure types widen to `unknown`; you must inspect errors at runtime.
+3. **Dependencies are invisible** — A function returning `Promise<T>` doesn't tell you what services or context it depends on. That invisibility becomes a scaling problem in larger apps.
+
+awaitly doesn't replace Promises — it's a superset abstraction for application-level computation. Promises remain the foundation; awaitly adds a second typed channel (failure) and an explicit environment.
 
 ## Philosophy Comparison
 
@@ -88,8 +104,8 @@ try {
   </TabItem>
 </Tabs>
 
-<Aside type="caution" title="The Problem with Promises">
-With Promises, nothing in the function signature tells you it can fail. You have to read the implementation or documentation to know what might go wrong.
+<Aside type="note" title="Signature vs. reality">
+With Promises, nothing in the function signature tells you it can fail or what it depends on. You have to read the implementation or docs. That's not "Promises are unsafe" — they're just incomplete for modeling application-level computation.
 </Aside>
 
 ### Error Type Safety
@@ -138,7 +154,7 @@ import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow('workflow', { fetchUser, validateOrder, chargeCard });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('123'));
   const order = await step('validateOrder', () => deps.validateOrder(orderData));
   const receipt = await step('chargeCard', () => deps.chargeCard(user.id, order.total));
@@ -273,7 +289,7 @@ import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow('workflow', { fetchData, slowOperation });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Built-in retry with exponential backoff
   const data = await step.retry(
     'fetchData',
@@ -368,12 +384,14 @@ const safeJsonParse = (s: string) =>
 
 ## When to Use Each
 
-### Use Promises when:
+### When Promises are enough
 
-- Building simple scripts or prototypes
-- Working at system boundaries (HTTP handlers catch all errors)
-- Your team prefers exceptions
-- Integrating with libraries that use exceptions
+- **Small scripts** — A few async calls, errors handled ad hoc.
+- **Simple services** — Thin wrappers, single responsibility, errors don't need to compose.
+- **Thin API wrappers** — You translate to/from a typed layer at the boundary.
+- **Codebases where error types don't matter** — Internal tools, low-risk paths.
+
+Plain Promises with disciplined error handling are perfectly reasonable there. That builds credibility.
 
 ### Use awaitly when:
 
@@ -382,6 +400,12 @@ const safeJsonParse = (s: string) =>
 - You need automatic error type inference
 - You want built-in retry/timeout/caching
 - TypeScript type safety is important to your team
+
+<Aside type="tip" title="Ecosystem positioning">
+Promises solve async. neverthrow solves typed success/failure. Effect solves capability modeling and resource safety. awaitly solves **async + typed errors + environment** — without a custom runtime.
+</Aside>
+
+**Bottom line:** A Promise tells you when something finishes. awaitly tells you what it needs, what it may fail with, and what it produces.
 
 ## Summary
 
@@ -400,6 +424,8 @@ const safeJsonParse = (s: string) =>
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
 ```
+
+**Takeaway:** Promises model eventual values. awaitly models effectful computation.
 
 <Aside type="tip" title="Best of Both Worlds">
 awaitly uses standard async/await syntax, so you get Promise ergonomics with Result type safety. No new syntax to learn!

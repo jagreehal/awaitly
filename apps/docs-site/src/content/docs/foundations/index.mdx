@@ -78,7 +78,7 @@ flowchart LR
   end
 
   subgraph never [Never here]
-    bad["workflow(fn, opts)"]
+    bad["workflow.run(fn, opts)"]
     bad --> ignored[ignored, Awaitly warns]
   end
 
@@ -93,7 +93,7 @@ flowchart LR
 
 - **Creation-time**: Pass options to `createWorkflow(name, deps, options)`. They apply to every run.
 - **Per-run**: Pass options to `workflow.run(fn, exec)` (or `workflow.run(args, fn, exec)`). They apply only to that invocation.
-- **Never**: `workflow(fn, opts)` ignores the extra object; Awaitly warns and points you to `.run(...)` or `createWorkflow`.
+- **Never**: Pass options only via `workflow.run(fn, config)` or `createWorkflow(..., options)`.
 - **Durable**: `durable.run(...)` wraps a workflow with a store and checkpoints after each keyed step.
 
 ## Quick Reference

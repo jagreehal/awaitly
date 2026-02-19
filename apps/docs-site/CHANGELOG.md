@@ -72,7 +72,7 @@
 
 - f68ccdb: ### createWorkflow introspection (WorkflowClass parity)
 
-  - **createWorkflow return value** now exposes `name`, `deps`, `options`, and `snapshot` (read-only). Aligns with WorkflowClass for inspection and persistence. Use `workflow.snapshot` for one-off access or `workflow.getSnapshot()` when reusing. `deps` and `options` are frozen.
+  - **createWorkflow return value** is a workflow object with a single `.run(name?, fn, config?)` method. Persistence uses `createResumeStateCollector` + `onEvent` and `collector.getResumeState()`; restore via `workflow.run(fn, { resumeState })` or creation-time `resumeState`.
   - **WorkflowSnapshot** gains optional `workflowName` (set by the engine when creating a snapshot).
   - **awaitly/core** exports `matchWhen` and type `MatchTag` for tagged-union pattern matching.
 

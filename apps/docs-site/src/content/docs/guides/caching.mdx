@@ -51,7 +51,7 @@ const workflow = createWorkflow('workflow', deps, {
 Give steps a `key` to enable caching:
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // This step is cached with key 'user:1'
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 
@@ -122,13 +122,13 @@ const cache = new Map();
 const workflow = createWorkflow('workflow', deps, { cache });
 
 // First run - fetches user
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
 
 // Second run - uses cached value
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user; // No fetch - returns cached value
 });
@@ -179,14 +179,14 @@ Errors are cached by default. If a step fails, subsequent runs return the same e
 
 ```typescript
 // First run - fetchUser returns err('NOT_FOUND')
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('999'), { key: 'user:999' });
   return user;
 });
 // result.error === 'NOT_FOUND'
 
 // Second run - returns cached error, no fetch
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('999'), { key: 'user:999' });
   return user;
 });

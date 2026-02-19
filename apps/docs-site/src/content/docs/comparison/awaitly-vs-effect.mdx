@@ -8,6 +8,14 @@ import { Aside } from '@astrojs/starlight/components';
 
 [Effect](https://effect.website/) is a comprehensive FP runtime and ecosystem for TypeScript. It targets full application architecture (concurrency, resource safety, dependency management, and a large stdlib). awaitly focuses on typed async workflows and orchestration, staying on native async/await (no Effect runtime or generator DSL).
 
+## The Abstraction-Level Difference
+
+**Effect is infrastructure-level.** It's a full effect runtime with a capability-tracking type system: fibers, Scope, Layers, Schedule algebra. You get a runtime that manages effects — concurrency, interruption, resource lifecycles — and the type system encodes that architecture.
+
+**awaitly is application-level.** It's a minimal effect abstraction layered directly on top of JavaScript: async/await, Result types, and a step engine. No custom runtime. Architecture lives in values (deps, config, store), not in a capability graph.
+
+That's not "Effect minus runtime" — it's a **different layer of the stack**. awaitly is a deliberately minimal computation model for TypeScript applications: one type for async + errors + environment, without a runtime. Effect is the tool when you want the runtime and the full type-level encoding of capabilities.
+
 ## Philosophy Comparison
 
 ```text
@@ -40,7 +48,7 @@ This table compares Effect core/stdlib with awaitly core plus optional awaitly m
 | Result type | `Result<T, E>` | `Effect<A, E, R>` |
 | Error typing | Inferred from workflow deps + usage | Tracked in `E`; generally inferred through composition (flatMap, gen, etc.) |
 | Async model | Native Promises | Effect runtime with fibers |
-| Dependency injection | `createWorkflow(deps)` (explicit parameter DI) | Layers (Context-based DI) |
+| Dependency injection | `createWorkflow('name', deps)`; override per run via `workflow.run(fn, { deps })` | Layers (Context-based DI) |
 | Retry / scheduling | Config objects | Schedule combinators |
 | Concurrency | `Promise.all` / `step.all` | Fibers |
 | Rate limiting | `awaitly/ratelimit` | `RateLimiter` |
@@ -210,7 +218,7 @@ Effect<number, 'DIVIDE_BY_ZERO', never>
 ```
 
 <Aside type="note">
-Effect has a third type parameter for dependencies (Requirements). awaitly handles dependencies through `createWorkflow`. Both support per-run dependency injection: awaitly by supplying deps per request (or per run); Effect by providing different Layers at runtime.
+Effect has a third type parameter for dependencies (Requirements). awaitly handles dependencies through `createWorkflow`; you can override deps per run with `run(fn, { deps })`. Effect provides different Layers at runtime.
 </Aside>
 
 ## Error Handling
@@ -228,7 +236,7 @@ const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* 
 // Error types automatically inferred from dependencies
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step.run('fetchUser', () => deps.fetchUser('1'));
   await step('sendEmail', () => deps.sendEmail(user.email));
   return user;
@@ -273,7 +281,7 @@ const program = pipe(
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'));
   return user;
 });
@@ -315,7 +323,7 @@ awaitly uses retry policies while Effect uses Schedule combinators. Both achieve
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const data = await step.retry(
     'fetchData',
     () => deps.fetchData(),
@@ -368,7 +376,7 @@ awaitly Exponential Backoff (delayMs: 100)
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const data = await step.retry(
     'fetchData',
     () => step.withTimeout(
@@ -437,7 +445,7 @@ const limiter = createRateLimiter('api', {
   burstCapacity: 5,
 });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Rate limit *when the step starts*
   const data = await limiter.execute(() => step('fetchData', () => deps.fetchData()));
   return data;
@@ -480,7 +488,7 @@ const workflow = createWorkflow('workflow', { fetchUser,
   sendConfirmation,
 });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser(userId));
   const order = await step('validateOrder', () => deps.validateOrder(orderData));
   const receipt = await step('chargeCard', () => deps.chargeCard(order.total));
@@ -531,7 +539,7 @@ const program = Effect.gen(function* () {
   <TabItem label="awaitly">
 ```typescript
 // Effect-style: step.all, named results, step tracking
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const { user, posts, comments } = await step.all('fetchAll', {
     user: () => deps.fetchUser('1'),
     posts: () => deps.fetchPosts('1'),
@@ -567,21 +575,23 @@ const workflow = createWorkflow('workflow', deps, {
   resumeState: savedState, // Resume from previous run
 });
 
-// Option 2: Snapshot store (awaitly-mongo or awaitly-postgres)
+// Option 2: Store (awaitly-mongo or awaitly-postgres) — runWithState + save/loadResumeState
 import { mongo } from 'awaitly-mongo';
 // or: import { postgres } from 'awaitly-postgres';
 
 const store = mongo(process.env.MONGODB_URI!);
 
-const workflow = createWorkflow('workflow', deps, {
-  snapshot: await store.load('wf-1'), // Resume from saved snapshot (or null)
-});
-
-const result = await workflow(async ({ step, deps }) => {
+const { result, resumeState } = await workflow.runWithState(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
-await store.save('wf-1', workflow.getSnapshot());
+await store.save('wf-1', resumeState);
+
+// Restore: loadResumeState then run with resumeState
+const loaded = await store.loadResumeState('wf-1');
+if (loaded) {
+  await workflow.run(async ({ step, deps }) => { /* same fn */ }, { resumeState: loaded });
+}
 ```
   </TabItem>
   <TabItem label="Effect">
@@ -745,7 +755,7 @@ import { createMemoryStreamStore, getStreamReader, toAsyncIterable, collect } fr
 const streamStore = createMemoryStreamStore();
 const workflow = createWorkflow('enrich', deps, { streamStore });
 
-const result = await workflow(async ({ step }) => {
+const result = await workflow.run(async ({ step }) => {
   const writer = step.getWritable<User>({ namespace: 'users' });
 
   for (const user of users) {
@@ -927,7 +937,7 @@ const apiBreaker = createCircuitBreaker('external-api', {
   halfOpenMax: 3,          // allow 3 test requests in half-open
 });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const data = await apiBreaker.executeResult(
     () => step('fetchData', () => deps.fetchData())
   );
@@ -976,7 +986,7 @@ const checkout = createSagaWorkflow('checkout', {
   sendEmail,
 });
 
-const result = await checkout(async (saga) => {
+const result = await checkout(async ({ saga }) => {
   const reservation = await saga.step(
     'reserve',
     () => reserveInventory(items),
@@ -1179,6 +1189,14 @@ Effect's tracing is deeper: spans are part of the runtime and propagate automati
 
 ## When to Choose Each
 
+### The migration question
+
+**If you rely heavily on scoped resources and structured concurrency** — Effect remains the better tool. Fibers, Scope, and interruption are built in; awaitly doesn't model that level of lifecycle.
+
+**If your team finds the runtime and abstraction surface too heavy** — awaitly offers a simpler mental model: same async/await, typed errors in the return type, deps passed as values. No generators, no Layer graph.
+
+Spell it out: both get you typed errors and composition; the trade-off is runtime power and type-level architecture (Effect) vs. application-level simplicity (awaitly).
+
 ### Choose awaitly when:
 
 - Your team knows async/await and you want typed errors without learning a new paradigm
@@ -1210,6 +1228,8 @@ Effect's tracing is deeper: spans are part of the runtime and propagate automati
 - **Durable execution**: Checkpoint and resume across restarts.
 - **Human-in-the-loop**: Pause and resume via approval store.
 - **Automatic error inference**: Inferred union from deps; no manual wiring.
+
+**Bottom line:** Effect encodes architecture in types; awaitly keeps architecture in values.
 
 ## Next Steps
 

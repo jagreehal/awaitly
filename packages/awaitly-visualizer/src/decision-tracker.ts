@@ -15,7 +15,7 @@
  *   }
  * });
  *
- * await workflow(async ({ step }) => {
+ * await workflow.run(async ({ step }) => {
  *   const user = await step(fetchUser(id));
  *
  *   // Track a decision point

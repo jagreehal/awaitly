@@ -86,7 +86,7 @@ describe('Effect-Style Ergonomics Examples', () => {
     it('works seamlessly with createWorkflow', async () => {
       const workflow = createWorkflow('getUserProfile', { fetchUser });
 
-      const result = await workflow(async ({ step, deps: { fetchUser } }) => {
+      const result = await workflow.run(async ({ step, deps: { fetchUser } }) => {
         const user = await step.run('fetchUser', fetchUser('123'));
         return { id: user.id, email: user.email };
       });
@@ -276,7 +276,7 @@ describe('Effect-Style Ergonomics Examples', () => {
         sendNotification,
       });
 
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         // 1. Fetch and enrich user in parallel (if possible)
         const user = await step.run('fetchUser', deps.fetchUser('123'));
         const enriched = await step.andThen('enrichUser', user, deps.enrichUserProfile);

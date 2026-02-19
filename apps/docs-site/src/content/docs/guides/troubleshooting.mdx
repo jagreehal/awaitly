@@ -20,7 +20,7 @@ This usually happens when error types don't match what the workflow expects.
 // Error: Type '"UNKNOWN"' is not assignable to type '"NOT_FOUND" | "EMAIL_FAILED"'
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'));
   await step.try(
     'riskyOp',
@@ -39,7 +39,7 @@ const workflow = createWorkflow('workflow', { fetchUser, sendEmail, riskyOp });
 
 // Option 2: Use run() with explicit error types
 const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED' | 'UNKNOWN'>(
-  async (step) => { ... }
+  async ({ step }) => { ... }
 );
 ```
   </TabItem>
@@ -52,13 +52,13 @@ You're trying to access `.value` without narrowing the type first.
 <Tabs>
   <TabItem label="Problem">
 ```typescript
-const result = await workflow(async ({ step, deps }) => { ... });
+const result = await workflow.run(async ({ step, deps }) => { ... });
 console.log(result.value);  // Error!
 ```
   </TabItem>
   <TabItem label="Solution">
 ```typescript
-const result = await workflow(async ({ step, deps }) => { ... });
+const result = await workflow.run(async ({ step, deps }) => { ... });
 
 // Option 1: Check ok first
 if (result.ok) {
@@ -83,7 +83,7 @@ Your operation doesn't return a `Result` type.
 ```typescript
 const workflow = createWorkflow('workflow', { });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Error: fetch returns Promise<Response>, not Result
   const response = await step('fetch', () => fetch('/api'));
   return response;
@@ -93,7 +93,7 @@ const result = await workflow(async ({ step, deps }) => {
   <TabItem label="Solution">
 ```typescript
 // Option 1: Use step.try for throwing code
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const response = await step.try(
     'fetchApi',
     () => fetch('/api').then(r => r.json()),
@@ -189,7 +189,7 @@ Usually caused by an unresolved promise or missing await.
   <TabItem label="Solutions">
 ```typescript
 // Add timeouts to operations
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const data = await step.withTimeout(
     'slowOp',
     () => deps.potentiallySlowOp(),
@@ -256,7 +256,7 @@ import { createVisualizer } from 'awaitly-visualizer';
 const viz = createVisualizer({ workflowName: 'my-workflow' });
 const workflow = createWorkflow('workflow', deps, { onEvent: viz.handleEvent });
 
-const result = await workflow(async ({ step, deps }) => { ... });
+const result = await workflow.run(async ({ step, deps }) => { ... });
 
 // See what happened
 console.log(viz.renderAs('mermaid'));
@@ -290,7 +290,7 @@ const workflow = createWorkflow('workflow', deps, {
   <TabItem label="Problem">
 Sequential steps that could run in parallel:
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'));
   const posts = await step('fetchPosts', () => deps.fetchPosts('1'));  // Waits for user
   const comments = await step('fetchComments', () => deps.fetchComments('1'));  // Waits for posts
@@ -303,7 +303,7 @@ Run independent operations in parallel:
 ```typescript
 import { allAsync } from 'awaitly';
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const [user, posts, comments] = await step('fetchUserData', () =>
     allAsync([
       deps.fetchUser('1'),
@@ -373,7 +373,7 @@ async function fn(): AsyncResult<User, 'NOT_FOUND'> {
 const user = await step('fetchUser', () => fetchUser('1'));  // step is undefined!
 
 // Correct: use inside workflow
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'));
   return user;
 });
@@ -400,7 +400,7 @@ async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
 
 ```typescript
 // TypeScript doesn't enforce handling all errors by default
-const result = await workflow(async ({ step, deps }) => { ... });
+const result = await workflow.run(async ({ step, deps }) => { ... });
 
 if (!result.ok) {
   // result.error could be 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
@@ -426,7 +426,7 @@ A common mistake: workflow executors should return **raw values**, not `ok()`.
 <Tabs>
   <TabItem label="Problem">
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'));
   return ok({ user });  // Wrong! Causes double-wrapping
 });
@@ -436,7 +436,7 @@ const result = await workflow(async ({ step, deps }) => {
   </TabItem>
   <TabItem label="Solution">
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'));
   return { user };  // Correct: return raw value
 });

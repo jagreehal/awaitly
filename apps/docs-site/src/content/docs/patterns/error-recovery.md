@@ -23,7 +23,7 @@ Different error recovery patterns solve different problems. Choosing the wrong o
 import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow('workflow', deps);
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const data = await step.retry(
     'fetchFromAPI',
     () => fetchFromAPI(),
@@ -93,23 +93,23 @@ if (!result.ok && isCircuitOpenError(result.error)) {
 import { createSagaWorkflow } from 'awaitly/workflow';
 
 const checkout = createSagaWorkflow('saga', deps);
-const result = await checkout(async (saga) => {
+const result = await checkout(async ({ saga, deps }) => {
   const payment = await saga.step(
     'charge',
-    () => chargeCard(amount),
-    { compensate: (p) => refundCard(p.id) }
+    () => deps.chargeCard(amount),
+    { compensate: (p) => deps.refundCard(p.id) }
   );
 
   const reservation = await saga.step(
     'reserve',
-    () => reserveInventory(items),
-    { compensate: (r) => releaseInventory(r.id) }
+    () => deps.reserveInventory(items),
+    { compensate: (r) => deps.releaseInventory(r.id) }
   );
 
   const order = await saga.step(
     'order',
-    () => createOrder({ payment, reservation }),
-    { compensate: (o) => cancelOrder(o.id) }
+    () => deps.createOrder({ payment, reservation }),
+    { compensate: (o) => deps.cancelOrder(o.id) }
   );
 
   return order;
@@ -250,28 +250,28 @@ const paymentLimiter = createRateLimiter('payment-api', { maxRequests: 100, wind
 
 const checkout = createSagaWorkflow('saga', deps);
 
-const result = await checkout(async (saga) => {
+const result = await checkout(async ({ saga, deps }) => {
   // Step 1: Charge with retry + circuit breaker + rate limiting
   const payment = await saga.step(
     'charge',
     async () => {
       return paymentLimiter.call(() =>
         paymentBreaker.call(() =>
-          retry(() => chargeCard(amount), {
+          retry(() => deps.chargeCard(amount), {
             maxAttempts: 3,
             shouldRetry: (e) => e === 'TIMEOUT',
           })
         )
       );
     },
-    { compensate: (p) => refundCard(p.id) }
+    { compensate: (p) => deps.refundCard(p.id) }
   );
 
   // Step 2: Reserve (simpler, internal service)
   const reservation = await saga.step(
     'reserve',
-    () => reserveInventory(items),
-    { compensate: (r) => releaseInventory(r.id) }
+    () => deps.reserveInventory(items),
+    { compensate: (r) => deps.releaseInventory(r.id) }
   );
 
   return { payment, reservation };

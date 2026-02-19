@@ -58,20 +58,17 @@ import type {
   ResumeState,
   AnyResultFn,
   ErrorsOfDeps,
-  ExecutionOptions,
   WorkflowOptions,
   WorkflowContext,
   WorkflowFn,
-  WorkflowFnWithArgs,
-  GetSnapshotOptions,
-  SubscribeEvent,
-  SubscribeOptions,
+  RunConfig,
   Workflow,
   WorkflowCancelledError,
 } from "./types";
 
+import { createResumeStateCollector } from "./resume-state";
+
 import {
-  isCachedErrorCause,
   encodeCachedError,
   decodeCachedMeta,
 } from "./cache-encoding";
@@ -81,20 +78,12 @@ import { isWorkflowCancelled } from "./guards";
 import type {
   JSONValue,
   WorkflowSnapshot,
-  StepResult,
-  SerializedCause,
 } from "../persistence";
 
 import {
-  serializeError,
-  serializeThrown,
   deserializeCauseNew,
-  assertValidSnapshot,
-  SnapshotFormatError,
-  SnapshotMismatchError,
+  SnapshotDecodeError,
 } from "../persistence";
-
-import { SnapshotDecodeError } from "../persistence";
 // =============================================================================
 // createWorkflow - Automatic Error Type Inference
 // =============================================================================
@@ -302,7 +291,6 @@ export function createWorkflow<
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): any {
   type E = ErrorsOfDeps<Deps>;
-  type ExecOpts = ExecutionOptions<E, U, C>;
 
   if (typeof workflowName !== "string" || workflowName.length === 0) {
     throw new TypeError(
@@ -314,537 +302,59 @@ export function createWorkflow<
   const optionsActual = options;
 
   // ===========================================================================
-  // Helper: normalizeCall - extract args and fn from call signature
-  // ===========================================================================
-  type NormalizedCall<T, Args> =
-    | { args: undefined; fn: WorkflowFn<T, E, Deps, C> }
-    | { args: Args; fn: WorkflowFnWithArgs<T, Args, E, Deps, C> };
-
-  function normalizeCall<T>(
-    arg1: WorkflowFn<T, E, Deps, C>
-  ): { args: undefined; fn: WorkflowFn<T, E, Deps, C> };
-  function normalizeCall<T, Args>(
-    arg1: Args,
-    arg2: WorkflowFnWithArgs<T, Args, E, Deps, C>
-  ): { args: Args; fn: WorkflowFnWithArgs<T, Args, E, Deps, C> };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function normalizeCall(arg1: any, arg2?: any): NormalizedCall<any, any> {
-    // Runtime guard for misuse
-    if (typeof arg1 !== "function" && typeof arg2 !== "function") {
-      throw new TypeError("workflow(args?, fn, ...): fn must be a function");
-    }
-    // If arg2 is a function, we're in the "with args" pattern: workflow(args, fn)
-    // This correctly handles functions as args (e.g., workflow(requestFactory, callback))
-    return typeof arg2 === "function"
-      ? { args: arg1, fn: arg2 }
-      : { args: undefined, fn: arg1 };
-  }
-
-  // ===========================================================================
-  // Helper: pickExec - extract execution options from .run() call signature
-  // ===========================================================================
-  // For .run(fn, exec) -> exec is a2
-  // For .run(args, fn, exec) -> exec is a3
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function pickExec(_a1: any, a2: any, a3: any): ExecOpts | undefined {
-    // If a2 is a function, we have .run(args, fn, exec?) pattern -> exec is a3
-    // Otherwise, we have .run(fn, exec?) pattern -> exec is a2
-    return (typeof a2 === "function" ? a3 : a2) as ExecOpts | undefined;
-  }
-
-  // ===========================================================================
-  // Step Registry for Snapshot API
-  // ===========================================================================
-
-  // Internal step registry to track completed steps (uses Object.create(null) for prototype safety)
-  const stepRegistry = Object.create(null) as Record<string, StepResult>;
-  const stepOrder: string[] = []; // Track order of step completion
-  // Warnings for lossy serialization (populated when non-strict serialization encounters non-JSON values)
-  const snapshotWarnings: Array<{
-    type: "lossy_value";
-    stepId: string;
-    path: string;
-    reason: "non-json" | "circular" | "encode-failed";
-  }> = [];
-
-  // Current workflow execution state
-  let workflowStatus: "running" | "completed" | "failed" = "running";
-  let lastUpdatedTime = new Date().toISOString();
-  let completedAtTime: string | undefined;
-  let currentStepIdState: string | undefined;
-
-  // Subscribers for auto-persistence
-  type SubscriberEntry = {
-    listener: (event: SubscribeEvent) => void;
-    options: SubscribeOptions;
-    queue?: SubscribeEvent[];
-    latestNonTerminal?: SubscribeEvent;
-    terminalEvent?: SubscribeEvent;
-    scheduled?: boolean;
-  };
-  const subscribers: SubscriberEntry[] = [];
-
-  // Snapshot options from workflow creation
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const snapshotOptions = optionsActual as any as {
-    serialization?: { encode?: (value: unknown) => JSONValue; decode?: (value: JSONValue) => unknown };
-    snapshotSerialization?: { strict?: boolean };
-    snapshot?: WorkflowSnapshot | null;
-    onUnknownSteps?: "warn" | "error" | "ignore";
-    onDefinitionChange?: "warn" | "error" | "ignore";
-  } | undefined;
-
-  // Initialize from snapshot if provided
-  if (snapshotOptions?.snapshot) {
-    const snapshot = snapshotOptions.snapshot;
-    // Validate snapshot format
-    try {
-      assertValidSnapshot(snapshot);
-    } catch (e) {
-      if (e instanceof SnapshotFormatError) {
-        throw e;
-      }
-      throw new SnapshotFormatError(`Failed to validate snapshot: ${e}`);
-    }
-
-    // Check for definition change if both hashes exist
-    const onDefinitionChange = snapshotOptions.onDefinitionChange ?? "warn";
-    if (
-      onDefinitionChange !== "ignore" &&
-      snapshot.metadata?.definitionHash !== undefined &&
-      (optionsActual as { definitionHash?: string }).definitionHash !== undefined &&
-      snapshot.metadata.definitionHash !== (optionsActual as { definitionHash?: string }).definitionHash
-    ) {
-      const message = `Snapshot definition hash "${snapshot.metadata.definitionHash}" does not match workflow definition hash "${(optionsActual as { definitionHash?: string }).definitionHash}"`;
-      if (onDefinitionChange === "error") {
-        throw new SnapshotMismatchError(message, "definition_hash", {
-          snapshotHash: snapshot.metadata.definitionHash as string,
-          expectedHash: (optionsActual as { definitionHash?: string }).definitionHash,
-        });
-      } else {
-        console.warn(`awaitly: ${message}`);
-      }
-    }
-
-    // Copy steps from snapshot to registry
-    for (const [stepId, stepResult] of Object.entries(snapshot.steps)) {
-      if (Object.prototype.hasOwnProperty.call(snapshot.steps, stepId)) {
-        stepRegistry[stepId] = stepResult;
-        stepOrder.push(stepId);
-      }
-    }
-
-    // Restore execution state
-    workflowStatus = snapshot.execution.status;
-    lastUpdatedTime = snapshot.execution.lastUpdated;
-    completedAtTime = snapshot.execution.completedAt;
-    currentStepIdState = snapshot.execution.currentStepId;
-  }
-
-  /**
-   * Convert a Result to a StepResult for the snapshot.
-   */
-  function resultToStepResult(
-    result: Result<unknown, unknown, unknown>,
-    meta?: StepFailureMeta,
-    stepId?: string
-  ): StepResult {
-    const encode = snapshotOptions?.serialization?.encode;
-    const strict = snapshotOptions?.snapshotSerialization?.strict ?? false;
-
-    // Clear any existing warnings for this stepId before processing new result
-    // This ensures warnings are accurate for the current step value, not stale from previous runs
-    if (stepId) {
-      let i = snapshotWarnings.length;
-      while (i--) {
-        if (snapshotWarnings[i].stepId === stepId) {
-          snapshotWarnings.splice(i, 1);
-        }
-      }
-    }
-
-    // Helper to detect lossy JSON serialization
-    // Detects: functions, symbols, undefined (silently dropped)
-    // Also detects: Error, Map, Set, RegExp (serialize to {} losing all data)
-    const serializeWithLossDetection = (val: unknown): { json: JSONValue; isLossy: boolean } => {
-      let isLossy = false;
-      const replacer = (_key: string, v: unknown): unknown => {
-        if (typeof v === "function" || typeof v === "symbol" || v === undefined) {
-          isLossy = true;
-        }
-        // Detect objects with non-enumerable properties that serialize to {}
-        if (v instanceof Error || v instanceof Map || v instanceof Set || v instanceof RegExp) {
-          isLossy = true;
-        }
-        return v;
-      };
-      const serialized = JSON.stringify(val, replacer);
-      const json = serialized !== undefined ? JSON.parse(serialized) as JSONValue : null;
-      return { json, isLossy };
-    };
-
-    if (result.ok) {
-      // Serialize the success value
-      let value: JSONValue;
-      let isLossy = false;
-      try {
-        if (encode) {
-          value = encode(result.value);
-        } else {
-          // Try to serialize directly, detecting lossy values
-          const serialization = serializeWithLossDetection(result.value);
-          value = serialization.json;
-          isLossy = serialization.isLossy;
-        }
-      } catch (e) {
-        if (strict) {
-          throw new Error(`Cannot serialize step "${stepId}" value: ${e}`, { cause: e });
-        }
-        // Best-effort: store null and record warning
-        value = null;
-        isLossy = true;
-        if (stepId) {
-          const reason = encode ? "encode-failed" as const :
-            (e instanceof TypeError && String(e).includes("circular")) ? "circular" as const : "non-json" as const;
-          snapshotWarnings.push({
-            type: "lossy_value",
-            stepId,
-            path: "value",
-            reason,
-          });
-        }
-      }
-      // Record warning for silently lossy values (functions, undefined, symbols)
-      if (isLossy && stepId && !snapshotWarnings.some(w => w.stepId === stepId && w.path === "value")) {
-        snapshotWarnings.push({
-          type: "lossy_value",
-          stepId,
-          path: "value",
-          reason: "non-json",
-        });
-      }
-      return { ok: true, value };
-    } else {
-      // Serialize the error value
-      let errorValue: JSONValue;
-      let isLossy = false;
-      try {
-        if (encode) {
-          errorValue = encode(result.error);
-        } else {
-          const serialization = serializeWithLossDetection(result.error);
-          errorValue = serialization.json;
-          isLossy = serialization.isLossy;
-        }
-      } catch (e) {
-        if (strict) {
-          throw new Error(`Cannot serialize step "${stepId}" error: ${e}`, { cause: e });
-        }
-        // Best-effort: store null and record warning
-        errorValue = null;
-        isLossy = true;
-        if (stepId) {
-          const reason = encode ? "encode-failed" as const :
-            (e instanceof TypeError && String(e).includes("circular")) ? "circular" as const : "non-json" as const;
-          snapshotWarnings.push({
-            type: "lossy_value",
-            stepId,
-            path: "error",
-            reason,
-          });
-        }
-      }
-      // Record warning for silently lossy values (functions, undefined, symbols)
-      if (isLossy && stepId && !snapshotWarnings.some(w => w.stepId === stepId && w.path === "error")) {
-        snapshotWarnings.push({
-          type: "lossy_value",
-          stepId,
-          path: "error",
-          reason: "non-json",
-        });
-      }
-
-      // Serialize the error cause
-      let cause: SerializedCause;
-      // Unwrap CachedErrorCause if present (from error caching)
-      const rawCause = isCachedErrorCause(result.cause)
-        ? result.cause.originalCause
-        : result.cause;
-
-      if (rawCause instanceof Error) {
-        cause = serializeError(rawCause);
-      } else if (rawCause !== undefined) {
-        cause = serializeThrown(rawCause);
-      } else {
-        // No cause, serialize the error itself
-        if (result.error instanceof Error) {
-          cause = serializeError(result.error);
-        } else {
-          cause = serializeThrown(result.error);
-        }
-      }
-
-      return {
-        ok: false,
-        error: errorValue,
-        cause,
-        meta: meta ? { origin: meta.origin } : undefined,
-      };
-    }
-  }
-
-  /**
-   * Create a snapshot from the current state.
-   */
-  function createSnapshot(opts?: GetSnapshotOptions): WorkflowSnapshot {
-    const include = opts?.include ?? "all";
-    const limit = opts?.limit;
-    const sinceStepId = opts?.sinceStepId;
-
-    // Filter and collect steps
-    const stepsToInclude = Object.create(null) as Record<string, StepResult>;
-    let startIndex = 0;
-    let count = 0;
-
-    // Find start index if sinceStepId is provided
-    if (sinceStepId) {
-      const idx = stepOrder.indexOf(sinceStepId);
-      if (idx !== -1) {
-        startIndex = idx + 1;
-      }
-    }
-
-    for (let i = startIndex; i < stepOrder.length; i++) {
-      if (limit !== undefined && count >= limit) break;
-
-      const stepId = stepOrder[i];
-      const stepResult = stepRegistry[stepId];
-      if (!stepResult) continue;
-
-      // Apply include filter
-      if (include === "completed" && !stepResult.ok) continue;
-      if (include === "failed" && stepResult.ok) continue;
-
-      stepsToInclude[stepId] = stepResult;
-      count++;
-    }
-
-    // Filter warnings to only include those for steps in the snapshot
-    const relevantWarnings = snapshotWarnings.filter(w => stepsToInclude[w.stepId] !== undefined);
-
-    const snapshot: WorkflowSnapshot = {
-      formatVersion: 1,
-      workflowName: workflowName,
-      steps: stepsToInclude,
-      execution: {
-        status: workflowStatus,
-        lastUpdated: lastUpdatedTime,
-        completedAt: completedAtTime,
-        currentStepId: currentStepIdState,
-      },
-      metadata: opts?.metadata ? { ...opts.metadata } : undefined,
-      warnings: relevantWarnings.length > 0 ? relevantWarnings : undefined,
-    };
-
-    // Use structuredClone for deep copy
-    return structuredClone(snapshot);
-  }
-
-  /**
-   * Emit event to subscribers.
-   */
-  function emitSubscribeEvent(event: SubscribeEvent): void {
-    for (const sub of subscribers) {
-      const mode = sub.options.mode ?? "sync";
-      const coalesce = sub.options.coalesce ?? "none";
-
-      if (mode === "sync") {
-        // Synchronous: call immediately, catch errors
-        try {
-          sub.listener(event);
-        } catch (e) {
-          console.error("awaitly: subscribe listener threw an error:", e);
-        }
-      } else {
-        // Async mode
-        if (coalesce === "none") {
-          // Queue every event
-          if (!sub.queue) sub.queue = [];
-          sub.queue.push(event);
-        } else {
-          // coalesce === 'latest'
-          // Terminal events are never dropped
-          if (event.type === "workflow_complete" || event.type === "workflow_error") {
-            sub.terminalEvent = event;
-          } else {
-            sub.latestNonTerminal = event;
-          }
-        }
-
-        // Schedule microtask drain if not already scheduled
-        if (!sub.scheduled) {
-          sub.scheduled = true;
-          queueMicrotask(() => {
-            sub.scheduled = false;
-
-            if (coalesce === "none" && sub.queue) {
-              // Drain queue in order
-              const queue = sub.queue;
-              sub.queue = [];
-              for (const evt of queue) {
-                try {
-                  sub.listener(evt);
-                } catch (e) {
-                  console.error("awaitly: subscribe listener threw an error:", e);
-                }
-              }
-            } else {
-              // Coalesce: deliver latest non-terminal, then terminal
-              if (sub.latestNonTerminal) {
-                try {
-                  sub.listener(sub.latestNonTerminal);
-                } catch (e) {
-                  console.error("awaitly: subscribe listener threw an error:", e);
-                }
-                sub.latestNonTerminal = undefined;
-              }
-              if (sub.terminalEvent) {
-                try {
-                  sub.listener(sub.terminalEvent);
-                } catch (e) {
-                  console.error("awaitly: subscribe listener threw an error:", e);
-                }
-                sub.terminalEvent = undefined;
-              }
-            }
-          });
-        }
-      }
-    }
-  }
-
-  /**
-   * Record a step completion in the registry.
-   */
-  function recordStepComplete(
-    stepKey: string,
-    result: Result<unknown, unknown, unknown>,
-    meta?: StepFailureMeta
-  ): void {
-    const stepResult = resultToStepResult(result, meta, stepKey);
-    stepRegistry[stepKey] = stepResult;
-    if (!stepOrder.includes(stepKey)) {
-      stepOrder.push(stepKey);
-    }
-    lastUpdatedTime = new Date().toISOString();
-    currentStepIdState = stepKey;
-
-    // Emit to subscribers
-    if (subscribers.length > 0) {
-      const snapshot = createSnapshot();
-      emitSubscribeEvent({
-        type: "step_complete",
-        stepId: stepKey,
-        snapshot,
-      });
-    }
-  }
-
-  /**
-   * Record workflow completion/failure.
-   */
-  function recordWorkflowEnd(success: boolean): void {
-    workflowStatus = success ? "completed" : "failed";
-    lastUpdatedTime = new Date().toISOString();
-    completedAtTime = lastUpdatedTime;
-    currentStepIdState = undefined;
-
-    // Emit to subscribers
-    if (subscribers.length > 0) {
-      const snapshot = createSnapshot();
-      emitSubscribeEvent({
-        type: success ? "workflow_complete" : "workflow_error",
-        snapshot,
-      });
-    }
-  }
 
   // ===========================================================================
   // Internal execute function - core workflow execution logic
   // ===========================================================================
-  async function internalExecute<T, Args = undefined>(
-    normalized: NormalizedCall<T, Args>,
-    exec?: ExecOpts
+  async function internalExecute<T>(
+    runName: string | undefined,
+    userFn: WorkflowFn<T, E, Deps, C>,
+    config?: RunConfig<E, U, C, Deps>
   ): Promise<Result<T, E | U, unknown>> {
-    const { args, fn: userFn } = normalized;
-    const hasArgs = args !== undefined;
-
-    // Detect common mistake: passing options to executor instead of createWorkflow
-    // Only warn if the object contains ONLY option keys (no other properties)
-    // This avoids false positives for legitimate args like { cache: true, userId: '123' }
-    if (hasArgs && typeof args === "object" && args !== null) {
-      const KNOWN_OPTION_KEYS = new Set([
-        "cache", "onEvent", "resumeState", "onError", "onBeforeStart",
-        "onAfterStep", "shouldRun", "createContext", "signal", "strict",
-        "catchUnexpected", "description", "markdown", "streamStore"
-      ]);
-      const argKeys = Object.keys(args as object);
-      const matchedOptions = argKeys.filter(k => KNOWN_OPTION_KEYS.has(k));
-      const nonOptionKeys = argKeys.filter(k => !KNOWN_OPTION_KEYS.has(k));
-
-      // Only warn if ALL keys are option keys (pure options object, not args with coincidental names)
-      if (matchedOptions.length > 0 && nonOptionKeys.length === 0) {
-        console.warn(
-          `awaitly: Detected workflow options (${matchedOptions.join(", ")}) ` +
-          `passed to workflow executor. Options are ignored here.\n` +
-          `Pass options to createWorkflow() instead:\n` +
-          `  const workflow = createWorkflow('${workflowName}', deps, { ${matchedOptions.join(", ")} });\n` +
-          `  await workflow(async ({ step }) => { ... });`
-        );
-      }
-    }
-
     // Generate workflowId for this run
-    const workflowId = crypto.randomUUID();
+    const workflowId = runName ?? crypto.randomUUID();
+
+    // Merge deps: config.deps partially overrides creation-time deps
+    const effectiveDeps = config?.deps ? { ...depsActual, ...config.deps } as Deps : depsActual;
 
     // ===========================================================================
-    // Resolve hooks: exec?.x ?? options?.x (execution-time overrides creation-time)
-    // Note: exec.x = undefined does NOT override (uses creation-time)
-    //       exec.x = null DOES override (users asked for it)
+    // Resolve hooks: config?.x ?? options?.x (run-time overrides creation-time)
+    // Note: config.x = undefined does NOT override (uses creation-time)
+    //       config.x = null DOES override (users asked for it)
     // ===========================================================================
 
-    // Create context for this run (exec overrides options)
+    // Create context for this run (config overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const createContextFn = exec?.createContext ?? (optionsActual as any)?.createContext;
+    const createContextFn = config?.createContext ?? (optionsActual as any)?.createContext;
     const context = createContextFn ? await createContextFn() : undefined as C;
 
-    // Get workflow-level signal (exec overrides options)
+    // Get workflow-level signal (config overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const workflowSignal = (exec?.signal ?? (optionsActual as any)?.signal) as AbortSignal | undefined;
+    const workflowSignal = (config?.signal ?? (optionsActual as any)?.signal) as AbortSignal | undefined;
 
-    // Get event handler (exec overrides options)
+    // Get event handler (config overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const onEventHandler = exec?.onEvent ?? (optionsActual as any)?.onEvent;
+    const onEventHandler = config?.onEvent ?? (optionsActual as any)?.onEvent;
 
-    // Get error handler (exec overrides options)
+    // Get error handler (config overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const onErrorHandler = exec?.onError ?? (optionsActual as any)?.onError;
+    const onErrorHandler = config?.onError ?? (optionsActual as any)?.onError;
 
-    // Get shouldRun hook (exec overrides options)
+    // Get shouldRun hook (config overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const shouldRunHook = (exec?.shouldRun ?? (optionsActual as any)?.shouldRun) as
+    const shouldRunHook = (config?.shouldRun ?? (optionsActual as any)?.shouldRun) as
       | ((workflowId: string, context: C) => boolean | Promise<boolean>)
       | undefined;
 
-    // Get onBeforeStart hook (exec overrides options)
+    // Get onBeforeStart hook (config overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const onBeforeStartHook = (exec?.onBeforeStart ?? (optionsActual as any)?.onBeforeStart) as
+    const onBeforeStartHook = (config?.onBeforeStart ?? (optionsActual as any)?.onBeforeStart) as
       | ((workflowId: string, context: C) => boolean | Promise<boolean>)
       | undefined;
 
-    // Get onAfterStep hook (exec overrides options)
+    // Get onAfterStep hook (config overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const onAfterStepHook = (exec?.onAfterStep ?? (optionsActual as any)?.onAfterStep) as
+    const onAfterStepHook = (config?.onAfterStep ?? (optionsActual as any)?.onAfterStep) as
       | ((
           stepKey: string,
           result: Result<unknown, unknown, unknown>,
@@ -853,9 +363,9 @@ export function createWorkflow<
         ) => void | Promise<void>)
       | undefined;
 
-    // Get resumeState (exec overrides options) - keep lazy, only evaluate when needed
+    // Get resumeState (config overrides options) - keep lazy, only evaluate when needed
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const resumeStateOption = (exec?.resumeState ?? (optionsActual as any)?.resumeState) as
+    const resumeStateOption = (config?.resumeState ?? (optionsActual as any)?.resumeState) as
       | ResumeState
       | (() => ResumeState | Promise<ResumeState>)
       | undefined;
@@ -868,9 +378,9 @@ export function createWorkflow<
     // Create workflow data store for step outputs
     const workflowData: Record<string, unknown> = {};
 
-    // Check if dev warnings are enabled (exec overrides options)
+    // Check if dev warnings are enabled (config overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const devWarnings = (exec?.devWarnings ?? (optionsActual as any)?.devWarnings) === true && process.env.NODE_ENV !== 'production';
+    const devWarnings = (config?.devWarnings ?? (optionsActual as any)?.devWarnings) === true && process.env.NODE_ENV !== 'production';
     const ctxSetWarned = new Set<string>(); // Avoid duplicate warnings per key
     const ctxGetWarned = new Set<string>();
 
@@ -881,7 +391,7 @@ export function createWorkflow<
       context: context !== undefined ? context : undefined,
       signal: workflowSignal,
       // Data store for static analysis
-      input: (args ?? {}) as Record<string, unknown>,
+      input: {} as Record<string, unknown>,
       ref: <K extends string>(key: K) => workflowData[key] as never,
       set: <K extends string>(key: K, value: unknown) => {
         if (devWarnings && !ctxSetWarned.has(key)) {
@@ -1022,11 +532,11 @@ export function createWorkflow<
       ts: startTs,
     });
 
-    // Get cache from options (cache is NOT overridable via exec - only from creation-time)
+    // Get cache from config (overrides creation-time options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let cache = (optionsActual as any)?.cache as StepCache | undefined;
+    let cache = (config?.cache ?? (optionsActual as any)?.cache) as StepCache | undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const streamStore = (optionsActual as any)?.streamStore as StreamStore | undefined;
+    const streamStore = (config?.streamStore ?? (optionsActual as any)?.streamStore) as StreamStore | undefined;
 
     // If resumeState is provided but cache isn't, auto-create an in-memory cache
     if (resumeStateOption && !cache) {
@@ -1070,15 +580,19 @@ export function createWorkflow<
       }
     }
 
-    // Pre-populate cache from snapshot if provided (new API)
-    if (snapshotOptions?.snapshot && !resumeStateOption) {
+    // Pre-populate cache from snapshot if provided via config (new API)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const snapshotOption = config?.snapshot ?? (optionsActual as any)?.snapshot as WorkflowSnapshot | null | undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const snapshotSerialization = (optionsActual as any)?.serialization as { decode?: (value: JSONValue) => unknown } | undefined;
+    if (snapshotOption && !resumeStateOption) {
       // Auto-create cache if needed
       if (!cache) {
         cache = new Map<string, Result<unknown, unknown, unknown>>();
       }
 
-      const snapshot = snapshotOptions.snapshot;
-      const decode = snapshotOptions.serialization?.decode;
+      const snapshot = snapshotOption;
+      const decode = snapshotSerialization?.decode;
 
       for (const [stepId, stepResult] of Object.entries(snapshot.steps)) {
         if (!Object.prototype.hasOwnProperty.call(snapshot.steps, stepId)) {
@@ -1153,15 +667,12 @@ export function createWorkflow<
       }
     };
 
-    // Helper to call onAfterStep hook with event emission and step registry recording
+    // Helper to call onAfterStep hook with event emission
     const callOnAfterStepHook = async (
       stepKey: string,
       result: Result<unknown, unknown, unknown>,
-      meta?: StepFailureMeta
+      _meta?: StepFailureMeta
     ): Promise<void> => {
-      // Always record to step registry for snapshot API
-      recordStepComplete(stepKey, result, meta);
-
       if (!onAfterStepHook) return;
       const hookStartTime = performance.now();
       try {
@@ -2186,10 +1697,9 @@ export function createWorkflow<
       return cachedStepFn as RunStep<E>;
     };
 
-    // Wrap the user's callback to pass cached step, deps, args (when present), and workflow context
-    const wrappedFn = hasArgs
-      ? ({ step }: { step: RunStep<E> }) => (userFn as (context: { step: RunStep<E>; deps: Deps; args: Args; ctx: WorkflowContext<C> }) => T | Promise<T>)({ step: createCachedStep(step), deps: depsActual, args: args as Args, ctx: workflowContext })
-      : ({ step }: { step: RunStep<E> }) => (userFn as (context: { step: RunStep<E>; deps: Deps; ctx: WorkflowContext<C> }) => T | Promise<T>)({ step: createCachedStep(step), deps: depsActual, ctx: workflowContext });
+    // Wrap the user's callback to pass cached step, deps, and workflow context
+    const wrappedFn = ({ step }: { step: RunStep<E> }) =>
+      userFn({ step: createCachedStep(step), deps: effectiveDeps, ctx: workflowContext });
 
     // Always use run() with catchUnexpected (default or user-provided). Closed error union E | U.
     let result: Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>;
@@ -2307,8 +1817,6 @@ export function createWorkflow<
         ts: Date.now(),
         durationMs,
       });
-      // Record workflow completion for snapshot API
-      recordWorkflowEnd(true);
     } else {
       // At this point, WorkflowCancelledError has already been handled and returned above,
       // so result.error is not WorkflowCancelledError
@@ -2319,8 +1827,6 @@ export function createWorkflow<
         durationMs,
         error: result.error as E | U,
       });
-      // Record workflow failure for snapshot API
-      recordWorkflowEnd(false);
     }
 
     // NOTE: We intentionally do NOT check for unknown steps after workflow completes.
@@ -2333,211 +1839,84 @@ export function createWorkflow<
     return result as Result<T, E | U, unknown>;
   }
 
-  // ===========================================================================
-  // Create the workflow executor object with callable, run, and with methods
-  // ===========================================================================
-
-  // Callable workflow executor function
-  // Signature 1: No args (original API)
-  function workflowExecutor<T>(
-    fn: WorkflowFn<T, E, Deps, C>
-  ): Promise<Result<T, E | U, unknown>>;
-  // Signature 2: With args (new API)
-  function workflowExecutor<T, Args>(
-    args: Args,
-    fn: WorkflowFnWithArgs<T, Args, E, Deps, C>
-  ): Promise<Result<T, E | U, unknown>>;
-  // Implementation
-  function workflowExecutor<T, Args = undefined>(
-    fnOrArgs: WorkflowFn<T, E, Deps, C> | Args,
-    maybeFn?: WorkflowFnWithArgs<T, Args, E, Deps, C>,
-    ...rest: unknown[]
+  // ==========================================================================
+  // workflow.run() - public method
+  // ==========================================================================
+  function runMethod<T>(
+    fnOrName: string | WorkflowFn<T, E, Deps, C>,
+    maybeFnOrConfig?: WorkflowFn<T, E, Deps, C> | RunConfig<E, U, C, Deps>,
+    maybeConfig?: RunConfig<E, U, C, Deps>
   ): Promise<Result<T, E | U, unknown>> {
-    // DX guard: users sometimes try `workflow(fn, { onEvent, resumeState, ... })`
-    // but exec options are only supported via `workflow.run(fn, exec)` (or creation-time `createWorkflow(name, deps, options)`).
-    // Since JS allows extra args, detect and warn when an object that looks like options is passed.
-    const argCount = 2 + rest.length;
-    const a2 = maybeFn;
-    const a3 = rest[0];
+    let runName: string | undefined;
+    let fn: WorkflowFn<T, E, Deps, C>;
+    let config: RunConfig<E, U, C, Deps> | undefined;
 
-    const KNOWN_EXEC_OPTION_KEYS = new Set([
-      "cache",
-      "onEvent",
-      "resumeState",
-      "onError",
-      "onBeforeStart",
-      "onAfterStep",
-      "shouldRun",
-      "createContext",
-      "signal",
-      "description",
-      "markdown",
-      "streamStore",
-    ]);
-
-    const looksLikeWorkflowOptions = (value: unknown): value is Record<string, unknown> => {
-      if (value == null || typeof value !== "object") return false;
-      const keys = Object.keys(value);
-      if (keys.length === 0) return false;
-      // Warn only if every key is a known option key (conservative; avoids false positives).
-      return keys.every((k) => KNOWN_EXEC_OPTION_KEYS.has(k));
-    };
-
-    const emitOptionMisuseWarning = (msg: string) => {
-      if (typeof process !== "undefined" && process.env?.NODE_ENV === "development") {
-        throw new Error(msg);
-      }
-      console.warn(msg);
-    };
-
-    // Misuse A: workflow(fn, optionsObject) -> second arg is an object, not a function
-    if (argCount >= 2 && typeof fnOrArgs === "function" && typeof a2 !== "function" && looksLikeWorkflowOptions(a2)) {
-      emitOptionMisuseWarning(
-        `awaitly: Detected workflow options (${Object.keys(a2).join(", ")}) passed to the workflow executor.\n` +
-          `This call signature ignores options. Use one of:\n` +
-          `  - Per-run:   await workflow.run(fn, { ${Object.keys(a2).join(", ")} })\n` +
-          `  - Creation:  const workflow = createWorkflow('${workflowName}', deps, { ${Object.keys(a2).join(", ")} })`
-      );
+    if (typeof fnOrName === "string") {
+      runName = fnOrName;
+      fn = maybeFnOrConfig as WorkflowFn<T, E, Deps, C>;
+      config = maybeConfig;
+    } else {
+      fn = fnOrName;
+      config = maybeFnOrConfig as RunConfig<E, U, C, Deps> | undefined;
     }
 
-    // Misuse B: workflow(args, fn, optionsObject) -> third arg is an options-looking object
-    if (argCount >= 3 && typeof a2 === "function" && looksLikeWorkflowOptions(a3)) {
-      emitOptionMisuseWarning(
-        `awaitly: Detected workflow options (${Object.keys(a3).join(", ")}) passed to the workflow executor.\n` +
-          `This call signature ignores options. Use:\n` +
-          `  - Per-run:   await workflow.run(args, fn, { ${Object.keys(a3).join(", ")} })\n` +
-          `  - Creation:  const workflow = createWorkflow('${workflowName}', deps, { ${Object.keys(a3).join(", ")} })`
-      );
+    return internalExecute(runName, fn, config);
+  }
+
+  // ==========================================================================
+  // workflow.runWithState() - run and return result + resume state for persistence
+  // ==========================================================================
+  async function runWithStateMethod<T>(
+    fnOrName: string | WorkflowFn<T, E, Deps, C>,
+    maybeFnOrConfig?: WorkflowFn<T, E, Deps, C> | RunConfig<E, U, C, Deps>,
+    maybeConfig?: RunConfig<E, U, C, Deps>
+  ): Promise<{ result: Result<T, E | U, unknown>; resumeState: ResumeState }> {
+    let runName: string | undefined;
+    let fn: WorkflowFn<T, E, Deps, C>;
+    let config: RunConfig<E, U, C, Deps> | undefined;
+
+    if (typeof fnOrName === "string") {
+      runName = fnOrName;
+      fn = maybeFnOrConfig as WorkflowFn<T, E, Deps, C>;
+      config = maybeConfig;
+    } else {
+      fn = fnOrName;
+      config = maybeFnOrConfig as RunConfig<E, U, C, Deps> | undefined;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const normalized = normalizeCall(fnOrArgs as any, maybeFn as any);
-    return internalExecute(normalized) as Promise<Result<T, E | U, unknown>>;
-  }
-
-  // Add .run() method for execution-time options
-  // Signature 1: No args
-  function runWithOptions<T>(
-    fn: WorkflowFn<T, E, Deps, C>,
-    exec?: ExecOpts
-  ): Promise<Result<T, E | U, unknown>>;
-  // Signature 2: With args
-  function runWithOptions<T, Args>(
-    args: Args,
-    fn: WorkflowFnWithArgs<T, Args, E, Deps, C>,
-    exec?: ExecOpts
-  ): Promise<Result<T, E | U, unknown>>;
-  // Implementation
-  function runWithOptions<T, Args = undefined>(
-    fnOrArgs: WorkflowFn<T, E, Deps, C> | Args,
-    maybeFnOrExec?: WorkflowFnWithArgs<T, Args, E, Deps, C> | ExecOpts,
-    maybeExec?: ExecOpts
-  ): Promise<Result<T, E | U, unknown>> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const normalized = normalizeCall(fnOrArgs as any, typeof maybeFnOrExec === "function" ? maybeFnOrExec as any : undefined);
-    const exec = pickExec(fnOrArgs, maybeFnOrExec, maybeExec);
-    return internalExecute(normalized, exec) as Promise<Result<T, E | U, unknown>>;
-  }
-
-  // Add .with() method for pre-binding execution options
-  function withOptions(boundExec: ExecOpts): Workflow<E, U, Deps, C> {
-    // Capture early to avoid monkeypatching issues
-    const baseRun = runWithOptions;
-
-    // Create callable that uses boundExec
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const wrapped: any = <T, Args = undefined>(
-      fnOrArgs: WorkflowFn<T, E, Deps, C> | Args,
-      maybeFn?: WorkflowFnWithArgs<T, Args, E, Deps, C>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ): any => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const normalized = normalizeCall(fnOrArgs as any, maybeFn as any);
-      return normalized.args === undefined
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ? baseRun(normalized.fn as any, boundExec as any)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        : baseRun(normalized.args as any, normalized.fn as any, boundExec as any);
-    };
-
-    // Add .run() that merges boundExec with callerExec
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    wrapped.run = (fnOrArgs: any, maybeFnOrExec?: any, maybeExec?: any): any => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const normalized = normalizeCall(fnOrArgs as any, typeof maybeFnOrExec === "function" ? maybeFnOrExec as any : undefined);
-      const callerExec = pickExec(fnOrArgs, maybeFnOrExec, maybeExec);
-      // Merge: caller exec overrides bound exec
-      const merged = { ...boundExec, ...(callerExec ?? {}) };
-      return normalized.args === undefined
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ? baseRun(normalized.fn as any, merged as any)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        : baseRun(normalized.args as any, normalized.fn as any, merged as any);
-    };
-
-    // Add .with() that chains options
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    wrapped.with = (more: ExecOpts) => withOptions({ ...boundExec, ...more } as any);
-
-    // Add .getSnapshot() and .subscribe() - they use the same underlying state
-    wrapped.getSnapshot = getSnapshot;
-    wrapped.subscribe = subscribe;
-    Object.defineProperty(wrapped, "name", { value: workflowName, enumerable: true, configurable: true });
-    wrapped.deps = Object.freeze({ ...depsActual });
-    wrapped.options = optionsActual ? Object.freeze({ ...optionsActual }) : undefined;
-    Object.defineProperty(wrapped, "snapshot", {
-      get: () => getSnapshot(),
-      enumerable: true,
-      configurable: true,
-    });
-
-    return wrapped as Workflow<E, U, Deps, C>;
-  }
-
-  // ===========================================================================
-  // getSnapshot() - Get a JSON-serializable snapshot of the workflow state
-  // ===========================================================================
-  function getSnapshot(opts?: GetSnapshotOptions): WorkflowSnapshot {
-    return createSnapshot(opts);
-  }
-
-  // ===========================================================================
-  // subscribe() - Subscribe to workflow events for auto-persistence
-  // ===========================================================================
-  function subscribe(
-    listener: (event: SubscribeEvent) => void,
-    opts?: SubscribeOptions
-  ): () => void {
-    const entry: SubscriberEntry = {
-      listener,
-      options: opts ?? {},
-    };
-    subscribers.push(entry);
-
-    // Return unsubscribe function
-    return () => {
-      const idx = subscribers.indexOf(entry);
-      if (idx !== -1) {
-        subscribers.splice(idx, 1);
+    const collector = createResumeStateCollector();
+    const userOnEvent = config?.onEvent;
+    const mergedOnEvent = (event: WorkflowEvent<E | U, C>, ctx: C) => {
+      collector.handleEvent(event);
+      try {
+        userOnEvent?.(event, ctx);
+      } catch {
+        // Observability shouldn't crash runs
       }
     };
+    const mergedConfig: RunConfig<E, U, C, Deps> = { ...config, onEvent: mergedOnEvent };
+
+    let result: Result<T, E | U, unknown>;
+    let resumeState: ResumeState;
+    try {
+      result = await internalExecute(runName, fn, mergedConfig);
+    } catch (thrown) {
+      // runWithState follows "never throw, always Result"; map thrown to Result
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const catchUnexpected = (optionsActual as any)?.catchUnexpected ?? defaultCatchUnexpected;
+      result = err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | U, unknown>;
+    } finally {
+      resumeState = collector.getResumeState();
+    }
+    return { result, resumeState };
   }
 
-  // Attach methods to workflowExecutor
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const w = workflowExecutor as any;
-  w.run = runWithOptions;
-  w.with = withOptions;
-  w.getSnapshot = getSnapshot;
-  w.subscribe = subscribe;
-  Object.defineProperty(w, "name", { value: workflowName, enumerable: true, configurable: true });
-  w.deps = Object.freeze({ ...depsActual });
-  w.options = optionsActual ? Object.freeze({ ...optionsActual }) : undefined;
-  Object.defineProperty(w, "snapshot", {
-    get: () => getSnapshot(),
-    enumerable: true,
-    configurable: true,
-  });
+  const workflow: Workflow<E, U, Deps, C> = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    run: runMethod as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    runWithState: runWithStateMethod as any,
+  };
 
-  return workflowExecutor as Workflow<E, U, Deps, C>;
+  return workflow;
 }

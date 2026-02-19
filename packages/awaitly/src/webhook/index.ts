@@ -362,9 +362,9 @@ export function createWebhookHandler<
       }
 
       // Execute workflow with validated input
-      const workflowResult = await workflow(
-        validationResult.value,
-        ({ step, deps }) => workflowFn({ step, deps, args: validationResult.value })
+      const args = validationResult.value;
+      const workflowResult = await workflow.run(
+        async ({ step, deps }) => workflowFn({ step, deps, args })
       );
 
       // Map result to response
@@ -888,9 +888,9 @@ export function createEventHandler<
         };
       }
 
-      const workflowResult = await workflow(
-        validationResult.value,
-        ({ step, deps }) => workflowFn({ step, deps, args: validationResult.value })
+      const args = validationResult.value;
+      const workflowResult = await workflow.run(
+        async ({ step, deps }) => workflowFn({ step, deps, args })
       );
 
       return mapResult(workflowResult, event);

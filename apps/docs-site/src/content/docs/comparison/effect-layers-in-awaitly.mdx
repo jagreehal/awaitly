@@ -6,10 +6,10 @@ description: How to get Effect-style dependency injection and composition with a
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 import { Aside } from '@astrojs/starlight/components';
 
-**Short answer: no.** Layers are an abstraction over something simpler: passing a typed object as a parameter. awaitly uses that simpler primitive directly. You can do what Effect's Layers do today in awaitly by passing a `deps` object that satisfies the interface when you construct and execute a workflow. This page shows how.
+**Short answer: no.** Layers are an abstraction over something simpler: passing a typed object as a parameter. awaitly uses that primitive directly — this page shows how.
 
 <Aside type="tip" title="One rule">
-As long as what you pass satisfies the interface your workflow expects, you can pass whatever you want, whenever you want: at construction time, at execution time, per request, or from a composition root. No new API. TypeScript will enforce that the object matches what the workflow uses.
+Pass whatever object matches the shape your workflow expects, whenever you want: at construction time, at execution time, per request, or from a composition root. You can **override deps at run time** with `workflow.run(fn, { deps: { ... } })` — same workflow instance, different deps for that run (great for tests). TypeScript enforces the shape.
 </Aside>
 
 [Effect](https://effect.website/) gives you **Layer-based dependency injection**: services are declared as requirements in the type (`Effect<A, E, R>`), provided via Layers at the top level, and accessed from context inside the program. You might wonder: does awaitly need something similar (Tags, Layers, a Runtime)? The sections below spell out what Effect's model does and how awaitly matches those outcomes with the one rule above.
@@ -25,21 +25,21 @@ Effect's model has a few pieces:
 
 The **outcomes** are: different implementations in different environments (prod vs test), a single "wire everything here" place (composition root), and type safety that "I provided everything this program needs."
 
-## awaitly's Equivalent: Pass What Satisfies the Interface
+## awaitly's Equivalent
 
 In awaitly there are no Tags, Layers, or Runtime. You have:
 
 - **`createWorkflow(name, deps, options)`**: You pass an object of functions that return `AsyncResult` (your "services").
-- **The workflow callback** receives `{ step, deps, ctx }`; `deps` is exactly the object you passed.
+- **The workflow callback** receives `{ step, deps, ctx }`; `deps` is exactly that object.
 
-Dependency injection in awaitly is simply: **pass the object you want the workflow to use.** If you pass it at different times or from different places, you're "injecting" different implementations. TypeScript only cares that the object **satisfies the interface** (has the shape the workflow uses). You get the same outcomes as Effect's layers:
+So: **pass the typed object you want the workflow to use** (at creation and/or at run time). TypeScript enforces that it matches the interface the workflow expects. You can **override deps per run** via `workflow.run(fn, { deps: partialDeps })` — run-time merges over creation-time. Same outcomes as Effect's layers:
 
-- **Different implementations**: Pass real deps in prod, mock deps in tests.
+- **Different implementations**: Pass real deps in prod, mock deps in tests. No need for a workflow factory in tests: use **one workflow instance** and pass mocks in `run(fn, { deps: { fetchUser: mockFetchUser } })`.
 - **Composition root**: Build one big deps object (or a factory) and pass it when you create the workflow.
-- **Type safety**: Type the deps object (or the workflow's usage); the compiler checks that you pass something that matches.
+- **Type safety**: Type the deps (or the workflow's usage); the compiler checks.
 - **Automatic error inference**: awaitly infers the workflow's error union from the deps type you pass.
 
-No new primitives. No Tags. No Layer type. Just "pass the right object." In other words: awaitly makes DI explicit (a parameter), while Effect makes it implicit (context).
+awaitly keeps DI explicit and object-based: "deps in the hand" (a parameter) instead of context (implicit in the type).
 
 ## Example 1: Composition Root
 
@@ -70,7 +70,7 @@ const deps = {
 const workflow = createWorkflow('notify-user', deps, {});
 
 // Run somewhere else; workflow already has deps
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('get-user', () => deps.fetchUser('1'));
   await step('send', () => deps.sendEmail(user.email, `Hello ${user.name}`));
   return user;
@@ -79,24 +79,19 @@ const result = await workflow(async ({ step, deps }) => {
 
 If you prefer "create workflow at the edge and pass deps from the root," you can do that too: have a function that receives deps and returns the workflow, or create the workflow inside your app bootstrap with the deps you built there.
 
-## Example 2: Different Deps per Environment
+## Example 2: Different Deps per Environment (and Testing)
 
-You want the **same workflow logic** to run with different implementations depending on where it's called (e.g. tests vs prod, or per-request).
+You want the **same workflow logic** to run with different implementations (prod vs test, or per-request).
 
 **Effect-style:** The program requires `R`; you provide a different Layer when you run (e.g. test Layer vs live Layer).
 
-**awaitly:** You provide deps at the moment you construct and execute the workflow. If you want different implementations (prod, test, per-request), construct the workflow with the deps you want right before executing it.
+**awaitly:** Two options. **(A) Workflow factory** — build the workflow with the deps you want each time (prod vs test). **(B) Override at run time** — one workflow instance, pass mocks in the run call: `workflow.run(fn, { deps: { ... } })`. Creation-time deps are merged with run-time deps (run-time wins); partial override is fine. So tests can override only the dep they care about without creating a new workflow per test.
 
 ```typescript
-// Workflow logic is the same; only deps change. Return the workflow, then run it with the callback.
 type CheckoutDeps = {
   chargeCard: (amount: number) => AsyncResult<Receipt, 'DECLINED'>;
   sendReceipt: (email: string, r: Receipt) => AsyncResult<void, 'SEND_FAILED'>;
 };
-
-function makeCheckoutWorkflow(deps: CheckoutDeps) {
-  return createWorkflow('checkout', deps, {});
-}
 
 async function checkoutHandler({ step, deps }) {
   const receipt = await step('charge', () => deps.chargeCard(99));
@@ -104,19 +99,20 @@ async function checkoutHandler({ step, deps }) {
   return receipt;
 }
 
-// Production: real implementations
-const liveDeps: CheckoutDeps = { chargeCard: realChargeCard, sendReceipt: realSendReceipt };
-const result = await makeCheckoutWorkflow(liveDeps)(checkoutHandler);
+// Option A: factory — different workflow per environment
+function makeCheckoutWorkflow(deps: CheckoutDeps) {
+  return createWorkflow('checkout', deps, {});
+}
+const result = await makeCheckoutWorkflow(liveDeps).run(checkoutHandler);
+const testResult = await makeCheckoutWorkflow(mockDeps).run(checkoutHandler);
 
-// Tests: mocks (same handler, different deps)
-const mockDeps: CheckoutDeps = {
-  chargeCard: async () => ok({ id: 'mock-receipt' }),
-  sendReceipt: async () => ok(undefined),
-};
-const testResult = await makeCheckoutWorkflow(mockDeps)(checkoutHandler);
+// Option B: one workflow, override deps in the run (ideal for tests)
+const workflow = createWorkflow('checkout', { chargeCard: realChargeCard, sendReceipt: realSendReceipt }, {});
+await workflow.run(checkoutHandler);  // prod
+await workflow.run(checkoutHandler, { deps: { chargeCard: async () => ok({ id: 'mock-receipt' }) } });  // test
 ```
 
-The workflow doesn't know whether it got live or mock deps. As long as the object satisfies the interface, you can pass whatever you want.
+The workflow doesn't know whether it got live or mock deps. The test suite includes "deps override at run time" tests that prove the merge semantics.
 
 ### Workflow factory with args
 
@@ -131,7 +127,7 @@ type PaymentDeps = {
 function makePaymentWorkflow(deps: PaymentDeps) {
   const workflow = createWorkflow('payment', deps, {});
   return (amount: number) =>
-    workflow(async ({ step, deps }) => {
+    workflow.run(async ({ step, deps }) => {
       const receipt = await step('charge', () => deps.chargeCard(amount));
       await step('save', () => deps.savePayment(receipt));
       return receipt;
@@ -166,7 +162,7 @@ app.post('/checkout', async (req, res) => {
   };
 
   const workflow = createWorkflow('checkout', deps, {});
-  const result = await workflow(async ({ step, deps }) => {
+  const result = await workflow.run(async ({ step, deps }) => {
     const user = await step('user', () => deps.fetchUser(userId));
     const receipt = await step('charge', () => deps.chargeCard(req.body.amount));
     await step('notify', () => deps.sendReceipt(user.email, receipt));
@@ -175,17 +171,14 @@ app.post('/checkout', async (req, res) => {
 });
 ```
 
-So "provide deps at run time" is already supported: **pass the deps you want at the moment you construct and execute the workflow.** No special API.
+Provide deps at run time by passing them when you construct and execute the workflow.
 
 ## Example 4: Composing Services (Layer-Like)
 
-Effect's Layers can depend on other layers; the runtime builds context in order. In awaitly you do the same by **building the deps object manually**: one service can depend on another by receiving it when you construct the object.
+Effect's Layers can depend on other layers; the runtime builds context in order. In awaitly you **build the deps object yourself**: one service receives another when you construct it, then you spread or merge into the object you pass to `createWorkflow`.
 
 ```typescript
-// Email service needs user data to personalize; "depends on" fetchUser
-async function sendEmail(to: string, body: string) {
-  return ok(undefined);
-}
+async function sendEmail(to: string, body: string) { return ok(undefined); }
 function createEmailService(fetchUser: (id: string) => AsyncResult<User, 'NOT_FOUND'>) {
   return {
     sendWelcome: async (userId: string) => {
@@ -195,22 +188,13 @@ function createEmailService(fetchUser: (id: string) => AsyncResult<User, 'NOT_FO
     },
   };
 }
-
 const fetchUser = async (id: string) => ok({ id, name: 'Alice', email: 'a@b.com' });
-const emailService = createEmailService(fetchUser);
-
-const deps = {
-  fetchUser,
-  ...emailService,
-};
-
+const deps = { fetchUser, ...createEmailService(fetchUser) };
 const workflow = createWorkflow('welcome-flow', deps, {});
-await workflow(async ({ step, deps }) => {
-  await step('welcome', () => deps.sendWelcome('1'));
-});
+await workflow.run(async ({ step, deps }) => { await step('welcome', () => deps.sendWelcome('1')); });
 ```
 
-There's no first-class "Layer" type; you just compose plain objects and functions. Build order is explicit in your code.
+Build order is explicit in your code; no first-class Layer type, just objects and functions.
 
 ## Example 5: Type Safety and Error Inference
 
@@ -218,7 +202,7 @@ You want the compiler to ensure you've provided everything the workflow needs, a
 
 **Effect:** The effect type carries `R`; the Layer (or Runtime) type carries what's provided; you get a type error if you run without providing `R`.
 
-**awaitly:** Type the deps object. The workflow callback expects `deps` of that shape. If you pass an object that doesn't match (e.g. missing a key), you get a type error. Error inference is automatic from the deps type you pass to `createWorkflow`.
+**awaitly:** Type the deps; the workflow callback expects that shape. Missing a key → type error. Error inference is automatic from the deps type you pass to `createWorkflow`.
 
 ```typescript
 type CheckoutDeps = {
@@ -230,7 +214,7 @@ type CheckoutDeps = {
 function makeCheckoutRun(deps: CheckoutDeps) {
   const workflow = createWorkflow('checkout', deps, {});
   return () =>
-    workflow(async ({ step, deps }) => {
+    workflow.run(async ({ step, deps }) => {
       const user = await step('user', () => deps.fetchUser('1'));
       const receipt = await step('charge', () => deps.chargeCard(100));
       await step('notify', () => deps.sendReceipt(user.email, receipt));
@@ -262,13 +246,15 @@ So you get "did I provide everything?" and "what errors can this workflow produc
 | Effect (Layers) | awaitly (deps object) |
 |-----------------|------------------------|
 | Requirements encoded in `R` | Requirements encoded in the `deps` type |
-| Provide via Layer at execution | Pass deps when constructing/executing the workflow |
+| Provide via Layer at execution | Pass deps when constructing and/or **override per run** via `run(fn, { deps })` |
 | Access from context (`yield* Service`) | Callback receives `deps` explicitly |
 | Layer composition / build order | Compose objects and factories in code |
-| Type check "provided ⊇ required" | Type check "deps satisfies interface" |
+| Type check "provided ⊇ required" | Type check deps shape |
 | Automatic error inference | Automatic from deps type (`ErrorsOfDeps<Deps>`) |
 
-You can do what Effect's layers do: **different implementations per environment, composition root, per-request context, and type safety.** The mechanism is "pass an object that satisfies the interface": no Tags, no Layers, no Runtime. That keeps awaitly's surface small and the mental model simple: one rule, same async/await, same step engine.
+You get **different implementations per environment, composition root, per-request context, and type safety** with that one rule. Small surface, simple mental model.
+
+**Philosophy in one line:** Effect optimizes for encoding capabilities and resources in the type system and runtime. awaitly optimizes for the same outcomes while staying close to normal JavaScript and minimal abstraction.
 
 ## Day-to-day JavaScript ergonomics
 
@@ -282,30 +268,35 @@ Some teams prefer the **form** of Effect's model:
 - **First-class Layer**: A single abstraction for "this service, these dependencies, this build order." In awaitly you build objects and functions yourself.
 - **Context-based access**: `yield* UserService` instead of `deps.fetchUser`. Stylistic; both are testable and flexible.
 
-If that form is important to you (e.g. you're coming from Effect or want a strict "require R, provide at root" style), Effect is the right fit. If you want the **outcomes** (testability, composition root, per-request deps, type safety) with minimal concepts and native async/await, awaitly's "pass what satisfies the interface" is enough.
+If that form is important to you (e.g. you're coming from Effect or want a strict "require R, provide at root" style), Effect is the right fit. If you value encoding architectural constraints directly into the type system, Effect's approach may feel safer; awaitly prioritizes simplicity and familiarity over modeling capability constraints at the type level. If you want the **outcomes** (testability, composition root, per-request deps, type safety) with minimal concepts and native async/await, awaitly's approach is enough.
 
-### What about resource lifecycle?
+### What about resource lifecycle and scoping?
 
-Effect's Layers can construct and manage resources (e.g. database pools, scoped services) automatically. In awaitly, resource lifecycle is managed explicitly in your application code (e.g. create a DB pool at startup, close it on shutdown) and then passed into workflows via deps. awaitly does not include a built-in runtime for automatic resource scoping. If you need scoped lifetimes (e.g. per-request resources), you model that explicitly in your application layer and pass those scoped values into the workflow via deps.
+Effect gives you **scoped resources**, **structured concurrency**, **automatic acquire/release**, **interruption safety**, and **memoized layer graphs** in the type system and runtime. That is where Effect has a structural advantage.
+
+awaitly offers **`withScope`** and **`createResource`** ([Resource Management](/patterns/resource-management/)): RAII-style scopes, LIFO cleanup on exit (including on error or throw), and nested scopes. So you get automatic cleanup without a separate Layer type. **But** awaitly does not attempt to model structured resource lifecycles in the type system. If your application depends heavily on scoped resource safety and fine-grained interruption semantics, Effect provides stronger guarantees at the cost of additional abstraction. We're not pretending equivalence there — it's a deliberate tradeoff: awaitly prioritizes simplicity and explicit scopes over encoding those constraints in the type system.
 
 ## Common pushbacks
 
 **"But Effect's R is tracked through composition!"**
 
-In awaitly, you track through **object composition**. The type of `deps` after merging services is the union of their capabilities (e.g. `{ ...userDeps, ...emailDeps }` has a type that includes both). TypeScript still checks that the object you pass satisfies what the workflow needs, and error inference (`ErrorsOfDeps<Deps>`) follows from that type. Composition is still tracked, via merged object types instead of an R type parameter.
+In awaitly, you track through **object composition**. The type of `deps` after merging is the union of their capabilities. TypeScript still enforces the required shape; error inference (`ErrorsOfDeps<Deps>`) follows from that type. Composition is tracked via merged object types instead of an R type parameter.
 
 **"But Layers can depend on other layers automatically!"**
 
-In awaitly, you **explicitly compose**. You build the deps object (or a factory that takes other deps and returns more) in code. There’s no runtime that "figures out" build order; you write it. Effect's runtime can build a dependency graph for you; awaitly keeps that graph as ordinary code you write and can debug directly. Explicit is simpler to read and easier to debug: you see exactly what depends on what and in what order.
+In awaitly, you **explicitly compose**. You build the deps object (or a factory that takes other deps and returns more) in code. There’s no runtime that "figures out" build order; you write it. Effect's runtime can build a dependency graph for you; awaitly keeps that graph as ordinary code — you see exactly what depends on what and in what order.
 
 **"But what about cyclic dependencies?"**
 
 Same problem, same solution. If service A needs B and B needs A, you hit that in Effect (layers) or in awaitly (object composition). Fix it the same way: **lazy initialization** (e.g. a getter or a function that returns the other service) or **refactoring** so the cycle goes away (extract shared logic, invert the dependency).
 
-In awaitly, the dependency graph is just normal JavaScript object composition: no hidden runtime, no separate DI language. If you understand functions and objects, you understand awaitly's dependency model.
+The dependency graph is normal JavaScript object composition.
+
+**One way to put it:** Effect encodes architecture in types; awaitly keeps it in values. Both get you testability and a composition root — the mechanism differs.
 
 ## See Also
 
 - [awaitly vs Effect](/comparison/awaitly-vs-effect/): full comparison of philosophy, APIs, and features.
 - [Workflows](/foundations/workflows/): how `createWorkflow` and the step engine work.
 - [Foundations: Workflows and steps](/foundations/workflows-and-steps/): declaring dependencies and using `step`, `deps`, and `ctx`.
+- [Resource Management](/patterns/resource-management/): scoped resources with `withScope` and `createResource` (RAII-style cleanup).

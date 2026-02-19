@@ -12,7 +12,7 @@ awaitly provides patterns for controlling how operations execute: sequentially, 
 By default, steps execute sequentially. Each step waits for the previous one to complete:
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'));        // First
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));  // Second (after user)
   const comments = await step('fetchComments', () => deps.fetchComments(posts[0].id)); // Third (after posts)
@@ -39,7 +39,7 @@ Use `allAsync` to run independent operations concurrently:
 ```typescript
 import { allAsync } from 'awaitly';
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const [user, notifications, settings] = await step('fetchUserData', () =>
     allAsync([
       deps.fetchUser('1'),
@@ -185,7 +185,7 @@ Execution timeline:
 Some operations depend on others. Combine sequential and parallel:
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // First: fetch user
   const user = await step('fetchUser', () => deps.fetchUser('1'));
 
@@ -220,7 +220,7 @@ Give parallel groups a name for visualization using `step.all(name, ...)` (Effec
 
 ```typescript
 // Effect-style: named results
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const { user, posts } = await step.all('Fetch user data', {
     user: () => deps.fetchUser('1'),
     posts: () => deps.fetchPosts('1'),
@@ -229,7 +229,7 @@ const result = await workflow(async ({ step, deps }) => {
 });
 
 // Or step.parallel with allAsync
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const [user, posts] = await step.parallel('Fetch user data', () =>
     allAsync([deps.fetchUser('1'), deps.fetchPosts('1')])
   );
@@ -244,7 +244,7 @@ const result = await workflow(async ({ step, deps }) => {
 Add a timeout to parallel operations:
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const data = await step.withTimeout(
     'fetchUserData',
     () => allAsync([deps.fetchUser('1'), deps.fetchPosts('1')]),

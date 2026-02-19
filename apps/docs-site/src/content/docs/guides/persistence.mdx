@@ -34,37 +34,32 @@ Save workflow state and resume later. Completed steps return their cached result
 
 ## Quick Start
 
-```typescript
-import { createWorkflow } from 'awaitly/workflow';
+**Preferred:** Use `runWithState` to run and get resume state in one call, then persist. Restore with `store.loadResumeState(id)` or `toResumeState(await store.load(id))` and pass to `workflow.run(fn, { resumeState })`.
 
-// Execute workflow
+```typescript
+import { createWorkflow, toResumeState } from 'awaitly/workflow';
+import { postgres } from 'awaitly-postgres';
+
+const store = postgres('postgresql://localhost/mydb');
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts });
 
-await workflow(async ({ step, deps }) => {
+// Run and persist
+const { result, resumeState } = await workflow.runWithState(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
 });
+await store.save('wf-123', resumeState);
 
-// Save snapshot
-const snapshot = workflow.getSnapshot();
-await db.save('wf-123', JSON.stringify(snapshot));
-
-// Later: restore and resume
-const saved = await db.load('wf-123');
-const restoredSnapshot = JSON.parse(saved);
-
-const workflow2 = createWorkflow('workflow', { fetchUser, fetchPosts }, {
-  snapshot: restoredSnapshot,
-});
-
-await workflow2(async ({ step, deps }) => {
-  // These steps return cached values - no actual fetch
-  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
-  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
-  return { user, posts };
-});
+// Later: restore and resume (two explicit flows)
+const loaded = await store.loadResumeState('wf-123');
+if (loaded) {
+  await workflow.run(async ({ step, deps }) => { /* same fn */ }, { resumeState: loaded });
+}
+// Or: const loaded = await store.load('wf-123'); const resumeState = toResumeState(loaded);
 ```
+
+**Collector pattern** when you need custom event handling (e.g. logging) alongside state capture: use `createResumeStateCollector`, pass `handleEvent` to `onEvent`, then `collector.getResumeState()`. Serialize with `serializeResumeState(state)` before persisting; use `deserializeResumeState(parsed)` when loading JSON. Restore with `workflow.run(fn, { resumeState })` — do not pass a WorkflowSnapshot to `resumeState`.
 
 ## One-liner Store Setup
 
@@ -84,23 +79,20 @@ import { libsql } from 'awaitly-libsql';
 const store = libsql('file:./workflow.db');
 ```
 
-Then use the store:
+Then run and persist with `runWithState`, or use the collector when you need custom `onEvent`:
 
 ```typescript
-// Execute + persist
-const workflow = createWorkflow('workflow', { fetchUser });
-await workflow(myWorkflowFn);
-await store.save('wf-123', workflow.getSnapshot());
+// One-line style: runWithState + store
+const { result, resumeState } = await workflow.runWithState(myWorkflowFn);
+await store.save('wf-123', resumeState);
 
-// Restore + resume
-const snapshot = await store.load('wf-123');
-const workflow2 = createWorkflow('workflow', { fetchUser }, { snapshot });
-await workflow2(myWorkflowFn);
+const loaded = await store.loadResumeState('wf-123');
+if (loaded) await workflow.run(myWorkflowFn, { resumeState: loaded });
 ```
 
-## WorkflowSnapshot
+## ResumeState and WorkflowSnapshot
 
-The snapshot is a JSON-serializable object:
+Collected state from `createResumeStateCollector().getResumeState()` is a **ResumeState** (JSON-serializable): `{ steps: Map<string, ResumeStateEntry> }`. Some adapters or run configs also support **WorkflowSnapshot** for restore. The snapshot is a JSON-serializable object:
 
 ```typescript
 interface WorkflowSnapshot {
@@ -134,58 +126,46 @@ type StepResult =
 
 You can use `JSON.stringify()` and `JSON.parse()` directly - no special serialization needed.
 
-## Auto-save with Subscribe
+## Auto-save with onEvent
 
-Use `subscribe()` to automatically save after each step:
+Use the collector's `handleEvent` in `onEvent` and save after the run, or save inside `onEvent` on each `step_complete` for incremental checkpoints:
 
 ```typescript
-const workflow = createWorkflow('workflow', { fetchUser });
-
-// Auto-save on every step completion
-const unsubscribe = workflow.subscribe(async (event) => {
-  if (event.type === 'step_complete') {
-    await store.save('wf-123', event.snapshot);
-  }
+const collector = createResumeStateCollector();
+const workflow = createWorkflow('workflow', { fetchUser }, {
+  onEvent: (event) => {
+    collector.handleEvent(event);
+    if (event.type === 'step_complete') {
+      // Optional: save after each step for fine-grained recovery
+      store.save('wf-123', collector.getResumeState());
+    }
+  },
 });
 
-await workflow(myWorkflowFn);
-unsubscribe();  // Cleanup
+await workflow.run(myWorkflowFn);
+await store.save('wf-123', collector.getResumeState());
 ```
 
-Subscribe options:
+## Two explicit restore flows
+
+**Resume from ResumeState** (recommended): Use `store.loadResumeState(id)` or `toResumeState(await store.load(id))`, then `workflow.run(fn, { resumeState })`. Do not pass a WorkflowSnapshot to `resumeState` — that is a different shape.
+
+**Resume from snapshot:** If your store returns a WorkflowSnapshot (e.g. from durable execution or legacy data), use `workflow.run(fn, { snapshot: loadedSnapshot })`. Do not conflate the two in docs or code.
 
 ```typescript
-workflow.subscribe(listener, {
-  mode: 'sync' | 'async',      // Default: 'sync'
-  coalesce: 'none' | 'latest', // Default: 'none' (async only)
-});
-```
+// Flow 1: Resume from ResumeState (from runWithState or createResumeStateCollector)
+const resumeState = await store.loadResumeState('wf-123');
+if (resumeState) await workflow.run(fn, { resumeState });
 
-- `mode: 'sync'`: Callback runs inline (keep fast!)
-- `mode: 'async'`: Callback runs in microtask queue
-- `coalesce: 'latest'`: During bursts, only deliver latest event (prevents DB spam)
+// Flow 2: Resume from WorkflowSnapshot (e.g. durable / snapshot format)
+const snapshot = await store.load('wf-123');
+if (snapshot && isWorkflowSnapshot(snapshot)) {
+  await workflow.run(fn, { snapshot });
+}
 
-## Snapshot Options
-
-Configure snapshot behavior:
-
-```typescript
-const workflow = createWorkflow('workflow', deps, {
-  snapshot: loadedSnapshot,      // null = fresh start
-  onUnknownSteps: 'warn',        // 'warn' | 'error' | 'ignore'
-  onDefinitionChange: 'warn',    // 'warn' | 'error' | 'ignore'
-});
-```
-
-Get snapshot with options:
-
-```typescript
-const snapshot = workflow.getSnapshot({
-  include: 'all',              // 'all' | 'completed' | 'failed'
-  metadata: { userId: '123' }, // Custom metadata (JSONValue)
-  limit: 1000,                 // Max steps to include (optional)
-  sinceStepId: 'user:1',       // Incremental: only steps after this (optional)
-});
+// Creation-time resume state
+const workflow = createWorkflow('workflow', deps, { resumeState: savedState });
+await workflow.run(fn);
 ```
 
 ## Validation
@@ -231,25 +211,25 @@ const merged = mergeSnapshots(baseSnapshot, deltaSnapshot);
 
 ## Check Step Completion
 
-From a loaded snapshot, check step completion via the `ok` field:
+From loaded resume state, check step completion via the `steps` Map:
 
 ```typescript
-const snapshot = await store.load('wf-123');
-if (snapshot && snapshot.steps['user:1']?.ok) {
-  console.log('User already fetched');
+const savedState = await store.load('wf-123');
+if (savedState?.steps?.get('user:1')) {
+  console.log('User step already completed');
 }
 ```
 
-For subscribe events, use the `isStepComplete` type guard from `awaitly/workflow` to narrow event types.
+For event streams, use the `isStepComplete` type guard from `awaitly/workflow` to narrow event types.
 
 ## Store Interface
 
-All store adapters implement this interface:
+Store adapters persist workflow state (e.g. ResumeState or WorkflowSnapshot). A typical interface:
 
 ```typescript
 interface SnapshotStore {
-  save(id: string, snapshot: WorkflowSnapshot): Promise<void>;
-  load(id: string): Promise<WorkflowSnapshot | null>;
+  save(id: string, state: ResumeState | WorkflowSnapshot): Promise<void>;
+  load(id: string): Promise<ResumeState | WorkflowSnapshot | null>;
   delete(id: string): Promise<void>;
   list(options?: { prefix?: string; limit?: number }): Promise<Array<{ id: string; updatedAt: string }>>;
   close(): Promise<void>;

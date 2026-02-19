@@ -1390,12 +1390,26 @@ function findWorkflowInvocations(
     if (
       text === workflowName ||
       text === `await ${workflowName}` ||
-      text === `(await ${workflowName})`
+      text === `(await ${workflowName})` ||
+      text === `${workflowName}.run` ||
+      text === `await ${workflowName}.run`
     ) {
       // When we have the actual workflow variable declaration, require the call's
       // callee to resolve to that declaration (avoids same-name different variable).
       if (workflowInfo.variableDeclaration) {
-        const calleeId = getCalleeIdentifier(expression);
+        // For direct calls: getCalleeIdentifier extracts workflow from `workflow(...)` or `await workflow(...)`
+        // For .run() calls: need to extract workflow from `workflow.run(...)` or `await workflow.run(...)`
+        let calleeId = getCalleeIdentifier(expression);
+        if (!calleeId) {
+          // Try extracting from PropertyAccessExpression (workflow.run case)
+          const callee = getCalleeExpression(expression);
+          if (Node.isPropertyAccessExpression(callee)) {
+            const obj = callee.getExpression();
+            if (Node.isIdentifier(obj)) {
+              calleeId = obj;
+            }
+          }
+        }
         if (calleeId) {
           const symbol = calleeId.getSymbol();
           if (symbol) {
@@ -1491,7 +1505,18 @@ function findWorkflowInvocations(
       sourceFile.forEachDescendant((node) => {
         if (!Node.isCallExpression(node)) return;
         const expression = node.getExpression();
-        const calleeId = getCalleeIdentifier(expression);
+        // For direct calls: getCalleeIdentifier extracts the identifier
+        // For .run() calls: extract the object part of the PropertyAccessExpression
+        let calleeId = getCalleeIdentifier(expression);
+        if (!calleeId) {
+          const callee = getCalleeExpression(expression);
+          if (Node.isPropertyAccessExpression(callee)) {
+            const obj = callee.getExpression();
+            if (Node.isIdentifier(obj)) {
+              calleeId = obj;
+            }
+          }
+        }
         if (!calleeId) return;
         const symbol = calleeId.getSymbol();
         if (!symbol) return;
@@ -1523,9 +1548,18 @@ function findWorkflowInvocations(
         sourceFile.forEachDescendant((node) => {
           if (!Node.isCallExpression(node)) return;
           const expression = node.getExpression();
-          // Only consider `workflow(cb)` where `workflow` is a function parameter.
+          // Only consider `workflow(cb)` or `workflow.run(cb)` where `workflow` is a function parameter.
           // Unwrap parentheses and await so (workflow)(cb) and (await workflow)(cb) are recognized.
-          const calleeId = getCalleeIdentifier(expression);
+          let calleeId = getCalleeIdentifier(expression);
+          if (!calleeId) {
+            const callee = getCalleeExpression(expression);
+            if (Node.isPropertyAccessExpression(callee)) {
+              const obj = callee.getExpression();
+              if (Node.isIdentifier(obj)) {
+                calleeId = obj;
+              }
+            }
+          }
           if (!calleeId) return;
           const symbol = calleeId.getSymbol();
           if (!symbol) return;
@@ -4103,11 +4137,14 @@ function analyzeWorkflowRefCall(
   stats: AnalysisStats
 ): StaticWorkflowRefNode {
   stats.workflowRefCount++;
+  const workflowName = callee
+    .replace(/\.runWithState$/, "")
+    .replace(/\.run$/, "");
 
   return {
     id: generateId(),
     type: "workflow-ref",
-    workflowName: callee,
+    workflowName,
     resolved: false,
     location: opts.includeLocations ? getLocation(node) : undefined,
   };

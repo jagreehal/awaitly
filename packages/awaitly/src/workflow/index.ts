@@ -24,6 +24,7 @@ export type {
   StepCache,
   ResumeStateEntry,
   ResumeState,
+  RunWithStateResult,
   AnyResultFn,
   ErrorsOfDeps,
   CausesOfDeps,
@@ -31,10 +32,7 @@ export type {
   WorkflowOptions,
   WorkflowContext,
   WorkflowFn,
-  WorkflowFnWithArgs,
-  GetSnapshotOptions,
-  SubscribeEvent,
-  SubscribeOptions,
+  RunConfig,
   Workflow,
   WorkflowCancelledError,
   PendingApproval,
@@ -44,7 +42,15 @@ export type {
   GatedStepOptions,
 } from "./types";
 
-export { isStepComplete, isWorkflowCancelled, isPendingApproval, isApprovalRejected, isPendingHook } from "./guards";
+export { isStepComplete, isWorkflowCancelled, isPendingApproval, isApprovalRejected, isPendingHook, isResumeState } from "./guards";
+export type { SerializedResumeState } from "./serialize-resume-state";
+export {
+  serializeResumeState,
+  deserializeResumeState,
+  isSerializedResumeState,
+} from "./serialize-resume-state";
+export type { StoreSaveInput, StoreLoadResult, PersistedWorkflowState } from "./store-contract";
+export { toResumeState } from "./store-contract";
 export {
   createResumeStateCollector,
   injectApproval,
@@ -70,6 +76,7 @@ export type {
 
 export {
   looksLikeWorkflowSnapshot,
+  isWorkflowSnapshot,
   validateSnapshot,
   assertValidSnapshot,
   mergeSnapshots,

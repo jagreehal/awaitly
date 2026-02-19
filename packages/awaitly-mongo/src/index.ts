@@ -3,18 +3,29 @@
  *
  * MongoDB persistence adapter for awaitly workflows.
  * Provides ready-to-use SnapshotStore backed by MongoDB.
+ * Supports both WorkflowSnapshot and ResumeState (serialized via serializeResumeState).
  */
 
 import type { Db, MongoClientOptions } from "mongodb";
 import { MongoClient as MongoClientImpl } from "mongodb";
 import type { WorkflowSnapshot, SnapshotStore } from "awaitly/persistence";
 import type { WorkflowLock } from "awaitly/durable";
+import {
+  type ResumeState,
+  type StoreSaveInput,
+  type StoreLoadResult,
+  isWorkflowSnapshot,
+  isResumeState,
+  isSerializedResumeState,
+  serializeResumeState,
+  deserializeResumeState,
+} from "awaitly/workflow";
 import { createMongoLock, type MongoLockOptions } from "./mongo-lock";
 
 /** Document shape for the snapshots collection (string _id). */
 interface SnapshotDoc {
   _id: string;
-  snapshot: WorkflowSnapshot;
+  snapshot: WorkflowSnapshot | import("awaitly/workflow").SerializedResumeState;
   updatedAt: Date;
 }
 
@@ -22,6 +33,7 @@ interface SnapshotDoc {
 export type { SnapshotStore, WorkflowSnapshot } from "awaitly/persistence";
 export type { WorkflowLock } from "awaitly/durable";
 export type { MongoLockOptions } from "./mongo-lock";
+export type { StoreSaveInput, StoreLoadResult } from "awaitly/workflow";
 
 // =============================================================================
 // MongoOptions
@@ -47,30 +59,40 @@ export interface MongoOptions {
   lock?: MongoLockOptions;
 }
 
+/** Mongo store with widened save/load for WorkflowSnapshot and ResumeState. Compatible with SnapshotStore for snapshot-only usage. */
+export interface MongoStore extends Partial<WorkflowLock> {
+  save(id: string, state: StoreSaveInput): Promise<void>;
+  load(id: string): Promise<StoreLoadResult>;
+  loadResumeState(id: string): Promise<ResumeState | null>;
+  delete(id: string): Promise<void>;
+  list(options?: { prefix?: string; limit?: number }): Promise<Array<{ id: string; updatedAt: string }>>;
+  close(): Promise<void>;
+}
+
 // =============================================================================
 // mongo() - One-liner Snapshot Store Setup
 // =============================================================================
 
 /**
  * Create a snapshot store backed by MongoDB.
- * This is the simplified one-liner API for workflow persistence.
+ * Save accepts WorkflowSnapshot or ResumeState; load returns whichever was stored.
+ * Use loadResumeState(id) for type-safe restore, or toResumeState(await store.load(id)).
  *
  * @example
  * ```typescript
  * import { mongo } from 'awaitly-mongo';
+ * import { createWorkflow } from 'awaitly/workflow';
  *
- * // One-liner setup
  * const store = mongo('mongodb://localhost:27017/mydb');
+ * const workflow = createWorkflow(deps);
  *
- * // Execute + persist
- * const wf = createWorkflow(deps);
- * await wf(myWorkflowFn);
- * await store.save('wf-123', wf.getSnapshot());
+ * // Run and persist resume state
+ * const { result, resumeState } = await workflow.runWithState(fn);
+ * await store.save('wf-123', resumeState);
  *
  * // Restore
- * const snapshot = await store.load('wf-123');
- * const wf2 = createWorkflow(deps, { snapshot });
- * await wf2(myWorkflowFn);
+ * const resumeState = await store.loadResumeState('wf-123');
+ * if (resumeState) await workflow.run(fn, { resumeState });
  * ```
  *
  * @example
@@ -85,7 +107,7 @@ export interface MongoOptions {
  * });
  * ```
  */
-export function mongo(urlOrOptions: string | MongoOptions): SnapshotStore & Partial<WorkflowLock> {
+export function mongo(urlOrOptions: string | MongoOptions): MongoStore {
   const opts = typeof urlOrOptions === "string" ? { url: urlOrOptions } : urlOrOptions;
   const prefix = opts.prefix ?? "";
 
@@ -134,16 +156,17 @@ export function mongo(urlOrOptions: string | MongoOptions): SnapshotStore & Part
     return db;
   };
 
-  const store: SnapshotStore & Partial<WorkflowLock> = {
-    async save(id: string, snapshot: WorkflowSnapshot): Promise<void> {
+  const store: MongoStore = {
+    async save(id: string, state: StoreSaveInput): Promise<void> {
       const db = await ensureConnected();
       const collection = db.collection<SnapshotDoc>(collectionName);
       const fullId = prefix + id;
+      const toStore = isResumeState(state) ? serializeResumeState(state) : state;
       await collection.updateOne(
         { _id: fullId },
         {
           $set: {
-            snapshot,
+            snapshot: toStore,
             updatedAt: new Date(),
           },
         },
@@ -151,13 +174,23 @@ export function mongo(urlOrOptions: string | MongoOptions): SnapshotStore & Part
       );
     },
 
-    async load(id: string): Promise<WorkflowSnapshot | null> {
+    async load(id: string): Promise<StoreLoadResult> {
       const db = await ensureConnected();
       const collection = db.collection<SnapshotDoc>(collectionName);
       const fullId = prefix + id;
       const doc = await collection.findOne({ _id: fullId });
       if (!doc) return null;
-      return doc.snapshot;
+      const raw = doc.snapshot;
+      if (isSerializedResumeState(raw)) return deserializeResumeState(raw);
+      if (isWorkflowSnapshot(raw)) return raw;
+      return raw as WorkflowSnapshot;
+    },
+
+    async loadResumeState(id: string): Promise<ResumeState | null> {
+      const loaded = await store.load(id);
+      if (loaded === null) return null;
+      if (isResumeState(loaded)) return loaded;
+      return null;
     },
 
     async delete(id: string): Promise<void> {

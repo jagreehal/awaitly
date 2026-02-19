@@ -187,7 +187,7 @@ export interface Devtools {
  *   onEvent: devtools.handleEvent,
  * });
  *
- * await workflow(async ({ step }) => { ... });
+ * await workflow.run(async ({ step }) => { ... });
  *
  * // Visualize
  * console.log(devtools.render());

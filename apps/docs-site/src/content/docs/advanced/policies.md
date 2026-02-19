@@ -12,7 +12,7 @@ Apply pre-built policies for common scenarios:
 ```typescript
 import { withPolicy, servicePolicies } from 'awaitly/policies';
 
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step }) => {
   // HTTP API: 5s timeout, 3 retries
   const user = await step(
     () => fetchUser(id),
@@ -240,7 +240,7 @@ describe('workflow with policies', () => {
 
     const harness = createWorkflowHarness({ fetchData: mockFetch });
 
-    const result = await harness.run(async (step) => {
+    const result = await harness.run(async ({ step, deps }) => {
       return await step(
         () => deps.fetchData(),
         withPolicy(servicePolicies.httpApi, { name: 'fetch' })
@@ -258,7 +258,7 @@ describe('workflow with policies', () => {
 
     const harness = createWorkflowHarness({ fetchData: () => slowFetch() });
 
-    const result = await harness.run(async (step) => {
+    const result = await harness.run(async ({ step, deps }) => {
       return await step(
         () => deps.fetchData(),
         withPolicy({ timeout: { ms: 100 } }, { name: 'fetch' })

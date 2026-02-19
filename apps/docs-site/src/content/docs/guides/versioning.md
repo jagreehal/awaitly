@@ -74,7 +74,7 @@ const workflow = createWorkflow('workflow', deps, {
   onEvent: collector.handleEvent,
 });
 
-await workflow(async (step) => {
+await workflow.run(async ({ step, deps }) => {
   // ...
 });
 
@@ -230,7 +230,7 @@ const workflow = createWorkflow('workflow', deps, {
 });
 
 const collector = createResumeStateCollector();
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // ...
 });
 

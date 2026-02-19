@@ -24,7 +24,7 @@ const streamStore = createMemoryStreamStore();
 const workflow = createWorkflow('workflow', deps, { streamStore });
 
 // 3. Write to streams
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const writer = step.getWritable<string>({ namespace: 'tokens' });
 
   await writer.write('Hello');
@@ -63,7 +63,7 @@ const streamStore = createFileStreamStore({
 Use `step.getWritable<T>()` to create a writer:
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const writer = step.getWritable<string>({ namespace: 'ai-response' });
 
   // Write items
@@ -83,7 +83,7 @@ const result = await workflow(async ({ step, deps }) => {
 ### AI Token Streaming Example
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const writer = step.getWritable<string>({ namespace: 'ai-tokens' });
 
   await step('generateAI', () => deps.generateAI({
@@ -102,7 +102,7 @@ const result = await workflow(async ({ step, deps }) => {
 Use `step.getReadable<T>()` to consume a stream:
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const reader = step.getReadable<string>({ namespace: 'tokens' });
 
   let item = await reader.read();
@@ -135,7 +135,7 @@ Convert readers to `for await...of` syntax:
 ```typescript
 import { toAsyncIterable } from 'awaitly/streaming';
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const reader = step.getReadable<string>({ namespace: 'tokens' });
 
   for await (const token of toAsyncIterable(reader)) {
@@ -221,7 +221,7 @@ const result = await collect(
 Process stream items with concurrency and checkpointing:
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const reader = step.getReadable<Order>({ namespace: 'orders' });
 
   const processed = await step.streamForEach(
@@ -277,7 +277,7 @@ app.get('/stream/:workflowId', async (req, res) => {
 Use namespaces for multiple streams per workflow:
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const tokenWriter = step.getWritable<string>({ namespace: 'tokens' });
   const progressWriter = step.getWritable<number>({ namespace: 'progress' });
 
@@ -443,7 +443,7 @@ const workflow = createWorkflow('workflow', { generateTokens },
 );
 
 // Producer workflow
-const producerResult = await workflow(async ({ step, deps }) => {
+const producerResult = await workflow.run(async ({ step, deps }) => {
   const writer = step.getWritable<{ token: string; score: number }>({
     namespace: 'ai-output',
   });
@@ -460,7 +460,7 @@ const producerResult = await workflow(async ({ step, deps }) => {
 });
 
 // Consumer (can run concurrently or later)
-const consumerResult = await workflow(async ({ step, deps }) => {
+const consumerResult = await workflow.run(async ({ step, deps }) => {
   const reader = step.getReadable<{ token: string; score: number }>({
     namespace: 'ai-output',
   });

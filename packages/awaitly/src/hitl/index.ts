@@ -550,9 +550,9 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
     });
 
     // Execute workflow - collector tracks pending approvals via events
-    const result = await (workflow as Workflow<E, unknown>)(
-      input,
-      workflowFn as (context: { step: unknown; deps: unknown; args: TInput }) => Promise<T>
+    const args = input;
+    const result = await (workflow as Workflow<E, unknown>).run(
+      async (context) => workflowFn({ ...context, args } as { step: unknown; deps: unknown; args: TInput })
     );
 
     // Check for pending approvals
@@ -687,9 +687,9 @@ export function createHITLOrchestrator(options: HITLOrchestratorOptions): HITLOr
     });
 
     // Execute workflow
-    const result = await (workflow as Workflow<E, unknown>)(
-      savedState.input as TInput,
-      workflowFn as (context: { step: unknown; deps: unknown; args: TInput }) => Promise<T>
+    const args = savedState.input as TInput;
+    const result = await (workflow as Workflow<E, unknown>).run(
+      async (context) => workflowFn({ ...context, args } as { step: unknown; deps: unknown; args: TInput })
     );
 
     // Check for NEW pending approvals (workflow paused again at a different step)

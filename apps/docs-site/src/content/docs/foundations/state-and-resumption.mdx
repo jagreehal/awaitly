@@ -45,7 +45,7 @@ const workflow = createWorkflow('workflow', deps, {
   cache: new Map(),
 });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Cached with key 'user:1'
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
@@ -88,13 +88,13 @@ const cache = new Map();
 const workflow = createWorkflow('workflow', deps, { cache });
 
 // First run - fetches user
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
 
 // Second run - uses cached value (no fetch)
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
@@ -113,7 +113,7 @@ const workflow = createWorkflow('workflow', { fetchUser, fetchPosts },
   { onEvent: collector.handleEvent }
 );
 
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
@@ -127,113 +127,117 @@ const state = collector.getResumeState();
 Only steps with `key` are saved. Steps without keys always execute. When you need per-iteration or per-entity identity (e.g. in a loop), use one literal step ID and set `key` to the instance identity; the snapshot and events will key by that.
 </Aside>
 
-## Saving and Loading Snapshots
+## Saving and Loading State
 
-Workflow state is captured as a **WorkflowSnapshot** (JSON-serializable). Use `workflow.getSnapshot()` and pass it to a store:
+Use `createResumeStateCollector` to capture step results during a run, then persist the returned **ResumeState** (JSON-serializable). To resume, pass the loaded state to `workflow.run(fn, { resumeState })` or to creation options:
 
 ```typescript
-const workflow = createWorkflow('workflow', deps);
-await workflow(async ({ step, deps }) => {
+const collector = createResumeStateCollector();
+const workflow = createWorkflow('workflow', deps, { onEvent: collector.handleEvent });
+
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
 
-// Snapshot is JSON-serializable
-const snapshot = workflow.getSnapshot();
-await store.save('wf-123', snapshot);
+const state = collector.getResumeState();
+await store.save('wf-123', state);
 ```
 
-To resume, load the snapshot and pass it to `createWorkflow`:
+To resume, load the state and pass it to the next run:
 
 ```typescript
-const snapshot = await store.load('wf-123');
+const savedState = await store.load('wf-123');
 
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts },
-  { snapshot: snapshot ?? undefined }
+  { onEvent: collector.handleEvent }
 );
 
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
-});
+}, { resumeState: savedState });
 ```
 
-### Async Snapshot Loading
+You can also pass `resumeState` at creation time: `createWorkflow('workflow', deps, { resumeState: savedState })`.
 
-Load the snapshot before creating the workflow:
+### Async state loading
+
+Load the state before running:
 
 ```typescript
-const snapshot = await store.load('wf-123');
-const workflow = createWorkflow('workflow', deps, { snapshot: snapshot ?? undefined });
+const savedState = await store.load('wf-123');
+await workflow.run(fn, { resumeState: savedState });
 ```
 
 ## Crash Recovery Pattern
 
-Save a snapshot after each critical step:
+Save state after each critical step using the collector:
 
 ```typescript
 const store = postgres(process.env.DATABASE_URL!);
-const snapshot = await store.load('wf-123');
+const collector = createResumeStateCollector();
+const workflow = createWorkflow('workflow', deps, { onEvent: collector.handleEvent });
 
-const workflow = createWorkflow('workflow', deps, { snapshot });
+const savedState = await store.load('wf-123');
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 
-  await store.save('wf-123', workflow.getSnapshot());
+  const state = collector.getResumeState();
+  await store.save('wf-123', state);
 
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
-});
+}, { resumeState: savedState ?? undefined });
 
-await store.save('wf-123', workflow.getSnapshot());
+const finalState = collector.getResumeState();
+await store.save('wf-123', finalState);
 ```
 
-If the workflow crashes, resume from the last saved snapshot:
+If the workflow crashes, resume from the last saved state:
 
 ```typescript
-const snapshot = await store.load('wf-123');
+const savedState = await store.load('wf-123');
 
-const workflow = createWorkflow('workflow', deps, { snapshot });
-
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` });
   return { user, posts };
-});
+}, { resumeState: savedState });
 ```
 
 ## Checking Step Completion
 
-From a loaded snapshot, check step completion via the `ok` field:
+From loaded resume state, check step completion via the `steps` Map:
 
 ```typescript
-const snapshot = await store.load('wf-123');
+const savedState = await store.load('wf-123');
 
-if (snapshot?.steps['user:1']?.ok) {
-  console.log('User already fetched');
+if (savedState?.steps?.get('user:1')) {
+  console.log('User step already completed');
 }
 ```
 
-For subscribe events, use the `isStepComplete` type guard from `awaitly/workflow` to narrow event types.
+For event streams, use the `isStepComplete` type guard from `awaitly/workflow` to narrow event types.
 
-## Snapshot Store
+## Persistence Store
 
-Use a **SnapshotStore** (e.g. from `postgres()`, `mongo()`, or `libsql()`) to persist workflow snapshots:
+Use a store (e.g. from `postgres()`, `mongo()`, or `libsql()`) to persist resume state. Save `collector.getResumeState()` after runs and pass the loaded state to `workflow.run(fn, { resumeState })` or creation options:
 
 ```typescript
 import { postgres } from 'awaitly-postgres';
-import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
 
 const store = postgres(process.env.DATABASE_URL!);
+const collector = createResumeStateCollector();
+const workflow = createWorkflow('workflow', deps, { onEvent: collector.handleEvent });
 
-// Save after run
-await store.save('wf-123', workflow.getSnapshot());
+await workflow.run(fn);
+await store.save('wf-123', collector.getResumeState());
 
-// Load and resume
-const snapshot = await store.load('wf-123');
-const workflow = createWorkflow('workflow', deps, { snapshot });
+const savedState = await store.load('wf-123');
+await workflow.run(fn, { resumeState: savedState });
 ```
 
 See [Persistence](/guides/persistence/) for the full interface and custom adapters (e.g. Redis).
@@ -255,7 +259,7 @@ const workflow = createWorkflow('workflow', deps, { cache });
 Use step keys for idempotent operations:
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Payment only processes once, even on retry
   const payment = await step(
     'processPayment',
@@ -280,14 +284,14 @@ Errors are cached by default. If a step fails, subsequent runs return the same e
 
 ```typescript
 // First run - fetchUser returns err('NOT_FOUND')
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('999'), { key: 'user:999' });
   return user;
 });
 // result.error === 'NOT_FOUND'
 
 // Second run - returns cached error (no fetch)
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('999'), { key: 'user:999' });
   return user;
 });
@@ -313,19 +317,20 @@ cache.delete('user:999');
 ## Complete Example
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 import { postgres } from 'awaitly-postgres';
 
 const store = postgres(process.env.DATABASE_URL!);
 
 async function runWithRecovery(workflowId: string) {
-  const snapshot = await store.load(workflowId);
+  const savedState = await store.load(workflowId);
+  const collector = createResumeStateCollector();
 
   const workflow = createWorkflow('workflow', { fetchUser, processPayment, sendConfirmation },
-    { snapshot }
+    { onEvent: collector.handleEvent }
   );
 
-  const result = await workflow(async ({ step, deps }) => {
+  const result = await workflow.run(async ({ step, deps }) => {
     const user = await step(
       'fetchUser',
       () => deps.fetchUser('1'),
@@ -333,7 +338,7 @@ async function runWithRecovery(workflowId: string) {
     );
 
     // Checkpoint after user fetch
-    await store.save(workflowId, workflow.getSnapshot());
+    await store.save(workflowId, collector.getResumeState());
 
     const payment = await step(
       'processPayment',
@@ -342,7 +347,7 @@ async function runWithRecovery(workflowId: string) {
     );
 
     // Checkpoint after payment
-    await store.save(workflowId, workflow.getSnapshot());
+    await store.save(workflowId, collector.getResumeState());
 
     await step(
       'sendConfirmation',
@@ -351,10 +356,10 @@ async function runWithRecovery(workflowId: string) {
     );
 
     return { user, payment };
-  });
+  }, { resumeState: savedState ?? undefined });
 
   // Final save
-  await store.save(workflowId, workflow.getSnapshot());
+  await store.save(workflowId, collector.getResumeState());
 
   return result;
 }

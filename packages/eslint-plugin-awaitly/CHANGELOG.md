@@ -1,5 +1,14 @@
 # eslint-plugin-awaitly
 
+## Unreleased
+
+### Minor Changes
+
+- **workflow.run() API and call-time dependency injection:** Plugin rules and docs updated for the spec-driven workflow API. Execution is via `workflow.run(fn, config?)` or `workflow.run(name, fn, config?)`; per-run options (including `deps` override for call-time injection) must come after the callback.
+- **no-options-on-executor:** Detects wrong argument order when an options object is passed before the callback to `.run()` / `.runWithState()` (including named-run form `run(name, { ... }, callback)`). Adds `deps` to detected option keys. Error messages now point to `workflow.run(callback, config)` ordering.
+- **no-double-wrap-result:** Unchanged behavior; already recognizes `createWorkflow(...).run(...)` and `createWorkflow(...).run(name, callback)`; documents known limitation for variable-based `workflow.run()` (no data flow analysis).
+- **README:** no-options-on-executor section updated with workflow.run() examples and per-run config (deps, onEvent).
+
 ## 0.14.0
 
 ### Minor Changes

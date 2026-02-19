@@ -34,7 +34,7 @@ export function useWorkflow<T, E, Deps extends Record<string, unknown>>(
     setState({ status: 'loading' });
 
     const workflow = createWorkflow('workflow', deps);
-    const result = await workflow(workflowFn);
+    const result = await workflow.run(workflowFn);
 
     if (result.ok) {
       setState({ status: 'success', data: result.value });
@@ -55,10 +55,10 @@ Usage in a component:
 function CheckoutButton({ cartId }: { cartId: string }) {
   const { status, data, error, run } = useWorkflow(
     { validateCart, processPayment, sendConfirmation },
-    async (step) => {
-      const cart = await step('validateCart', () => validateCart(cartId));
-      const payment = await step('processPayment', () => processPayment(cart.total));
-      await step('sendConfirmation', () => sendConfirmation(cart.email, payment.id));
+    async ({ step, deps }) => {
+      const cart = await step('validateCart', () => deps.validateCart(cartId));
+      const payment = await step('processPayment', () => deps.processPayment(cart.total));
+      await step('sendConfirmation', () => deps.sendConfirmation(cart.email, payment.id));
       return { orderId: payment.id };
     }
   );
@@ -149,7 +149,7 @@ export async function checkout(
     sendEmail,
   });
 
-  return await workflow(async ({ step, deps }) => {
+  return await workflow.run(async ({ step, deps }) => {
     const cart = await step('validateCart', () => deps.validateCart(cartId));
     const payment = await step('processPayment', () => deps.processPayment(cart.total));
     await step('sendEmail', () => deps.sendEmail(cart.email, payment.receiptUrl));
@@ -212,7 +212,7 @@ export async function POST(request: Request) {
   const body = await request.json();
 
   const workflow = createWorkflow('workflow', { validateOrder, chargeCard, createOrder });
-  const result = await workflow(async ({ step, deps }) => {
+  const result = await workflow.run(async ({ step, deps }) => {
     const validated = await step('validateOrder', () => deps.validateOrder(body));
     const charge = await step('chargeCard', () => deps.chargeCard(validated.amount));
     const order = await step('createOrder', () => deps.createOrder(validated, charge.id));
@@ -275,7 +275,7 @@ const app = express();
 
 app.post('/api/orders', resultHandler(async (req) => {
   const workflow = createWorkflow('workflow', { validateOrder, processPayment });
-  return await workflow(async ({ step, deps }) => {
+  return await workflow.run(async ({ step, deps }) => {
     const order = await step('validateOrder', () => deps.validateOrder(req.body));
     const payment = await step('processPayment', () => deps.processPayment(order.total));
     return { orderId: payment.id };
@@ -295,7 +295,7 @@ const router = Router();
 router.post('/users', async (req, res) => {
   const workflow = createWorkflow('workflow', { validateUser, createUser, sendWelcome });
 
-  const result = await workflow(async ({ step, deps }) => {
+  const result = await workflow.run(async ({ step, deps }) => {
     const validated = await step('validateUser', () => deps.validateUser(req.body));
     const user = await step('createUser', () => deps.createUser(validated));
     await step('sendWelcome', () => deps.sendWelcome(user.email));
@@ -345,13 +345,13 @@ fastify.addHook('preHandler', async (request) => {
     fn: (step: any, deps: Deps) => Promise<T>
   ) => {
     const workflow = createWorkflow('workflow', deps);
-    return workflow(fn);
+    return workflow.run(fn);
   };
 });
 
 // Route using the helper
 fastify.post('/orders', async (request, reply) => {
-  const result = await request.workflow(
+  const result = await request.workflow.run(
     { validateOrder, processPayment },
     async ({ step, deps }) => {
       const order = await step('validateOrder', () => deps.validateOrder(request.body));
@@ -387,7 +387,7 @@ fastify.post('/orders', {
   },
 }, async (request, reply) => {
   // Body is already validated by Fastify
-  const result = await createWorkflow('workflow', { processOrder })(async ({ step, deps }) => {
+  const result = await createWorkflow('workflow', { processOrder }).run(async ({ step, deps }) => {
     return await step('processOrder', () => deps.processOrder(request.body));
   });
 
@@ -444,17 +444,17 @@ Pass request context through workflows:
 ```typescript
 const workflow = createWorkflow('workflow', { fetchUser, logAction });
 
-const result = await workflow(
-  async (step, deps, ctx) => {
-    const user = await step('fetchUser', () => fetchUser(ctx.userId));
-    await step('logAction', () => logAction(ctx.requestId, 'user_fetched'));
+const result = await workflow.run(
+  async ({ step, deps, ctx }) => {
+    const user = await step('fetchUser', () => deps.fetchUser(ctx.userId));
+    await step('logAction', () => deps.logAction(ctx.requestId, 'user_fetched'));
     return user;
   },
   {
-    context: {
+    createContext: () => ({
       userId: req.user.id,
       requestId: req.headers['x-request-id'],
-    }
+    }),
   }
 );
 ```

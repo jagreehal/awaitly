@@ -41,7 +41,7 @@ const findUser = async (id: string): AsyncResult<typeof users.$inferSelect, DbEr
 // Use in a workflow
 const workflow = createWorkflow('workflow', { findUser });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('findUser', () => deps.findUser('user-123'));
   return user;
 });
@@ -223,9 +223,9 @@ const deps = {
 const createUserWorkflow = createWorkflow('workflow', deps);
 
 const createUser = async (rawInput: unknown) => {
-  return createUserWorkflow(async (step, d) => {
-    const input = await step('validateInput', () => d.validateInput(rawInput));
-    const user = await step('createUser', () => d.createUser(input));
+  return createUserWorkflow.run(async ({ step, deps }) => {
+    const input = await step('validateInput', () => deps.validateInput(rawInput));
+    const user = await step('createUser', () => deps.createUser(input));
     return user;
   });
 };
@@ -460,22 +460,22 @@ const deps = {
 const signUpWorkflow = createWorkflow('workflow', deps);
 
 const signUp = async (rawInput: unknown) => {
-  return signUpWorkflow(async (step, d) => {
+  return signUpWorkflow.run(async ({ step, deps }) => {
     // Step 1: Validate input
-    const input = await step('validateInput', () => d.validateInput(rawInput));
+    const input = await step('validateInput', () => deps.validateInput(rawInput));
 
     // Step 2: Check if email is taken
-    const emailExists = await step('checkEmailExists', () => d.checkEmailExists(input.email));
+    const emailExists = await step('checkEmailExists', () => deps.checkEmailExists(input.email));
     if (emailExists) {
       return await step('createUser', err({ type: 'EMAIL_TAKEN' as const, email: input.email }));
     }
 
     // Step 3: Hash password
-    const passwordHash = await step('hashPassword', () => d.hashPassword(input.password));
+    const passwordHash = await step('hashPassword', () => deps.hashPassword(input.password));
 
     // Step 4: Create user
     const user = await step('createUser', () =>
-      d.createUser({
+      deps.createUser({
         email: input.email,
         passwordHash,
         name: input.name,

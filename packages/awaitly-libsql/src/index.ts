@@ -3,17 +3,29 @@
  *
  * libSQL / SQLite persistence adapter for awaitly workflows.
  * Provides ready-to-use SnapshotStore backed by libSQL.
+ * Supports both WorkflowSnapshot and ResumeState (serialized via serializeResumeState).
  */
 
 import { createClient, type Client } from "@libsql/client";
 import type { WorkflowSnapshot, SnapshotStore } from "awaitly/persistence";
 import type { WorkflowLock } from "awaitly/durable";
+import {
+  type ResumeState,
+  type StoreSaveInput,
+  type StoreLoadResult,
+  isWorkflowSnapshot,
+  isResumeState,
+  isSerializedResumeState,
+  serializeResumeState,
+  deserializeResumeState,
+} from "awaitly/workflow";
 import { createLibSqlLock, type LibSqlLockOptions } from "./libsql-lock";
 
 // Re-export types for convenience
 export type { SnapshotStore, WorkflowSnapshot } from "awaitly/persistence";
 export type { WorkflowLock } from "awaitly/durable";
 export type { LibSqlLockOptions } from "./libsql-lock";
+export type { StoreSaveInput, StoreLoadResult } from "awaitly/workflow";
 
 // =============================================================================
 // LibSqlOptions
@@ -37,30 +49,40 @@ export interface LibSqlOptions {
   lock?: LibSqlLockOptions;
 }
 
+/** LibSQL store with widened save/load for WorkflowSnapshot and ResumeState. Compatible with SnapshotStore for snapshot-only usage. */
+export interface LibSqlStore extends Partial<WorkflowLock> {
+  save(id: string, state: StoreSaveInput): Promise<void>;
+  load(id: string): Promise<StoreLoadResult>;
+  loadResumeState(id: string): Promise<ResumeState | null>;
+  delete(id: string): Promise<void>;
+  list(options?: { prefix?: string; limit?: number }): Promise<Array<{ id: string; updatedAt: string }>>;
+  close(): Promise<void>;
+}
+
 // =============================================================================
 // libsql() - One-liner Snapshot Store Setup
 // =============================================================================
 
 /**
  * Create a snapshot store backed by libSQL / SQLite.
- * This is the simplified one-liner API for workflow persistence.
+ * Save accepts WorkflowSnapshot or ResumeState; load returns whichever was stored.
+ * Use loadResumeState(id) for type-safe restore, or toResumeState(await store.load(id)).
  *
  * @example
  * ```typescript
  * import { libsql } from 'awaitly-libsql';
+ * import { createWorkflow } from 'awaitly/workflow';
  *
- * // One-liner setup (local SQLite)
  * const store = libsql('file:./workflow.db');
+ * const workflow = createWorkflow(deps);
  *
- * // Execute + persist
- * const wf = createWorkflow(deps);
- * await wf(myWorkflowFn);
- * await store.save('wf-123', wf.getSnapshot());
+ * // Run and persist resume state
+ * const { result, resumeState } = await workflow.runWithState(fn);
+ * await store.save('wf-123', resumeState);
  *
  * // Restore
- * const snapshot = await store.load('wf-123');
- * const wf2 = createWorkflow(deps, { snapshot });
- * await wf2(myWorkflowFn);
+ * const resumeState = await store.loadResumeState('wf-123');
+ * if (resumeState) await workflow.run(fn, { resumeState });
  * ```
  *
  * @example
@@ -75,7 +97,7 @@ export interface LibSqlOptions {
  * });
  * ```
  */
-export function libsql(urlOrOptions: string | LibSqlOptions): SnapshotStore & Partial<WorkflowLock> {
+export function libsql(urlOrOptions: string | LibSqlOptions): LibSqlStore {
   const opts = typeof urlOrOptions === "string" ? { url: urlOrOptions } : urlOrOptions;
   const tableName = opts.table ?? "awaitly_snapshots";
   const prefix = opts.prefix ?? "";
@@ -112,19 +134,21 @@ export function libsql(urlOrOptions: string | LibSqlOptions): SnapshotStore & Pa
     tableCreated = true;
   };
 
-  const store: SnapshotStore & Partial<WorkflowLock> = {
-    async save(id: string, snapshot: WorkflowSnapshot): Promise<void> {
+  const store: LibSqlStore = {
+    async save(id: string, state: StoreSaveInput): Promise<void> {
       await ensureTable();
       const fullId = prefix + id;
+      const toStore = isResumeState(state) ? serializeResumeState(state) : state;
+      const json = JSON.stringify(toStore);
       await client.execute({
         sql: `INSERT INTO ${tableName} (id, snapshot, updated_at)
               VALUES (?, ?, datetime('now'))
               ON CONFLICT(id) DO UPDATE SET snapshot = ?, updated_at = datetime('now')`,
-        args: [fullId, JSON.stringify(snapshot), JSON.stringify(snapshot)],
+        args: [fullId, json, json],
       });
     },
 
-    async load(id: string): Promise<WorkflowSnapshot | null> {
+    async load(id: string): Promise<StoreLoadResult> {
       await ensureTable();
       const fullId = prefix + id;
       const result = await client.execute({
@@ -132,7 +156,17 @@ export function libsql(urlOrOptions: string | LibSqlOptions): SnapshotStore & Pa
         args: [fullId],
       });
       if (result.rows.length === 0) return null;
-      return JSON.parse(result.rows[0].snapshot as string) as WorkflowSnapshot;
+      const raw = JSON.parse(result.rows[0].snapshot as string) as unknown;
+      if (isSerializedResumeState(raw)) return deserializeResumeState(raw);
+      if (isWorkflowSnapshot(raw)) return raw;
+      return raw as WorkflowSnapshot;
+    },
+
+    async loadResumeState(id: string): Promise<ResumeState | null> {
+      const loaded = await store.load(id);
+      if (loaded === null) return null;
+      if (isResumeState(loaded)) return loaded;
+      return null;
     },
 
     async delete(id: string): Promise<void> {

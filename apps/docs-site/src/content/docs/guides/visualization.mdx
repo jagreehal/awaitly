@@ -52,7 +52,7 @@ const workflow = createWorkflow('workflow', deps, {
   onEvent: viz.handleEvent,
 });
 
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const order = await step('fetchOrder', () => deps.fetchOrder('123'));
   const payment = await step('chargeCard', () => deps.chargeCard(order.total));
   return { order, payment };
@@ -70,7 +70,7 @@ console.log(viz.renderAs('mermaid'));
 Events are only received by the visualizer when the workflow runtime calls your **`onEvent`** callback. That happens only if:
 
 1. **You pass `onEvent` at workflow creation** — e.g. `createWorkflow('name', deps, { onEvent: viz.handleEvent })`.
-2. **Or you pass it at execution time** — e.g. `workflow(args, fn, { onEvent: viz.handleEvent })`, if your workflow API supports execution options.
+2. **Or you pass it at execution time** — e.g. `workflow.run(fn, { onEvent: viz.handleEvent })`, if your workflow API supports execution options.
 
 If you wrap the workflow in a library (e.g. `processOnePayment(batch, payment, deps, { onEvent })`), the library must **accept** an optional `onEvent` (or full workflow options) and **forward** it to `createWorkflow` or to the executor. Otherwise the visualizer will never receive events.
 
@@ -94,7 +94,7 @@ export async function processOnePayment(
     catchUnexpected: ...,
     ...workflowOptions,  // so callers can pass onEvent
   });
-  return workflow(args, async ({ step, deps, args }) => { ... });
+  const args = input; return workflow.run(async ({ step, deps }) => { ... });
 }
 
 // Caller: capture events for visualization
@@ -212,7 +212,7 @@ Track parallel operations with `step.parallel(name, ...)`:
 ```typescript
 import { allAsync } from 'awaitly';
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const [user, posts] = await step.parallel('Fetch user data', () =>
     allAsync([deps.fetchUser('1'), deps.fetchPosts('1')])
   );
@@ -351,7 +351,7 @@ const workflow = createWorkflow('workflow', deps, {
   onEvent: viz.handleEvent,
 });
 
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('Fetch user', () => deps.fetchUser('1'));
 
   // Track a decision point
@@ -431,7 +431,7 @@ const workflow = createWorkflow('workflow', deps, {
   onEvent: collector.handleEvent,
 });
 
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('Fetch user', () => deps.fetchUser('1'));
 
   const decision = trackIf('check-role', user.role === 'admin', {
@@ -469,7 +469,7 @@ const workflow = createWorkflow('workflow', deps, {
   onEvent: collector.handleEvent,
 });
 
-await workflow(async ({ step, deps }) => { ... });
+await workflow.run(async ({ step, deps }) => { ... });
 
 // Visualize anytime after
 console.log(collector.visualize());
@@ -490,13 +490,13 @@ const viz = createVisualizer({ workflowName: 'checkout' });
 const workflow = createWorkflow('checkout', deps, { onEvent: viz.handleEvent });
 
 // Run A
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   await step('Fetch order', () => deps.fetchOrder('A'));
 });
 console.log(viz.render()); // shows Fetch order (run A)
 
 // Run B — automatically replaces run A
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   await step('Charge card', () => deps.chargeCard(100));
 });
 console.log(viz.render()); // shows Charge card (run B) only
@@ -687,7 +687,7 @@ app.post('/checkout', async (req, res) => {
     onEvent: collector.handleEvent,
   });
 
-  const result = await workflow(async ({ step, deps }) => {
+  const result = await workflow.run(async ({ step, deps }) => {
     const order = await step('Fetch order', () => deps.fetchOrder(req.body.orderId));
     const payment = await step('Charge card', () => deps.chargeCard(order.total));
     return { order, payment };
@@ -720,8 +720,8 @@ const workflow = createWorkflow('workflow', deps, {
 });
 
 // Run multiple workflows
-await workflow(async ({ step, deps }) => { ... });
-await workflow(async ({ step, deps }) => { ... });
+await workflow.run(async ({ step, deps }) => { ... });
+await workflow.run(async ({ step, deps }) => { ... });
 ```
 
 ### CI/CD artifact generation
@@ -739,7 +739,7 @@ const workflow = createWorkflow('workflow', deps, {
   onEvent: viz.handleEvent,
 });
 
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   await step('Run tests', () => deps.runTests());
   await step('Build app', () => deps.buildApp());
   await step('Deploy', () => deps.deploy());

@@ -54,7 +54,7 @@ describe("Mermaid Validation - Special Characters", () => {
       onEvent: collector.handleEvent,
     });
 
-    await workflow(async ({ step, deps }) => {
+    await workflow.run(async ({ step, deps }) => {
       await step(
         "Fetch User (with parens)",
         () => deps.fetchUserWithSpecialChars("1"),
@@ -77,7 +77,7 @@ describe("Mermaid Validation - Special Characters", () => {
       onEvent: collector.handleEvent,
     });
 
-    await workflow(async ({ step, deps }) => {
+    await workflow.run(async ({ step, deps }) => {
       await step(
         "Process [Data] with Brackets",
         () => deps.processDataWithBrackets({ value: "test" }),
@@ -100,7 +100,7 @@ describe("Mermaid Validation - Special Characters", () => {
       onEvent: collector.handleEvent,
     });
 
-    await workflow(async ({ step, deps }) => {
+    await workflow.run(async ({ step, deps }) => {
       await step(
         'Step with "quotes"',
         () => deps.fetchUserWithSpecialChars("1"),
@@ -123,7 +123,7 @@ describe("Mermaid Validation - Special Characters", () => {
       onEvent: collector.handleEvent,
     });
 
-    await workflow(async ({ step, deps }) => {
+    await workflow.run(async ({ step, deps }) => {
       await step.parallel("Parallel (with parens)", async () => {
         const user = await deps.fetchUserWithSpecialChars("1");
         return ok([user]);
@@ -147,7 +147,7 @@ describe("Mermaid Validation - Special Characters", () => {
       onEvent: collector.handleEvent,
     });
 
-    await workflow(async ({ step }) => {
+    await workflow.run(async ({ step }) => {
       await step.race("Race [with brackets]", () =>
         Promise.resolve(ok("result1"))
       );
@@ -171,7 +171,7 @@ describe("Mermaid Validation - Special Characters", () => {
       }
     );
 
-    await workflow(async ({ step, deps }) => {
+    await workflow.run(async ({ step, deps }) => {
       // Step with special chars in name (now using explicit ID as first param)
       const user = await step(
         'Fetch "User" (with) [special] chars',
@@ -221,7 +221,7 @@ describe("Mermaid Enhanced Edges", () => {
       onEvent: collector.handleEvent,
     });
 
-    await workflow(async ({ step, deps }) => {
+    await workflow.run(async ({ step, deps }) => {
       await step(
         "Retrying Operation",
         () => deps.failingThenSucceed(),
@@ -249,7 +249,7 @@ describe("Mermaid Enhanced Edges", () => {
       onEvent: collector.handleEvent,
     });
 
-    await workflow(async ({ step, deps }) => {
+    await workflow.run(async ({ step, deps }) => {
       await step(
         "Failing Operation",
         () => deps.alwaysFails(),
@@ -281,7 +281,7 @@ describe("Mermaid Enhanced Edges", () => {
       onEvent: collector.handleEvent,
     });
 
-    await workflow(async ({ step, deps }) => {
+    await workflow.run(async ({ step, deps }) => {
       await step(
         "Slow Operation",
         () => deps.slowOperation(),
@@ -317,7 +317,7 @@ describe("Mermaid Enhanced Edges", () => {
       onEvent: viz.handleEvent,
     });
 
-    await workflow(async ({ step, deps }) => {
+    await workflow.run(async ({ step, deps }) => {
       await step(
         "Retrying Operation",
         () => deps.failingThenSucceed(),

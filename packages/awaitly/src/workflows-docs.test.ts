@@ -100,7 +100,7 @@ describe("Workflows Documentation - Your First Workflow", () => {
     const cartItems: CartItem[] = [{ productId: "prod_1", quantity: 2 }];
     const userId = "user_123";
 
-    const result = await checkout(async ({ step, deps }) => {
+    const result = await checkout.run(async ({ step, deps }) => {
       // deps contains { chargePayment, reserveInventory, createOrder }
       const payment = await step('chargePayment', () => deps.chargePayment({ amount: 99, method: "card_xxx" }));
       const reservation = await step('reserveInventory', () => deps.reserveInventory({ items: cartItems }));
@@ -126,7 +126,7 @@ describe("Workflows Documentation - Your First Workflow", () => {
 
     const checkout = createWorkflow("checkout", { chargePayment, reserveInventory, createOrder });
 
-    const result = await checkout(async ({ step, deps }) => {
+    const result = await checkout.run(async ({ step, deps }) => {
       const payment = await step('chargePayment', () => deps.chargePayment());
       // These should never be called because of early exit
       await step('reserveInventory', () => deps.reserveInventory({ items: [] }));
@@ -152,7 +152,7 @@ describe("Workflows Documentation - Your First Workflow", () => {
 
     const workflow = createWorkflow("workflow", { fetchData });
 
-    const result = await workflow(async ({ step, deps }) => {
+    const result = await workflow.run(async ({ step, deps }) => {
       return await step('fetchData', () => deps.fetchData());
     });
 
@@ -345,7 +345,7 @@ describe("Workflows Documentation - Parallel Operations", () => {
     // From docs: loadDashboard pattern
     const loadDashboard = createWorkflow("loadDashboard", { fetchProfile, fetchOrders, fetchRecommendations });
 
-    const result = await loadDashboard(async ({ step, deps }) => {
+    const result = await loadDashboard.run(async ({ step, deps }) => {
       const userId = "user_123";
 
       // Run all three in parallel - fail fast if any fails
@@ -473,7 +473,7 @@ describe("Workflows Documentation - Parallel Operations", () => {
 
     const userDashboard = createWorkflow("userDashboard", { fetchUser, fetchPosts, fetchFriends, fetchSettings });
 
-    const result = await userDashboard(async ({ step, deps }) => {
+    const result = await userDashboard.run(async ({ step, deps }) => {
       // Fetch user first (sequential dependency)
       const user = await step('fetchUser', () => deps.fetchUser({ userId: "user_1" }));
 
@@ -636,7 +636,7 @@ describe("Workflows Documentation - Approval Workflows", () => {
     // Include requireApproval in deps so its error types are part of the workflow's union
     const refundWorkflow = createWorkflow("refund", { calculateRefund, requireApproval });
 
-    const result = await refundWorkflow(
+    const result = await refundWorkflow.run(
       async ({ step, deps }) => {
         const refund = await step('calculateRefund', () => deps.calculateRefund());
 
@@ -688,7 +688,7 @@ describe("Workflows Documentation - Approval Workflows", () => {
       resumeState,
     });
 
-    const result = await refundWorkflow(async ({ step, deps }) => {
+    const result = await refundWorkflow.run(async ({ step, deps }) => {
       const refund = await step('calculateRefund', () => deps.calculateRefund());
       // The approval step uses cache from resumeState (key must match)
       // step() returns the unwrapped value directly, not a Result
@@ -835,7 +835,7 @@ describe("Workflows Documentation - API Verification", () => {
     const workflow = createWorkflow("workflow", { fetchData });
 
     // Verify the callback signature
-    const result = await workflow(async ({ step, deps, ctx }) => {
+    const result = await workflow.run(async ({ step, deps, ctx }) => {
       // step is the step function
       expect(typeof step).toBe("function");
 
@@ -877,7 +877,7 @@ describe("Workflows Documentation - API Verification", () => {
     const workflow = createWorkflow("workflow", { fetchData });
 
     // step() requires a thunk (function wrapper)
-    const result = await workflow(async ({ step, deps }) => {
+    const result = await workflow.run(async ({ step, deps }) => {
       // Form 1: Function wrapper (required form)
       const val1 = await step('fetchData1', () => deps.fetchData());
 

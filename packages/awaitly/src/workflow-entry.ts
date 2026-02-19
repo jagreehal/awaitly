@@ -14,8 +14,8 @@
  *
  * const workflow = createWorkflow('fetch-user', { fetchUser });
  *
- * const result = await workflow(async ({ step }) => {
- *   const user = await step(fetchUser('1'));
+ * const result = await workflow.run(async ({ step }) => {
+ *   const user = await step('fetchUser', () => fetchUser('1'));
  *   return user;
  * });
  * ```
@@ -62,20 +62,17 @@ export {
   type ExecutionOptions,
   type Workflow,
   type WorkflowFn,
-  type WorkflowFnWithArgs,
+  type RunConfig,
   type WorkflowContext,
   type StepCache,
   type WorkflowCancelledError,
-
-  // New Snapshot API types
-  type GetSnapshotOptions,
-  type SubscribeEvent,
-  type SubscribeOptions,
+  type RunWithStateResult,
 
   // Functions
   createWorkflow,
   isStepComplete,
   isWorkflowCancelled,
+  isResumeState,
 
   // Hook primitive (suspend until HTTP callback; app calls injectHook to resume)
   type PendingHook,
@@ -99,6 +96,14 @@ export {
   gatedStep,
   isPendingApproval,
   isApprovalRejected,
+  type SerializedResumeState,
+  serializeResumeState,
+  deserializeResumeState,
+  isSerializedResumeState,
+  type StoreSaveInput,
+  type StoreLoadResult,
+  type PersistedWorkflowState,
+  toResumeState,
 } from "./workflow";
 
 // Re-export UNEXPECTED_ERROR constant for convenience
@@ -117,6 +122,7 @@ export {
 
   // Validation
   looksLikeWorkflowSnapshot,
+  isWorkflowSnapshot,
   validateSnapshot,
   assertValidSnapshot,
   mergeSnapshots,

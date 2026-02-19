@@ -5,7 +5,7 @@ const workflow = createWorkflow("workflow", {
 });
 
 async function run(id: string) {
-  return await workflow(async (step, deps) => {
+  return await workflow.run(async (step, deps) => {
     /**
      * Loads the user by ID.
      * @param id - The user ID to fetch

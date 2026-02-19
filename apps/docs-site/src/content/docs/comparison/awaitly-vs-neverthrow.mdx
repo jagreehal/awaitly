@@ -8,6 +8,19 @@ import { Aside } from '@astrojs/starlight/components';
 
 Both awaitly and [neverthrow](https://github.com/supermacro/neverthrow) provide Result types for TypeScript. This guide compares their APIs and helps you choose the right tool.
 
+## The Conceptual Difference
+
+**neverthrow** gives you a way to **represent success or failure**. It is a data type: `Result<T, E>`, combinators, and explicit error values. It does not structure your app, provide dependency injection, or model effectful computation — it's a tool for wrapping results.
+
+**awaitly** gives you a way to **model computations** that:
+
+- run asynchronously
+- depend on an explicit environment (deps)
+- may fail with a typed error
+- compose predictably (workflows, steps, retries, persistence)
+
+In other words: **neverthrow wraps results; awaitly models effects.** That’s the structural difference. neverthrow is ideal for local operations and clear error returns; awaitly addresses application-level composition and environment so that as your app grows, you have one coherent abstraction for async + env + errors.
+
 ## Quick Comparison
 
 | Feature | awaitly | neverthrow |
@@ -18,6 +31,18 @@ Both awaitly and [neverthrow](https://github.com/supermacro/neverthrow) provide 
 | Workflow orchestration | Built-in | Not included |
 | Workflow error inference from deps | Yes | No |
 | Step IDs + events / tracing | Yes | No |
+
+### When to choose which
+
+| Concern | neverthrow | awaitly |
+|--------|------------|---------|
+| Typed errors | ✅ | ✅ |
+| Async composition | ⚠️ manual (ResultAsync, safeTry, etc.) | ✅ built-in (workflows, steps) |
+| Dependency injection | ❌ | ✅ (deps at creation or per run) |
+| Unified abstraction (async + env + errors) | ❌ | ✅ |
+| Runtime / framework | ❌ | ❌ |
+
+So: **neverthrow is the smallest step** from plain async/await if you only want Result types. **awaitly is a bigger structural step** when you want one model for composition, environment, and errors — a minimal effect-style approach for TypeScript apps.
 
 ## Creating Results
 
@@ -633,7 +658,7 @@ import { createWorkflow } from 'awaitly/workflow';
 // awaitly uses familiar async/await - no generators needed
 const workflow = createWorkflow('workflow', { parseId, fetchUser, sendEmail });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const id = await step('parseId', () => deps.parseId('42'));
   const user = await step('fetchUser', () => deps.fetchUser(id));
   await step('sendEmail', () => deps.sendEmail(user.email));
@@ -669,7 +694,7 @@ The "generators vs async/await" syntax is not the main differentiator — the wo
 ## What awaitly Adds: Workflow Orchestration
 
 <Aside type="tip" title="awaitly's Key Advantage">
-While neverthrow focuses purely on Result types, awaitly adds workflow orchestration with automatic error inference.
+neverthrow focuses purely on Result types. awaitly adds workflow orchestration and automatic error inference — but the point isn’t “Result plus DI.” It’s a single computation model: one abstraction for async, environment, and typed failure that composes predictably.
 </Aside>
 
 ### Automatic Error Type Inference
@@ -685,7 +710,7 @@ const chargeCard = async (amount: number): AsyncResult<Receipt, 'PAYMENT_DECLINE
 // Error types automatically inferred from all dependencies
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail, chargeCard });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('123'));
   await step('chargeCard', () => deps.chargeCard(99.99));
   await step('sendEmail', () => deps.sendEmail(user.email));
@@ -701,7 +726,7 @@ const result = await workflow(async ({ step, deps }) => {
 Inside workflows you can use a neverthrow-style API: `step.run` (unwrap), `step.andThen` (chain), `step.match` (pattern match). They run through the full step engine (events, retry, cache).
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step.run('fetchUser', () => deps.fetchUser('123'));
   const enriched = await step.andThen('enrich', user, (u) => deps.enrichUser(u));
   return step.match('format', enriched, {
@@ -716,7 +741,7 @@ See [Steps — Effect-style ergonomics](/foundations/step/#effect-style-ergonomi
 ### Built-in Retry and Timeout
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Retry with exponential backoff
   const user = await step.retry(
     'fetchUser',
@@ -744,21 +769,23 @@ const workflow = createWorkflow('workflow', deps, {
   resumeState: savedState, // Resume from previous run
 });
 
-// Option 2: Snapshot store (awaitly-mongo or awaitly-postgres)
+// Option 2: Store (awaitly-mongo or awaitly-postgres) — runWithState + save/loadResumeState
 import { mongo } from 'awaitly-mongo';
 // or: import { postgres } from 'awaitly-postgres';
 
 const store = mongo(process.env.MONGODB_URI!);
 
-const workflow = createWorkflow('workflow', deps, {
-  snapshot: await store.load('wf-1'), // Resume from saved snapshot (or null)
-});
-
-const result = await workflow(async ({ step, deps }) => {
+const { result, resumeState } = await workflow.runWithState(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
-await store.save('wf-1', workflow.getSnapshot());
+await store.save('wf-1', resumeState);
+
+// Restore
+const loaded = await store.loadResumeState('wf-1');
+if (loaded) {
+  await workflow.run(async ({ step, deps }) => { /* same fn */ }, { resumeState: loaded });
+}
 ```
 
 ## When to Choose Each
@@ -776,6 +803,8 @@ await store.save('wf-1', workflow.getSnapshot());
 - You prefer method chaining over function calls
 - You want the smallest possible bundle size
 - Your project already uses neverthrow
+
+**Bottom line:** neverthrow helps you return errors; awaitly helps you structure applications.
 
 ## Method Chaining vs Functions
 

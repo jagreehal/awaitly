@@ -53,7 +53,7 @@ const requireApproval = createApprovalStep({
 ```typescript
 const refundWorkflow = createWorkflow('workflow', { calculateRefund, processRefund, requireApproval });
 
-const result = await refundWorkflow(async (step) => {
+const result = await refundWorkflow.run(async ({ step }) => {
   const refund = await step('calculateRefund', () => calculateRefund(orderId));
 
   // Workflow pauses here until approved
@@ -69,7 +69,7 @@ const result = await refundWorkflow(async (step) => {
 if (!result.ok && isPendingApproval(result.error)) {
   // Save snapshot, notify team
   await notifySlack(`Refund ${orderId} needs approval`);
-  await store.save(orderId, workflow.getSnapshot());
+  await store.save(orderId, collector.getResumeState());
 }
 ```
 
@@ -84,17 +84,17 @@ await db.approvals.upsert({
   data: { approved: true, approvedBy: 'alice@company.com', timestamp: new Date() },
 });
 
-// Load snapshot and resume
-const snapshot = await store.load(orderId);
+// Load state and resume
+const savedState = await store.load(orderId);
 const workflow = createWorkflow('workflow', { calculateRefund, processRefund, requireApproval },
-  { snapshot }
+  { onEvent: collector.handleEvent }
 );
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const refund = await step('calculateRefund', () => deps.calculateRefund(orderId));
   const approval = await step('requireApproval', deps.requireApproval, { key: 'approve:refund' });
   return await step('processRefund', () => deps.processRefund(refund, approval));
-});
+}, { resumeState: savedState ?? undefined });
 // checkApproval reads from DB and returns { status: 'approved', value }
 ```
 
@@ -185,7 +185,7 @@ app.post('/webhooks/approve', async (req, res) => {
 ## Full example
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 import {
   createApprovalStep,
   isPendingApproval,
@@ -204,20 +204,20 @@ const requireManagerApproval = createApprovalStep({
 });
 
 // Workflow
+const collector = createResumeStateCollector();
 const expenseWorkflow = createWorkflow('workflow', { validateExpense,
   processPayment,
   requireManagerApproval,
-});
+}, { onEvent: collector.handleEvent });
 
-const result = await expenseWorkflow(async ({ step, deps }) => {
+const result = await expenseWorkflow.run(async ({ step, deps }) => {
   const expense = await step('validateExpense', () => deps.validateExpense(data));
   const approval = await step('requireManagerApproval', deps.requireManagerApproval, { key: 'manager-approval' });
   return await step('processPayment', () => deps.processPayment(expense, approval));
 });
 
 if (!result.ok && isPendingApproval(result.error)) {
-  // Save snapshot for later
-  await store.save('expense-123', expenseWorkflow.getSnapshot());
+  await store.save('expense-123', collector.getResumeState());
   await sendSlackMessage('Expense needs approval: expense-123');
 }
 ```
@@ -304,7 +304,7 @@ const gatedSendEmail = gatedStep(
 );
 
 // In workflow:
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // This shows the email args before sending
   await step(
     'gatedSendEmail',
@@ -388,7 +388,7 @@ const expenseWorkflow = createWorkflow('workflow', { validateExpense,
   ceoApproval,
 });
 
-const result = await expenseWorkflow(async (step) => {
+const result = await expenseWorkflow.run(async ({ step }) => {
   const expense = await step('validateExpense', () => validateExpense(data));
 
   // Always needs manager approval
@@ -601,7 +601,7 @@ const idempotentApprovalStore = {
 When a workflow fails after some approvals:
 
 ```typescript
-const result = await expenseWorkflow(async (step) => {
+const result = await expenseWorkflow.run(async ({ step }) => {
   const expense = await step('validateExpense', () => validateExpense(data), { key: 'validate' });
 
   // First approval passed

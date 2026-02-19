@@ -89,7 +89,7 @@ describe("visualization", () => {
         onEvent: viz.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { validateCart, processPayment } }) => {
+      await workflow.run(async ({ step, deps: { validateCart, processPayment } }) => {
         await step("Validate cart", () => validateCart({ items: ["item-1"] }));
         await step("Process payment", () => processPayment({ amount: 100 }));
         return DONE;
@@ -110,7 +110,7 @@ describe("visualization", () => {
         { onEvent: viz.handleEvent }
       );
 
-      await workflow(async ({ step, deps: { fetchUser } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser } }) => {
         await step("Fetch user", () => fetchUser("123"));
         return DONE;
       });
@@ -128,7 +128,7 @@ describe("visualization", () => {
         { onEvent: viz.handleEvent }
       );
 
-      await workflow(async ({ step, deps: { fetchUser } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser } }) => {
         await step("Fetch user", () => fetchUser("123"));
         return DONE;
       });
@@ -149,7 +149,7 @@ describe("visualization", () => {
         { onEvent: collector.handleEvent }
       );
 
-      await workflow(async ({ step, deps: { fetchUser, fetchOrders } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser, fetchOrders } }) => {
         await step("Fetch user", () => fetchUser("123"));
         await step("Fetch orders", () => fetchOrders("123"));
         return DONE;
@@ -175,7 +175,7 @@ describe("visualization", () => {
         { onEvent: collector.handleEvent }
       );
 
-      await workflow(async ({ step, deps: { fetchUser } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser } }) => {
         await step("Fetch user", () => fetchUser("123"));
         return DONE;
       });
@@ -212,7 +212,7 @@ describe("visualization", () => {
         { onEvent: collector.handleEvent }
       );
 
-      await workflow(async ({ step, deps: { fetchUser, applyDiscount } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser, applyDiscount } }) => {
         const user = await step("Fetch user", () => fetchUser("123"));
 
         const isPremium = trackIf("premium-check", user.tier === "premium", {
@@ -244,7 +244,7 @@ describe("visualization", () => {
         { onEvent: collector.handleEvent }
       );
 
-      await workflow(async ({ step, deps: { fetchUser, calculateTax } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser, calculateTax } }) => {
         const user = await step("Fetch user", () => fetchUser("123"));
 
         const regionSwitch = trackSwitch("region", user.region, {
@@ -284,7 +284,7 @@ describe("visualization", () => {
         { onEvent: timeTravel.handleEvent }
       );
 
-      await workflow(async ({ step, deps: { fetchUser, fetchOrders } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser, fetchOrders } }) => {
         await step("Fetch user", () => fetchUser("123"));
         await step("Fetch orders", () => fetchOrders("123"));
         return DONE;
@@ -319,7 +319,7 @@ describe("visualization", () => {
         { onEvent: timeTravel.handleEvent }
       );
 
-      await workflow(async ({ step, deps: { fetchUser } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser } }) => {
         await step("Fetch user", () => fetchUser("123"));
         return DONE;
       });
@@ -345,7 +345,7 @@ describe("visualization", () => {
         );
 
         const startTime = Date.now();
-        await workflow(async ({ step, deps: { fetchUser, fetchOrders } }) => {
+        await workflow.run(async ({ step, deps: { fetchUser, fetchOrders } }) => {
           await step("Fetch user", () => fetchUser("123"));
           await step("Fetch orders", () => fetchOrders("123"));
           return DONE;
@@ -374,7 +374,7 @@ describe("visualization", () => {
         { fetchUser },
         { onEvent: collector.handleEvent }
       );
-      await workflow(async ({ step, deps: { fetchUser } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser } }) => {
         await step("Fetch user", () => fetchUser("123"));
         return DONE;
       });
@@ -403,7 +403,7 @@ describe("visualization", () => {
 
       const workflow = createWorkflow("checkout", deps, { onEvent: viz.handleEvent });
 
-      await workflow(
+      await workflow.run(
         async ({ step, deps: { fetchUser, fetchOrders, fetchSettings } }) => {
           // Use name-first object form
           const { user, orders, settings } = await step.parallel("Fetch all data", {
@@ -439,7 +439,7 @@ describe("visualization", () => {
 
       live.start(); // Begin live updates
 
-      await workflow(async ({ step, deps: { fetchUser } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser } }) => {
         await step("Processing...", () => fetchUser("123"));
         return DONE;
       });
@@ -462,7 +462,7 @@ describe("visualization", () => {
         { onEvent: viz.handleEvent }
       );
 
-      await workflow(async ({ step, deps: { fetchUser } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser } }) => {
         await step("Fetch user", () => fetchUser("123"));
         return DONE;
       });
@@ -492,7 +492,7 @@ describe("visualization", () => {
         { onEvent: viz.handleEvent }
       );
 
-      await workflow(async ({ step, deps: { fetchUser } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser } }) => {
         await step("Fetch user", () => fetchUser("123"));
         return DONE;
       });
@@ -512,7 +512,7 @@ describe("visualization", () => {
         { onEvent: timeTravel.handleEvent }
       );
 
-      await workflow(async ({ step, deps: { fetchUser, fetchOrders } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser, fetchOrders } }) => {
         await step("Fetch user", () => fetchUser("123"));
         await step("Fetch orders", () => fetchOrders("123"));
         return DONE;
@@ -555,7 +555,7 @@ describe("visualization", () => {
         { onEvent: collector.handleEvent }
       );
 
-      await workflow(async ({ step, deps: { fetchUser, validateCart } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser, validateCart } }) => {
         // ✓ Clear names (using explicit ID as first param)
         await step("Fetch user profile", () => fetchUser("123"));
         await step("Validate cart items", () => validateCart({ items: [] }));
@@ -591,7 +591,7 @@ describe("visualization", () => {
         { onEvent: collector.handleEvent }
       );
 
-      await workflow(
+      await workflow.run(
         async ({ step, deps: { fetchUser, fetchOrders, fetchSettings } }) => {
           await step("Fetch user", () => fetchUser("123"));
           await step("Validate input", () => fetchOrders("123"));
@@ -624,7 +624,7 @@ describe("visualization", () => {
         { onEvent: collector.handleEvent }
       );
 
-      await workflow(async ({ step, deps: { fetchUser, applyDiscount } }) => {
+      await workflow.run(async ({ step, deps: { fetchUser, applyDiscount } }) => {
         const user = await step("Fetch user", () => fetchUser("123"));
 
         // Decisions show WHY a path was taken

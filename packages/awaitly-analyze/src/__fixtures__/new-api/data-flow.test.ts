@@ -23,7 +23,7 @@ describe("Data Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getUser: async () => ok({}), getPosts: async () => ok([]) });
         export async function run() {
-          return await workflow(async ({ step, deps, ctx }) => {
+          return await workflow.run(async ({ step, deps, ctx }) => {
             await step('getUser', () => deps.getUser('1'), {
               errors: ['NOT_FOUND'],
               out: 'user',
@@ -60,7 +60,7 @@ describe("Data Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getPosts: async () => ok([]) });
         export async function run() {
-          return await workflow(async ({ step, deps, ctx }) => {
+          return await workflow.run(async ({ step, deps, ctx }) => {
             await step('getPosts', () => deps.getPosts(ctx.ref('user').id), {
               errors: ['FETCH_ERROR'],
             });
@@ -81,7 +81,7 @@ describe("Data Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { fn1: async () => ok({}), fn2: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('step1', () => deps.fn1(), { out: 'data' });
             await step('step2', () => deps.fn2(), { out: 'data' });
           });
@@ -101,7 +101,7 @@ describe("Data Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getCart: async () => ok({}), charge: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('getCart', () => deps.getCart(), { out: 'cart' });
             await step('charge', () => deps.charge(), { reads: ['cart'] });
           });
@@ -126,7 +126,7 @@ describe("Data Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}), b: async () => ok({}), c: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps, ctx }) => {
+          return await workflow.run(async ({ step, deps, ctx }) => {
             await step('stepC', () => deps.c(ctx.ref('b')), { reads: ['b'] });
             await step('stepA', () => deps.a(), { out: 'a' });
             await step('stepB', () => deps.b(ctx.ref('a')), { out: 'b' });
@@ -156,7 +156,7 @@ describe("Data Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}), b: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps, ctx }) => {
+          return await workflow.run(async ({ step, deps, ctx }) => {
             await step('producer', () => deps.a(), { out: 'data' });
             await step('consumer', () => deps.b(ctx.ref('data')), {});
           });
@@ -176,7 +176,7 @@ describe("Data Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}), b: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps, ctx }) => {
+          return await workflow.run(async ({ step, deps, ctx }) => {
             await step('producer', () => deps.a(), { out: 'data' });
             await step('consumer', () => deps.b(ctx.ref('data')), {});
           });
@@ -198,7 +198,7 @@ describe("Data Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}), b: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps, ctx }) => {
+          return await workflow.run(async ({ step, deps, ctx }) => {
             await step('producer', () => deps.a(), { out: 'data' });
             await step('consumer', () => deps.b(ctx.ref('data')), {});
           });
@@ -218,7 +218,7 @@ describe("Data Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps, ctx }) => {
+          return await workflow.run(async ({ step, deps, ctx }) => {
             await step('consumer', () => deps.a(ctx.ref('missing')), {});
           });
         }
@@ -241,7 +241,7 @@ describe("Data Flow Analysis", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}), b: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps, ctx }) => {
+          return await workflow.run(async ({ step, deps, ctx }) => {
             await step('getUser', () => deps.a(), { out: 'user' });
             await step('getPosts', () => deps.b(ctx.ref('user')), { out: 'posts' });
           });

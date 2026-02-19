@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const result = await signupWorkflow(async ({ step, deps }) => {
+  const result = await signupWorkflow.run(async ({ step, deps }) => {
     const validEmail = await step("validateEmail", () =>
       deps.validateEmail(email)
     );

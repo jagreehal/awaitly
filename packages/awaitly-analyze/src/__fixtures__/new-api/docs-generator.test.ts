@@ -16,7 +16,7 @@ describe("Markdown Documentation Generator", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getUser: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('getUser', () => deps.getUser('1'), {
               errors: ['NOT_FOUND'],
               out: 'user',
@@ -41,7 +41,7 @@ describe("Markdown Documentation Generator", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}), b: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps, ctx }) => {
+          return await workflow.run(async ({ step, deps, ctx }) => {
             await step('getUser', () => deps.a(), { out: 'user' });
             await step('getPosts', () => deps.b(ctx.ref('user')), { out: 'posts' });
           });
@@ -62,7 +62,7 @@ describe("Markdown Documentation Generator", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('step1', () => deps.a(), { errors: ['ERROR_A', 'ERROR_B'] });
           });
         }
@@ -81,7 +81,7 @@ describe("Markdown Documentation Generator", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('step1', () => deps.a());
           });
         }
@@ -100,7 +100,7 @@ describe("Markdown Documentation Generator", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('step1', () => deps.a());
           });
         }
@@ -117,7 +117,7 @@ describe("Markdown Documentation Generator", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { a: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('step1', () => deps.a());
           });
         }
@@ -140,7 +140,7 @@ describe("Markdown Documentation Generator", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getUser: async () => ok({}), getPosts: async () => ok([]) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('step1', () => deps.getUser());
           });
         }

@@ -6,7 +6,7 @@ const workflow = createWorkflow("workflow", {
 });
 
 async function run() {
-  return await workflow(async (step, deps) => {
+  return await workflow.run(async (step, deps) => {
     /** JSDoc for first step. */
     const user = await step(() => deps.fetchUser());
     const posts = await step(() => deps.fetchPosts());

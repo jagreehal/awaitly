@@ -197,6 +197,16 @@ describe('no-double-wrap-result', () => {
       expect(messages).toHaveLength(1);
     });
 
+    it('reports ok() in createWorkflow().run(name, callback) - named run', () => {
+      const code = `
+        createWorkflow('workflow', { fetchUser })
+          .run('my-run', async ({ step }) => ok({ user: 'test' }));
+      `;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('ok');
+    });
+
     it('reports ok() in createWorkflow().with().run() chained call', () => {
       const code = `
         createWorkflow('workflow', { fetchUser })

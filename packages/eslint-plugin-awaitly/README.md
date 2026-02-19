@@ -85,19 +85,26 @@ step('fetch', () => fetch(id), { key: `user:${userId}` });
 
 ### `awaitly/no-options-on-executor` (error)
 
-Prevents passing workflow options (like `cache`, `onEvent`, `snapshot`) to the workflow executor function. Options must be passed to `createWorkflow()` instead.
+Prevents passing workflow options in the wrong argument position. Use `workflow.run(fn, config)` or `workflow.run(name, fn, config)`, where the callback comes before config.
 
 ```typescript
-// BAD - options are silently ignored here
-await workflow({ cache: new Map() }, async ({ step }) => { ... });
-await workflow({ onEvent: handler }, async ({ step }) => { ... });
+// BAD - options as first argument to .run() (wrong order; first arg must be callback)
+await workflow.run({ cache: new Map() }, async ({ step }) => { ... });
 
-// GOOD - options go to createWorkflow
-const workflow = createWorkflow('workflow', deps, { cache: new Map() });
-await workflow(async ({ step }) => { ... });
+// BAD - legacy callable form; options are ignored
+await workflow({ cache: new Map() }, async ({ step }) => { ... });
+
+// BAD - named run with options before callback (wrong order)
+await workflow.run('my-run', { onEvent: handler }, async ({ step }) => { ... });
+
+// GOOD - per-run options as second argument
+await workflow.run(async ({ step, deps }) => { ... }, { deps: mockDeps, onEvent });
+
+// GOOD - named run: callback second, config third
+await workflow.run('my-run', async ({ step }) => { ... }, { onEvent: handler });
 ```
 
-Detected option keys: `cache`, `onEvent`, `resumeState`, `snapshot`, `serialization`, `snapshotSerialization`, `onUnknownSteps`, `onDefinitionChange`, `onError`, `onBeforeStart`, `onAfterStep`, `shouldRun`, `createContext`, `signal`, `strict`, `catchUnexpected`, `description`, `markdown`, `streamStore`.
+Detected option keys: `cache`, `deps`, `onEvent`, `resumeState`, `snapshot`, `serialization`, `snapshotSerialization`, `onUnknownSteps`, `onDefinitionChange`, `onError`, `onBeforeStart`, `onAfterStep`, `shouldRun`, `createContext`, `signal`, `strict`, `catchUnexpected`, `description`, `markdown`, `streamStore`.
 
 ## Why These Rules?
 

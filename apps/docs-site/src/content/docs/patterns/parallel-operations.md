@@ -15,7 +15,7 @@ import { createWorkflow } from 'awaitly/workflow';
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts, fetchComments });
 
 // Preferred: step.all — named results, step tracking, cache when key provided
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step }) => {
   const { user, posts, comments } = await step.all('fetchAll', {
     user: () => fetchUser('1'),
     posts: () => fetchPosts('1'),
@@ -30,7 +30,7 @@ Or with `allAsync` and a single step:
 ```typescript
 import { allAsync } from 'awaitly';
 
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step }) => {
   const [user, posts, comments] = await step('fetchUserData', () =>
     allAsync([fetchUser('1'), fetchPosts('1'), fetchComments('1')])
   );
@@ -110,7 +110,7 @@ Give parallel groups a name for visualization using `step.all` (Effect-style, na
 
 ```typescript
 // step.all — named results
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step }) => {
   const { user, posts } = await step.all('Fetch user data', {
     user: () => fetchUser('1'),
     posts: () => fetchPosts('1'),
@@ -119,7 +119,7 @@ const result = await workflow(async (step) => {
 });
 
 // step.parallel + allAsync
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step }) => {
   const [user, posts] = await step.parallel('Fetch user data', () =>
     allAsync([fetchUser('1'), fetchPosts('1')])
   );
@@ -168,7 +168,7 @@ See [Batch Processing](/guides/batch-processing/) for details.
 Some operations depend on others:
 
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step }) => {
   // Fetch user first
   const user = await step('fetchUser', () => fetchUser('1'));
 
@@ -219,7 +219,7 @@ if (results.ok) {
 Add a timeout to parallel operations:
 
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step }) => {
   const data = await step.withTimeout(
     'fetchUserData',
     () => allAsync([fetchUser('1'), fetchPosts('1')]),
@@ -264,7 +264,7 @@ const sendNotification = async (
 
 const notifyUsers = createWorkflow('workflow', { fetchUser, sendNotification });
 
-const result = await notifyUsers(async (step) => {
+const result = await notifyUsers(async ({ step }) => {
   const userIds = ['1', '2', '3', '4', '5'];
 
   // Fetch all users in parallel

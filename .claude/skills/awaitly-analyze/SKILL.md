@@ -1,166 +1,194 @@
 ---
 name: awaitly-analyze
-description: "Static analysis patterns for awaitly workflows - complexity metrics, path generation, and visualization"
+description: "Static analysis for awaitly workflows - complexity, paths, visualization. Optimized for coding agents."
 user-invocable: true
 ---
 
-# Awaitly Static Analysis Patterns
+# Awaitly Static Analysis (Agent-Optimized)
 
-Use awaitly-analyze to understand workflow structure without execution.
+Use awaitly-analyze to understand workflow structure **without execution**. Entrypoint: `analyze(path)` then `.single()`, `.named(name)`, or `.all()` to get IR; then use render/generate APIs.
 
-## Quick Start
+---
 
+## Agent Contract (MUST follow)
+
+### Entrypoints
+- **MUST** start with `analyze(filePath)` (string path to a .ts file). Returns a selection API; **MUST** call one of `.single()`, `.named('workflowName')`, `.singleOrNull()`, `.firstOrNull()`, or `.all()` to obtain IR (or null).
+- **MUST NOT** assume `analyze()` returns IR directly. It returns `AnalyzeResult` with `.single()`, `.named()`, `.all()`, `.singleOrNull()`, `.firstOrNull()`.
+
+### API surface constraint
+- **MUST NOT** invent new exports or function names. Use only the APIs listed in this skill or in package types.
+- **MUST NOT** assume undocumented options or overloads. For options (e.g. `MermaidOptions`, `PathGeneratorOptions`), consult package types.
+- If an API is not listed here, consult `awaitly-analyze` package types or README before using it.
+
+### IR usage
+- **MUST** use the IR value (from `.single()` etc.) as the first argument to functions like `renderStaticMermaid(ir)`, `generatePaths(ir)`, `calculateComplexity(ir)`, `validateStrict(ir)`.
+- **MUST NOT** pass a file path to render/generate functions; they expect IR.
+
+### Cross-workflow vs IR APIs
+- `analyzeWorkflowGraph([...paths])` takes **file paths** (strings), not IR.
+- All `renderStatic*`, `generate*`, `calculate*`, `validate*` functions take **IR**, not paths.
+- **MUST NOT** pass IR to `analyzeWorkflowGraph`. **MUST NOT** pass file paths to IR functions (e.g. `renderStaticMermaid`, `generatePaths`).
+
+### Strict mode and step IDs
+- In strict mode, agents **MUST** ensure every step call uses a **static string literal** as the first argument (ID or name). See awaitly-patterns skill.
+- Agents **MUST NOT** emit legacy step forms (e.g. `step(fn, opts)` without id); they produce `stepId: "<missing>"` and strict validation diagnostics.
+
+---
+
+## Do / Don't — Canonical Snippets
+
+### Analyze and get IR (required first step)
 ```typescript
-import { analyze, renderStaticMermaid, generatePaths } from 'awaitly-analyze';
+import { analyze } from 'awaitly-analyze';
 
+// Single workflow in file (throws if not exactly 1)
 const ir = analyze('./workflow.ts').single();
-const diagram = renderStaticMermaid(ir);
-const paths = generatePaths(ir);
-```
 
-## Workflow Selection
-
-```typescript
-// Single workflow (throws if not exactly 1)
-const ir = analyze('./file.ts').single();
-
-// Named workflow (multiple in file)
+// Named workflow (when file has multiple)
 const ir = analyze('./file.ts').named('checkoutWorkflow');
 
-// All workflows
+// All workflows in file
 const workflows = analyze('./file.ts').all();
 
-// Safe access (returns null instead of throwing)
+// Safe: null if none or multiple
 const ir = analyze('./file.ts').singleOrNull();
 const ir = analyze('./file.ts').firstOrNull();
 ```
 
-## Complexity Analysis
-
+### Diagram from IR (do not pass path)
 ```typescript
-import { calculateComplexity, assessComplexity, formatComplexitySummary } from 'awaitly-analyze';
+import { renderStaticMermaid, renderEnhancedMermaid } from 'awaitly-analyze';
 
+const diagram = renderStaticMermaid(ir, { direction: 'LR' });
+const enhanced = renderEnhancedMermaid(ir, { showDataFlow: true, showErrors: true });
+```
+
+### Paths and complexity from IR
+```typescript
+import { generatePaths, calculateComplexity, assessComplexity, formatComplexitySummary } from 'awaitly-analyze';
+
+const paths = generatePaths(ir);
 const metrics = calculateComplexity(ir);
 const assessment = assessComplexity(metrics);
 console.log(formatComplexitySummary(metrics, assessment));
 ```
 
-Metrics include: cyclomatic complexity, cognitive complexity, path count, max depth.
-
-## Path Generation
-
+### Selection handling: null check before using IR
 ```typescript
-import { generatePaths, filterPaths, calculatePathStatistics } from 'awaitly-analyze';
-
+const ir = analyze('./workflow.ts').singleOrNull();
+if (!ir) {
+  console.error('No single workflow found');
+  process.exit(1);
+}
 const paths = generatePaths(ir);
-const stats = calculatePathStatistics(paths);
-
-// Filter paths
-const filtered = filterPaths(paths, {
-  mustIncludeStep: 'validatePayment',
-  noLoops: true,
-  maxLength: 10
-});
 ```
 
-## Output Formats
-
-### Mermaid Diagrams
+### Diagnostics first (validate before generating)
+Run strict validation before generating diagrams or paths; fail fast if the workflow has step-ID or other strict violations.
 ```typescript
-import { renderStaticMermaid, renderEnhancedMermaid } from 'awaitly-analyze';
+import { analyze, validateStrict, formatDiagnostics } from 'awaitly-analyze';
 
-const diagram = renderStaticMermaid(ir, { direction: 'LR' });
-const enhanced = renderEnhancedMermaid(ir, {
-  showDataFlow: true,
-  showErrors: true
-});
-```
+const ir = analyze('./workflow.ts').singleOrNull();
+if (!ir) throw new Error('No single workflow found');
 
-### Test Matrix
-```typescript
-import { generateTestMatrix, formatTestMatrixMarkdown } from 'awaitly-analyze';
-
-const matrix = generateTestMatrix(paths);
-console.log(formatTestMatrixMarkdown(matrix));
-```
-
-### JSON
-```typescript
-import { renderStaticJSON } from 'awaitly-analyze';
-
-const json = renderStaticJSON(ir, { pretty: true });
-```
-
-## Data Flow Analysis
-
-```typescript
-import { buildDataFlowGraph, validateDataFlow } from 'awaitly-analyze';
-
-const graph = buildDataFlowGraph(ir);
-const validation = validateDataFlow(graph);
-
-if (!validation.valid) {
-  console.log('Issues:', validation.issues);
+const strict = validateStrict(ir);
+if (!strict.valid) {
+  console.error(formatDiagnostics(strict));
+  process.exit(1);
 }
+// Now safe to generatePaths(ir), renderStaticMermaid(ir), etc.
 ```
 
-## Error Flow Analysis
+---
 
-```typescript
-import { analyzeErrorFlow, formatErrorSummary } from 'awaitly-analyze';
+## Autofix Rules (deterministic)
 
-const errorFlow = analyzeErrorFlow(ir);
-console.log(formatErrorSummary(errorFlow));
-```
+| See | Do instead |
+|-----|------------|
+| Passing a file path to `renderStaticMermaid` or `generatePaths` | Get IR first: `const ir = analyze(path).single();` then `renderStaticMermaid(ir)`, `generatePaths(ir)`. |
+| Assuming `analyze(path)` returns IR | Call `.single()` or `.named(name)` or `.all()` on the result. |
+| Inventing an export (e.g. `renderWorkflow`) | Use only exports listed here or in package types: `renderStaticMermaid`, `renderEnhancedMermaid`, `renderStaticJSON`, etc. |
 
-## Strict Mode Validation
+---
 
-```typescript
-import { validateStrict, formatDiagnostics } from 'awaitly-analyze';
+## Workflow selection (invariants)
 
-const result = validateStrict(ir, { warningsAsErrors: true });
-if (!result.valid) {
-  console.log(formatDiagnostics(result));
-}
-```
+- `analyze(filePath)` — path is a string to a .ts file.
+- `.single()` — returns IR; throws if not exactly one workflow.
+- `.named('name')` — returns IR for that workflow name; throws if not found.
+- `.all()` — returns array of IR.
+- `.singleOrNull()` / `.firstOrNull()` — returns IR or null; use when you want safe access.
 
-Strict validation checks include:
-- **missing-step-id**: All step types must use a string as the first argument (ID or name): `step('id', fn, opts)`, `step.sleep('id', duration, opts?)`, `step.retry('id', operation, opts)`, `step.withTimeout('id', operation, opts)`, `step.try('id', operation, opts)`, `step.fromResult('id', operation, opts)`, `step.parallel('name', operations | callback)`, `step.race('name', callback)`, `step.allSettled('name', callback)`. Legacy `step(fn, opts)` is parsed (with `stepId: "<missing>"`) but triggers this warning. For `step.sleep`, both id and duration are required; single-argument `step.sleep(duration)` is invalid. `step.parallel` only supports the name-first form; the legacy `step.parallel(operations, { name })` form is no longer supported.
+**Prefer `.singleOrNull()` or `.firstOrNull()` in tooling/scripts**; use `.single()` only when you *expect exactly one* workflow and want a hard failure on mismatch.
 
-## Cross-Workflow Analysis
+For options (e.g. TS config, globs), consult package types (`AnalyzeResult`, `analyze`).
 
-```typescript
-import { analyzeWorkflowGraph, renderGraphMermaid } from 'awaitly-analyze';
+---
 
-const graph = analyzeWorkflowGraph(['./workflow1.ts', './workflow2.ts']);
-const diagram = renderGraphMermaid(graph);
-```
+## Output formats (canonical)
 
-## CLI Usage
+| Need | Use | Notes |
+|------|-----|-------|
+| Mermaid diagram | `renderStaticMermaid(ir)` or `renderEnhancedMermaid(ir, options)` | First arg is IR. |
+| JSON | `renderStaticJSON(ir, { pretty: true })` | For machine consumption. |
+| Test matrix | `generateTestMatrix(paths)` then `formatTestMatrixMarkdown(matrix)` | Paths from `generatePaths(ir)`. |
+| Path stats | `calculatePathStatistics(paths)` | Paths from `generatePaths(ir)`. |
+
+For options (direction, showDataFlow, etc.), consult package types (`MermaidOptions`, `EnhancedMermaidOptions`, `JSONRenderOptions`).
+
+---
+
+## Path generation
+
+- **MUST** call `generatePaths(ir)` with IR (not file path).
+- Filter paths with `filterPaths(paths, { mustIncludeStep, noLoops, maxLength })` when needed.
+- Use `calculatePathStatistics(paths)` for counts and stats.
+
+---
+
+## Complexity
+
+- `calculateComplexity(ir)` returns metrics (cyclomatic, cognitive, path count, max depth).
+- `assessComplexity(metrics)` returns assessment; `formatComplexitySummary(metrics, assessment)` for human-readable output.
+
+---
+
+## Strict mode validation
+
+- `validateStrict(ir, options)` returns a validation result; use `formatDiagnostics(result)` for human-readable output.
+- **Invariant:** Strict mode expects step calls to use a **string as the first argument** (ID or name). Legacy `step(fn, opts)` or missing step IDs trigger diagnostics. For full rule list and options, consult package types (`StrictValidationResult`, `StrictRule`).
+
+---
+
+## Data flow and error flow
+
+- `buildDataFlowGraph(ir)` → graph; `validateDataFlow(graph)` for validation.
+- `analyzeErrorFlow(ir)` → error flow; `formatErrorSummary(errorFlow)` for readable output.
+
+For types and options, consult package types (`DataFlowGraph`, `ErrorFlowAnalysis`).
+
+---
+
+## Cross-workflow analysis
+
+- `analyzeWorkflowGraph([path1, path2, ...])` — array of file paths (not IR).
+- `renderGraphMermaid(graph)` for diagram.
+
+---
+
+## CLI (deterministic)
 
 ```bash
-# Generate Mermaid diagram
 npx awaitly-analyze ./workflow.ts
-
-# JSON output
 npx awaitly-analyze ./workflow.ts --format json
-
-# Write to adjacent file
 npx awaitly-analyze ./workflow.ts -o
 ```
 
-## IR Node Types
+Do not invent CLI flags; consult package CLI help or README for supported options.
 
-The analysis produces these node types:
-- `workflow` - Root workflow node
-- `step` - Single step execution. Every step type takes a string as the first argument (ID or name): `step('id', fn, opts)`, `step.sleep('id', duration, opts?)`, `step.retry('id', operation, opts)`, `step.withTimeout('id', operation, opts)`, `step.try('id', operation, opts)`, `step.fromResult('id', operation, opts)`, `step.parallel('name', operations | callback)`, `step.race('name', callback)`, `step.allSettled('name', callback)`. Legacy `step(fn, opts)` yields `stepId: "<missing>"` and a warning.
-- `saga-step` - Saga step with compensation. Name-first form only: `saga.step(name, operation, options?)`, `saga.tryStep(name, operation, options)`. The analyzer reads the step name from the first argument (string literal), not from the options object.
-- `sequence` - Sequential execution
-- `parallel` - Concurrent execution (allAsync)
-- `race` - First-wins execution (anyAsync)
-- `conditional` - if/else or when/unless
-- `decision` - step.if labeled branch
-- `switch` - switch statement
-- `loop` - for/while/forEach iteration
-- `stream` - streaming operations
-- `workflow-ref` - cross-workflow reference
+---
+
+## IR node types (reference)
+
+The analyzer produces a static IR tree. **Common** node types include: `workflow`, `step`, `saga-step`, `sequence`, `parallel`, `race`, `conditional`, `decision`, `switch`, `loop`, `stream`, `workflow-ref` (non-exhaustive; consult package types). Step nodes have a string step ID (or `<missing>` if legacy form). **MUST NOT** assume presence or shape of a `.type` string at runtime; consult types for the current schema.

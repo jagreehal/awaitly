@@ -135,9 +135,9 @@ const transferMoney = createWorkflow("transferMoney", deps);
 
 // Test workflow call
 async function testWorkflow() {
-  const result = await transferMoney(
-    { fromId: "alice", toId: "bob", amount: 100 },
-    async ({ step, deps: { fetchUser, fetchBalance, executeTransfer }, args }) => {
+  const args = { fromId: "alice", toId: "bob", amount: 100 };
+  const result = await transferMoney.run(
+    async ({ step, deps: { fetchUser, fetchBalance, executeTransfer } }) => {
       const sender = await step('fetchSender', () => fetchUser(args.fromId));
       const recipient = await step('fetchRecipient', () => fetchUser(args.toId));
       const balance = await step('fetchBalance', () => fetchBalance(args.fromId));
@@ -329,9 +329,9 @@ describe("tagged-error examples", () => {
 
   it("works with workflows", async () => {
     // Test the workflow directly
-    const result = await transferMoney(
-      { fromId: "alice", toId: "bob", amount: 100 },
-      async ({ step, deps: { fetchUser, fetchBalance, executeTransfer }, args }) => {
+    const args = { fromId: "alice", toId: "bob", amount: 100 };
+    const result = await transferMoney.run(
+      async ({ step, deps: { fetchUser, fetchBalance, executeTransfer } }) => {
         const sender = await step('fetchSender', () => fetchUser(args.fromId));
         const recipient = await step('fetchRecipient', () => fetchUser(args.toId));
         const balance = await step('fetchBalance', () => fetchBalance(args.fromId));
@@ -374,8 +374,7 @@ describe("tagged-error examples", () => {
   });
 
   it("handles errors in workflows", async () => {
-    const result = await transferMoney(
-      { fromId: "404", toId: "bob", amount: 100 },
+    const result = await transferMoney.run(
       async ({ step, deps: { fetchUser } }) => {
         const sender = await step('fetchUser', () => fetchUser("404"));
         return ok({ sender });

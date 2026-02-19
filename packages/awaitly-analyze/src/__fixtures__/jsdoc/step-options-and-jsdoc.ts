@@ -5,7 +5,7 @@ const workflow = createWorkflow("workflow", {
 });
 
 async function run() {
-  return await workflow(async (step, deps) => {
+  return await workflow.run(async (step, deps) => {
     /**
      * JSDoc above this step.
      */

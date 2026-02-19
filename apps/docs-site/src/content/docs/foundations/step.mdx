@@ -14,7 +14,7 @@ import { Aside, Tabs, TabItem, AnimatedWorkflowDiagram } from '~/components';
 ```typescript
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'));
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));
   return { user, posts };
@@ -262,7 +262,7 @@ await step.sleep("poll-delay", "2s", {
 ### Rate limiting example
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const data = await step('fetchData', () => deps.fetchData());
   
   // Respect rate limits - wait 1 second between requests
@@ -276,7 +276,7 @@ const result = await workflow(async ({ step, deps }) => {
 ### Polling example
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   let status = await step('checkStatus', () => deps.checkStatus());
   
   // Poll every 2 seconds until complete
@@ -299,7 +299,7 @@ const result = await workflow(async ({ step, deps }) => {
 const controller = new AbortController();
 const workflow = createWorkflow('workflow', { }, { signal: controller.signal });
 
-const resultPromise = workflow(async ({ step, deps }) => {
+const resultPromise = workflow.run(async ({ step, deps }) => {
   await step.sleep("long-sleep", "10s");
   return "completed";
 });
@@ -314,7 +314,7 @@ const result = await resultPromise;
 **User-provided signal** - Cancel a specific sleep without affecting the workflow:
 
 ```typescript
-const result = await run(async (step) => {
+const result = await run(async ({ step }) => {
   const sleepController = new AbortController();
 
   // Cancel this specific sleep after 1 second
@@ -470,7 +470,7 @@ Run multiple steps concurrently:
 ```typescript
 import { allAsync } from 'awaitly';
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const [user, posts, comments] = await step('fetchUserData', () =>
     allAsync([
       deps.fetchUser('1'),
@@ -493,7 +493,7 @@ Output (any fails):
 ```typescript
 import { allSettled } from 'awaitly';
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const results = await step('fetchAllSettled', () =>
     Promise.all([
       deps.fetchUser('1'),

@@ -15,7 +15,7 @@ describe("Enhanced Mermaid Rendering", () => {
       import { createWorkflow, ok } from "awaitly";
       const workflow = createWorkflow("workflow", { a: async () => ok({}), b: async () => ok({}) });
       export async function run() {
-        return await workflow(async ({ step, deps, ctx }) => {
+        return await workflow.run(async ({ step, deps, ctx }) => {
           await step('getUser', () => deps.a(), { out: 'user', errors: ['NOT_FOUND'] });
           await step('getPosts', () => deps.b(ctx.ref('user')), { out: 'posts', errors: ['FETCH_ERROR'] });
         });
@@ -41,7 +41,7 @@ describe("Enhanced Mermaid Rendering", () => {
       import { createWorkflow, ok } from "awaitly";
       const workflow = createWorkflow("workflow", { a: async () => ok({}) });
       export async function run() {
-        return await workflow(async ({ step, deps }) => {
+        return await workflow.run(async ({ step, deps }) => {
           await step('doSomething', () => deps.a(), { errors: ['ERROR_A', 'ERROR_B'] });
         });
       }
@@ -61,7 +61,7 @@ describe("Enhanced Mermaid Rendering", () => {
       import { createWorkflow, ok } from "awaitly";
       const workflow = createWorkflow("workflow", { a: async () => ok({}), b: async () => ok({}) });
       export async function run() {
-        return await workflow(async ({ step, deps }) => {
+        return await workflow.run(async ({ step, deps }) => {
           await step('withErrors', () => deps.a(), { errors: ['ERROR'] });
           await step('withoutErrors', () => deps.b());
         });
@@ -80,7 +80,7 @@ describe("Enhanced Mermaid Rendering", () => {
       import { createWorkflow, ok } from "awaitly";
       const workflow = createWorkflow("workflow", { a: async () => ok({}) });
       export async function run() {
-        return await workflow(async ({ step, deps }) => {
+        return await workflow.run(async ({ step, deps }) => {
           await step('step1', () => deps.a());
         });
       }
@@ -97,7 +97,7 @@ describe("Enhanced Mermaid Rendering", () => {
       import { createWorkflow, ok } from "awaitly";
       const workflow = createWorkflow("workflow", { a: async () => ok({}) });
       export async function run() {
-        return await workflow(async ({ step, deps }) => {
+        return await workflow.run(async ({ step, deps }) => {
           await step('step1', () => deps.a(), { out: 'data' });
         });
       }
@@ -115,7 +115,7 @@ describe("Enhanced Mermaid Rendering", () => {
       import { createWorkflow, ok } from "awaitly";
       const workflow = createWorkflow("workflow", { a: async () => ok({}) });
       export async function run() {
-        return await workflow(async ({ step, deps }) => {
+        return await workflow.run(async ({ step, deps }) => {
           await step('step1', () => deps.a(), { errors: ['MY_ERROR'] });
         });
       }
