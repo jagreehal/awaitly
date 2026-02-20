@@ -41,10 +41,10 @@ const checkoutWorkflow = createWorkflow('workflow', { fetchCart, validateStock, 
 
 // Server Action
 export async function checkout(userId: string, cardId: string) {
-  const result = await checkoutWorkflow(async (step) => {
-    const cart = await step('fetch-cart', () => fetchCart(userId));
-    await step('validate-stock', () => validateStock(cart.items));
-    const payment = await step('process-payment', () => processPayment(cart.total, cardId));
+  const result = await checkoutWorkflow.run(async ({ step, deps }) => {
+    const cart = await step('fetch-cart', () => deps.fetchCart(userId));
+    await step('validate-stock', () => deps.validateStock(cart.items));
+    const payment = await step('process-payment', () => deps.processPayment(cart.total, cardId));
     return { orderId: payment.id, total: cart.total };
   });
 
@@ -151,11 +151,11 @@ const signupWorkflow = createWorkflow('workflow', { validateEmail, checkDuplicat
 export async function POST(req: NextRequest) {
   const { email, password } = await req.json();
 
-  const result = await signupWorkflow(async (step) => {
-    const validEmail = await step('validateEmail', () => validateEmail(email));
-    await step('checkDuplicate', () => checkDuplicate(validEmail));
-    const user = await step('createUser', () => createUser(validEmail, password));
-    await step('sendWelcome', () => sendWelcome(user.email));
+  const result = await signupWorkflow.run(async ({ step, deps }) => {
+    const validEmail = await step('validateEmail', () => deps.validateEmail(email));
+    await step('checkDuplicate', () => deps.checkDuplicate(validEmail));
+    const user = await step('createUser', () => deps.createUser(validEmail, password));
+    await step('sendWelcome', () => deps.sendWelcome(user.email));
     return { userId: user.id };
   });
 
@@ -201,9 +201,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { id } = req.query;
   const userId = req.headers['x-user-id'] as string;
 
-  const result = await orderWorkflow(async (step) => {
-    const order = await step('fetchOrder', () => fetchOrder(id as string));
-    await step('checkOwnership', () => checkOwnership(order, userId));
+  const result = await orderWorkflow.run(async ({ step, deps }) => {
+    const order = await step('fetchOrder', () => deps.fetchOrder(id as string));
+    await step('checkOwnership', () => deps.checkOwnership(order, userId));
     return order;
   });
 
@@ -306,11 +306,11 @@ router.post('/checkout', withWorkflow(
     const { userId } = req.body;
     const paymentToken = req.body.paymentToken;
 
-    return checkoutWorkflow(async (step) => {
-      const cart = await step('fetch-cart', () => fetchCart(userId));
-      const reservation = await step('reserve', () => reserveInventory(cart.items));
-      const payment = await step('pay', () => processPayment(cart.total, paymentToken));
-      const order = await step('create-order', () => createOrder(cart, payment));
+    return checkoutWorkflow.run(async ({ step, deps }) => {
+      const cart = await step('fetch-cart', () => deps.fetchCart(userId));
+      const reservation = await step('reserve', () => deps.reserveInventory(cart.items));
+      const payment = await step('pay', () => deps.processPayment(cart.total, paymentToken));
+      const order = await step('create-order', () => deps.createOrder(cart, payment));
       return { orderId: order.id, total: order.total };
     });
   },
@@ -342,7 +342,7 @@ const transferWorkflow = createSagaWorkflow('saga', { debitAccount: async (accou
 router.post('/transfer', async (req, res) => {
   const { fromAccount, toAccount, amount } = req.body;
 
-  const result = await transferWorkflow(async (saga) => {
+  const result = await transferWorkflow(async ({ saga, deps }) => {
     // Debit source account - compensate by crediting back
     await saga.step(
       'debit',
@@ -423,10 +423,10 @@ const checkoutRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/checkout', async (request, reply) => {
     const { userId } = request.body as { userId: string };
 
-    const result = await fastify.workflows.checkout(async (step) => {
-      const user = await step('fetchUser', () => fetchUser(userId));
-      const cart = await step('fetchCart', () => fetchCart(userId));
-      const payment = await step('processPayment', () => processPayment(cart.total));
+    const result = await fastify.workflows.checkout.run(async ({ step, deps }) => {
+      const user = await step('fetchUser', () => deps.fetchUser(userId));
+      const cart = await step('fetchCart', () => deps.fetchCart(userId));
+      const payment = await step('processPayment', () => deps.processPayment(cart.total));
       return { orderId: payment.id };
     });
 
@@ -503,10 +503,10 @@ export const orderRouter = router({
   cancel: protectedProcedure
     .input(z.object({ orderId: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      const result = await orderWorkflow(async (step) => {
-        const order = await step('fetchOrder', () => fetchOrder(input.orderId, ctx.user.id));
-        const cancelled = await step('cancelOrder', () => cancelOrder(order));
-        await step('refundPayment', () => refundPayment(order.paymentId));
+      const result = await orderWorkflow.run(async ({ step, deps }) => {
+        const order = await step('fetchOrder', () => deps.fetchOrder(input.orderId, ctx.user.id));
+        const cancelled = await step('cancelOrder', () => deps.cancelOrder(order));
+        await step('refundPayment', () => deps.refundPayment(order.paymentId));
         return cancelled;
       });
 
@@ -612,9 +612,9 @@ const signupWorkflow = createWorkflow('workflow', { validateEmail, createUser })
 app.post('/signup', async (c) => {
   const { email } = await c.req.json();
 
-  const result = await signupWorkflow(async (step) => {
-    const validEmail = await step('validateEmail', () => validateEmail(email));
-    const user = await step('createUser', () => createUser(validEmail));
+  const result = await signupWorkflow.run(async ({ step, deps }) => {
+    const validEmail = await step('validateEmail', () => deps.validateEmail(email));
+    const user = await step('createUser', () => deps.createUser(validEmail));
     return { userId: user.id };
   });
 

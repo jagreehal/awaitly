@@ -46,19 +46,18 @@ const loadUserData = createWorkflow('workflow', { fetchUser, fetchPosts });
 
 ## Adding workflow options
 
-Options like caching, events, and resume state are passed to `createWorkflow`, not when calling the workflow:
+Options like caching, events, and resume state are passed to `createWorkflow`, or per-run via `workflow.run(fn, config)`:
 
 ```typescript
-// Correct: Options go to createWorkflow
+// Correct: Options at creation
 const workflow = createWorkflow('workflow', { fetchUser }, {
   cache: new Map(),
   onEvent: (e) => console.log(e)
 });
-await workflow(async ({ step }) => { ... });
+await workflow.run(async ({ step }) => { ... });
 
-// Wrong: Options passed here are ignored
-const workflow = createWorkflow('workflow', { fetchUser });
-await workflow({ cache: new Map() }, async ({ step }) => { ... }); // Ignored!
+// Per-run options: pass config as second argument to .run()
+await workflow.run(async ({ step }) => { ... }, { signal: controller.signal });
 ```
 
 ## Run it
@@ -66,7 +65,7 @@ await workflow({ cache: new Map() }, async ({ step }) => { ... }); // Ignored!
 Use `step()` to execute operations. Prefer **`step('id', fn)`** so step names appear in [statically generated docs](/docs/guides/static-analysis/) and diagrams. If any step fails, the workflow exits early:
 
 ```typescript
-const result = await loadUserData(async ({ step, deps }) => {
+const result = await loadUserData.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'));
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));
   return { user, posts };
@@ -114,7 +113,7 @@ const fetchPosts = async (userId: string): AsyncResult<Post[], 'FETCH_ERROR'> =>
 
 const loadUserData = createWorkflow('workflow', { fetchUser, fetchPosts });
 
-const result = await loadUserData(async ({ step, deps }) => {
+const result = await loadUserData.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'));
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));
   return { user, posts };
@@ -130,7 +129,7 @@ if (result.ok) {
 Change `fetchUser('1')` to `fetchUser('999')`:
 
 ```typescript
-const result = await loadUserData(async ({ step, deps }) => {
+const result = await loadUserData.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('999')); // Returns err('NOT_FOUND')
   // This line never runs
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));

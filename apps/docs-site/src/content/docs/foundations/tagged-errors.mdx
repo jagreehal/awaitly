@@ -203,7 +203,7 @@ const fetchUser = async (id: string): AsyncResult<User, NotFoundError | Unauthor
 ```typescript
 const workflow = createWorkflow('workflow', { fetchUser, updateProfile });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('123'));
   return await step('updateProfile', () => deps.updateProfile(user.id, data));
 });

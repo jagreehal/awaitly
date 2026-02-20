@@ -229,7 +229,7 @@ describe("ts-morph Static Analyzer", () => {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const user = await step('Fetch User', () => deps.fetchUser(id), {
               key: 'user',
             });
@@ -265,7 +265,7 @@ describe("ts-morph Static Analyzer", () => {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const results = await step.parallel("Fetch posts and friends", {
               posts: () => deps.fetchPosts(id),
               friends: () => deps.fetchFriends(id),
@@ -301,7 +301,7 @@ describe("ts-morph Static Analyzer", () => {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const user = await step(() => deps.fetchUser(id), { key: 'user' });
 
             if (user.isPremium) {
@@ -323,7 +323,7 @@ describe("ts-morph Static Analyzer", () => {
     it("should include source locations", () => {
       const source = `const workflow = createWorkflow("workflow", {});
 async function run() {
-  return await workflow(async ({ step, deps }) => {
+  return await workflow.run(async ({ step, deps }) => {
     const user = await step(() => deps.fetchUser(), { key: 'user' });
     return user;
   });
@@ -360,7 +360,7 @@ async function run() {
         };
 
         async function run() {
-          return await workflow(callback);
+          return await workflow.run(callback);
         }
       `;
 
@@ -381,7 +381,7 @@ async function run() {
         const callback = handler;
 
         async function run() {
-          return await workflow(callback);
+          return await workflow.run(callback);
         }
       `;
 
@@ -395,7 +395,7 @@ async function run() {
   fetchUser: async () => ({ id: "1" })
 });
 async function run() {
-  return await workflow(async ({ step, deps }) => {
+  return await workflow.run(async ({ step, deps }) => {
     await step.retry("fetch-user", () => deps.fetchUser(), { attempts: 3 });
     return {};
   });
@@ -428,7 +428,7 @@ async function run() {
   fetchUser: async () => ({ id: "1" })
 });
 async function run() {
-  return await workflow(async ({ step, deps }) => {
+  return await workflow.run(async ({ step, deps }) => {
     await step.withTimeout("fetch-user", () => deps.fetchUser(), { ms: 5000 });
     return {};
   });
@@ -461,7 +461,7 @@ async function run() {
   fetchUser: async () => ({ id: "1" as const })
 });
 async function run() {
-  return await workflow(async ({ step, deps }) => {
+  return await workflow.run(async ({ step, deps }) => {
     await step.retry("fetch-user", () => deps.fetchUser(), { attempts: 3 });
     return {};
   });
@@ -491,7 +491,7 @@ async function run() {
   fetchUser: async () => ({ id: "1" as const })
 });
 async function run() {
-  return await workflow(async ({ step, deps }) => {
+  return await workflow.run(async ({ step, deps }) => {
     await step.retry("fetch-user", () => {
       return deps.fetchUser();
     }, { attempts: 3 });
@@ -523,7 +523,7 @@ async function run() {
   fetchUser: async () => ({ id: "1" as const })
 });
 async function run() {
-  return await workflow(async ({ step, deps }) => {
+  return await workflow.run(async ({ step, deps }) => {
     await step.withTimeout("fetch-user", () => {
       return deps.fetchUser();
     }, { ms: 5000 });
@@ -555,7 +555,7 @@ async function run() {
   fetchUser: async () => ({ id: "1" as const })
 });
 async function run() {
-  return await workflow(async ({ step, deps }) => {
+  return await workflow.run(async ({ step, deps }) => {
     await step.retry("fetch-user", step.dep("userService", () => deps.fetchUser()), { attempts: 3 });
     return {};
   });
@@ -585,7 +585,7 @@ async function run() {
   fetchUser: async () => ({ id: "1" as const })
 });
 async function run() {
-  return await workflow(async ({ step, deps }) => {
+  return await workflow.run(async ({ step, deps }) => {
     await step.withTimeout("fetch-user", step.dep("userService", () => deps.fetchUser()), { ms: 5000 });
     return {};
   });
@@ -707,7 +707,7 @@ async function run() {
         type SpecWorkflow = ReturnType<typeof createSpecWorkflow>;
 
         async function runSpecWorkflow(workflow: SpecWorkflow, question: string) {
-          return await workflow(async ({ step, deps: { generateStep, validateStep } }) => {
+          return await workflow.run(async ({ step, deps: { generateStep, validateStep } }) => {
             const raw = await step("generate", () => generateStep());
             return await step("validate", () => validateStep(raw));
           });
@@ -823,7 +823,7 @@ async function run() {
 
         // This callback destructures different names, should NOT match
         async function runOtherWorkflow(workflow: any) {
-          return await workflow(async ({ step, deps: { fetchData, processData } }) => {
+          return await workflow.run(async ({ step, deps: { fetchData, processData } }) => {
             const raw = await step("fetch", () => fetchData());
             return await step("process", () => processData(raw));
           });
@@ -983,7 +983,7 @@ async function run() {
 
         export async function main() {
           const workflow = createMyWorkflow();
-          return await workflow(async ({ step, deps: { stepA, stepB } }) => {
+          return await workflow.run(async ({ step, deps: { stepA, stepB } }) => {
             const a = await step("doA", () => stepA());
             return await step("doB", () => stepB());
           });
@@ -1011,7 +1011,7 @@ async function run() {
 
         export async function main() {
           const workflow = createMyWorkflow();
-          return await workflow(async ({ step, deps: { stepA, stepB } }) => {
+          return await workflow.run(async ({ step, deps: { stepA, stepB } }) => {
             const a = await step("doA", () => stepA());
             return await step("doB", () => stepB());
           });
@@ -1039,7 +1039,7 @@ async function run() {
 
         export async function main() {
           const workflow = createMyWorkflow();
-          return await workflow(async ({ step, deps: { stepA, stepB } }) => {
+          return await workflow.run(async ({ step, deps: { stepA, stepB } }) => {
             const a = await step("doA", () => stepA());
             return await step("doB", () => stepB());
           });
@@ -1067,7 +1067,7 @@ async function run() {
 
         export async function main() {
           const workflow = createMyWorkflow();
-          return await workflow(async ({ step, deps: { stepA, stepB } }) => {
+          return await workflow.run(async ({ step, deps: { stepA, stepB } }) => {
             const a = await step("doA", () => stepA());
             return await step("doB", () => stepB());
           });
@@ -1091,7 +1091,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             for (let i = 0; i < 5; i++) {
               await step(() => deps.processItem(i), { key: \`item-\${i}\` });
             }
@@ -1111,7 +1111,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const items = ['a', 'b', 'c'];
             for (const item of items) {
               await step(() => deps.processItem(item), { key: item });
@@ -1147,7 +1147,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             let hasMore = true;
             while (hasMore) {
               const result = await step(() => deps.fetchPage(), { key: 'page' });
@@ -1169,7 +1169,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             // This loop has no step calls, but is inside workflow callback so counted
             let sum = 0;
             for (let i = 0; i < 10; i++) {
@@ -1197,7 +1197,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const results = await allAsync([
               () => deps.fetchA(),
               () => deps.fetchB(),
@@ -1219,7 +1219,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const results = await allSettledAsync([
               () => deps.fetchA(),
               () => deps.fetchB(),
@@ -1256,7 +1256,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const result = await anyAsync([
               () => deps.fetchA(),
               () => deps.fetchB(),
@@ -1279,7 +1279,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const user = await step(() => deps.fetchUser());
             await when(user.isActive, () => step(() => deps.sendNotification()));
           });
@@ -1297,7 +1297,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const user = await step(() => deps.fetchUser());
             await unless(user.isBlocked, () => step(() => deps.grantAccess()));
           });
@@ -1319,7 +1319,7 @@ async function run() {
         });
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const user = await step(() => deps.fetchUser(), {
               key: 'user',
               name: 'Fetch User',
@@ -1646,7 +1646,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const writer = await step.getWritable('progress');
             return writer;
           });
@@ -1676,7 +1676,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const reader = await step.getReadable('data');
             return reader;
           });
@@ -1694,7 +1694,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.streamForEach('items', async (item) => {
               await step(() => deps.processItem(item));
             });
@@ -1715,7 +1715,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step: s, deps }) => {
+          return await workflow.run(async ({ step: s, deps }) => {
             await s(() => deps.fetchUser(id), { key: 'user' });
             return null;
           });
@@ -1733,7 +1733,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const user = await (step(() => deps.fetchUser(id), { key: 'user' }));
             return user;
           });
@@ -1751,7 +1751,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step: runStep, deps }) => {
+          return await workflow.run(async ({ step: runStep, deps }) => {
             await runStep(() => deps.fetchUser(id), { key: 'user' });
             return null;
           });
@@ -1932,7 +1932,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const result = await step(() => deps.fetchData(), {
               key: 'fetch',
               retry: {
@@ -1968,7 +1968,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const result = await step(() => deps.fetchData(), {
               key: 'fetch',
               timeout: { ms: 5000 },
@@ -2002,7 +2002,7 @@ async function run() {
         async function run() {
           const tracker = { step: (value) => value };
 
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const tracked = tracker.step('ignored');
             return tracked;
           });
@@ -2020,7 +2020,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const p = data.parallel([1, 2, 3]);
             const r = arr.race(fn);
             const t = obj.retry(() => action());
@@ -2048,7 +2048,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const discount = await whenOr(
               user.isPremium,
               () => step(() => deps.calculateDiscount(user.id), { key: 'discount' }),
@@ -2133,7 +2133,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step(() => deps.fetchData(), { key: 'data' });
           });
         }
@@ -2150,14 +2150,14 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function runOuter() {
-          return await workflow(async ({ step }) => {
+          return await workflow.run(async ({ step }) => {
             await step(() => outerTask(), { key: 'outer' });
           });
         }
 
         async function runInner() {
           const workflow = createWorkflow("workflow", {});
-          return await workflow(async ({ step }) => {
+          return await workflow.run(async ({ step }) => {
             await step(() => innerTask(), { key: 'inner' });
           });
         }
@@ -2179,7 +2179,7 @@ async function run() {
           if (true) {
             var workflow = createWorkflow("workflow", {});
           }
-          return await workflow(async ({ step }) => {
+          return await workflow.run(async ({ step }) => {
             await step(() => innerTask(), { key: 'inner' });
           });
         }
@@ -2202,7 +2202,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function runShadowed(workflow) {
-          return await workflow(async ({ step }) => {
+          return await workflow.run(async ({ step }) => {
             await step(() => innerTask(), { key: 'inner' });
           });
         }
@@ -2220,7 +2220,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function runShadowed({ workflow }) {
-          return await workflow(async ({ step }) => {
+          return await workflow.run(async ({ step }) => {
             await step(() => innerTask(), { key: 'inner' });
           });
         }
@@ -2236,7 +2236,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function runShadowed([workflow]) {
-          return await workflow(async ({ step }) => {
+          return await workflow.run(async ({ step }) => {
             await step(() => innerTask(), { key: 'inner' });
           });
         }
@@ -2253,7 +2253,7 @@ async function run() {
 
         class Runner {
           async run(workflow) {
-            return await workflow(async ({ step }) => {
+            return await workflow.run(async ({ step }) => {
               await step(() => innerTask(), { key: 'inner' });
             });
           }
@@ -2271,7 +2271,7 @@ async function run() {
 
         async function runShadowed() {
           const { workflow } = getWorkflows();
-          return await workflow(async ({ step }) => {
+          return await workflow.run(async ({ step }) => {
             await step(() => innerTask(), { key: 'inner' });
           });
         }
@@ -2290,7 +2290,7 @@ async function run() {
           try {
             throw new Error("boom");
           } catch (workflow) {
-            return await workflow(async ({ step }) => {
+            return await workflow.run(async ({ step }) => {
               await step(() => innerTask(), { key: 'inner' });
             });
           }
@@ -2310,7 +2310,7 @@ async function run() {
           try {
             throw new Error("boom");
           } catch ({ workflow }) {
-            return await workflow(async ({ step }) => {
+            return await workflow.run(async ({ step }) => {
               await step(() => innerTask(), { key: 'inner' });
             });
           }
@@ -2325,7 +2325,7 @@ async function run() {
     it("should count workflow invocations declared before workflow definition", () => {
       const source = `
         async function run() {
-          return await workflow(async ({ step }) => {
+          return await workflow.run(async ({ step }) => {
             await step(() => innerTask(), { key: 'inner' });
           });
         }
@@ -2379,7 +2379,7 @@ async function run() {
             return null;
           }
 
-          return await workflow(async ({ step }) => {
+          return await workflow.run(async ({ step }) => {
             await step(() => innerTask(), { key: 'inner' });
           });
         }
@@ -2397,7 +2397,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const results = await allAsync([
               deps.fetchPosts(id),
               deps.fetchFriends(id),
@@ -2418,7 +2418,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const results = await allAsync([
               step('Fetch Posts', () => deps.fetchPosts(id), { key: 'posts' }),
               step('Fetch Friends', () => deps.fetchFriends(id), { key: 'friends' }),
@@ -2457,7 +2457,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await allAsync([
               () => {
                 step(() => deps.fetchPosts(id), { key: 'posts' });
@@ -2496,7 +2496,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.parallel("Fetch user data", {
               posts: () => deps.fetchPosts(id),
               friends: () => deps.fetchFriends(id),
@@ -2530,7 +2530,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.sleep("delay", "5s");
           });
         }
@@ -2547,7 +2547,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.sleep("wait", "30m", { key: "wait", description: "Wait for processing" });
           });
         }
@@ -2579,7 +2579,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const result = await step.race([
               () => deps.fetchFromCacheA(),
               () => deps.fetchFromCacheB(),
@@ -2600,7 +2600,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const result = await step.race({
               cacheA: () => deps.fetchFromCacheA(),
               cacheB: () => deps.fetchFromCacheB(),
@@ -2638,7 +2638,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const result = await step.retry(
               'fetch',
               () => deps.fetchData(),
@@ -2671,7 +2671,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const result = await step.withTimeout(
               'fetch',
               () => deps.fetchData(),
@@ -2772,7 +2772,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.parallel("Fetch all", () => allAsync([
               () => step(() => deps.fetchPosts(id), { key: 'posts' }),
               () => step(() => deps.fetchFriends(id), { key: 'friends' }),
@@ -2994,7 +2994,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.sleep("delay", "100ms");
             return "done";
           });
@@ -3021,7 +3021,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.sleep("delay", "100ms");
             return "done";
           });
@@ -3050,7 +3050,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('doFirst', () => doFirst());
             await step.sleep("delay", "1s");
             await step('doSecond', () => doSecond());
@@ -3113,7 +3113,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const user = await step(() => deps.fetchUser(), { key: 'user' });
 
             if (user.isActive) {
@@ -3194,7 +3194,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             return null;
           });
         }
@@ -3212,7 +3212,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const results = await Promise.all(items.map(item =>
               step(() => deps.process(item), { key: item.id })
             ));
@@ -3231,7 +3231,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const results = await Promise.all(items.map(async item => {
               const data = await step(() => deps.fetchItem(item.id), { key: item.id });
               return data;
@@ -3253,7 +3253,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const process = async (id) => {
               return await step(() => deps.processItem(id), { key: id });
             };
@@ -3272,7 +3272,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const process = async function(id) {
               return await step(() => deps.processItem(id), { key: id });
             };
@@ -3293,7 +3293,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const tools = {
               search: {
                 execute: async (params) => {
@@ -3316,7 +3316,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await items.forEach(async item => {
               await step(() => deps.process(item), { key: item.id });
             });
@@ -3426,7 +3426,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.sleep("wait", { seconds: 30 });
           });
         }
@@ -3442,7 +3442,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.sleep('delay', '5s');
           });
         }
@@ -3458,7 +3458,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('fetchData', () => deps.fetchData(), { key: 'data' });
             await step.sleep('delay', '1s');
             await step('sendData', () => deps.sendData(), { key: 'send' });
@@ -3478,7 +3478,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const results = await step.parallel([
               () => deps.fetchA(),
               () => deps.fetchB(),
@@ -3499,7 +3499,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const results = await step.parallel([
               () => deps.fetchA(),
               () => deps.fetchB(),
@@ -3521,7 +3521,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const user = await step('Fetch User', () => deps.fetchUser(), { key: 'user' });
             return user;
           });
@@ -3542,7 +3542,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.parallel("Fetch posts and friends", {
               posts: () => deps.fetchPosts(),
               friends: () => deps.fetchFriends(),
@@ -3571,7 +3571,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const user = await step(() => {
               return deps.fetchUser(id);
             }, { key: 'user' });
@@ -3601,7 +3601,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step(() => (deps.fetchUser(id)), { key: 'user' });
             return null;
           });
@@ -3631,7 +3631,7 @@ async function run() {
         const fallback = () => null;
 
         async function run() {
-          return await workflow(async ({ step: runStep = fallback, deps }) => {
+          return await workflow.run(async ({ step: runStep = fallback, deps }) => {
             await runStep(() => deps.fetchUser(id), { key: 'user' });
             return null;
           });
@@ -3650,7 +3650,7 @@ async function run() {
         const defaultStep = () => null;
 
         async function run() {
-          return await workflow(async ({ step = defaultStep, deps }) => {
+          return await workflow.run(async ({ step = defaultStep, deps }) => {
             await step(() => deps.fetchUser(id), { key: 'user' });
             return null;
           });
@@ -3670,7 +3670,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const status = await step(() => deps.getStatus());
             switch (status) {
               case "active":
@@ -3698,7 +3698,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const results = await step.parallel("Fetch All Data", () =>
               allAsync([
                 () => deps.fetchA(),
@@ -3722,7 +3722,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const data = await step.retry(
               'fetchData',
               () => deps.fetchData(),
@@ -3744,7 +3744,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const data = await step.withTimeout(
               'fetchData',
               () => deps.fetchData(),
@@ -3768,7 +3768,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             // This is a step call
             await step(() => deps.fetchUser(), { key: 'user' });
 
@@ -3894,7 +3894,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function runWorkflow() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step(() => deps.fetchA(), { key: 'a' });
           });
         }
@@ -3917,7 +3917,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function runWorkflow() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step(() => deps.fetchA(), { key: 'a' });
           });
         }
@@ -3947,7 +3947,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function runWorkflow() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step(() => deps.fetchA(), { key: 'a' });
           });
         }
@@ -3976,7 +3976,7 @@ async function run() {
         const saga = createSagaWorkflow("saga", {});
 
         async function runWorkflow() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step(() => deps.fetchA(), { key: 'a' });
           });
         }
@@ -4036,7 +4036,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.sleep('wait', '5s', { description: 'Wait for processing' });
           });
         }
@@ -4062,7 +4062,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.sleep('wait', '5s', {
               description: 'Wait for processing',
               markdown: '## Wait step\\n\\nPauses workflow execution.'
@@ -4097,7 +4097,7 @@ async function run() {
         });
 
         async function run(id: string) {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const user = await step(() => deps.fetchUser(id), {
               key: 'user',
               description: 'Load user by ID',
@@ -4196,7 +4196,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const result = await unlessOr(
               shouldSkip,
               () => step(() => deps.compute(), { key: 'compute' }),
@@ -4224,7 +4224,7 @@ async function run() {
         });
 
         export async function run() {
-          return await workflow(async ({ step, deps: { riskyOp } }) => {
+          return await workflow.run(async ({ step, deps: { riskyOp } }) => {
             const result = await step.try("attempt", () => riskyOp());
             return result;
           });
@@ -4247,7 +4247,7 @@ async function run() {
         });
 
         export async function run() {
-          return await workflow(async ({ step, deps: { fetchData } }) => {
+          return await workflow.run(async ({ step, deps: { fetchData } }) => {
             const data = await step.fromResult("load", () => fetchData());
             return data;
           });
@@ -4271,7 +4271,7 @@ async function run() {
         });
 
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const result = await step.branch("payment", {
               conditionLabel: "amount > 0",
               condition: () => true,
@@ -4303,7 +4303,7 @@ async function run() {
         });
 
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.forEach("process-all", ["a", "b"], {
               maxIterations: 10,
               run: (item) => deps.processItem(item),
@@ -4340,7 +4340,7 @@ async function run() {
         });
 
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.forEach("batch", ["x", "y"], {
               maxIterations: 5,
               item: step.item((item, i, s) => {
@@ -4380,7 +4380,7 @@ async function run() {
         });
 
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             if (step.if("user-tier", "isPremium", () => true)) {
               await step("premium", () => deps.premiumFeature());
             } else {
@@ -4408,7 +4408,7 @@ async function run() {
         });
 
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             if (step.label("discount-check", "hasDiscount", () => true)) {
               await step("discount", () => deps.discountPath());
             } else {
@@ -4602,7 +4602,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const user = await step(() => deps.fetchUser(), { key: 'user' });
             if (user.isPremium) {
               await step(() => deps.applyDiscount(), { key: 'discount' });
@@ -4632,7 +4632,7 @@ async function run() {
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const user = await step(() => deps.fetchUser(), { key: 'user' });
             return user;
           });
@@ -4751,7 +4751,7 @@ async function run() {
         import { createWorkflow } from "awaitly/workflow";
         const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
         async function run(id: string) {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             /**
              * Load user
              * @param {string} id - User identifier
@@ -4774,7 +4774,7 @@ async function run() {
         type User = { id: string };
         const workflow = createWorkflow("workflow", { fetchUser: async (id: string): Promise<User> => ({ id }) });
         async function run(id: string) {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             /**
              * Load user
              * @returns {User} Loaded user object
@@ -4796,7 +4796,7 @@ async function run() {
         import { createWorkflow } from "awaitly/workflow";
         const workflow = createWorkflow("workflow", { fetchUser: async (id?: string) => ({ id }) });
         async function run(id?: string) {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             /**
              * Load user
              * @param {string} [id] - Optional user identifier
@@ -4818,7 +4818,7 @@ async function run() {
         import { createWorkflow } from "awaitly/workflow";
         const workflow = createWorkflow("workflow", { fetchUser: async (id?: string) => ({ id }) });
         async function run(id?: string) {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             /**
              * Load user
              * @param {string} [id="guest"] - Optional user identifier
@@ -4840,7 +4840,7 @@ async function run() {
         import { createWorkflow } from "awaitly/workflow";
         const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
         async function run(id: string) {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             /**
              * Load user
              * @throws {NotFoundError} User not found
@@ -4862,7 +4862,7 @@ async function run() {
         import { createWorkflow } from "awaitly/workflow";
         const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
         async function run(id: string) {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             /**
              * Load user
              * @param {string} id User identifier
@@ -4884,7 +4884,7 @@ async function run() {
         import { createWorkflow } from "awaitly/workflow";
         const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
         async function run(id: string) {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             /**
              * Retry loading user
              * @param {string} id - User identifier
@@ -4908,7 +4908,7 @@ async function run() {
         import { createWorkflow } from "awaitly/workflow";
         const workflow = createWorkflow("workflow", {});
         async function run() {
-          return await workflow(async ({ step }) => {
+          return await workflow.run(async ({ step }) => {
             /**
              * Pause before continuing
              * @returns Sleep complete
@@ -4930,7 +4930,7 @@ async function run() {
         import { createWorkflow } from "awaitly/workflow";
         const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
         async function run(id: string) {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             /**
              * Load user
              * @example await step("fetch-user", () => deps.fetchUser(id))
@@ -4995,7 +4995,7 @@ async function run() {
         });
 
         async function run(id: string) {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const user = await step(() => deps.fetchUser(id));
             await step(() => deps.sendEmail(user.name));
             return user;
@@ -5021,7 +5021,7 @@ async function run() {
         });
 
         async function run(id: string) {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             return await step(() => deps.fetchUser(id));
           });
         }
@@ -5042,7 +5042,7 @@ async function run() {
         });
 
         async function run(id: string) {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             return await step(() => deps.fetchUser(id));
           });
         }
@@ -5064,7 +5064,7 @@ async function run() {
         });
 
         async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step(() => deps.fetchPair());
             return {};
           });
@@ -5087,7 +5087,7 @@ async function run() {
         });
 
         async function run(id: string) {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const user = await step(() => deps.fetchUser(id));
             await step(() => deps.chargeCard(user.id));
             return user;
@@ -5113,7 +5113,7 @@ async function run() {
         });
 
         async function run() {
-          return await workflow(async ({ saga, deps }) => {
+          return await workflow.run(async ({ saga, deps }) => {
             return await saga.step("create-order", () => deps.createOrder(), {
               compensate: () => deps.cancelOrder(),
             });

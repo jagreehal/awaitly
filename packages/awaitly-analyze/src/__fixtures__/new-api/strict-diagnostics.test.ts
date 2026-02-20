@@ -20,7 +20,7 @@ describe("Strict Mode Diagnostics", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getUser: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('getUser', () => deps.getUser('1'), {
               errors: ['NOT_FOUND'],
             });
@@ -40,7 +40,7 @@ describe("Strict Mode Diagnostics", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getUser: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step(() => deps.getUser('1'), { name: 'getUser' });
           });
         }
@@ -61,7 +61,7 @@ describe("Strict Mode Diagnostics", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getUser: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('getUser', () => deps.getUser('1'));
           });
         }
@@ -82,7 +82,7 @@ describe("Strict Mode Diagnostics", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getUser: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('getUser', () => deps.getUser('1'), { errors: [] });
           });
         }
@@ -102,7 +102,7 @@ describe("Strict Mode Diagnostics", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getUser: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('getUser', () => deps.getUser('1'));
           });
         }
@@ -120,7 +120,7 @@ describe("Strict Mode Diagnostics", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getUser: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step(() => deps.getUser('1'));
           });
         }
@@ -142,7 +142,7 @@ describe("Strict Mode Diagnostics", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getUser: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('getUser', () => deps.getUser('1'), { errors: [] });
           });
         }
@@ -161,7 +161,7 @@ describe("Strict Mode Diagnostics", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getUser: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step(() => deps.getUser('1'));
           });
         }
@@ -181,7 +181,7 @@ describe("Strict Mode Diagnostics", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { getUser: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step('getUser', () => deps.getUser('1'), { errors: [] });
           });
         }
@@ -202,7 +202,7 @@ describe("Strict Mode Diagnostics", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { fetchUser: async () => ok({}), fetchPosts: async () => ok([]) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const { user, posts } = await step.parallel("Fetch user and posts", {
               user: () => deps.fetchUser("1"),
               posts: () => deps.fetchPosts("1"),
@@ -226,7 +226,7 @@ describe("Strict Mode Diagnostics", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { fetchUser: async () => ok({}), fetchPosts: async () => ok([]) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             const { user, posts } = await step.parallel("Fetch user and posts", {
               user: { fn: () => deps.fetchUser("1"), errors: ['NOT_FOUND'] },
               posts: { fn: () => deps.fetchPosts("1"), errors: ['FETCH_ERROR'] },
@@ -251,7 +251,7 @@ describe("Strict Mode Diagnostics", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { processItem: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.forEach('process', items, {
               errors: ['PROCESS_ERROR'],
               out: 'results',
@@ -276,7 +276,7 @@ describe("Strict Mode Diagnostics", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { processItem: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.forEach('process', items, {
               errors: ['PROCESS_ERROR'],
               out: 'results',
@@ -301,7 +301,7 @@ describe("Strict Mode Diagnostics", () => {
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { processItem: async () => ok({}) });
         export async function run() {
-          return await workflow(async ({ step, deps }) => {
+          return await workflow.run(async ({ step, deps }) => {
             await step.forEach('process', items, {
               errors: ['PROCESS_ERROR'],
               run: (item) => deps.processItem(item),

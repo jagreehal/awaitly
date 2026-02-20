@@ -271,7 +271,7 @@ export const myWorkflow = createWorkflow('workflow', { myStep },
 );
 
 export async function runWorkflow() {
-  return await myWorkflow(async ({ step, deps, ctx }) => {
+  return await myWorkflow.run(async ({ step, deps, ctx }) => {
     // ctx contains: workflowId, onEvent, context, signal
     console.log(`Workflow ID: ${ctx.workflowId}`);
 
@@ -337,7 +337,7 @@ export const orderProcessingSaga = createSagaWorkflow('saga', { reserveInventory
 );
 
 export async function processOrder(request: OrderRequest) {
-  return await orderProcessingSaga(async (saga, deps) => {
+  return await orderProcessingSaga(async ({ saga, deps }) => {
     await saga.step(
       "reserve-inventory",
       () => deps.reserveInventory(request.items),

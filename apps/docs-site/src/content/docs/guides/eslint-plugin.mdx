@@ -119,12 +119,12 @@ Detects `run()` calls that are not awaited, returned, or assigned. Floating work
 
 ```typescript
 // Bad - fire-and-forget, no error handling
-run(async (step) => { ... });
+run(async ({ step }) => { ... });
 
 // Good - properly handled
-await run(async (step) => { ... });
-const result = await run(async (step) => { ... });
-return run(async (step) => { ... });
+await run(async ({ step }) => { ... });
+const result = await run(async ({ step }) => { ... });
+return run(async ({ step }) => { ... });
 ```
 
 ### `awaitly/no-floating-result`
@@ -176,11 +176,12 @@ Detects when workflow options (`cache`, `onEvent`, `resumeState`, etc.) are pass
 
 ```typescript
 // Bad - options are ignored
-await workflow({ cache: new Map() }, async ({ step }) => { ... });
+const workflow = createWorkflow('w', deps, { cache: new Map() });
+await workflow.run(async ({ step }) => { ... });
 
 // Good - options passed to createWorkflow
 const workflow = createWorkflow('workflow', deps, { cache: new Map() });
-await workflow(async ({ step, deps }) => { ... });
+await workflow.run(async ({ step, deps }) => { ... });
 ```
 
 ### `awaitly/no-double-wrap-result`
@@ -191,18 +192,18 @@ Detects returning `ok()` or `err()` from workflow executor functions. Executors 
 
 ```typescript
 // Bad - double-wrapped Result
-run(async (step) => {
+run(async ({ step }) => {
   const user = await step('fetchUser', () => fetchUser('1'));
   return ok({ user });
 });
-createWorkflow('workflow', deps)(async ({ step, deps }) => err({ type: 'FAILED' }));
+createWorkflow('workflow', deps).run(async ({ step, deps }) => err({ type: 'FAILED' }));
 
 // Good - return raw value
-run(async (step) => {
+run(async ({ step }) => {
   const user = await step('fetchUser', () => fetchUser('1'));
   return { user };
 });
-createWorkflow('workflow', deps)(async ({ step, deps }) => value);
+createWorkflow('workflow', deps).run(async ({ step, deps }) => value);
 ```
 
 ## Why these rules?

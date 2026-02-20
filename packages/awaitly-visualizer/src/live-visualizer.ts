@@ -81,7 +81,7 @@ export interface LiveVisualizer {
  * const workflow = createWorkflow(deps, { onEvent: live.handleEvent });
  *
  * live.start();
- * await workflow(async ({ step }) => { ... });
+ * await workflow.run(async ({ step }) => { ... });
  * live.stop();
  * ```
  */

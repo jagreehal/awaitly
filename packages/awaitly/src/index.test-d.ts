@@ -324,7 +324,7 @@ async function _test6a() {
     }
   );
 
-  const result = await workflow(async ({ step, deps: { fetchUser }, ctx }) => {
+  const result = await workflow.run(async ({ step, deps: { fetchUser }, ctx }) => {
     expectType<{ traceId: string } | undefined>(ctx.context);
     expectType<string>(ctx.workflowId);
     expectType<AbortSignal | undefined>(ctx.signal);
@@ -350,10 +350,9 @@ async function _test6aa() {
     }
   );
 
-  const result = await workflow(
-    { userId: "123" },
-    async ({ step, deps: { fetchUser }, args, ctx }) => {
-      expectType<{ userId: string }>(args);
+  const args = { userId: "123" };
+  const result = await workflow.run(
+    async ({ step, deps: { fetchUser }, ctx }) => {
       expectType<{ traceId: string } | undefined>(ctx.context);
       return step("fetchUser", () => fetchUser(args.userId));
     }
@@ -381,7 +380,7 @@ async function _test6ab() {
     }
   );
 
-  await workflow(async ({ step, deps: { fetchUser } }) => {
+  await workflow.run(async ({ step, deps: { fetchUser } }) => {
     return step("fetchUser", () => fetchUser("123"));
   });
 }
@@ -402,7 +401,7 @@ async function _test6ac() {
     }
   );
 
-  await workflow(async ({ step, deps: { fetchUser } }) => {
+  await workflow.run(async ({ step, deps: { fetchUser } }) => {
     return step("fetchUser", () => fetchUser("unknown"));
   });
 }
@@ -611,7 +610,7 @@ async function _test9() {
   // Create workflow with deps object - error types inferred automatically
   const getPosts = createWorkflow("getPosts", { fetchUser, fetchPosts });
 
-  const result = await getPosts(async ({ step }) => {
+  const result = await getPosts.run(async ({ step }) => {
     const user = await step("fetchUser", () => fetchUser("123"));
     const posts = await step("fetchPosts", () => fetchPosts(user.id));
     return { user, posts };
@@ -635,7 +634,7 @@ async function _test10() {
   const getPosts = createWorkflow("getPosts", { fetchUser, fetchPosts });
 
   // Uses object is passed as second argument for destructuring
-  const result = await getPosts(async ({ step, deps: { fetchUser: fu, fetchPosts: fp } }) => {
+  const result = await getPosts.run(async ({ step, deps: { fetchUser: fu, fetchPosts: fp } }) => {
     const user = await step("fetchUser", () => fu("123"));
     const posts = await step("fetchPosts", () => fp(user.id));
     return { user, posts };
@@ -659,7 +658,7 @@ async function _test11() {
     }
   );
 
-  const result = await getPosts(async ({ step }) => {
+  const result = await getPosts.run(async ({ step }) => {
     const user = await step("fetchUser", () => fetchUser("123"));
     const posts = await step("fetchPosts", () => fetchPosts(user.id));
     return { user, posts };
@@ -719,7 +718,7 @@ async function _test12b() {
 
   const beneficiaryWorkflow = createWorkflow("beneficiaryWorkflow", beneficiaryDeps);
 
-  const result = await beneficiaryWorkflow(async ({ step, deps }) => {
+  const result = await beneficiaryWorkflow.run(async ({ step, deps }) => {
     const valid = await step("validatePayload", () => deps.validatePayload({ id: "123" }));
     const executed = await step("executeTransaction", () => deps.executeTransaction(valid));
     expectType<{ id: string }>(valid);
@@ -751,7 +750,7 @@ async function _test13() {
     }
   );
 
-  await getPosts(async ({ step }) => {
+  await getPosts.run(async ({ step }) => {
     const user = await step("fetchUser", () => fetchUser("123"));
     return user;
   });
@@ -934,10 +933,9 @@ async function _test22AsyncResultTypedCause() {
 async function _test23WorkflowWithArgs() {
   const workflow = createWorkflow("workflowWithArgs", { fetchUser, fetchPosts });
 
-  // With args - type inferred from first argument
-  const result = await workflow({ id: "123", limit: 10 }, async ({ step, deps, args }) => {
-    // args type is inferred from the first argument
-    expectType<{ id: string; limit: number }>(args);
+  // With args - now use closure capture
+  const args = { id: "123", limit: 10 };
+  const result = await workflow.run(async ({ step, deps }) => {
     const user = await step("fetchUser", () => fetchUser(args.id));
     return { user, limit: args.limit };
   });
@@ -954,8 +952,8 @@ async function _test23WorkflowWithArgs() {
 async function _test24WorkflowBackwardsCompatible() {
   const workflow = createWorkflow("workflowNoArgs", { fetchUser, fetchPosts });
 
-  // Original API still works - no args
-  const result = await workflow(async ({ step, deps }) => {
+  // workflow.run() API
+  const result = await workflow.run(async ({ step, deps }) => {
     const user = await step("fetchUser", () => fetchUser("123"));
     return user;
   });
@@ -977,7 +975,7 @@ async function _test24WorkflowBackwardsCompatible() {
 async function _test24bWorkflowNoDeps() {
   const workflow = createWorkflow("workflowNoDeps");
 
-  const result = await workflow(async ({ step, deps }) => {
+  const result = await workflow.run(async ({ step, deps }) => {
     // no deps object provided at creation, so deps should not be required for step helpers
     expectType<unknown>(deps);
     await step.sleep("pause", "1ms");
@@ -1002,8 +1000,8 @@ async function _test25WorkflowStrictWithArgs() {
     }
   );
 
-  const result = await workflow({ userId: "123" }, async ({ step, deps, args }) => {
-    expectType<{ userId: string }>(args);
+  const args = { userId: "123" };
+  const result = await workflow.run(async ({ step, deps }) => {
     const user = await step("fetchUser", () => fetchUser(args.userId));
     const posts = await step("fetchPosts", () => fetchPosts(user.id));
     return { user, posts };
@@ -1022,9 +1020,9 @@ async function _test25WorkflowStrictWithArgs() {
 async function _test26WorkflowPrimitiveArgs() {
   const workflow = createWorkflow("workflowPrimitiveArgs", { fetchUser });
 
-  // Primitive arg type (string)
-  const result = await workflow("user-123", async ({ step, deps, args: id }) => {
-    expectType<string>(id);
+  // Primitive arg type (string) - now use closure capture
+  const id = "user-123";
+  const result = await workflow.run(async ({ step, deps }) => {
     return await step("fetchUser", () => fetchUser(id));
   });
 
@@ -1050,7 +1048,7 @@ async function _test27WorkflowCauseIsUnknown() {
 
   const workflow = createWorkflow("workflowTypedCause", { fetchWithTypedCause });
 
-  const result = await workflow(async ({ step }) => {
+  const result = await workflow.run(async ({ step }) => {
     return await step("fetchUser", () => fetchWithTypedCause("1"));
   });
 
@@ -1219,7 +1217,7 @@ async function _test36ParallelWithCreateWorkflow() {
   // createWorkflow should infer error union from deps
   const workflow = createWorkflow("parallelCreateWorkflow", { fetchUser, fetchPosts });
 
-  const result = await workflow(async ({ step, deps: { fetchUser, fetchPosts } }) => {
+  const result = await workflow.run(async ({ step, deps: { fetchUser, fetchPosts } }) => {
     const { user, posts } = await step.parallel("Fetch user and posts", {
       user: () => fetchUser("1"),
       posts: () => fetchPosts("1"),
@@ -1282,7 +1280,7 @@ async function _testContextTypeSafety() {
     }
   );
 
-  await workflow(async ({ step }) => {
+  await workflow.run(async ({ step }) => {
     return await step("fetchUser", () => fetchUser("123"));
   });
 }
@@ -1303,7 +1301,7 @@ async function _testContextDefaultsToUnknown() {
     },
   });
 
-  await workflow(async ({ step }) => {
+  await workflow.run(async ({ step }) => {
     return await step("fetchUser", () => fetchUser("123"));
   });
 
@@ -1320,7 +1318,7 @@ async function _testContextDefaultsToUnknown() {
     },
   });
 
-  await workflowWithUnknown(async ({ step }) => {
+  await workflowWithUnknown.run(async ({ step }) => {
     return await step("fetchUser", () => fetchUser("123"));
   });
 }
@@ -1911,59 +1909,6 @@ async function _test52WorkflowRunInference() {
     { onEvent: () => {} }
   );
   expectType<Result<string, "NOT_FOUND" | UnexpectedError, unknown>>(result2);
-}
-
-// =============================================================================
-// TEST 53: workflow.with() returns correct type and infers args
-// =============================================================================
-
-async function _test53WorkflowWithInference() {
-  const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> =>
-    ok({ id, name: "Alice" });
-
-  const workflow = createWorkflow("workflowWithInference", { fetchUser });
-  const w2 = workflow.with({ onEvent: () => {} });
-
-  // w2(fn) should work and infer T
-  const result1 = await w2(async ({ step }) => {
-    return 42;
-  });
-  expectType<Result<number, "NOT_FOUND" | UnexpectedError, unknown>>(result1);
-
-  // w2(args, fn) should infer Args
-  const result2 = await w2(
-    { userId: "1" },
-    async ({ step, deps, args }) => {
-      // args.userId should be string
-      expectType<string>(args.userId);
-      return args.userId;
-    }
-  );
-  expectType<Result<string, "NOT_FOUND" | UnexpectedError, unknown>>(result2);
-}
-
-// =============================================================================
-// TEST 54: workflow.with().run() infers Args and T
-// =============================================================================
-
-async function _test54WorkflowWithRunInference() {
-  const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> =>
-    ok({ id, name: "Alice" });
-
-  const workflow = createWorkflow("workflowWithRunInference", { fetchUser });
-  const w2 = workflow.with({ onEvent: () => {} });
-
-  // w2.run(args, fn, exec) should infer Args and T
-  const result = await w2.run(
-    { userId: "1", count: 5 },
-    async ({ step, deps, args }) => {
-      expectType<string>(args.userId);
-      expectType<number>(args.count);
-      return { id: args.userId, total: args.count };
-    },
-    { signal: new AbortController().signal }
-  );
-  expectType<Result<{ id: string; total: number }, "NOT_FOUND" | UnexpectedError, unknown>>(result);
 }
 
 // =============================================================================

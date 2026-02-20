@@ -37,7 +37,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: (e) => events.push(e),
       });
 
-      await workflow(async () => {
+      await workflow.run(async () => {
         return "done";
       });
 
@@ -55,7 +55,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: viz.handleEvent,
       });
 
-      await workflow(async () => "done");
+      await workflow.run(async () => "done");
 
       const ir = viz.getIR();
       expect(ir.root.type).toBe("workflow");
@@ -82,7 +82,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: viz.handleEvent,
       });
 
-      await workflow(async ({ step }) => {
+      await workflow.run(async ({ step }) => {
         return step("Fetch", () => fetchUser());
       });
 
@@ -115,7 +115,7 @@ describe("edge-cases: Robustness", () => {
       });
 
       // First run
-      await workflow(async ({ step }) => {
+      await workflow.run(async ({ step }) => {
         await step("Step A", () => fetchUser());
         return step("Step B", () => fetchUser());
       });
@@ -123,7 +123,7 @@ describe("edge-cases: Robustness", () => {
       expect(viz.getIR().root.children.length).toBe(2);
 
       // Second run — should replace, not accumulate
-      await workflow(async ({ step }) => {
+      await workflow.run(async ({ step }) => {
         return step("Step C", () => fetchUser());
       });
 
@@ -197,7 +197,7 @@ describe("edge-cases: Robustness", () => {
       });
 
       const stepCount = 105;
-      await workflow(async ({ step }) => {
+      await workflow.run(async ({ step }) => {
         for (let i = 0; i < stepCount; i++) {
           await step(`Step ${i}`, () => noop());
         }
@@ -285,11 +285,11 @@ describe("edge-cases: Robustness", () => {
 
       // Run concurrently
       const [r1, r2] = await Promise.all([
-        w1(async ({ step }) => {
+        w1.run(async ({ step }) => {
           await step("W1 Step A", () => fetchUser());
           return step("W1 Step B", () => fetchUser());
         }),
-        w2(async ({ step }) => {
+        w2.run(async ({ step }) => {
           return step("W2 Step X", () => fetchUser());
         }),
       ]);
@@ -329,7 +329,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: collector.handleEvent,
       });
 
-      await workflow(async ({ step }) => {
+      await workflow.run(async ({ step }) => {
         return step("Fetch", () => fetchUser());
       });
 
@@ -385,7 +385,7 @@ describe("edge-cases: Robustness", () => {
       // Abort quickly
       setTimeout(() => controller.abort("user cancelled"), 5);
 
-      const result = await workflow(async ({ step }) => {
+      const result = await workflow.run(async ({ step }) => {
         return step("Slow step", () => slowOp());
       });
 
@@ -419,7 +419,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -436,7 +436,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -452,7 +452,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -471,7 +471,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -489,7 +489,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -510,7 +510,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async () => "done");
+      await workflow.run(async () => "done");
 
       const snapshots = tt.getSnapshots();
       // At minimum: workflow_start + workflow_success = 2 snapshots
@@ -539,7 +539,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { failOp } }) => {
+      await workflow.run(async ({ step, deps: { failOp } }) => {
         await step("willFail", () => failOp());
         return "done";
       });
@@ -561,7 +561,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { succeedOp, failOp } }) => {
+      await workflow.run(async ({ step, deps: { succeedOp, failOp } }) => {
         await step("step1", () => succeedOp());
         await step("step2", () => failOp());
         return "done";
@@ -596,7 +596,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -625,7 +625,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -643,7 +643,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -670,7 +670,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -694,7 +694,7 @@ describe("edge-cases: Robustness", () => {
       const workflow1 = createWorkflow("tt-reset2a", { noop }, {
         onEvent: tt.handleEvent,
       });
-      await workflow1(async ({ step, deps: { noop } }) => {
+      await workflow1.run(async ({ step, deps: { noop } }) => {
         await step("First", () => noop());
         return "done";
       });
@@ -708,7 +708,7 @@ describe("edge-cases: Robustness", () => {
       const workflow2 = createWorkflow("tt-reset2b", { noop }, {
         onEvent: tt.handleEvent,
       });
-      await workflow2(async ({ step, deps: { noop } }) => {
+      await workflow2.run(async ({ step, deps: { noop } }) => {
         await step("Second", () => noop());
         return "done";
       });
@@ -734,7 +734,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -759,7 +759,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -787,7 +787,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -1007,7 +1007,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -1050,7 +1050,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -1072,7 +1072,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         await step("B", () => noop());
         return "done";
@@ -1095,7 +1095,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         await step("B", () => noop());
         return "done";
@@ -1123,7 +1123,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         await step("B", () => noop());
         await step("C", () => noop());
@@ -1156,7 +1156,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         await step("B", () => noop());
         await step("C", () => noop());
@@ -1181,7 +1181,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -1204,7 +1204,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         await step("B", () => noop());
         return "done";
@@ -1244,7 +1244,7 @@ describe("edge-cases: Robustness", () => {
 
       setTimeout(() => abortController.abort("user cancelled"), 5);
 
-      await workflow(async ({ step, deps: { slowOp } }) => {
+      await workflow.run(async ({ step, deps: { slowOp } }) => {
         return step("Slow", () => slowOp());
       });
 
@@ -1267,7 +1267,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         return "done";
       });
@@ -1303,12 +1303,12 @@ describe("edge-cases: Robustness", () => {
       });
 
       await Promise.all([
-        w1(async ({ step, deps: { noop } }) => {
+        w1.run(async ({ step, deps: { noop } }) => {
           await step("W1-A", () => noop());
           await step("W1-B", () => noop());
           return "done";
         }),
-        w2(async ({ step, deps: { noop } }) => {
+        w2.run(async ({ step, deps: { noop } }) => {
           await step("W2-X", () => noop());
           return "done";
         }),
@@ -1340,7 +1340,7 @@ describe("edge-cases: Robustness", () => {
       });
 
       const stepCount = 50;
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         for (let i = 0; i < stepCount; i++) {
           await step(`Step${i}`, () => noop());
         }
@@ -1368,7 +1368,7 @@ describe("edge-cases: Robustness", () => {
         onEvent: tt.handleEvent,
       });
 
-      await workflow(async ({ step, deps: { noop } }) => {
+      await workflow.run(async ({ step, deps: { noop } }) => {
         await step("A", () => noop());
         await step("B", () => noop());
         return "done";

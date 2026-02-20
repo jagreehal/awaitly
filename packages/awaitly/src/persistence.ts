@@ -182,6 +182,11 @@ export function looksLikeWorkflowSnapshot(obj: unknown): obj is WorkflowSnapshot
 }
 
 /**
+ * Type guard for WorkflowSnapshot. Same as looksLikeWorkflowSnapshot; use for consistent naming with isResumeState / isSerializedResumeState.
+ */
+export const isWorkflowSnapshot = looksLikeWorkflowSnapshot;
+
+/**
  * Full validation with detailed errors.
  * Returns either a validated snapshot or an array of validation errors.
  */
@@ -438,28 +443,33 @@ export function deserializeCauseNew(serialized: SerializedCause): unknown {
  * Simplified store interface for workflow snapshot persistence.
  * Works directly with WorkflowSnapshot objects.
  *
+ * Adapters may implement an extended contract (see awaitly/workflow): save can accept
+ * WorkflowSnapshot | ResumeState; load can return WorkflowSnapshot | ResumeState | null.
+ * Use isWorkflowSnapshot / isSerializedResumeState and serializeResumeState / deserializeResumeState
+ * when branching. For type-safe restore, use store.loadResumeState(id) or toResumeState(await store.load(id)).
+ *
  * @example
  * ```typescript
  * import { postgres } from 'awaitly-postgres';
+ * import { createWorkflow } from 'awaitly/workflow';
  *
- * // One-liner setup
  * const store = postgres('postgresql://localhost/mydb');
+ * const workflow = createWorkflow(deps);
  *
- * // Execute + persist
- * const wf = createWorkflow(deps);
- * await wf(myWorkflowFn);
- * await store.save('wf-123', wf.getSnapshot());
+ * // Run and persist resume state
+ * const { result, resumeState } = await workflow.runWithState(fn);
+ * await store.save('wf-123', resumeState);
  *
  * // Restore
- * const snapshot = await store.load('wf-123');
- * const wf2 = createWorkflow(deps, { snapshot });
- * await wf2(myWorkflowFn);
+ * const loaded = await store.load('wf-123');
+ * const resumeState = toResumeState(loaded);
+ * if (resumeState) await workflow.run(fn, { resumeState });
  * ```
  */
 export interface SnapshotStore {
-  /** Save a workflow snapshot (upsert - insert or update). */
+  /** Save a workflow snapshot (upsert - insert or update). Adapters may also accept ResumeState. */
   save(id: string, snapshot: WorkflowSnapshot): Promise<void>;
-  /** Load a workflow snapshot. Returns null if not found. */
+  /** Load a workflow snapshot. Returns null if not found. Adapters may return ResumeState when stored as such. */
   load(id: string): Promise<WorkflowSnapshot | null>;
   /** Delete a workflow snapshot. */
   delete(id: string): Promise<void>;

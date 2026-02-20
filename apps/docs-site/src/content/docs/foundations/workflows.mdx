@@ -6,7 +6,7 @@ description: createWorkflow vs run() and when to use each
 import { Aside } from '@astrojs/starlight/components';
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-There are two ways to run workflows: `createWorkflow` for reusable workflows with dependency inference, and `run` for one-off operations.
+You create workflows with `createWorkflow` (reusable, with dependency inference) or use `run()` for one-off operations. **Execution is always via `workflow.run(fn)`** — the workflow object is not callable.
 
 ## Type Structure
 
@@ -37,7 +37,7 @@ const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* 
 // Error types inferred from dependencies
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'));
   await step('sendEmail', () => deps.sendEmail(user.email));
   return user;
@@ -86,7 +86,7 @@ const workflow = createWorkflow('workflow', { fetchUser, sendEmail },
 );
 ```
 
-The value returned by `createWorkflow` has **`name`**, **`deps`**, **`options`**, and **`snapshot`** (plus `getSnapshot()`, `run()`, `with()`, `subscribe()`), so it matches WorkflowClass for inspection and persistence (e.g. `workflow.name`, `workflow.snapshot`).
+The value returned by `createWorkflow` is a workflow object with a single **`.run()`** method. Use `workflow.run(fn)` or `workflow.run(name, fn)` to execute; pass per-run options as `workflow.run(fn, config)`.
 
 ## run()
 
@@ -164,8 +164,8 @@ const checkout = createWorkflow('workflow', { validateOrder,
 });
 
 // Can reuse with different inputs
-await checkout(async ({ step, deps }) => { /* ... */ });
-await checkout(async ({ step, deps }) => { /* different flow */ });
+await checkout.run(async ({ step, deps }) => { /* ... */ });
+await checkout.run(async ({ step, deps }) => { /* different flow */ });
 ```
   </TabItem>
   <TabItem label="Example: run">
@@ -173,7 +173,7 @@ await checkout(async ({ step, deps }) => { /* different flow */ });
 // Testing: dependencies injected
 const mockFetch = async () => ok({ id: '1', name: 'Test' });
 
-const result = await run<User, 'NOT_FOUND'>(async (step) => {
+const result = await run<User, 'NOT_FOUND'>(async ({ step }) => {
   return await step('mockFetch', () => mockFetch());
 });
 ```
@@ -191,7 +191,7 @@ const workflow = createWorkflow('workflow', deps, {
   cache: new Map(),
 });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // This step runs once, even if workflow is called multiple times
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
@@ -215,7 +215,7 @@ const workflow = createWorkflow('workflow', deps, {
   resumeState: savedState, // From a previous run
 });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Cached steps return their saved values
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
@@ -235,7 +235,7 @@ const workflow = createWorkflow('workflow', deps, {
   streamStore: createMemoryStreamStore(),
 });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const writer = step.getWritable<string>({ namespace: 'tokens' });
 
   await writer.write('Hello');
@@ -285,7 +285,7 @@ By default, thrown exceptions become the string `"UNEXPECTED_ERROR"`. To replace
 // Default - error union includes 'UNEXPECTED_ERROR' string
 const workflow = createWorkflow('workflow', deps);
 
-const result = await workflow(async ({ step, deps }) => { /* ... */ });
+const result = await workflow.run(async ({ step, deps }) => { /* ... */ });
 // result.error: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED_ERROR'
 ```
   </TabItem>
@@ -299,7 +299,7 @@ const workflow = createWorkflow('workflow', deps, {
   })
 });
 
-const result = await workflow(async ({ step, deps }) => { /* ... */ });
+const result = await workflow.run(async ({ step, deps }) => { /* ... */ });
 // result.error: 'NOT_FOUND' | 'ORDER_FAILED' | { type: 'UNEXPECTED', cause: unknown }
 ```
   </TabItem>
@@ -340,7 +340,7 @@ const workflow = createWorkflow('workflow', deps, {
 });
 
 // Start workflow
-const resultPromise = workflow(async ({ step, deps }) => {
+const resultPromise = workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'fetch-user' });
   await step('sendEmail', () => deps.sendEmail(user.email), { key: 'send-email' });
   return user;
@@ -373,7 +373,7 @@ Cancelled: timeout
 Steps using `step.withTimeout` can receive the workflow signal:
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Signal fires on EITHER timeout OR workflow cancellation
   const data = await step.withTimeout(
     'fetchUrl',
@@ -387,7 +387,7 @@ const result = await workflow(async ({ step, deps }) => {
 Or access the signal directly via context:
 
 ```typescript
-const result = await workflow(async ({ step, deps, ctx }) => {
+const result = await workflow.run(async ({ step, deps, ctx }) => {
   // Manual signal access
   const response = await fetch(url, { signal: ctx.signal });
 
@@ -401,17 +401,15 @@ const result = await workflow(async ({ step, deps, ctx }) => {
 
 ## Execution-time options
 
-While `createWorkflow` accepts options at creation time, you may need different options for specific runs. Use `workflow.run()` for per-run configuration:
+While `createWorkflow` accepts options at creation time, you may need different options for specific runs. Pass a **config** as the second argument to `workflow.run(fn, config)`, or use a **named run** with `workflow.run("run-id", fn, config)` for logging and tracing:
 
-<Tabs>
-  <TabItem label="workflow.run()">
 ```typescript
 const workflow = createWorkflow('workflow', { fetchUser }, {
   onEvent: defaultLogger,  // Creation-time default
 });
 
 // Normal run - uses creation-time options
-await workflow(async ({ step, deps }) => { /* ... */ });
+await workflow.run(async ({ step, deps }) => { /* ... */ });
 
 // Per-run options override creation-time
 await workflow.run(async ({ step, deps }) => {
@@ -421,32 +419,12 @@ await workflow.run(async ({ step, deps }) => {
   onEvent: vizualizer.handleEvent,  // Override for this run only
   signal: controller.signal,         // Add signal for this run
 });
-```
-  </TabItem>
-  <TabItem label="workflow.with()">
-```typescript
-// Pre-bind options for repeated use
-const visualized = workflow.with({
-  onEvent: viz.handleEvent,
+
+// Named run (workflowId for logging, tracing, resume)
+await workflow.run('onboard-user-1', async ({ step, deps }) => {
+  return await step('fetchUser', () => deps.fetchUser('1'));
 });
-
-// All calls use viz.handleEvent
-await visualized(async ({ step, deps }) => { /* ... */ });
-await visualized(async ({ step, deps }) => { /* ... */ });
-
-// Chaining works
-const w = workflow
-  .with({ onEvent: viz.handleEvent })
-  .with({ signal: controller.signal });
 ```
-  </TabItem>
-</Tabs>
-
-<Aside type="tip" title="When to use each">
-- **`workflow(...)`** - Normal runs with creation-time options
-- **`workflow.run(..., exec)`** - One-off runs needing per-run options
-- **`workflow.with(exec)`** - Pre-bind options for a category of runs (e.g., all visualized runs)
-</Aside>
 
 ### Override semantics
 
@@ -466,10 +444,10 @@ await workflow.run(fn, {
 });
 
 // Back to creation-time defaults
-await workflow(fn);  // Uses handlerA, signalA
+await workflow.run(fn);  // Uses handlerA, signalA
 ```
 
-### Available execution options
+### Available execution options (RunConfig)
 
 | Option | Description |
 |--------|-------------|
@@ -478,6 +456,8 @@ await workflow(fn);  // Uses handlerA, signalA
 | `signal` | AbortSignal for this run |
 | `createContext` | Context factory for this run |
 | `resumeState` | Resume state for this run (can be async factory) |
+| `deps` | Partial override of creation-time deps |
+| `snapshot` | Restore from a previously saved snapshot |
 | `shouldRun` | Concurrency control hook |
 | `onBeforeStart` | Pre-start hook |
 | `onAfterStep` | Post-step hook for checkpointing |
@@ -486,17 +466,6 @@ await workflow(fn);  // Uses handlerA, signalA
 <Aside type="note">
 Options like `cache` and `catchUnexpected` are **creation-time only**. They define the workflow's fundamental behavior and cannot be changed per-run.
 </Aside>
-
-### Merging with `.with()`
-
-When using `.with().run()`, caller options override bound options:
-
-```typescript
-const w2 = workflow.with({ onEvent: handlerB });
-
-// handlerC wins (caller overrides bound)
-await w2.run(fn, { onEvent: handlerC });
-```
 
 ## Composing workflows
 
@@ -512,7 +481,7 @@ const checkout = createWorkflow('workflow', { validateEmail,
   saveReceipt,
 });
 
-const result = await checkout(async ({ step, deps }) => {
+const result = await checkout.run(async ({ step, deps }) => {
   // Use steps from all dependencies
   await step('validateEmail', () => deps.validateEmail(input.email));
   await step('validatePassword', () => deps.validatePassword(input.password));
@@ -521,29 +490,25 @@ const result = await checkout(async ({ step, deps }) => {
 });
 ```
 
-## Workflow input (args)
+## Workflow input (closure)
 
-Pass input to a workflow as a single object. The callback receives it as `args`:
+Pass input to a workflow by capturing it in a closure and calling `workflow.run(fn)`:
 
 ```typescript
 const workflow = createWorkflow('workflow', deps);
 
-const result = await workflow(
-  { userId: '123', requestId: 'abc' },
-  async ({ step, deps, args }) => {
-    console.log('User ID:', args.userId);
-    const user = await step('fetchUser', () => deps.fetchUser(args.userId));
-    return user;
-  }
-);
-/*
-Output:
-User ID: 123
-*/
+const userId = '123';
+const requestId = 'abc';
+
+const result = await workflow.run(async ({ step, deps }) => {
+  console.log('User ID:', userId);
+  const user = await step('fetchUser', () => deps.fetchUser(userId));
+  return user;
+});
 ```
 
 <Aside type="tip" title="Callback context">
-The workflow callback always receives one argument: a context object `{ step, deps, args?, ctx }`. When you pass input, call `workflow(args, fn)` with **args as an object**; it appears as `args` in the callback. Per-run execution context (e.g. for events) is set via `createContext` in options or `workflow.run(fn, { createContext })`, and is available as `ctx`.
+The workflow callback receives a context object `{ step, deps, ctx }`. Capture any run-specific input in the closure. Per-run execution context (e.g. for events) is set via `createContext` in options or `workflow.run(fn, { createContext })`, and is available as `ctx`.
 </Aside>
 
 ## Next

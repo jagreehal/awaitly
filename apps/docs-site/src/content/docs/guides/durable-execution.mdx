@@ -254,10 +254,10 @@ setTimeout(() => controller.abort(), 5000);
 
 const result = await durable.run(
   deps,
-  async (step) => {
-    const user = await step('fetchUser', () => fetchUser(id), { key: 'fetch-user' });
-    const order = await step('createOrder', () => createOrder(user), { key: 'create-order' });
-    await step('processPayment', () => processPayment(order), { key: 'payment' }); // May get cancelled here
+  async ({ step, deps }) => {
+    const user = await step('fetchUser', () => deps.fetchUser(id), { key: 'fetch-user' });
+    const order = await step('createOrder', () => deps.createOrder(user), { key: 'create-order' });
+    await step('processPayment', () => deps.processPayment(order), { key: 'payment' }); // May get cancelled here
     return order;
   },
   {
@@ -460,7 +460,7 @@ const sendConfirmation = async (order: Order): AsyncResult<void, 'EMAIL_FAILED'>
 async function processCheckout(orderId: string, userId: string, items: Item[]) {
   const result = await durable.run(
     { fetchUser, createOrder, sendConfirmation },
-    async (step) => {
+    async ({ step, deps }) => {
       const user = await step('fetchUser', () => deps.fetchUser(userId), { key: 'fetch-user' });
       const order = await step('createOrder', () => deps.createOrder(user, items), { key: 'create-order' });
       await step('sendConfirmation', () => deps.sendConfirmation(order), { key: 'send-email' });

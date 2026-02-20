@@ -69,7 +69,7 @@ The step ID (first argument) appears in events and timeout errors. When you see 
 ```typescript
 import { isStepTimeoutError, getStepTimeoutMeta } from 'awaitly/workflow';
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   return await step.withTimeout('slowOp', () => deps.slowOperation(), { ms: 1000 });
 });
 
@@ -492,7 +492,7 @@ import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow('workflow', { fetchUserFromApi, cacheUser });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Retry API calls with production-ready settings
   const user = await step.retry(
     'fetchUser',

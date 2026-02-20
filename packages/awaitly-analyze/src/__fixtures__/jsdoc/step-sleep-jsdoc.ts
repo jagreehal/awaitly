@@ -3,7 +3,7 @@ import { createWorkflow } from "awaitly/workflow";
 const workflow = createWorkflow("workflow", {});
 
 async function run() {
-  return await workflow(async (step) => {
+  return await workflow.run(async (step) => {
     /**
      * Wait for processing to complete before continuing.
      */

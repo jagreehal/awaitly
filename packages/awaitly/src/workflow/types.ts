@@ -216,6 +216,21 @@ export type ExecutionOptions<E, U = UnexpectedError, C = void> = {
 };
 
 /**
+ * Per-run configuration. Extends ExecutionOptions with dep overrides.
+ * Pass to `workflow.run(fn, config)` or `workflow.run(name, fn, config)`.
+ */
+export type RunConfig<E, U = UnexpectedError, C = void, Deps = unknown> = ExecutionOptions<E, U, C> & {
+  /** Override creation-time deps (partial merge). */
+  deps?: Partial<Deps>;
+  /** Step result cache for this run. */
+  cache?: StepCache;
+  /** Restore workflow from a previously saved snapshot. */
+  snapshot?: WorkflowSnapshot | null;
+  /** Stream store for this run. */
+  streamStore?: StreamStore;
+};
+
+/**
  * Workflow options. Error union is always closed: E | U.
  * When catchUnexpected is omitted, U defaults to UnexpectedError (legacy shape).
  */
@@ -391,116 +406,67 @@ export type WorkflowContext<C = void, Input = Record<string, unknown>, Data = Re
 /** Workflow function type (no args) */
 export type WorkflowFn<T, E, Deps, C = void> = (context: { step: RunStep<E>; deps: Deps; ctx: WorkflowContext<C> }) => T | Promise<T>;
 
-/** Workflow function type (with args) */
-export type WorkflowFnWithArgs<T, Args, E, Deps, C = void> = (context: { step: RunStep<E>; deps: Deps; args: Args; ctx: WorkflowContext<C> }) => T | Promise<T>;
-
-// =============================================================================
-// Snapshot API Types
-// =============================================================================
-
 /**
- * Options for getSnapshot().
+ * Return type of runWithState: result plus resume state for persistence.
+ * resumeState is always present, even when the run fails or returns an error Result.
  */
-export interface GetSnapshotOptions {
-  /** Additional metadata to include in the snapshot */
-  metadata?: Record<string, JSONValue>;
-  /** Which steps to include: 'all', 'completed', or 'failed'. Default: 'all' */
-  include?: "all" | "completed" | "failed";
-  /** Maximum number of steps to include (undefined = no limit) */
-  limit?: number;
-  /** For incremental snapshots: only include steps after this step ID */
-  sinceStepId?: string;
-  /** Override workflow-level strict mode for this snapshot. Default: workflow setting */
-  strict?: boolean;
-}
-
-/**
- * Event emitted by subscribe().
- */
-export interface SubscribeEvent {
-  type: "step_complete" | "workflow_complete" | "workflow_error";
-  stepId?: string;
-  snapshot: WorkflowSnapshot;
-}
-
-/**
- * Options for subscribe().
- */
-export interface SubscribeOptions {
-  /** Execution mode: 'sync' blocks workflow, 'async' uses microtask queue. Default: 'sync' */
-  mode?: "sync" | "async";
-  /** Coalesce behavior for async mode: 'none' keeps all events, 'latest' keeps only latest. Default: 'none' */
-  coalesce?: "none" | "latest";
-}
+export type RunWithStateResult<T, E, U> = {
+  result: Result<T, E | U, unknown>;
+  resumeState: ResumeState;
+};
 
 /**
  * Workflow return type. Error union is always closed: E | U (default U = UnexpectedError).
- * Supports both argument-less and argument-passing call patterns.
+ * Methods: .run() (4 overloads) and .runWithState() (4 overloads) for run-and-persist flows.
  *
  * Cause type is `unknown` because step.try/catchUnexpected receive thrown values.
  */
 export interface Workflow<E, U = UnexpectedError, Deps = unknown, C = void> {
   /**
-   * Execute workflow without arguments (original API)
-   * @param fn - Callback receives ({ step, deps, ctx }) where ctx is workflow context (always provided)
+   * Execute workflow (anonymous run).
    */
-  <T>(fn: WorkflowFn<T, E, Deps, C>): AsyncResult<T, E | U, unknown>;
+  run<T>(fn: WorkflowFn<T, E, Deps, C>): AsyncResult<T, E | U, unknown>;
 
   /**
-   * Execute workflow with typed arguments
-   * @param args - Typed arguments passed to the callback (type inferred at call site)
-   * @param fn - Callback receives ({ step, deps, args, ctx }) where ctx is workflow context (always provided)
+   * Execute workflow with config overrides.
    */
-  <T, Args>(
-    args: Args,
-    fn: WorkflowFnWithArgs<T, Args, E, Deps, C>
-  ): AsyncResult<T, E | U, unknown>;
+  run<T>(fn: WorkflowFn<T, E, Deps, C>, config: RunConfig<E, U, C, Deps>): AsyncResult<T, E | U, unknown>;
 
   /**
-   * Execute workflow with execution-time options (no args).
-   * @param fn - Callback receives ({ step, deps, ctx })
-   * @param exec - Execution-time options that override creation-time options
+   * Execute named workflow run (for logging, tracing, resume).
    */
-  run<T>(fn: WorkflowFn<T, E, Deps, C>, exec?: ExecutionOptions<E, U, C>): AsyncResult<T, E | U, unknown>;
+  run<T>(name: string, fn: WorkflowFn<T, E, Deps, C>): AsyncResult<T, E | U, unknown>;
 
   /**
-   * Execute workflow with execution-time options (with args).
-   * @param args - Typed arguments passed to the callback
-   * @param fn - Callback receives ({ step, deps, args, ctx })
-   * @param exec - Execution-time options that override creation-time options
+   * Execute named workflow run with config overrides.
    */
-  run<T, Args>(args: Args, fn: WorkflowFnWithArgs<T, Args, E, Deps, C>, exec?: ExecutionOptions<E, U, C>): AsyncResult<T, E | U, unknown>;
+  run<T>(name: string, fn: WorkflowFn<T, E, Deps, C>, config: RunConfig<E, U, C, Deps>): AsyncResult<T, E | U, unknown>;
 
   /**
-   * Create a new workflow with pre-bound execution options.
-   * Options can be further overridden by `.run()`.
+   * Execute workflow and return result plus resume state for persistence.
+   * resumeState is always present (even on failure) so callers can persist partial state.
+   * Same overloads as run(); does not throw — follows the same "never throw, always Result" contract as run().
+   *
+   * @example
+   * const { result, resumeState } = await workflow.runWithState(fn);
+   * await store.save(id, resumeState);
    */
-  with(exec: ExecutionOptions<E, U, C>): Workflow<E, U, Deps, C>;
-
-  /** Workflow name (from createWorkflow first argument). */
-  readonly name: string;
-  /** Dependencies passed to createWorkflow. */
-  readonly deps: Deps;
-  /** Options passed to createWorkflow. */
-  readonly options?: WorkflowOptions<E, U, C>;
+  runWithState<T>(fn: WorkflowFn<T, E, Deps, C>): Promise<RunWithStateResult<T, E, U>>;
 
   /**
-   * Get a JSON-serializable snapshot of the workflow state.
-   * Returns a deep copy (via structuredClone) of the current state.
+   * Execute workflow with config overrides and return result plus resume state.
    */
-  getSnapshot(options?: GetSnapshotOptions): WorkflowSnapshot;
-
-  /** Current workflow snapshot (read-only). Alias for getSnapshot(); creates a new copy on each access. */
-  readonly snapshot: WorkflowSnapshot;
+  runWithState<T>(fn: WorkflowFn<T, E, Deps, C>, config: RunConfig<E, U, C, Deps>): Promise<RunWithStateResult<T, E, U>>;
 
   /**
-   * Subscribe to workflow events for auto-persistence.
-   * Returns an unsubscribe function.
+   * Execute named workflow run and return result plus resume state.
    */
-  subscribe(
-    listener: (event: SubscribeEvent) => void,
-    options?: SubscribeOptions
-  ): () => void;
+  runWithState<T>(name: string, fn: WorkflowFn<T, E, Deps, C>): Promise<RunWithStateResult<T, E, U>>;
+
+  /**
+   * Execute named workflow run with config overrides and return result plus resume state.
+   */
+  runWithState<T>(name: string, fn: WorkflowFn<T, E, Deps, C>, config: RunConfig<E, U, C, Deps>): Promise<RunWithStateResult<T, E, U>>;
 }
 
 // =============================================================================

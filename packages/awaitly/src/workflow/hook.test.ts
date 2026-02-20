@@ -136,7 +136,7 @@ describe("hook primitive", () => {
       const workflow = createWorkflow("hook-demo", {
         waitForCallback: async () => pendingHook(hookId),
       });
-      const result = await workflow(async ({ step, deps: { waitForCallback } }) => {
+      const result = await workflow.run(async ({ step, deps: { waitForCallback } }) => {
         const value = await step("wait", () => waitForCallback(), { key: stepKey });
         return value;
       });
@@ -158,7 +158,7 @@ describe("hook primitive", () => {
         { onEvent: collector.handleEvent }
       );
 
-      const run1 = await workflow(async ({ step, deps: { waitForCallback } }) => {
+      const run1 = await workflow.run(async ({ step, deps: { waitForCallback } }) => {
         return await step("wait", () => waitForCallback(), { key: stepKey });
       });
       expect(run1.ok).toBe(false);
@@ -170,7 +170,7 @@ describe("hook primitive", () => {
         { waitForCallback: async () => pendingHook(hookId) },
         { resumeState: stateWithHook }
       );
-      const run2 = await workflow2(async ({ step, deps: { waitForCallback } }) => {
+      const run2 = await workflow2.run(async ({ step, deps: { waitForCallback } }) => {
         return await step("wait", () => waitForCallback(), { key: stepKey });
       });
       expect(run2.ok).toBe(true);

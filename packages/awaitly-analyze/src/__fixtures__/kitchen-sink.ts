@@ -111,7 +111,7 @@ export const kitchenSink = createWorkflow("kitchenSink", {
 });
 
 export async function runKitchenSink(userId: string) {
-  return await kitchenSink(async (step, deps) => {
+  return await kitchenSink.run(async ({ step, deps }) => {
     // -----------------------------------------------------------------------
     // 1. Basic step with key, out, errors
     // -----------------------------------------------------------------------
@@ -404,7 +404,7 @@ export async function runKitchenSink(userId: string) {
     // -----------------------------------------------------------------------
     // 36. Workflow ref (call another workflow)
     // -----------------------------------------------------------------------
-    const enriched = await otherWorkflow(async (s, d) => {
+    const enriched = await otherWorkflow.run(async ({ step: s, deps: d }) => {
       return await s("enrich", () => d.enrichUser(user.id));
     });
 

@@ -72,7 +72,7 @@ export const orderSaga = createSagaWorkflow("orderSaga", {
 });
 
 export async function placeOrder(cartId: string, amount: number) {
-  return await orderSaga(async (saga, deps) => {
+  return await orderSaga(async ({ saga, deps }) => {
     // saga.step with compensation (compensation returns void)
     const order = await saga.step("Create Order", () => deps.createOrder(cartId), {
       compensate: async (val) => { await deps.cancelOrder(val.orderId); },
@@ -117,7 +117,7 @@ export const orderSagaDestructured = createSagaWorkflow("orderSagaDestructured",
 });
 
 export async function placeOrderDestructured(cartId: string, amount: number) {
-  return await orderSagaDestructured(async (saga, deps) => {
+  return await orderSagaDestructured(async ({ saga, deps }) => {
     const { step, tryStep } = saga;
 
     const order = await step("Create Order", () => deps.createOrder(cartId), {

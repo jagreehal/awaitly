@@ -8,7 +8,6 @@ import { Awaitly, type AsyncResult } from "./index";
 const { ok, err } = Awaitly;
 import { createWorkflow, UNEXPECTED_ERROR } from "./workflow-entry";
 import { createApprovalStep, isPendingApproval } from "./hitl-entry";
-import { type WorkflowSnapshot } from "./persistence-entry";
 import { run } from "./workflow-entry";
 
 describe("README Examples", () => {
@@ -111,7 +110,7 @@ describe("README Examples", () => {
 
       const userId = "user-1";
       const orderId = "order-1";
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         const user = await step('getUser', () => deps.getUser(userId));
         const order = await step('getOrder', () => deps.getOrder(orderId));
         return { user, order };
@@ -141,7 +140,7 @@ describe("README Examples", () => {
       // 2. Create and run a workflow
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         return await step('loadTask', () => deps.loadTask("t-1"));
       });
 
@@ -182,7 +181,7 @@ describe("README Examples", () => {
 
       // In an HTTP handler
       async function handler(fromUserId: string, toUserId: string, amount: number) {
-        const result = await transfer(async ({ step, deps }) => {
+        const result = await transfer.run(async ({ step, deps }) => {
           const fromUser = await step('getFromUser', () => deps.getUser(fromUserId));
           const toUser = await step('getToUser', () => deps.getUser(toUserId));
           await step('validateBalance', () => deps.validateBalance(fromUser, amount));
@@ -228,7 +227,7 @@ describe("README Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", deps);
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         return await step('loadTask', () => deps.loadTask("missing"));
       });
 
@@ -262,7 +261,7 @@ describe("README Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", deps);
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         // Retry 3 times with exponential backoff, timeout after 5 seconds
         const task = await step.retry(
           "loadTask",
@@ -291,7 +290,7 @@ describe("README Examples", () => {
       const order = { idempotencyKey: "key-123" };
       const amount = 100;
 
-      const result = await processPayment(async ({ step, deps }) => {
+      const result = await processPayment.run(async ({ step, deps }) => {
         // If the workflow crashes after charging but before saving,
         // the next run skips the charge - it's already cached.
         const charge = await step('chargeCard', () => deps.chargeCard(amount), {
@@ -309,42 +308,32 @@ describe("README Examples", () => {
     });
   });
 
-  describe("Save & Resume - Save to database", () => {
-    it("should work with getSnapshot as shown in README (new API)", async () => {
+  describe("Save & Resume - Save to database via createResumeStateCollector", () => {
+    it("should collect resume state and serialize it", async () => {
       const fetchUser = async (id: string): AsyncResult<{ id: string }, never> => {
         return ok({ id });
       };
 
-      const workflow = createWorkflow("workflow", { fetchUser });
+      const { createResumeStateCollector } = await import("./workflow-entry");
+      const collector = createResumeStateCollector();
+      const workflow = createWorkflow("workflow", { fetchUser }, {
+        onEvent: collector.handleEvent,
+      });
 
-      await workflow(async ({ step, deps }) => {
+      await workflow.run(async ({ step, deps }) => {
         await step('fetchUser', () => deps.fetchUser("1"), { key: "user:1" });
       });
 
-      // Get snapshot and serialize to JSON (new API)
-      const workflowId = "123";
-      const snapshot = workflow.getSnapshot();
-      const json = JSON.stringify(snapshot);
+      // Get resume state from collector
+      const resumeState = collector.getResumeState();
 
-      expect(json).toBeDefined();
-      expect(typeof json).toBe("string");
-      expect(snapshot.formatVersion).toBe(1);
-      expect(snapshot.steps["user:1"]).toBeDefined();
-
-      // Save to your database (simulated)
-      const dbRecord = {
-        id: workflowId,
-        state: json,
-        createdAt: new Date(),
-      };
-
-      expect(dbRecord.id).toBe("123");
-      expect(dbRecord.state).toBe(json);
+      expect(resumeState.steps.size).toBeGreaterThan(0);
+      expect(resumeState.steps.has("user:1")).toBe(true);
     });
   });
 
-  describe("Save & Resume - Step 3: Resume from saved state", () => {
-    it("should work with snapshot option as shown in README (new API)", async () => {
+  describe("Save & Resume - Resume from saved state", () => {
+    it("should resume workflow using resumeState option", async () => {
       const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, never> => {
         return ok({ id, name: "Alice" });
       };
@@ -353,28 +342,28 @@ describe("README Examples", () => {
         return ok([{ id: "post-1" }]);
       };
 
-      // First run - execute workflow
-      const workflow1 = createWorkflow("workflow", { fetchUser, fetchPosts });
+      const { createResumeStateCollector } = await import("./workflow-entry");
 
-      await workflow1(async ({ step, deps }) => {
+      // First run - execute workflow and collect state
+      const collector = createResumeStateCollector();
+      const workflow1 = createWorkflow("workflow", { fetchUser, fetchPosts }, {
+        onEvent: collector.handleEvent,
+      });
+
+      await workflow1.run(async ({ step, deps }) => {
         await step('fetchUser', () => deps.fetchUser("1"), { key: "user:1" });
         await step('fetchPosts', () => deps.fetchPosts("1"), { key: "posts:1" });
       });
 
-      // Get snapshot and serialize (new API)
-      const snapshot = workflow1.getSnapshot();
-      const json = JSON.stringify(snapshot);
+      // Get resume state from collector
+      const resumeState = collector.getResumeState();
 
-      // Load from database and parse
-      const saved = { state: json }; // Simulated database record
-      const loadedSnapshot = JSON.parse(saved.state) as WorkflowSnapshot;
-
-      // Resume workflow with snapshot option (new API)
+      // Resume workflow with resumeState option
       const workflow2 = createWorkflow("workflow", { fetchUser, fetchPosts }, {
-        snapshot: loadedSnapshot, // Pre-populates cache from saved snapshot
+        resumeState, // Pre-populates cache from saved state
       });
 
-      const result = await workflow2(async ({ step, deps }) => {
+      const result = await workflow2.run(async ({ step, deps }) => {
         const user = await step('fetchUser', () => deps.fetchUser("1"), { key: "user:1" }); // Cache hit
         const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), { key: `posts:${user.id}` }); // Cache hit
         return { user, posts };
@@ -411,7 +400,7 @@ describe("README Examples", () => {
       const refundWorkflow = createWorkflow("refund", { calculateRefund, processRefund, requireApproval });
 
       // First run - should be pending
-      const result1 = await refundWorkflow(async ({ step, deps }) => {
+      const result1 = await refundWorkflow.run(async ({ step, deps }) => {
         const refund = await step('calculateRefund', () => deps.calculateRefund("order-123"));
 
         // Workflow pauses here until someone approves
@@ -431,7 +420,7 @@ describe("README Examples", () => {
       approvalStatuses.set("refund_123", { status: "approved", value: { approvedBy: "admin" } });
 
       // Second run - should succeed
-      const result2 = await refundWorkflow(async ({ step, deps }) => {
+      const result2 = await refundWorkflow.run(async ({ step, deps }) => {
         const refund = await step('calculateRefund', () => deps.calculateRefund("order-123"));
         const approval = await step('requireApproval', () => requireApproval(), { key: "approve:refund" });
         return await step('processRefund', () => deps.processRefund(refund, approval));
@@ -444,7 +433,7 @@ describe("README Examples", () => {
   describe("Common Patterns", () => {
     it("should work with step.try as shown in README", async () => {
       const workflow = createWorkflow("workflow", {});
-      const result = await workflow(async ({ step }) => {
+      const result = await workflow.run(async ({ step }) => {
         // Wrap throwing code
         const data = await (step as unknown as { try: <T, Err>(id: string, op: () => Promise<T>, opts: { error: Err }) => Promise<T> }).try("httpFetch", () => Promise.resolve({ foo: "bar" }), { error: "HTTP_FAILED" as const });
         return data;
@@ -462,7 +451,7 @@ describe("README Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", { fetchUser });
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         // Retries with backoff
         const user = await step.retry("fetchUser", () => deps.fetchUser("id"), { attempts: 3, backoff: "exponential" });
         return user;
@@ -477,7 +466,7 @@ describe("README Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", { slowOperation });
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         // Timeout protection
         const result = await step.withTimeout("slowOperation", () => deps.slowOperation(), { ms: 5000 });
         return result;
@@ -492,7 +481,7 @@ describe("README Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", { fetchUser });
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         // Caching (use thunk + key)
         const user = await step('fetchUser', () => deps.fetchUser("id"), { key: "user:id" });
         return user;
@@ -553,7 +542,7 @@ describe("README Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", deps);
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         return await step('getUser', () => deps.getUser("1"));
       });
 

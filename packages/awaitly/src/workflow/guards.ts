@@ -3,7 +3,7 @@
  */
 
 import type { WorkflowEvent } from "../core";
-import type { WorkflowCancelledError, PendingApproval, ApprovalRejected, PendingHook } from "./types";
+import type { WorkflowCancelledError, PendingApproval, ApprovalRejected, PendingHook, ResumeState } from "./types";
 
 /**
  * Type guard to check if an event is a step_complete event.
@@ -25,6 +25,18 @@ import type { WorkflowCancelledError, PendingApproval, ApprovalRejected, Pending
  * });
  * ```
  */
+/**
+ * Type guard for runtime ResumeState (steps is a Map). Use to discriminate from WorkflowSnapshot when loading.
+ */
+export function isResumeState(x: unknown): x is ResumeState {
+  return (
+    typeof x === "object" &&
+    x !== null &&
+    "steps" in x &&
+    (x as ResumeState).steps instanceof Map
+  );
+}
+
 export function isStepComplete(
   event: WorkflowEvent<unknown>
 ): event is Extract<WorkflowEvent<unknown>, { type: "step_complete" }> {

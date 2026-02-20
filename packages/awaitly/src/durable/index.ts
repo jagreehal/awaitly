@@ -14,6 +14,7 @@ import {
 } from "../core";
 import {
   createWorkflow,
+  createResumeStateCollector,
   type AnyResultFn,
   type ErrorsOfDeps,
   type WorkflowOptions,
@@ -24,9 +25,14 @@ import {
 import {
   type SnapshotStore,
   type WorkflowSnapshot,
+  type StepResult,
   type JSONValue,
   mergeSnapshots,
+  assertValidSnapshot,
   SnapshotFormatError,
+  SnapshotDecodeError,
+  serializeError,
+  serializeThrown,
 } from "../persistence";
 
 // Re-export for convenience
@@ -522,6 +528,25 @@ export const durable = {
         return err(error);
       }
 
+      // Validate snapshot format if it exists
+      if (existingSnapshot) {
+        try {
+          assertValidSnapshot(existingSnapshot);
+        } catch (validationError) {
+          if (validationError instanceof SnapshotFormatError) {
+            const error: PersistenceError = {
+              type: "PERSISTENCE_ERROR",
+              operation: "load",
+              workflowId: id,
+              cause: validationError,
+              message: `Invalid snapshot format for workflow '${id}': ${validationError.message}`,
+            };
+            return err(error);
+          }
+          throw validationError;
+        }
+      }
+
       // Version check if snapshot exists
       if (existingSnapshot) {
         // Check metadata.version (workflow logic version)
@@ -571,8 +596,8 @@ export const durable = {
         }
       };
 
-      // Reference to the workflow instance (populated after creation)
-      let workflowInstance: Workflow<E, UnexpectedError, Deps, C> | null = null;
+      // Collect step results via onEvent for snapshot building
+      const resumeCollector = createResumeStateCollector();
 
       // Build workflow options with proper types (U = UnexpectedError by default)
       const workflowOptions: WorkflowOptions<E, UnexpectedError, C> = {
@@ -580,27 +605,64 @@ export const durable = {
         snapshot: existingSnapshot,
 
         // Persist after each keyed step
-        onAfterStep: async (stepKey, _result, wfId, ctx) => {
+        onAfterStep: async (stepKey, result, wfId, ctx) => {
           try {
-            if (!workflowInstance) {
-              throw new Error("Workflow instance not available");
+            // Build a snapshot from collected step results
+            const collectedState = resumeCollector.getResumeState();
+            const steps: Record<string, StepResult> = {};
+            for (const [key, entry] of collectedState.steps) {
+              if (entry.result.ok) {
+                steps[key] = { ok: true, value: entry.result.value as JSONValue };
+              } else {
+                // Serialize cause for proper snapshot format
+                const cause = entry.result.cause;
+                const serializedCause = cause instanceof Error
+                  ? serializeError(cause)
+                  : serializeThrown(cause);
+                const origin: "result" | "throw" = entry.meta?.origin === "throw" ? "throw" : "result";
+                steps[key] = {
+                  ok: false,
+                  error: entry.result.error as JSONValue,
+                  cause: serializedCause,
+                  meta: { origin },
+                };
+              }
             }
 
-            // Get current snapshot from workflow
-            const currentSnapshot = workflowInstance.getSnapshot({
+            const currentSnapshot: WorkflowSnapshot = {
+              formatVersion: 1,
+              workflowName: id,
+              steps,
+              execution: {
+                status: "running",
+                lastUpdated: new Date().toISOString(),
+                currentStepId: stepKey,
+              },
               metadata: {
                 ...(existingSnapshot?.metadata ?? {}),
                 ...metadata,
                 version,
                 lastStepKey: stepKey,
               } as Record<string, JSONValue>,
-            });
+            };
 
             // If we have an existing snapshot, merge it with the current one
             // This preserves steps from previous runs
-            const snapshotToSave = existingSnapshot
+            let snapshotToSave = existingSnapshot
               ? mergeSnapshots(existingSnapshot, currentSnapshot)
               : currentSnapshot;
+
+            // Clear stale warnings for steps that were re-executed in this run
+            if (snapshotToSave.warnings && snapshotToSave.warnings.length > 0) {
+              const currentStepKeys = new Set(Object.keys(currentSnapshot.steps));
+              const filtered = snapshotToSave.warnings.filter(
+                w => !currentStepKeys.has(w.stepId)
+              );
+              snapshotToSave = {
+                ...snapshotToSave,
+                warnings: filtered.length > 0 ? filtered : undefined,
+              };
+            }
 
             // Persist to store
             await effectiveStore.save(id, snapshotToSave);
@@ -632,8 +694,9 @@ export const durable = {
           }
         },
 
-        // Forward events
+        // Forward events and collect step results for snapshot building
         onEvent: (event, ctx) => {
+          resumeCollector.handleEvent(event);
           emitDurableEvent(event as DurableWorkflowEvent<E, C>, ctx as C);
         },
 
@@ -643,6 +706,7 @@ export const durable = {
       };
 
       // Create workflow instance (U = UnexpectedError by default)
+      let workflowInstance: Workflow<E, UnexpectedError, Deps, C>;
       try {
         workflowInstance = createWorkflow<Deps, UnexpectedError, C>(id, deps, workflowOptions);
       } catch (createError) {
@@ -659,8 +723,23 @@ export const durable = {
         throw createError;
       }
 
-      // Execute workflow
-      const result = await workflowInstance!(fn);
+      // Execute workflow (snapshot validation may throw SnapshotFormatError at run time)
+      let result: Result<T, E | UnexpectedError | PersistenceError, unknown>;
+      try {
+        result = await workflowInstance!.run(fn);
+      } catch (runError) {
+        if (runError instanceof SnapshotFormatError || runError instanceof SnapshotDecodeError) {
+          const error: PersistenceError = {
+            type: "PERSISTENCE_ERROR",
+            operation: "load",
+            workflowId: id,
+            cause: runError,
+            message: `Invalid snapshot format for workflow '${id}': ${runError.message}`,
+          };
+          return err(error);
+        }
+        throw runError;
+      }
 
       // On success: clean up stored state
       if (result.ok) {

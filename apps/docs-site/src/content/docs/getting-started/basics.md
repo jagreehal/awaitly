@@ -50,7 +50,7 @@ const getOrders = async (userId: string): AsyncResult<Order[], 'FETCH_ERROR'> =>
 };
 
 // Compose them with run()
-const result = await run(async (step) => {
+const result = await run(async ({ step }) => {
   const user = await step('getUser', () => getUser('123'));
   const orders = await step('getOrders', () => getOrders(user.id));
   return { user, orders };
@@ -62,7 +62,7 @@ const result = await run(async (step) => {
 The `step()` function unwraps Results automatically. If any step returns an error, the workflow exits immediately:
 
 ```typescript
-const result = await run(async (step) => {
+const result = await run(async ({ step }) => {
   // If getUser returns err('NOT_FOUND'), we exit here
   const user = await step('getUser', () => getUser('unknown'));
 
@@ -111,7 +111,7 @@ const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
 const getOrders = async (userId: string): AsyncResult<Order[], 'FETCH_ERROR'> =>
   ok([{ id: 1, total: 99.99 }]);
 
-const result = await run(async (step) => {
+const result = await run(async ({ step }) => {
   const user = await step('getUser', () => getUser('1'));
   const orders = await step('getOrders', () => getOrders(user.id));
   return { user, orders };

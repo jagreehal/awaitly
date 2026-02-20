@@ -41,8 +41,26 @@ describe('no-options-on-executor', () => {
       expect(messages).toHaveLength(0);
     });
 
-    it('allows createWorkflow with options', () => {
-      const code = `const workflow = createWorkflow('workflow', deps, { cache: new Map() });`;
+    it('allows workflow.run(callback) - canonical execution', () => {
+      const code = `workflow.run(async ({ step }) => { return step('fetch', () => fetchUser('1')); });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows workflow.run(callback, config) - per-run options as second arg', () => {
+      const code = `workflow.run(async ({ step, deps }) => { return step('fetch', () => deps.fetchUser('1')); }, { deps: overrideDeps, onEvent });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows workflow.run(name, callback) - named run', () => {
+      const code = `workflow.run('my-run', async ({ step }) => { return step('fetch', () => fetchUser('1')); });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows workflow.runWithState(callback, config)', () => {
+      const code = `workflow.runWithState(async ({ step }) => { return step('fetch', () => fetchUser('1')); }, { resumeState: saved });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
@@ -179,15 +197,47 @@ describe('no-options-on-executor', () => {
       expect(messages).toHaveLength(1);
       expect(messages[0].message).toContain('cache');
     });
+
+    it('reports workflow.run({ options }, callback) - wrong argument order', () => {
+      const code = `workflow.run({ cache: new Map() }, async ({ step }) => { return step(fetchUser('1')); });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/no-options-on-executor');
+      expect(messages[0].message).toContain('cache');
+      expect(messages[0].message).toContain('wrong argument position');
+    });
+
+    it('reports workflow.runWithState({ resumeState }, callback) - wrong order', () => {
+      const code = `workflow.runWithState({ resumeState: state }, async ({ step }) => { return step(fn()); });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('resumeState');
+      expect(messages[0].message).toContain('wrong argument position');
+    });
+
+    it('reports workflow.run(name, { options }, callback) - wrong order', () => {
+      const code = `workflow.run('custom-run', { onEvent: handler }, async ({ step }) => { return step(fn()); });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('onEvent');
+      expect(messages[0].message).toContain('wrong argument position');
+    });
+
+    it('reports deps passed as first arg to .run()', () => {
+      const code = `workflow.run({ deps: mockDeps }, async ({ step, deps }) => step('fetch', () => deps.fetch()));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('deps');
+    });
   });
 
   describe('error message clarity', () => {
-    it('explains options are ignored and suggests createWorkflow', () => {
+    it('explains run callback/config ordering', () => {
       const code = `workflow({ cache: new Map() }, async ({ step }) => { return step(fetchUser('1')); });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].message).toContain('ignored');
-      expect(messages[0].message).toContain('createWorkflow');
+      expect(messages[0].message).toContain('workflow.run');
+      expect(messages[0].message).toContain('callback');
     });
   });
 });

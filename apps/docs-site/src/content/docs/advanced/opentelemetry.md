@@ -46,7 +46,7 @@ const workflow = createWorkflow('workflow', deps, {
   onEvent: autotel.handleEvent,
 });
 
-await workflow(async (step) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetch-user', () => deps.fetchUser(id));
   const charge = await step('charge-card', () => deps.chargeCard(100));
   return { user, charge };
@@ -96,7 +96,7 @@ import { trace } from 'autotel';
 const traced = withAutotelTracing(trace, { serviceName: 'checkout' });
 
 const result = await traced('process-order', async () => {
-  return workflow(async (step) => {
+  return workflow.run(async ({ step, deps }) => {
     const user = await step('fetch-user', () => deps.fetchUser(id));
     const charge = await step('charge', () => deps.chargeCard(100));
     return { user, charge };

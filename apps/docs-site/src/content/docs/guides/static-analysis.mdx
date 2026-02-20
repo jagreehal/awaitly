@@ -154,7 +154,7 @@ const source = `
   const checkout = createWorkflow('workflow', deps);
 
   async function run() {
-    return await checkout(async (step) => {
+    return await checkout.run(async ({ step, deps }) => {
       const cart = await step('fetchCart', () => deps.fetchCart(), { key: 'cart' });
       const total = await step('calculateTotal', () => deps.calculateTotal(cart), { key: 'total' });
       return { cart, total };
@@ -187,19 +187,19 @@ The analyzer handles various callback patterns:
 
 ```typescript
 // Simple identifier
-workflow(async ({ step, deps }) => { ... });
+workflow.run(async ({ step, deps }) => { ... });
 
 // Destructuring
-workflow(async ({ step }) => { ... });
+workflow.run(async ({ step }) => { ... });
 
 // Destructuring with alias
-workflow(async ({ step: runStep }) => { ... });
+workflow.run(async ({ step: runStep }) => { ... });
 
 // Destructuring with default
-workflow(async ({ step = defaultStep }) => { ... });
+workflow.run(async ({ step = defaultStep }) => { ... });
 
 // Destructuring with alias and default
-workflow(async ({ step: runStep = fallback }) => { ... });
+workflow.run(async ({ step: runStep = fallback }) => { ... });
 ```
 
 ## IR structure
@@ -308,11 +308,11 @@ const source = `
   const workflowB = createWorkflow('workflowB', depsB);
 
   async function runA() {
-    return await workflowA(async (step) => { ... });
+    return await workflowA.run(async ({ step }) => { ... });
   }
 
   async function runB() {
-    return await workflowB(async (step) => { ... });
+    return await workflowB.run(async ({ step }) => { ... });
   }
 `;
 

@@ -70,10 +70,10 @@ const processOrder = createWorkflow('workflow', { findOrder,
   sendConfirmation,
 });
 
-const result = await processOrder(async (step) => {
-  const order = await step('findOrder', () => findOrder(orderId));
-  await step('chargeOrder', () => chargeOrder(order.total));
-  await step('sendConfirmation', () => sendConfirmation(order.email));
+const result = await processOrder.run(async ({ step, deps }) => {
+  const order = await step('findOrder', () => deps.findOrder(orderId));
+  await step('chargeOrder', () => deps.chargeOrder(order.total));
+  await step('sendConfirmation', () => deps.sendConfirmation(order.email));
   return order;
 });
 
@@ -99,7 +99,7 @@ async function riskyOperation(): Promise<Data> {
 }
 
 // In workflow
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const data = await step.try(
     'riskyOp',
     () => deps.riskyOperation(),
@@ -205,7 +205,7 @@ const posts = await andThen(
 const count = map(posts, (p) => p.length);
 
 // Or use workflows for complex chains
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser(id));
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));
   return posts.length;
@@ -328,7 +328,7 @@ const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
 // Workflow with dependency injection
 const workflow = createWorkflow('workflow', { getUser });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('getUser', () => deps.getUser('1'));
   return user;
 });
@@ -342,7 +342,7 @@ const result = await workflow(async ({ step, deps }) => {
 |--------|---------|-------|
 | `Effect.succeed(x)` | `ok(x)` | Simpler |
 | `Effect.fail(e)` | `err(e)` | Simpler |
-| `Effect.gen(function* () { ... })` | `run(async (step) => { ... })` | Familiar async/await |
+| `Effect.gen(function* () { ... })` | `run(async ({ step }) => { ... })` | Familiar async/await |
 | `yield* someEffect` | `await step('id', fn)` | Unwrap in workflow |
 | `Effect.tryPromise({ try, catch })` | `step.try('id', () => ..., { onError })` | Similar; id first |
 | `Effect.all([...])` | `step.all('name', { ... })` or `step.parallel('name', { ... })` or `allAsync([...])` | Similar; `step.all` is Effect-style alias |
@@ -425,7 +425,7 @@ import { legacyEffectService } from '@/legacy/services';
 import { createWorkflow } from 'awaitly/workflow';
 
 // Option 1: Inline conversion
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('getUser', fromEffect(legacyEffectService.getUser('1')));
   return user;
 });
@@ -436,7 +436,7 @@ const getPosts = wrapEffect(legacyEffectService.getPosts);
 
 const workflow = createWorkflow('workflow', { getUser, getPosts });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('getUser', () => deps.getUser('1'));
   const posts = await step('getPosts', () => deps.getPosts(user.id));
   return { user, posts };
@@ -633,17 +633,17 @@ const deps = {
 const createPaymentWorkflow = (db: Db, provider: Provider, raw: unknown, actorEmail: string) => {
   const workflow = createWorkflow('workflow', deps);
 
-  return workflow(async (step, d) => {
-    const input = await step('validateInput', () => d.validateInput(raw), { key: 'validate' });
+  return workflow.run(async ({ step, deps }) => {
+    const input = await step('validateInput', () => deps.validateInput(raw), { key: 'validate' });
 
-    const existing = await step('findExisting', () => d.findExisting(db, input.idemKey), { key: 'existing' });
+    const existing = await step('findExisting', () => deps.findExisting(db, input.idemKey), { key: 'existing' });
     if (existing) {
       return { paymentId: existing.id };
     }
 
-    await step('acquireLock', () => d.acquireLock(db, input.idemKey), { key: 'lock' });
-    const response = await step('callProvider', () => d.callProvider(provider, input), { key: 'provider' });
-    return await step('persistSuccess', () => d.persistSuccess(db, input, response, actorEmail), { key: 'persist' });
+    await step('acquireLock', () => deps.acquireLock(db, input.idemKey), { key: 'lock' });
+    const response = await step('callProvider', () => deps.callProvider(provider, input), { key: 'provider' });
+    return await step('persistSuccess', () => deps.persistSuccess(db, input, response, actorEmail), { key: 'persist' });
   });
 };
 

@@ -104,7 +104,7 @@ HALF_OPEN → OPEN: On any failure
 ```typescript
 const breaker = createCircuitBreaker('api', circuitBreakerPresets.standard);
 
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step }) => {
   const data = await step('fetchData', async () => {
     const apiResult = await breaker.executeResult(() =>
       ok(await externalApi.fetch())

@@ -8,16 +8,24 @@ import { Aside } from '@astrojs/starlight/components';
 
 Traditional JavaScript uses `try/catch` for error handling. awaitly uses Result types that make errors explicit in the type system. This guide shows the same operations in both styles.
 
-## The Core Difference
+## The Conceptual Difference
+
+**try/catch models failure as control flow.** A function that throws has a signature that lies: it says `Promise<User>`, but it might throw six different things. The caller has no idea what can go wrong.
+
+**awaitly models failure as part of the function's type.** The signature says what can fail. Errors compose. Callers are nudged (or forced) to handle them. Everything else in this guide is a consequence of that.
 
 ```text
 try/catch                           Result types
 ─────────────────                   ─────────────────
 • Errors are implicit               • Errors are explicit
-• Any function can throw            • Errors in return type
+• Signature hides failure           • Signature is the contract
 • Caught at runtime                 • Caught at compile time
 • Easy to forget handling           • TypeScript enforces handling
 ```
+
+**When try/catch is fine:** Small scopes, scripts, internal or low-risk apps. Plain async/await with disciplined error handling is perfectly reasonable there.
+
+**Where it breaks down:** When errors become part of your domain, multiple layers need to coordinate, or you want refactor safety. awaitly addresses that by encoding failure in types, making composition predictable, and keeping dependencies explicit.
 
 ## Simple Operations
 
@@ -188,6 +196,10 @@ try {
 With Result types, the possible errors are documented in the function signature. No need to dig through code or hope the docs are up to date.
 </Aside>
 
+<Aside type="note" title="What Result types don't do">
+awaitly does not magically prevent all runtime errors, eliminate unexpected failures, or replace validation logic. It gives you **typed error channels** and **composable failure modeling** — strong, but precise.
+</Aside>
+
 ## Chaining Operations
 
 ### Sequential operations with early exit
@@ -199,7 +211,7 @@ import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow('workflow', { fetchUser, validateAge, createAccount });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('123'));
   // If fetchUser fails, we stop here and return the error
 
@@ -334,6 +346,7 @@ try {
 - Wrapping third-party libraries (then convert to Result)
 - Truly exceptional conditions (out of memory, etc.)
 - Quick scripts where type safety isn't critical
+- **Your app is small, internal, or low-risk** — plain async/await with disciplined error handling is perfectly reasonable
 
 ### Use Result types when:
 
@@ -342,6 +355,8 @@ try {
 - You want TypeScript to track error types
 - You need to compose multiple fallible operations
 - You want self-documenting error handling
+
+**Bottom line:** try/catch hides failure in control flow; awaitly makes failure part of the function's contract.
 
 ## Wrapping Throwing Code
 
@@ -382,6 +397,8 @@ You can adopt Result types gradually. Wrap boundary code (API calls, user input)
 | Composition | Nested try/catch | Clean chaining |
 | Partial failure | Manual handling | Built-in (allSettled) |
 | Learning curve | Familiar | New pattern |
+
+**Takeaway:** try/catch hides failure in control flow. awaitly makes failure part of the function's contract.
 
 ## Next Steps
 

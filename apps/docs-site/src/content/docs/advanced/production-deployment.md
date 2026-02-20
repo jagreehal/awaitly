@@ -203,7 +203,7 @@ async function runWithSentry<T>(
 
 // Usage
 const result = await runWithSentry('checkout', () =>
-  checkoutWorkflow(async (step) => {
+  checkoutWorkflow.run(async ({ step }) => {
     // ... workflow logic
   })
 );
@@ -217,23 +217,23 @@ Use a **SnapshotStore** (`save`, `load`, `delete`, `list`, `close`) with **Workf
 
 ```typescript
 import { postgres } from 'awaitly-postgres';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 // or: import { mongo } from 'awaitly-mongo';
 // or: import { libsql } from 'awaitly-libsql';
 
 const store = postgres(process.env.DATABASE_URL!);
-
-const workflow = createWorkflow('workflow', deps);
-await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+const collector = createResumeStateCollector();
+const workflow = createWorkflow('workflow', deps, { onEvent: collector.handleEvent });
+await workflow.run(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
 });
 
-await store.save('run-123', workflow.getSnapshot());
+await store.save('run-123', collector.getResumeState());
 
-// Resume later
-const snapshot = await store.load('run-123');
-const resumed = createWorkflow('workflow', deps, { snapshot });
-await resumed(/* same workflow fn */);
+// Resume later (prefer loadResumeState when store supports it)
+const savedState = await store.load('run-123');
+await workflow.run(/* same workflow fn */, { resumeState: savedState ?? undefined });
 ```
 
 See [Persistence](/guides/persistence/) and [PostgreSQL](/guides/postgres-persistence/) guides.
@@ -269,9 +269,9 @@ const store: SnapshotStore = {
   },
 };
 
-await store.save('run-123', workflow.getSnapshot());
-const snapshot = await store.load('run-123');
-const resumed = createWorkflow('workflow', deps, { snapshot });
+await store.save('run-123', collector.getResumeState());
+const savedState = await store.load('run-123');
+await workflow.run(/* same workflow fn */, { resumeState: savedState ?? undefined });
 ```
 
 ### PostgreSQL (custom schema)
@@ -502,11 +502,11 @@ const workflow = createWorkflow('workflow', { fetchUser,
 
 // Each request creates a new workflow instance
 app.post('/checkout', async (req, res) => {
-  const result = await workflow(async (step) => {
+  const result = await workflow.run(async ({ step, deps }) => {
     // All state is local to this request
-    const user = await step('fetchUser', () => fetchUser(req.body.userId));
-    const payment = await step('processPayment', () => processPayment(user, req.body.amount));
-    await step('sendNotification', () => sendNotification(user.email, payment));
+    const user = await step('fetchUser', () => deps.fetchUser(req.body.userId));
+    const payment = await step('processPayment', () => deps.processPayment(user, req.body.amount));
+    await step('sendNotification', () => deps.sendNotification(user.email, payment));
     return payment;
   });
 
@@ -530,14 +530,14 @@ async function startDistributedWorkflow(workflowId: string, input: WorkflowInput
   });
 
   try {
-    const result = await workflow(async (step) => {
-      const data = await step('fetchData', () => fetchData(input.dataId), { key: 'fetch-data' });
-      const processed = await step('processData', () => processData(data), { key: 'process' });
+    const result = await workflow.run(async ({ step, deps }) => {
+      const data = await step('fetchData', () => deps.fetchData(input.dataId), { key: 'fetch-data' });
+      const processed = await step('processData', () => deps.processData(data), { key: 'process' });
 
       // Save state after expensive operations
       await persistence.save(workflowId, collector.getResumeState());
 
-      const result = await step('saveResult', () => saveResult(processed), { key: 'save' });
+      const result = await step('saveResult', () => deps.saveResult(processed), { key: 'save' });
       return result;
     });
 
@@ -574,18 +574,18 @@ const emailLimit = createRateLimiter('email', {
 
 const workflow = createWorkflow('workflow', deps);
 
-const result = await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'));
+const result = await workflow.run(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'));
 
   // Rate-limited payment
   const payment = await step(
-    () => stripeLimit(() => chargeCard(user.cardId, amount)),
+    () => stripeLimit(() => deps.chargeCard(user.cardId, amount)),
     { name: 'charge' }
   );
 
   // Rate-limited notification
   await step(
-    () => emailLimit(() => sendReceipt(user.email, payment)),
+    () => emailLimit(() => deps.sendReceipt(user.email, payment)),
     { name: 'send-receipt' }
   );
 
@@ -607,12 +607,12 @@ const paymentBreaker = createCircuitBreaker('payment-service', {
 
 const workflow = createWorkflow('workflow', deps);
 
-const result = await workflow(async (step) => {
-  const order = await step('fetchOrder', () => fetchOrder(orderId));
+const result = await workflow.run(async ({ step, deps }) => {
+  const order = await step('fetchOrder', () => deps.fetchOrder(orderId));
 
   // Circuit breaker protects this step
   const payment = await step(
-    () => paymentBreaker(() => chargeCard(order.total)),
+    () => paymentBreaker(() => deps.chargeCard(order.total)),
     { name: 'charge' }
   );
 
@@ -674,15 +674,15 @@ const workflow = createWorkflow('workflow', deps, {
   onEvent: featureFlags.enableCircuitBreakers ? otel.handleEvent : undefined,
 });
 
-const result = await workflow(async (step) => {
-  const order = await step('fetchOrder', () => fetchOrder(orderId));
+const result = await workflow.run(async ({ step, deps }) => {
+  const order = await step('fetchOrder', () => deps.fetchOrder(orderId));
 
   if (featureFlags.useNewPaymentFlow) {
     // New payment flow with retries
-    return await step.retry('newPayment', () => newPaymentService(order), { attempts: 3 });
+    return await step.retry('newPayment', () => deps.newPaymentService(order), { attempts: 3 });
   } else {
     // Legacy payment
-    return await step('legacyPayment', () => legacyPayment(order));
+    return await step('legacyPayment', () => deps.legacyPayment(order));
   }
 });
 ```

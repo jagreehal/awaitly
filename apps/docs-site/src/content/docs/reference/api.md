@@ -380,7 +380,7 @@ traverseParallel(items: T[], fn: (item: T, index: number) => AsyncResult<U, E, C
 
 Single place for all workflow and step option keys (for docs and static analysis).
 
-**Workflow (createWorkflow / createSagaWorkflow)** — in second argument or on deps object:
+**Workflow** — The value returned by `createWorkflow` has a single method: **`workflow.run(name?, fn, config?)`**. Overloads: `run(fn)`, `run(fn, config)`, `run(name, fn)`, `run(name, fn, config)`. Options below can be passed at **creation** (`createWorkflow('name', deps, options)`) or per-run in **RunConfig** (`workflow.run(fn, config)`).
 
 | Option | Type | Purpose |
 |--------|------|---------|
@@ -390,23 +390,16 @@ Single place for all workflow and step option keys (for docs and static analysis
 | `catchUnexpected` | `function?` | Map unexpected errors to typed union |
 | `onEvent` | `function?` | Event stream callback |
 | `createContext` | `function?` | Custom context factory |
-| `cache` | `StepCache?` | Step caching backend |
+| `cache` | `StepCache?` | Step caching backend (creation-time only) |
 | `resumeState` | `ResumeState?` | Resume from saved state |
+| `deps` | `Partial<Deps>?` | Per-run override of creation-time deps (RunConfig only) |
 | `signal` | `AbortSignal?` | Workflow cancellation |
 | `streamStore` | `StreamStore?` | Streaming backend |
-| `snapshot` | `WorkflowSnapshot?` | Resume from saved snapshot |
+| `snapshot` | `WorkflowSnapshot?` | Restore from saved snapshot (RunConfig or creation) |
 | `onUnknownSteps` | `'warn' | 'error' | 'ignore'?` | When snapshot has steps not in this run |
 | `onDefinitionChange` | `'warn' | 'error' | 'ignore'?` | When snapshot definition hash differs |
 
-**getSnapshot()** — options object:
-
-| Option | Type | Purpose |
-|--------|------|---------|
-| `include` | `'all' | 'completed' | 'failed'?` | Which steps to include. Default: 'all' |
-| `metadata` | `Record<string, JSONValue>?` | Custom metadata to merge into snapshot |
-| `limit` | `number?` | Max number of steps to include |
-| `sinceStepId` | `string?` | Incremental: only include steps after this step ID |
-| `strict` | `boolean?` | Override workflow strict mode for this snapshot |
+**Persistence:** Use `createResumeStateCollector()`, pass `collector.handleEvent` to `onEvent`, then call `collector.getResumeState()` after a run to persist. Restore with `workflow.run(fn, { resumeState })` or creation-time `resumeState` (or `snapshot` where supported).
 
 **Step (step, step.sleep, step.retry, step.withTimeout)** — in options object:
 

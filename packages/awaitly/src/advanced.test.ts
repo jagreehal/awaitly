@@ -162,7 +162,7 @@ describe('Advanced Examples', () => {
       // Mock fetch
       global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
 
-      const result = await workflow(async ({ step: _step }) => {
+      const result = await workflow.run(async ({ step: _step }) => {
         const step = _step as unknown as { try: <T, Err>(id: string, op: () => Promise<T>, opts: { onError: (e: unknown) => Err }) => Promise<T> };
         const data = await step.try(
           "fetch-api",
@@ -193,7 +193,7 @@ describe('Advanced Examples', () => {
 
       const workflow = createWorkflow("workflow", {});
 
-      const result = await workflow(async ({ step: _step }) => {
+      const result = await workflow.run(async ({ step: _step }) => {
         const step = _step as unknown as { try: <T, Err>(id: string, op: () => T, opts: { onError: (e: unknown) => Err }) => Promise<T> };
         const parsed = await step.try(
           "validate-schema",
@@ -414,7 +414,7 @@ describe('Advanced Examples', () => {
         { onEvent: collector.handleEvent }
       );
 
-      const result = await workflow(async ({ step }) => {
+      const result = await workflow.run(async ({ step }) => {
         const data = await step('fetchData', () => fetchData('123'), { key: 'data' });
         const approval = await step('requireManagerApproval', () => requireManagerApproval(), { key: 'manager-approval' });
         return { data, approvedBy: approval.approvedBy };
@@ -452,7 +452,7 @@ describe('Advanced Examples', () => {
         { onEvent: collector.handleEvent }
       );
 
-      const result1 = await workflow1(async ({ step }) => {
+      const result1 = await workflow1.run(async ({ step }) => {
         const data = await step('fetchData', () => fetchData('123'), { key: 'data' });
         const approval = await step('requireManagerApproval', () => requireManagerApproval(), { key: 'manager-approval' });
         return { data, approvedBy: approval.approvedBy };
@@ -478,7 +478,7 @@ describe('Advanced Examples', () => {
         { resumeState }
       );
 
-      const result2 = await workflow2(async ({ step }) => {
+      const result2 = await workflow2.run(async ({ step }) => {
         const data = await step('fetchData', () => fetchData('123'), { key: 'data' });
         const approval = await step('requireManagerApproval', () => requireManagerApproval(), { key: 'manager-approval' });
         return { data, approvedBy: approval.approvedBy };
@@ -528,7 +528,7 @@ describe('Advanced Examples', () => {
 
       const workflow = createWorkflow("workflow", {});
 
-      const result = await workflow(async ({ step }) => {
+      const result = await workflow.run(async ({ step }) => {
         const validated = await step('fromNeverthrow', () => fromNeverthrow(ntResult) as Result<User, never>);
         return validated;
       });

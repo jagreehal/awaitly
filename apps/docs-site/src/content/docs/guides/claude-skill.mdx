@@ -144,7 +144,7 @@ async function createOrder(user: User): AsyncResult<Order, 'ORDER_FAILED'> {
 
 // 2. Use run() with step()
 async function getOrder(id: string) {
-  return run(async (step) => {
+  return run(async ({ step }) => {
     const user = await step('fetchUser', () => fetchUser(id));
     const order = await step('createOrder', () => createOrder(user));
     return order;

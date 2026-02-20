@@ -87,17 +87,17 @@ const checkout = createWorkflow('workflow', { validateCart,
 ## Execute
 
 ```typescript
-const result = await checkout(async (step) => {
+const result = await checkout.run(async ({ step, deps }) => {
   // Validate and check inventory
-  const validItems = await step('validateCart', () => validateCart(cartItems));
-  const availableItems = await step('checkInventory', () => checkInventory(validItems));
+  const validItems = await step('validateCart', () => deps.validateCart(cartItems));
+  const availableItems = await step('checkInventory', () => deps.checkInventory(validItems));
 
   // Calculate and charge
-  const total = await step('calculateTotal', () => calculateTotal(availableItems));
-  const payment = await step('processPayment', () => processPayment(total, paymentMethodId));
+  const total = await step('calculateTotal', () => deps.calculateTotal(availableItems));
+  const payment = await step('processPayment', () => deps.processPayment(total, paymentMethodId));
 
   // Create order
-  const order = await step('createOrder', () => createOrder(availableItems, payment));
+  const order = await step('createOrder', () => deps.createOrder(availableItems, payment));
 
   return order;
 });
@@ -143,17 +143,17 @@ const checkout = createWorkflow('workflow', deps, {
   onEvent: viz.handleEvent,
 });
 
-const result = await checkout(async (step) => {
-  const validItems = await step('Validate cart', () => validateCart(cartItems));
+const result = await checkout.run(async ({ step, deps }) => {
+  const validItems = await step('Validate cart', () => deps.validateCart(cartItems));
 
-  const availableItems = await step('Check inventory', () => checkInventory(validItems));
+  const availableItems = await step('Check inventory', () => deps.checkInventory(validItems));
 
-  const total = await step('Calculate total', () => calculateTotal(availableItems));
+  const total = await step('Calculate total', () => deps.calculateTotal(availableItems));
 
   // Retry payment with exponential backoff
   const payment = await step.retry(
     'processPayment',
-    () => processPayment(total, paymentMethodId),
+    () => deps.processPayment(total, paymentMethodId),
     {
       attempts: 3,
       backoff: 'exponential',
@@ -162,7 +162,7 @@ const result = await checkout(async (step) => {
     }
   );
 
-  const order = await step('Create order', () => createOrder(availableItems, payment));
+  const order = await step('Create order', () => deps.createOrder(availableItems, payment));
 
   return order;
 });
@@ -176,30 +176,30 @@ console.log(viz.render());
 Use keys to make the workflow resumable:
 
 ```typescript
-const result = await checkout(async (step) => {
+const result = await checkout.run(async ({ step, deps }) => {
   const validItems = await step(
-    () => validateCart(cartItems),
+    () => deps.validateCart(cartItems),
     { key: `validate:${sessionId}` }
   );
 
   const availableItems = await step(
-    () => checkInventory(validItems),
+    () => deps.checkInventory(validItems),
     { key: `inventory:${sessionId}` }
   );
 
   const total = await step(
-    () => calculateTotal(availableItems),
+    () => deps.calculateTotal(availableItems),
     { key: `total:${sessionId}` }
   );
 
   // Critical: payment with idempotency key
   const payment = await step(
-    () => processPayment(total, paymentMethodId),
+    () => deps.processPayment(total, paymentMethodId),
     { key: `payment:${idempotencyKey}` }
   );
 
   const order = await step(
-    () => createOrder(availableItems, payment),
+    () => deps.createOrder(availableItems, payment),
     { key: `order:${idempotencyKey}` }
   );
 

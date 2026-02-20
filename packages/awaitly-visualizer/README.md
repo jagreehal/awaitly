@@ -26,7 +26,7 @@ const workflow = createWorkflow(
   { onEvent: viz.handleEvent }
 );
 
-await workflow(async ({ step, deps: { validateCart, processPayment } }) => {
+await workflow.run(async ({ step, deps: { validateCart, processPayment } }) => {
   await step("Validate cart", () => validateCart(cart));
   await step("Process payment", () => processPayment(payment));
   return result;
@@ -104,14 +104,14 @@ const collector = createEventCollector({ workflowName: "checkout" });
 const workflow = createWorkflow("checkout", deps, {
   onEvent: collector.handleEvent,
 });
-await workflow(async ({ step }) => { /* ... */ });
+await workflow.run(async ({ step }) => { /* ... */ });
 console.log(collector.visualize());
 console.log(collector.visualizeAs("mermaid"));
 
 // Option 2: Visualize a list of events
 const events = []; // push from onEvent
 const workflow2 = createWorkflow("checkout", deps, { onEvent: (e) => events.push(e) });
-await workflow2(async ({ step }) => { /* ... */ });
+await workflow2.run(async ({ step }) => { /* ... */ });
 console.log(visualizeEvents(events, { workflowName: "checkout" }));
 
 // Option 3: Combine visualization with logging or metrics
@@ -130,7 +130,7 @@ import { createVisualizer, trackIf, trackSwitch } from "awaitly-visualizer";
 
 const viz = createVisualizer({ workflowName: "checkout" });
 
-await workflow(async ({ step }) => {
+await workflow.run(async ({ step }) => {
   const decision = trackIf("discount-check", hasCoupon, {
     emit: viz.handleDecisionEvent,
   });
@@ -157,7 +157,7 @@ const live = createLiveVisualizer();  // uses process.stdout
 const workflow = createWorkflow("checkout", deps, {
   onEvent: live.handleEvent,
 });
-await workflow(async ({ step }) => { /* ... */ });
+await workflow.run(async ({ step }) => { /* ... */ });
 ```
 
 Not available in browser builds; use the main entry in browsers.

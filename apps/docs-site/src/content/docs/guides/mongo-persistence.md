@@ -21,25 +21,29 @@ yarn add awaitly-mongo mongodb
 
 ```typescript
 import { mongo } from 'awaitly-mongo';
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 
 // One-liner setup
 const store = mongo('mongodb://localhost:27017/mydb');
+const collector = createResumeStateCollector();
 
-// Execute + persist
-const workflow = createWorkflow('workflow', { fetchUser, createOrder });
-await workflow(async ({ step, deps }) => {
+const workflow = createWorkflow('workflow', { fetchUser, createOrder }, { onEvent: collector.handleEvent });
+
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('123'), { key: 'fetch-user' });
   const order = await step('createOrder', () => deps.createOrder(user), { key: 'create-order' });
   return order;
 });
 
-await store.save('checkout-123', workflow.getSnapshot());
+await store.save('checkout-123', collector.getResumeState());
 
 // Later: restore + resume
-const snapshot = await store.load('checkout-123');
-const workflow2 = createWorkflow('workflow', { fetchUser, createOrder }, { snapshot });
-await workflow2(/* same workflow fn */);
+const savedState = await store.load('checkout-123');
+await workflow.run(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('123'), { key: 'fetch-user' });
+  const order = await step('createOrder', () => deps.createOrder(user), { key: 'create-order' });
+  return order;
+}, { resumeState: savedState ?? undefined });
 ```
 
 ## Configuration
@@ -97,7 +101,7 @@ interface SnapshotStore {
 
 ```typescript
 // Save snapshot
-await store.save('wf-123', workflow.getSnapshot());
+await store.save('wf-123', collector.getResumeState());
 
 // Load snapshot (returns null if not found)
 const snapshot = await store.load('wf-123');
@@ -142,9 +146,9 @@ const store = mongo(process.env.MONGODB_URI!);
 
 const result = await durable.run(
   { fetchUser, createOrder },
-  async (step, { fetchUser, createOrder }) => {
-    const user = await step('fetchUser', () => fetchUser('123'), { key: 'fetch-user' });
-    const order = await step('createOrder', () => createOrder(user), { key: 'create-order' });
+  async ({ step, deps }) => {
+    const user = await step('fetchUser', () => deps.fetchUser('123'), { key: 'fetch-user' });
+    const order = await step('createOrder', () => deps.createOrder(user), { key: 'create-order' });
     return order;
   },
   { id: 'checkout-123', store }

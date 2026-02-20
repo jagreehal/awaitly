@@ -20,20 +20,21 @@ async function processPayment(order: Order) {
 
 ## The solution
 
-Use step keys and a **SnapshotStore** to make the workflow resumable:
+Use step keys and a **resume state** collector to make the workflow resumable:
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 import { postgres } from 'awaitly-postgres';
 
 const store = postgres(process.env.DATABASE_URL!);
+const collector = createResumeStateCollector();
 
 const workflow = createWorkflow('workflow', { validateCard,
   chargeProvider,
   persistResult,
-});
+}, { onEvent: collector.handleEvent });
 
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step }) => {
   // Validate - can retry safely
   const card = await step(
     'validateCard',
@@ -63,7 +64,7 @@ const result = await workflow(async (step) => {
 
 ```typescript
 // Always save snapshot (success or failure)
-await store.save(idempotencyKey, workflow.getSnapshot());
+await store.save(idempotencyKey, collector.getResumeState());
 ```
 
 ## Crash recovery
@@ -71,13 +72,14 @@ await store.save(idempotencyKey, workflow.getSnapshot());
 If the workflow crashes after charging but before persisting:
 
 ```typescript
-// On restart, load existing snapshot
-const snapshot = await store.load(idempotencyKey);
+// On restart, load existing state
+const savedState = await store.load(idempotencyKey);
 
-if (snapshot) {
-  const workflow = createWorkflow('workflow', deps, { snapshot });
+if (savedState) {
+  const collector = createResumeStateCollector();
+  const workflow = createWorkflow('workflow', deps, { onEvent: collector.handleEvent });
 
-  const result = await workflow(async (step) => {
+  const result = await workflow.run(async ({ step }) => {
     const card = await step(
       'validateCard',
       () => validateCard(input),
@@ -97,7 +99,7 @@ if (snapshot) {
     ); // Runs fresh
 
     return { paymentId: charge.id };
-  });
+  }, { resumeState: savedState });
 }
 ```
 
@@ -122,7 +124,7 @@ const idempotencyKey = `payment:${Date.now()}`;
 
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 import { postgres } from 'awaitly-postgres';
 
 const store = postgres(process.env.DATABASE_URL!);
@@ -167,13 +169,14 @@ const persistResult = async (
 
 async function handlePayment(orderId: string, cardToken: string, amount: number) {
   const idempotencyKey = `payment:${orderId}`;
-  const snapshot = await store.load(idempotencyKey);
+  const savedState = await store.load(idempotencyKey);
+  const collector = createResumeStateCollector();
 
   const workflow = createWorkflow('workflow', { validateCard, chargeProvider, persistResult },
-    { snapshot: snapshot ?? undefined }
+    { onEvent: collector.handleEvent }
   );
 
-  const result = await workflow(async (step) => {
+  const result = await workflow.run(async ({ step }) => {
     const card = await step('validateCard', () => validateCard(cardToken), {
       key: `validate:${orderId}`,
     });
@@ -187,9 +190,9 @@ async function handlePayment(orderId: string, cardToken: string, amount: number)
     });
 
     return { chargeId: charge.id };
-  });
+  }, { resumeState: savedState ?? undefined });
 
-  await store.save(idempotencyKey, workflow.getSnapshot());
+  await store.save(idempotencyKey, collector.getResumeState());
   return result;
 }
 ```

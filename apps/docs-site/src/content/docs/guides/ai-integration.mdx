@@ -15,7 +15,7 @@ AI streams are typically **single-use AsyncIterables**. You must accumulate cont
 <Tabs>
   <TabItem label="Pattern">
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Stream the AI response
   const stream = await step('generateStream', () => deps.generateStream(prompt));
 
@@ -64,7 +64,7 @@ AI models with tool calling often complete in multiple phases:
 4. **Final phase**: Model returns `finish_reason: "stop"` with final response
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   let messages = [{ role: 'user', content: prompt }];
 
   while (true) {
@@ -196,7 +196,7 @@ function createToolExecutors(step: RunStep<AppError>) {
 }
 
 // Usage in workflow
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const tools = createToolExecutors(step);
 
   // Tools are now step-wrapped
@@ -237,7 +237,7 @@ const chatWorkflow = createWorkflow('workflow', { ...toolImplementations,
 });
 
 // Execute workflow
-const result = await chatWorkflow(async ({ step, deps }) => {
+const result = await chatWorkflow.run(async ({ step, deps }) => {
   let messages: Message[] = [{ role: 'user', content: 'What is the weather?' }];
   let iterations = 0;
   const maxIterations = 10;
@@ -321,10 +321,10 @@ const aiWorkflow = createWorkflow('workflow', { generateText: async (prompt: str
   },
 });
 
-const result = await aiWorkflow(async (step, { generateText }) => {
+const result = await aiWorkflow.run(async ({ step, deps }) => {
   const response = await step(
     'explain',
-    () => generateText('Explain awaitly in one sentence'),
+    () => deps.generateText('Explain awaitly in one sentence'),
     { key: 'explain', name: 'Generate explanation' }
   );
 
@@ -342,7 +342,7 @@ See [Troubleshooting: Double-wrapping](/guides/troubleshooting/#returning-ok-fro
 AI APIs can fail in various ways. Use `step.try` for SDK calls that throw:
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // For SDK calls that throw on error
   const response = await step.try(
     'openaiChat',

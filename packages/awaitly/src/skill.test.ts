@@ -4,7 +4,14 @@
  * This file verifies that all code examples work correctly and pass type checking.
  */
 import { describe, it, expect } from "vitest";
-import { Awaitly, type AsyncResult, type Result, type UnexpectedError } from "./index";
+import {
+  Awaitly,
+  type AsyncResult,
+  type Result,
+  type UnexpectedError,
+  type ErrorOf,
+  type Errors,
+} from "./index";
 const {
   ok,
   err,
@@ -27,6 +34,7 @@ const {
 import { run } from "./run-entry";
 import { createWorkflow } from "./workflow-entry";
 import { unwrapOk, unwrapErr } from "./testing";
+import { bindDeps } from "./bind-deps-entry";
 
 describe("Skill Examples", () => {
   describe("R1: step() requires explicit ID", () => {
@@ -54,7 +62,7 @@ describe("Skill Examples", () => {
 
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         // Explicit ID form - step('id', () => deps.fn())
         const user = await step('getUser', () => deps.getUser("1"));
         return user;
@@ -65,7 +73,7 @@ describe("Skill Examples", () => {
     });
   });
 
-  describe("R2: On err, step() immediately returns that error", () => {
+  describe("R2: On Err, step() short-circuits the workflow", () => {
     it("exits workflow on first error", async () => {
       const callOrder: string[] = [];
 
@@ -82,7 +90,7 @@ describe("Skill Examples", () => {
 
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         const user = await step('getUser', () => deps.getUser("1"));
         const order = await step('createOrder', () => deps.createOrder(user));
         return order;
@@ -104,7 +112,7 @@ describe("Skill Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", deps);
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         return await step('getUser', () => deps.getUser());
       });
 
@@ -124,7 +132,7 @@ describe("Skill Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", deps);
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         return await step('getUser', () => deps.getUser("123"));
       });
 
@@ -145,7 +153,7 @@ describe("Skill Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", deps);
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         return await step('badOperation', () => deps.badOperation());
       });
 
@@ -207,6 +215,47 @@ describe("Skill Examples", () => {
   });
 
   describe("Migration: run() for simple cases (Step 2a)", () => {
+    it("recommended pattern: run<T, ErrorOf<typeof dep>>() with single dep", async () => {
+      type User = { id: string; name: string };
+
+      const fetchUser = async (): AsyncResult<User, "NOT_FOUND"> =>
+        ok({ id: "1", name: "Alice" });
+
+      type RunErrors = ErrorOf<typeof fetchUser>;
+
+      const result = await run<User, RunErrors>(async ({ step }) => {
+        const user = await step("fetchUser", () => fetchUser());
+        return user;
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        value: { id: "1", name: "Alice" },
+      });
+    });
+
+    it("run() with Errors<[typeof d1, typeof d2]> for multiple deps", async () => {
+      type User = { id: string; name: string };
+      type Order = { orderId: string };
+
+      async function getUser(id: string): AsyncResult<User, "NOT_FOUND"> {
+        return id === "1" ? ok({ id, name: "Alice" }) : err("NOT_FOUND");
+      }
+      async function createOrder(user: User): AsyncResult<Order, "ORDER_FAILED"> {
+        return ok({ orderId: "123" });
+      }
+
+      type AllErrors = Errors<[typeof getUser, typeof createOrder]>;
+      const result = await run<Order, AllErrors>(async ({ step }) => {
+        const user = await step("getUser", () => getUser("1"));
+        const order = await step("createOrder", () => createOrder(user));
+        return order;
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.orderId).toBe("123");
+    });
+
     it("run() workflow with closures", async () => {
       type User = { id: string; name: string };
       type Order = { id: string; total: number };
@@ -400,7 +449,7 @@ describe("Skill Examples", () => {
 
       // Simulate HTTP handler with complete boundary error handling
       async function handleRequest(userId: string, useTimeout = false) {
-        const result = await processOrder(async ({ step, deps }) => {
+        const result = await processOrder.run(async ({ step, deps }) => {
           const user = useTimeout
             ? await step.withTimeout('getUser', () => deps.getUser(userId), { ms: 50 })
             : await step('getUser', () => deps.getUser(userId));
@@ -457,7 +506,7 @@ describe("Skill Examples", () => {
 
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         return await step.retry('fetchData', () => deps.fetchData(), { attempts: 3 });
       });
 
@@ -475,7 +524,7 @@ describe("Skill Examples", () => {
 
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         return await step.withTimeout('fastOperation', () => deps.fastOperation(), { ms: 5000 });
       });
 
@@ -493,7 +542,7 @@ describe("Skill Examples", () => {
 
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         return await step.withTimeout('slowOperation', () => deps.slowOperation(), { ms: 50 });
       });
 
@@ -502,6 +551,246 @@ describe("Skill Examples", () => {
         const errorType = (result.error as { type?: string }).type ?? result.error;
         expect(errorType).toBe("STEP_TIMEOUT");
       }
+    });
+
+    it("step.match(id, result, { ok, err }) pattern match on Result", async () => {
+      const result = await run(async ({ step }) => {
+        const userResult = ok({ id: "1", name: "Alice" });
+        const message = await step.match("handleUser", userResult, {
+          ok: (u) => u.name,
+          err: () => "n/a",
+        });
+        return message;
+      });
+
+      expect(unwrapOk(result)).toBe("Alice");
+    });
+
+    it("step.run(id, result, { key }) for cache identity", async () => {
+      const deps = {
+        getUser: async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> =>
+          ok({ id, name: "User " + id }),
+      };
+      const workflow = createWorkflow("workflow", deps);
+
+      const result = await workflow.run(async ({ step, deps }) => {
+        const user = await step.run("getUser", deps.getUser("1"), { key: "user:1" });
+        return user;
+      });
+
+      expect(unwrapOk(result).name).toBe("User 1");
+    });
+
+    it("step.all(name, shape) object form parallel", async () => {
+      const deps = {
+        getUser: async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> =>
+          ok({ id, name: "Alice" }),
+        getPosts: async (id: string): AsyncResult<{ id: string; title: string }[], "FETCH_ERROR"> =>
+          ok([{ id: "p1", title: "First" }]),
+      };
+      const workflow = createWorkflow("workflow", deps);
+
+      const result = await workflow.run(async ({ step, deps }) => {
+        const { user, posts } = await step.all("fetchAll", {
+          user: () => deps.getUser("1"),
+          posts: () => deps.getPosts("1"),
+        });
+        return { user, posts };
+      });
+
+      const value = unwrapOk(result);
+      expect(value.user.name).toBe("Alice");
+      expect(value.posts[0].title).toBe("First");
+    });
+
+    it("step.parallel(name, () => allAsync([...])) array form", async () => {
+      const deps = {
+        getUser: async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> =>
+          ok({ id, name: "Alice" }),
+      };
+      const workflow = createWorkflow("workflow", deps);
+
+      const result = await workflow.run(async ({ step, deps }) => {
+        const [user1, user2] = await step.parallel("Fetch users", () =>
+          allAsync([deps.getUser("1"), deps.getUser("2")]) as AsyncResult<
+            { id: string; name: string }[],
+            "NOT_FOUND"
+          >
+        );
+        return { user1, user2 };
+      });
+
+      const value = unwrapOk(result);
+      expect(value.user1.name).toBe("Alice");
+      expect(value.user2.name).toBe("Alice");
+    });
+
+    it("step.map(id, items, mapper) parallel over array", async () => {
+      const deps = {
+        getUser: async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> =>
+          ok({ id, name: "User " + id }),
+      };
+      const workflow = createWorkflow("workflow", deps);
+
+      const result = await workflow.run(async ({ step, deps }) => {
+        const users = await step.map("fetchUsers", ["1", "2", "3"], (id) => deps.getUser(id));
+        return users;
+      });
+
+      const value = unwrapOk(result);
+      expect(value).toHaveLength(3);
+      expect(value[0].name).toBe("User 1");
+      expect(value[1].name).toBe("User 2");
+    });
+  });
+
+  describe("Loops: step.forEach()", () => {
+    it("step.forEach with stepIdPattern and inner step", async () => {
+      const deps = {
+        processItem: async (item: string): AsyncResult<string, "FAIL"> =>
+          ok(`processed:${item}`),
+      };
+      const workflow = createWorkflow("workflow", deps);
+
+      const result = await workflow.run(async ({ step, deps }) => {
+        await step.forEach("process-items", ["a", "b"], {
+          stepIdPattern: "item-{i}",
+          run: async (item) => {
+            const processed = await step("processItem", () => deps.processItem(item));
+            return processed;
+          },
+        });
+        return "done";
+      });
+
+      expect(unwrapOk(result)).toBe("done");
+    });
+
+    it("step.forEach with collect: 'array'", async () => {
+      const deps = {
+        getUser: async (userId: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> =>
+          ok({ id: userId, name: "User " + userId }),
+      };
+      const workflow = createWorkflow("workflow", deps);
+
+      const result = await workflow.run(async ({ step, deps }) => {
+        const results = await step.forEach("fetch-users", ["1", "2"], {
+          stepIdPattern: "user-{i}",
+          collect: "array",
+          run: async (userId) => {
+            return await step("getUser", () => deps.getUser(userId));
+          },
+        });
+        return results;
+      });
+
+      const value = unwrapOk(result);
+      expect(value).toHaveLength(2);
+      expect(value[0].name).toBe("User 1");
+      expect(value[1].name).toBe("User 2");
+    });
+  });
+
+  describe("Deps override at run time (workflow.run(fn, { deps }))", () => {
+    it("run(fn, { deps }) overrides creation-time deps for that run only", async () => {
+      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> =>
+        id === "1" ? ok({ id, name: "Alice" }) : err("NOT_FOUND");
+      const fetchPosts = async (_userId: string): AsyncResult<{ length: number }, never> =>
+        ok({ length: 1 });
+
+      const getPosts = createWorkflow("getPosts", { fetchUser, fetchPosts });
+
+      const result1 = await getPosts.run(async ({ step, deps }) => {
+        const user = await step("fetchUser", () => deps.fetchUser("1"));
+        return user.name;
+      });
+      expect(unwrapOk(result1)).toBe("Alice");
+
+      const mockFetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> =>
+        ok({ id, name: "Mock User", email: "mock@test.com" });
+      const result2 = await getPosts.run(
+        async ({ step, deps }) => {
+          const user = await step("fetchUser", () => deps.fetchUser("1"));
+          return user.name;
+        },
+        { deps: { fetchUser: mockFetchUser } }
+      );
+      expect(unwrapOk(result2)).toBe("Mock User");
+
+      const result3 = await getPosts.run(async ({ step, deps }) => {
+        const user = await step("fetchUser", () => deps.fetchUser("1"));
+        return user.name;
+      });
+      expect(unwrapOk(result3)).toBe("Alice");
+    });
+
+    it("partial deps override merges with creation-time deps", async () => {
+      const fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> =>
+        id === "1" ? ok({ id, name: "Alice" }) : err("NOT_FOUND");
+      const fetchPosts = async (userId: string): AsyncResult<{ length: number }, never> =>
+        ok({ length: userId === "1" ? 1 : 0 });
+
+      const getPosts = createWorkflow("getPosts", { fetchUser, fetchPosts });
+      const mockFetchUser = async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> =>
+        ok({ id, name: "Overridden", email: "o@test.com" });
+
+      const result = await getPosts.run(
+        async ({ step, deps }) => {
+          const user = await step("fetchUser", () => deps.fetchUser("1"));
+          const posts = await step("fetchPosts", () => deps.fetchPosts(user.id));
+          return { userName: user.name, postsCount: posts.length };
+        },
+        { deps: { fetchUser: mockFetchUser } }
+      );
+
+      expect(unwrapOk(result).userName).toBe("Overridden");
+      expect(unwrapOk(result).postsCount).toBe(1);
+    });
+  });
+
+  describe("Named run (workflow.run('name', fn))", () => {
+    it("run('name', fn) uses name as workflowId in events", async () => {
+      const events: { workflowId?: string }[] = [];
+      const workflow = createWorkflow("myWorkflow", {
+        fetchUser: async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> =>
+          ok({ id, name: "Alice" }),
+      }, { onEvent: (e) => events.push(e) });
+
+      await workflow.run("custom-run-id", async ({ step, deps }) => {
+        return await step("getUser", () => deps.fetchUser("1"));
+      });
+
+      expect(events.length).toBeGreaterThan(0);
+      expect(events[0].workflowId).toBe("custom-run-id");
+    });
+  });
+
+  describe("workflow.runWithState()", () => {
+    it("runWithState(fn) returns { result, resumeState }", async () => {
+      const workflow = createWorkflow("workflow", {
+        fetchUser: async (): AsyncResult<{ id: string }, "NOT_FOUND"> => ok({ id: "1" }),
+      });
+
+      const { result, resumeState } = await workflow.runWithState(async ({ step, deps }) => {
+        const user = await step("getUser", () => deps.fetchUser());
+        return user;
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.id).toBe("1");
+      expect(resumeState).toBeDefined();
+      expect(typeof resumeState.steps).toBe("object");
+    });
+  });
+
+  describe("bindDeps (partial application)", () => {
+    it("bindDeps(notify)(deps) then call with args", async () => {
+      type SendFn = (name: string) => Promise<void>;
+      const slackDeps = { send: async (name: string) => { /* noop */ } };
+      const notify = (args: { name: string }, deps: { send: SendFn }) => deps.send(args.name);
+
+      const notifySlack = bindDeps(notify)(slackDeps);
+      await notifySlack({ name: "Alice" });
     });
   });
 
@@ -512,7 +801,7 @@ describe("Skill Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", deps);
-      const result = await workflow(async ({ step, deps }) => step('op', () => deps.op()));
+      const result = await workflow.run(async ({ step, deps }) => step('op', () => deps.op()));
 
       const error = unwrapErr(result);
       expect(error).toBe("FORBIDDEN");
@@ -526,7 +815,7 @@ describe("Skill Examples", () => {
       };
 
       const workflow = createWorkflow("workflow", deps);
-      const result = await workflow(async ({ step, deps }) => step('op', () => deps.op()));
+      const result = await workflow.run(async ({ step, deps }) => step('op', () => deps.op()));
 
       const error = unwrapErr(result);
       expect(error).toEqual({ type: "NOT_FOUND", userId: "123" });
@@ -541,7 +830,7 @@ describe("Skill Examples", () => {
 
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         const numbers = await step('getData', () => deps.getData());
         // Synchronous computation - no step() needed
         const doubled = numbers.map((n) => n * 2);
@@ -570,7 +859,7 @@ describe("Skill Examples", () => {
 
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow(async ({ step, deps }) => {
+      const result = await workflow.run(async ({ step, deps }) => {
         const [user, posts] = await step('fetchUserAndPosts', () => allAsync([
           deps.getUser("1"),
           deps.getPosts("1"),

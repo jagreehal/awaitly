@@ -10,7 +10,7 @@ const workflow = createWorkflow(
 );
 
 async function run() {
-  return await workflow(async (step) => {
+  return await workflow.run(async (step) => {
     return await step(() => Promise.resolve("ok"));
   });
 }

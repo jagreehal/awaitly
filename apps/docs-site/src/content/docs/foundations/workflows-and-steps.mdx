@@ -39,7 +39,7 @@ Workflows compose multiple Result-returning operations. The `step()` function un
 ```typescript
 import { run } from 'awaitly/run';
 
-const result = await run(async (step) => {
+const result = await run(async ({ step }) => {
   // If fetchUser returns err('NOT_FOUND'), workflow exits here
   const user = await step('fetchUser', () => fetchUser('123'));
 
@@ -122,7 +122,7 @@ const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* 
 // Error types inferred from dependencies
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'));
   await step('sendEmail', () => deps.sendEmail(user.email));
   return user;
@@ -354,7 +354,7 @@ await step.sleep("poll-delay", "2s", {
 ### Rate limiting example
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const data = await step('fetchData', () => deps.fetchData());
   
   // Respect rate limits - wait 1 second between requests
@@ -368,7 +368,7 @@ const result = await workflow(async ({ step, deps }) => {
 ### Polling example
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   let status = await step('checkStatus', () => deps.checkStatus());
   
   // Poll every 2 seconds until complete
@@ -391,7 +391,7 @@ const result = await workflow(async ({ step, deps }) => {
 const controller = new AbortController();
 const workflow = createWorkflow('workflow', { }, { signal: controller.signal });
 
-const resultPromise = workflow(async ({ step, deps }) => {
+const resultPromise = workflow.run(async ({ step, deps }) => {
   await step.sleep("long-sleep", "10s");
   return "completed";
 });
@@ -406,7 +406,7 @@ const result = await resultPromise;
 **User-provided signal** - Cancel a specific sleep without affecting the workflow:
 
 ```typescript
-const result = await run(async (step) => {
+const result = await run(async ({ step }) => {
   const sleepController = new AbortController();
 
   // Cancel this specific sleep after 1 second
@@ -437,7 +437,7 @@ Run multiple steps concurrently:
 ```typescript
 import { allAsync } from 'awaitly';
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const [user, posts, comments] = await step('fetchUserData', () =>
     allAsync([
       deps.fetchUser('1'),
@@ -460,7 +460,7 @@ Output (any fails):
 ```typescript
 import { allSettled } from 'awaitly';
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const results = await step('fetchAllSettled', () =>
     Promise.all([
       deps.fetchUser('1'),
@@ -503,7 +503,7 @@ const workflow = createWorkflow('workflow', deps, {
   cache: new Map(),
 });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // This step runs once, even if workflow is called multiple times
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
@@ -523,7 +523,7 @@ const workflow = createWorkflow('workflow', deps, {
   resumeState: savedState, // From a previous run
 });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Cached steps return their saved values
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
   return user;
@@ -543,7 +543,7 @@ const workflow = createWorkflow('workflow', deps, {
   streamStore: createMemoryStreamStore(),
 });
 
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const writer = step.getWritable<string>({ namespace: 'tokens' });
 
   await writer.write('Hello');
@@ -623,7 +623,7 @@ const workflow = createWorkflow('workflow', deps, {
 });
 
 // Start workflow
-const resultPromise = workflow(async ({ step, deps }) => {
+const resultPromise = workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'fetch-user' });
   await step('sendEmail', () => deps.sendEmail(user.email), { key: 'send-email' });
   return user;
@@ -656,7 +656,7 @@ Cancelled: timeout
 Steps using `step.withTimeout` can receive the workflow signal:
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Signal fires on EITHER timeout OR workflow cancellation
   const data = await step.withTimeout(
     'fetchUrl',
@@ -670,7 +670,7 @@ const result = await workflow(async ({ step, deps }) => {
 Or access the signal directly via context:
 
 ```typescript
-const result = await workflow(async ({ step, deps, ctx }) => {
+const result = await workflow.run(async ({ step, deps, ctx }) => {
   // Manual signal access
   const response = await fetch(url, { signal: ctx.signal });
 
@@ -684,17 +684,15 @@ const result = await workflow(async ({ step, deps, ctx }) => {
 
 ## Execution-Time Options
 
-Override options for specific runs with `workflow.run()`:
+Override options for specific runs with `workflow.run(fn, config)`, or use a named run with `workflow.run("run-id", fn, config)`:
 
-<Tabs>
-  <TabItem label="workflow.run()">
 ```typescript
 const workflow = createWorkflow('workflow', { fetchUser }, {
   onEvent: defaultLogger,  // Creation-time default
 });
 
 // Normal run - uses creation-time options
-await workflow(async ({ step, deps }) => { /* ... */ });
+await workflow.run(async ({ step, deps }) => { /* ... */ });
 
 // Per-run options override creation-time
 await workflow.run(async ({ step, deps }) => {
@@ -705,31 +703,6 @@ await workflow.run(async ({ step, deps }) => {
   signal: controller.signal,         // Add signal for this run
 });
 ```
-  </TabItem>
-  <TabItem label="workflow.with()">
-```typescript
-// Pre-bind options for repeated use
-const visualized = workflow.with({
-  onEvent: viz.handleEvent,
-});
-
-// All calls use viz.handleEvent
-await visualized(async ({ step, deps }) => { /* ... */ });
-await visualized(async ({ step, deps }) => { /* ... */ });
-
-// Chaining works
-const w = workflow
-  .with({ onEvent: viz.handleEvent })
-  .with({ signal: controller.signal });
-```
-  </TabItem>
-</Tabs>
-
-<Aside type="tip" title="When to use each">
-- **`workflow(...)`** - Normal runs with creation-time options
-- **`workflow.run(..., exec)`** - One-off runs needing per-run options
-- **`workflow.with(exec)`** - Pre-bind options for a category of runs (e.g., all visualized runs)
-</Aside>
 
 ### Override semantics
 
@@ -749,10 +722,10 @@ await workflow.run(fn, {
 });
 
 // Back to creation-time defaults
-await workflow(fn);  // Uses handlerA, signalA
+await workflow.run(fn);  // Uses handlerA, signalA
 ```
 
-### Available execution options
+### Available execution options (RunConfig)
 
 | Option | Description |
 |--------|-------------|
@@ -761,6 +734,8 @@ await workflow(fn);  // Uses handlerA, signalA
 | `signal` | AbortSignal for this run |
 | `createContext` | Context factory for this run |
 | `resumeState` | Resume state for this run (can be async factory) |
+| `deps` | Partial override of creation-time deps |
+| `snapshot` | Restore from a previously saved snapshot |
 | `shouldRun` | Concurrency control hook |
 | `onBeforeStart` | Pre-start hook |
 | `onAfterStep` | Post-step hook for checkpointing |
@@ -770,36 +745,21 @@ await workflow(fn);  // Uses handlerA, signalA
 Options like `cache` and `catchUnexpected` are **creation-time only**. They define the workflow's fundamental behavior and cannot be changed per-run.
 </Aside>
 
-### Merging with `.with()`
+## Workflow input (closure)
 
-When using `.with().run()`, caller options override bound options:
-
-```typescript
-const w2 = workflow.with({ onEvent: handlerB });
-
-// handlerC wins (caller overrides bound)
-await w2.run(fn, { onEvent: handlerC });
-```
-
-## Workflow input (args)
-
-Pass input to a workflow as a single object. The callback receives it as `args`:
+Pass input by capturing it in a closure and calling `workflow.run(fn)`:
 
 ```typescript
 const workflow = createWorkflow('workflow', deps);
 
-const result = await workflow(
-  { userId: '123', requestId: 'abc' },
-  async ({ step, deps, args }) => {
-    console.log('User ID:', args.userId);
-    const user = await step('fetchUser', () => deps.fetchUser(args.userId));
-    return user;
-  }
-);
-/*
-Output:
-User ID: 123
-*/
+const userId = '123';
+const requestId = 'abc';
+
+const result = await workflow.run(async ({ step, deps }) => {
+  console.log('User ID:', userId);
+  const user = await step('fetchUser', () => deps.fetchUser(userId));
+  return user;
+});
 ```
 
 ## Composing Workflows
@@ -816,7 +776,7 @@ const checkout = createWorkflow('workflow', { validateEmail,
   saveReceipt,
 });
 
-const result = await checkout(async ({ step, deps }) => {
+const result = await checkout.run(async ({ step, deps }) => {
   // Use steps from all dependencies
   await step('validateEmail', () => deps.validateEmail(input.email));
   await step('validatePassword', () => deps.validatePassword(input.password));

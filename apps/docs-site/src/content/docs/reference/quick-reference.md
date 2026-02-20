@@ -24,9 +24,9 @@ async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
 import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow('workflow', { fetchUser, chargeCard });
-const result = await workflow(async (step) => {
-  const user = await step('fetchUser', () => fetchUser('1'));
-  const charge = await step('chargeCard', () => chargeCard(user.id, 100));
+const result = await workflow.run(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'));
+  const charge = await step('chargeCard', () => deps.chargeCard(user.id, 100));
   return { user, charge };
 });
 // First arg = label (literal); optional key = instance (cache/identity)
@@ -40,12 +40,12 @@ import { allAsync, anyAsync, allSettledAsync } from 'awaitly';
 import { createWorkflow } from 'awaitly/workflow';
 
 // Inside a workflow: step.all (named results, step tracking)
-await workflow(async (step) => {
+await workflow.run(async ({ step, deps }) => {
   const { user, posts } = await step.all('fetchAll', {
-    user: () => fetchUser('1'),
-    posts: () => fetchPosts('1'),
+    user: () => deps.fetchUser('1'),
+    posts: () => deps.fetchPosts('1'),
   });
-  const users = await step.map('fetchUsers', ['1', '2', '3'], (id) => fetchUser(id));
+  const users = await step.map('fetchUsers', ['1', '2', '3'], (id) => deps.fetchUser(id));
   return { user, posts, users };
 });
 
@@ -62,7 +62,7 @@ if (!result.ok) console.log('Errors:', result.error.map(e => e.error));
 
 ### Use Effect-style step helpers (run, andThen, match)
 
-Inside a workflow callback `(step) => { ... }` or `run(async (step) => { ... })`:
+Inside a workflow callback use `({ step, deps }) => { ... }` when the workflow has deps, e.g. `run(async ({ step, deps }) => { ... })`:
 
 ```typescript
 // Unwrap AsyncResult (use getter when caching: () => fetchUser('1'))
@@ -106,13 +106,13 @@ const dashboard = andThen(
 import { createSagaWorkflow } from 'awaitly/workflow';
 
 const saga = createSagaWorkflow('saga', { charge, refund, reserve, release });
-const result = await saga(async (s) => {
-  const payment = await s.step(
+const result = await saga(async ({ saga }) => {
+  const payment = await saga.step(
     () => charge({ amount: 100 }),
     { name: 'charge', compensate: (p) => refund({ id: p.id }) }
   );
   // If next step fails, charge is automatically refunded (LIFO order)
-  const reservation = await s.step(
+  const reservation = await saga.step(
     () => reserve({ items }),
     { name: 'reserve', compensate: (r) => release({ id: r.id }) }
   );
@@ -124,6 +124,7 @@ const result = await saga(async (s) => {
 
 ```typescript
 import { createApprovalStep, isPendingApproval } from 'awaitly/hitl';
+import { createResumeStateCollector } from 'awaitly/workflow';
 
 const approvalStep = createApprovalStep({
   key: 'manager-approval',
@@ -134,15 +135,19 @@ const approvalStep = createApprovalStep({
   },
 });
 
+const collector = createResumeStateCollector();
+const workflow = createWorkflow('workflow', deps, { onEvent: collector.handleEvent });
+
 // Workflow pauses at approval step
-const result = await workflow(async (step) => {
-  const data = await step('fetchData', () => fetchData());
+const result = await workflow.run(async ({ step, deps }) => {
+  const data = await step('fetchData', () => deps.fetchData());
   const approval = await step('approval', approvalStep);
   return finalize(data);
 });
 
 if (!result.ok && isPendingApproval(result.error)) {
-  await store.save(workflowId, workflow.getSnapshot());
+  const state = collector.getResumeState();
+  await store.save(workflowId, state);
 }
 ```
 
@@ -153,16 +158,15 @@ import { createWorkflow } from 'awaitly/workflow';
 import { postgres } from 'awaitly-postgres';
 
 const store = postgres(process.env.DATABASE_URL!);
+const workflow = createWorkflow('workflow', deps);
 
-await workflow(fn);
-await store.save(workflowId, workflow.getSnapshot());
+const { result, resumeState } = await workflow.runWithState(fn);
+await store.save(workflowId, resumeState);
 
-// Resume later
-const snapshot = await store.load(workflowId);
-const workflow = createWorkflow('workflow', deps, { snapshot: snapshot ?? undefined });
+// Resume later (use loadResumeState for type-safe restore)
+const loaded = await store.loadResumeState(workflowId);
+if (loaded) await workflow.run(fn, { resumeState: loaded });
 ```
-
-You can use `workflow.snapshot` for one-off access instead of `workflow.getSnapshot()`, and `workflow.name` / `workflow.deps` / `workflow.options` for inspection.
 
 ### Retry failed operations
 
@@ -170,7 +174,7 @@ You can use `workflow.snapshot` for one-off access instead of `workflow.getSnaps
 import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow('workflow', deps);
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Retry up to 3 times with exponential backoff
   const data = await step.retry(
     'fetchApi',
@@ -184,7 +188,7 @@ const result = await workflow(async (step) => {
 ### Add timeouts to operations
 
 ```typescript
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Timeout after 5 seconds
   const data = await step.withTimeout(
     'slowOp',
@@ -219,7 +223,7 @@ import { createWorkflow, isWorkflowCancelled } from 'awaitly/workflow';
 const controller = new AbortController();
 const workflow = createWorkflow('workflow', deps, { signal: controller.signal });
 
-const resultPromise = workflow(async (step) => {
+const resultPromise = workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => fetchUser('1'), { key: 'user' });
   await step('sendEmail', () => sendEmail(user.email), { key: 'email' });
   return user;
@@ -291,7 +295,7 @@ harness.script([
   errOutcome('PAYMENT_DECLINED'),
 ]);
 
-const result = await harness.run(async (step) => {
+const result = await harness.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => fetchUser('1'));
   const charge = await step('chargeCard', () => chargeCard(100));
   return { user, charge };
@@ -309,7 +313,7 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 |------|-------------|
 | Result types + composition (`ok`, `err`, `isOk`, `isErr`, `map`, `mapError`, `andThen`, `tap`, `from`, `fromPromise`, `all`, `allAsync`, `partition`, `match`, `run`, `TaggedError`) | `awaitly` |
 | Workflow engine (`createWorkflow`, `Duration`, `isStepComplete`, `createResumeStateCollector`, `isWorkflowCancelled`, step types, `ResumeState`) | `awaitly/workflow` |
-| Workflow instance (`name`, `deps`, `options`, `snapshot`, `getSnapshot`, `run`, `with`, `subscribe`) | Returned by `createWorkflow` |
+| Workflow instance (`.run(name?, fn, config?)`) | Returned by `createWorkflow` |
 | Saga pattern (`createSagaWorkflow`) | `awaitly/workflow` |
 | Parallel ops (`allAsync`, `allSettledAsync`, `zip`, `zipAsync`) | `awaitly` |
 | HITL (`pendingApproval`, `createApprovalStep`, `gatedStep`, `injectApproval`, `isPendingApproval`) | `awaitly/hitl` |

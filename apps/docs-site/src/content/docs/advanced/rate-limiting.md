@@ -182,7 +182,7 @@ try {
 ```typescript
 const apiLimiter = createRateLimiter('partner-api', rateLimiterPresets.external);
 
-const result = await workflow(async (step) => {
+const result = await workflow.run(async ({ step }) => {
   // Rate-limited API calls
   const users = await step('fetchUsers', async () => {
     const ids = ['1', '2', '3', '4', '5'];

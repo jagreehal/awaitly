@@ -31,10 +31,10 @@ const workflow = createWorkflow(
   }
 );
 
-const result = await workflow(async (step, { waitForPayment }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   const order = await step('createOrder', () => createOrder(data), { key: 'create-order' });
   // Workflow suspends here until you call injectHook with this hookId
-  const payment = await step('wait', () => waitForPayment(), { key: stepKey });
+  const payment = await step('wait', () => deps.waitForPayment(), { key: stepKey });
   return await step('fulfill', () => fulfillOrder(order, payment), { key: 'fulfill' });
 });
 ```
@@ -81,9 +81,9 @@ app.post('/hook/:hookId', async (req, res) => {
     { resumeState: stateWithPayload }
   );
 
-  const result = await workflow(async (step, { waitForPayment }) => {
+  const result = await workflow.run(async ({ step, deps }) => {
     const order = await step('createOrder', () => createOrder(data), { key: 'create-order' });
-    const payment = await step('wait', () => waitForPayment(), { key: 'hook:' + hookId });
+    const payment = await step('wait', () => deps.waitForPayment(), { key: 'hook:' + hookId });
     return await step('fulfill', () => fulfillOrder(order, payment), { key: 'fulfill' });
   });
 

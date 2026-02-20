@@ -133,12 +133,12 @@ Analyze workflow source code from a string.
 
 ```typescript
 const ir = analyze.source(`
-  const workflow = createWorkflow({
+  const workflow = createWorkflow('user-workflow', {
     fetchUser: async (id: string) => ({ id, name: 'Alice' }),
   });
 
   async function run(id: string) {
-    return await workflow(async ({ step, deps }) => {
+    return await workflow.run(async ({ step, deps }) => {
       const user = await step('fetchUser', () => deps.fetchUser(id), { key: 'user' });
       return user;
     });
@@ -416,7 +416,7 @@ import { createWorkflow as cw } from 'awaitly';
 
 // Namespace imports
 import * as Awaitly from 'awaitly';
-Awaitly.createWorkflow({...});
+Awaitly.createWorkflow('workflow', { fetchUser: async () => ({ id: '1' }) });
 
 // Default imports
 import Awaitly from 'awaitly';
