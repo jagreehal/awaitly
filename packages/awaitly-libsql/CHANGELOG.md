@@ -1,5 +1,22 @@
 # awaitly-libsql
 
+## 17.0.0
+
+### Minor Changes
+
+- 7a97004: Refactor workflow API: spec-driven `workflow.run` with call-time dependency injection
+
+  - **awaitly**: Replaces `createWorkflow(name, deps, opts)` with a spec-driven API using `Step<F>()` tokens and call-time dependency injection. Adds `workflow.run()` and related types; introduces serialize-resume-state and store-contract for durable execution.
+  - **awaitly-analyze**: Static analyzer and fixtures updated for the new workflow API and step signatures.
+  - **awaitly-visualizer**: Decision tracker, devtools, event capture, and examples updated for the new workflow shape.
+  - **awaitly-postgres**, **awaitly-mongo**, **awaitly-libsql**: Persistence adapters updated for new workflow types and run API.
+  - **awaitly-docs**: Documentation and guides updated across foundations, comparison, guides, and reference to describe the new workflow API and migration.
+
+### Patch Changes
+
+- Updated dependencies [7a97004]
+  - awaitly@1.28.0
+
 ## 16.0.0
 
 ### Patch Changes
