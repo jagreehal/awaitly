@@ -29,7 +29,8 @@ You never interact with the IR builder directly. `createVisualizer` wires it up 
 ## Basic usage
 
 ```typescript
-import { createWorkflow, ok, err, type Result } from 'awaitly';
+import { ok, err, type Result } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 import { createVisualizer } from 'awaitly-visualizer';
 
 // Define your dependencies with Result-returning functions
@@ -731,7 +732,7 @@ Generate Mermaid diagrams as build artifacts:
 ```typescript
 import fs from 'fs';
 import { createVisualizer } from 'awaitly-visualizer';
-import { createWorkflow } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 const viz = createVisualizer({ workflowName: 'deployment' });
 

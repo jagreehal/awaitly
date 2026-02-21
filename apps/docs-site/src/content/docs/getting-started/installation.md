@@ -64,10 +64,10 @@ import { createWorkflow } from 'awaitly/workflow';
 // npm install awaitly-visualizer
 import { createVisualizer } from 'awaitly-visualizer';
 
-// Batch processing (~2KB)
+// Batch processing (~2KB gzipped)
 import { processInBatches } from 'awaitly/batch';
 
-// Resource management (~1KB)
+// Resource management (~1KB gzipped)
 import { withScope, createResource } from 'awaitly/resource';
 ```
 
@@ -77,7 +77,8 @@ awaitly is fully platform-agnostic and works identically in Node.js and browser 
 
 ```typescript
 // Works in both Node.js and browser
-import { ok, err, createWorkflow } from 'awaitly';
+import { ok, err } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 ```
 
 For visualization in browsers, use the **`awaitly-visualizer`** package; it has browser-specific exports that exclude Node-only features like live terminal output:

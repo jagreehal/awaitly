@@ -212,7 +212,8 @@ const result = await workflow.run(async ({ step, deps }) => {
 Here's a complete example combining all patterns:
 
 ```typescript
-import { ok, err, createWorkflow, type AsyncResult } from 'awaitly';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 // Define tool implementations
 const toolImplementations = {
@@ -306,7 +307,8 @@ When using the Vercel AI SDK with awaitly:
 
 ```typescript
 import { streamText, tool } from 'ai';
-import { createWorkflow, ok, err } from 'awaitly';
+import { ok, err } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 const aiWorkflow = createWorkflow('workflow', { generateText: async (prompt: string): AsyncResult<string, 'AI_ERROR'> => {
     try {

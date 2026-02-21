@@ -229,7 +229,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 ```typescript
 // middleware/workflow.ts
 import { Request, Response, NextFunction } from 'express';
-import { Result } from 'awaitly';
+import type { Result } from 'awaitly';
 
 type ErrorMapping = Record<string, { status: number; message: string }>;
 
@@ -563,7 +563,7 @@ export function OrderActions({ orderId }: { orderId: string }) {
 ```typescript
 // src/middleware/workflow.ts
 import { Context, Next } from 'hono';
-import { Result } from 'awaitly';
+import type { Result } from 'awaitly';
 
 type ErrorMapping = Record<string, { status: number; message: string }>;
 

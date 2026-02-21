@@ -10,7 +10,8 @@ First-class OpenTelemetry metrics from the workflow event stream.
 Create an adapter that tracks metrics and optionally creates spans:
 
 ```typescript
-import { createWorkflow, ok, err, type Result } from 'awaitly';
+import { ok, err, type Result } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 import { createAutotelAdapter } from 'awaitly/otel';
 
 // Define your dependencies with Result-returning functions

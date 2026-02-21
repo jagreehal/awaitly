@@ -165,7 +165,7 @@ async function fetchUser(id: string): ResultAsync<User, 'NOT_FOUND'> {
   </TabItem>
   <TabItem label="awaitly">
 ```typescript
-import { ok, err, Result, AsyncResult } from 'awaitly';
+import { ok, err, type Result, type AsyncResult } from 'awaitly';
 
 function divide(a: number, b: number): Result<number, string> {
   if (b === 0) return err('Division by zero');
@@ -582,7 +582,8 @@ const result = await Effect.runPromise(
   </TabItem>
   <TabItem label="After (awaitly)">
 ```typescript
-import { ok, err, createWorkflow, type AsyncResult } from 'awaitly';
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 const deps = {
   validateInput: (raw: unknown): AsyncResult<CreatePayment, 'VALIDATION_ERROR'> =>
