@@ -216,7 +216,7 @@
   "devDependencies": {
     "@total-typescript/ts-reset": "^0.6.1",
     "@total-typescript/tsconfig": "^1.0.4",
-    "@types/node": "^25.2.3",
+    "@types/node": "^25.3.0",
     "@types/picomatch": "^4.0.2",
     "@vitest/coverage-v8": "^4.0.18",
     "eslint-plugin-awaitly": "workspace:*",
