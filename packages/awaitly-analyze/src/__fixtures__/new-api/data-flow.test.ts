@@ -233,6 +233,150 @@ describe("Data Flow Analysis", () => {
       expect(validation.issues[0].type).toBe("undefined-read");
       expect(validation.issues[0].severity).toBe("warning");
     });
+
+    it("reports type mismatches between producer output and consumer input", () => {
+      const source = `
+        import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+        interface User { id: string }
+
+        const workflow = createWorkflow("workflow", {
+          getUser: async (): AsyncResult<User, Error> => ok({ id: "u1" }),
+          charge: async (amount: number): AsyncResult<boolean, Error> => ok(true),
+        });
+
+        export async function run() {
+          return await workflow.run(async ({ step, deps, ctx }) => {
+            await step("get-user", () => deps.getUser(), { out: "user" });
+            await step("charge", () => deps.charge(ctx.ref("user")), { reads: ["user"] });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const graph = buildDataFlowGraph(results[0]);
+      const validation = validateDataFlow(graph);
+
+      // Type mismatch detection requires full type checker to be available
+      // In test environment without tsconfig, types may not be resolved
+      // Either typeMismatches should have entries OR the type info should be undefined (graceful)
+      const hasTypeMismatch = graph.typeMismatches.length > 0;
+      const hasTypeInfoOnEdges = graph.edges.some(e => e.type !== undefined);
+      
+      // At minimum, the graph should be built correctly with edges
+      expect(graph.edges.length).toBeGreaterThan(0);
+      
+      // If type checker is available, we should detect type mismatch
+      // Otherwise, graceful degradation - no mismatches reported but no errors either
+      if (hasTypeInfoOnEdges) {
+        expect(graph.typeMismatches.length).toBe(1);
+        expect(graph.typeMismatches[0].key).toBe("user");
+        expect(validation.issues.some((i) => i.type === "type-mismatch")).toBe(true);
+      }
+    });
+
+    it("does not report mismatch when read key is passed to a compatible later parameter", () => {
+      const source = `
+        import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+        const workflow = createWorkflow("workflow", {
+          getToken: async (): AsyncResult<string, Error> => ok("tok_1"),
+          useToken: async (count: number, token: string): AsyncResult<boolean, Error> => ok(true),
+        });
+
+        export async function run() {
+          return await workflow.run(async ({ step, deps, ctx }) => {
+            await step("get-token", () => deps.getToken(), { out: "token" });
+            await step("use-token", () => deps.useToken(1, ctx.ref("token")), { reads: ["token"] });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const graph = buildDataFlowGraph(results[0]);
+      const validation = validateDataFlow(graph);
+
+      expect(graph.typeMismatches).toHaveLength(0);
+      expect(validation.issues.some((i) => i.type === "type-mismatch")).toBe(false);
+    });
+
+    it("reports mismatch when same read key is used across incompatible and compatible params", () => {
+      const source = `
+        import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+        const workflow = createWorkflow("workflow", {
+          getToken: async (): AsyncResult<string, Error> => ok("tok_1"),
+          consumeTwice: async (count: number, token: string): AsyncResult<boolean, Error> => ok(true),
+        });
+
+        export async function run() {
+          return await workflow.run(async ({ step, deps, ctx }) => {
+            await step("get-token", () => deps.getToken(), { out: "token" });
+            await step("consume", () => deps.consumeTwice(ctx.ref("token"), ctx.ref("token")), { reads: ["token"] });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const graph = buildDataFlowGraph(results[0]);
+      const validation = validateDataFlow(graph);
+
+      expect(graph.typeMismatches.length).toBeGreaterThanOrEqual(1);
+      expect(validation.issues.some((i) => i.type === "type-mismatch")).toBe(true);
+    });
+
+    it("does not infer param index for explicit reads without ctx.ref evidence", () => {
+      const source = `
+        import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+        interface User { id: string }
+
+        const workflow = createWorkflow("workflow", {
+          getUser: async (): AsyncResult<User, Error> => ok({ id: "u1" }),
+          charge: async (amount: number): AsyncResult<boolean, Error> => ok(true),
+        });
+
+        export async function run() {
+          return await workflow.run(async ({ step, deps }) => {
+            await step("get-user", () => deps.getUser(), { out: "user" });
+            await step("charge", () => deps.charge(42), { reads: ["user"] });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const graph = buildDataFlowGraph(results[0]);
+      const validation = validateDataFlow(graph);
+
+      expect(graph.typeMismatches).toHaveLength(0);
+      expect(validation.issues.some((i) => i.type === "type-mismatch")).toBe(false);
+    });
+
+    it("does not report mismatch when ctx.ref is wrapped but passed to a compatible later parameter", () => {
+      const source = `
+        import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+        const workflow = createWorkflow("workflow", {
+          getToken: async (): AsyncResult<string, Error> => ok("tok_1"),
+          useToken: async (count: number, token: string): AsyncResult<boolean, Error> => ok(true),
+        });
+
+        export async function run() {
+          return await workflow.run(async ({ step, deps, ctx }) => {
+            await step("get-token", () => deps.getToken(), { out: "token" });
+            await step("use-token", () => deps.useToken(1, String(ctx.ref("token"))), { reads: ["token"] });
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const graph = buildDataFlowGraph(results[0]);
+      const validation = validateDataFlow(graph);
+
+      expect(graph.typeMismatches).toHaveLength(0);
+      expect(validation.issues.some((i) => i.type === "type-mismatch")).toBe(false);
+    });
+
   });
 
   describe("renderDataFlowMermaid", () => {

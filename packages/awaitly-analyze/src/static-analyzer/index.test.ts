@@ -87,7 +87,7 @@ describe("ts-morph Static Analyzer", () => {
         const myWorkflow = createWorkflow("myWorkflow");
 
         export async function run() {
-          return await myWorkflow(async ({ step }) => {
+          return await myWorkflow.run(async ({ step }) => {
             await step.sleep('pause', '10ms');
             return 1;
           });
@@ -110,7 +110,7 @@ describe("ts-morph Static Analyzer", () => {
         });
 
         export async function run() {
-          return await myWorkflow(async ({ step, deps }) => {
+          return await myWorkflow.run(async ({ step, deps }) => {
             const user = await step(() => deps.fetchUser(), {
               key: 'user',
               name: 'Fetch User',
@@ -135,7 +135,7 @@ describe("ts-morph Static Analyzer", () => {
         });
 
         export async function run() {
-          return await myWorkflow(async ({ step, deps }) => {
+          return await myWorkflow.run(async ({ step, deps }) => {
             const user = await step(() => deps.fetchUser(), {
               key: 'user',
               name: 'Fetch User',
@@ -162,7 +162,7 @@ describe("ts-morph Static Analyzer", () => {
         });
 
         export async function run() {
-          return await myWorkflow(async ({ step, deps }) => {
+          return await myWorkflow.run(async ({ step, deps }) => {
             const user = await step(() => deps.fetchUser(), {
               key: 'user',
               name: 'Fetch User',
@@ -189,7 +189,7 @@ describe("ts-morph Static Analyzer", () => {
         });
 
         export async function run() {
-          return await myWorkflow(async ({ step, deps }) => {
+          return await myWorkflow.run(async ({ step, deps }) => {
             const user = await step(() => deps.fetchUser(), {
               key: 'user',
               name: 'Fetch User',
@@ -2833,7 +2833,7 @@ async function run() {
         const source = `
           const myWorkflow = createWorkflow("workflow", {});
 
-          await myWorkflow(async ({ step }) => {
+          await myWorkflow.run(async ({ step }) => {
             await Promise.all([
               step(() => fetchUser(), { key: 'user' }),
               step(() => fetchPosts(), { key: 'posts' }),
@@ -2850,7 +2850,7 @@ async function run() {
         const source = `
           const myWorkflow = createWorkflow("workflow", {});
 
-          await myWorkflow(async ({ step }) => {
+          await myWorkflow.run(async ({ step }) => {
             const results = await Promise.all([
               Promise.all([
                 step(() => task1(), { key: 'task1' }),
@@ -2872,7 +2872,7 @@ async function run() {
         const source = `
           const myWorkflow = createWorkflow("workflow", {});
 
-          await myWorkflow(async ({ step }) => {
+          await myWorkflow.run(async ({ step }) => {
             const result = condition
               ? await step(() => fetchFromA(), { key: 'fromA' })
               : await step(() => fetchFromB(), { key: 'fromB' });
@@ -2888,7 +2888,7 @@ async function run() {
         const source = `
           const myWorkflow = createWorkflow("workflow", {});
 
-          await myWorkflow(async ({ step }) => {
+          await myWorkflow.run(async ({ step }) => {
             const result = condA
               ? await step(() => taskA(), { key: 'a' })
               : condB
@@ -2908,7 +2908,7 @@ async function run() {
         const source = `
           const myWorkflow = createWorkflow("workflow", {});
 
-          await myWorkflow(async ({ step }) => {
+          await myWorkflow.run(async ({ step }) => {
             try {
               await step(() => riskyOperation(), { key: 'risky' });
             } catch (e) {
@@ -2926,7 +2926,7 @@ async function run() {
         const source = `
           const myWorkflow = createWorkflow("workflow", {});
 
-          await myWorkflow(async ({ step }) => {
+          await myWorkflow.run(async ({ step }) => {
             try {
               await step(() => riskyOperation(), { key: 'risky' });
             } catch (e) {
@@ -2944,7 +2944,7 @@ async function run() {
         const source = `
           const myWorkflow = createWorkflow("workflow", {});
 
-          await myWorkflow(async ({ step }) => {
+          await myWorkflow.run(async ({ step }) => {
             try {
               await step(() => riskyOperation(), { key: 'risky' });
             } finally {

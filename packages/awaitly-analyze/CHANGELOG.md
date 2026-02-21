@@ -1,5 +1,29 @@
 # awaitly-analyze
 
+## 0.18.0
+
+### Minor Changes
+
+- **Type Extraction**: Added comprehensive type extraction for Result-like types
+  - New `TypeInfo` interface with `display`, `canonical`, `kind`, `confidence`, `source` fields
+  - Extracts `AsyncResult<T, E, C>`, `Result<T, E>`, and `Promise<Result<T, E>>` generics
+  - Confidence levels: `exact` (explicit annotations), `inferred` (usage patterns), `fallback` (unavailable)
+  - Step nodes include `outputTypeInfo`, `errorTypeInfo`, `causeTypeInfo`
+  - Dependency signatures include typed params and resultLike return types
+
+- **Test Harness**: Added deterministic testing utilities
+  - `normalizeAnalysisOutput()` for stable test outputs across machines/CI
+  - `loadFixture()` for loading workflow fixtures
+  - Support for generating and comparing expected outputs
+  - ID, path, timestamp, and TypeScript version normalization
+
+- **Data Flow Enhancements**: Added typed data flow propagation
+  - `writeType` and `readTypes` on data flow nodes
+  - `TypeMismatch` detection between producer and consumer types
+  - `keyTypes` map tracking type of each data key
+
+- **Updated Tests**: All tests use new `workflow.run()` API (required migration from legacy `workflow(async ...)` form)
+
 ## 0.17.0
 
 ### Minor Changes
