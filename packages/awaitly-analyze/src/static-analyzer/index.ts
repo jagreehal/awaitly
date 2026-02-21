@@ -17,10 +17,11 @@ import { extname } from "path";
 // These provide type checking without creating a runtime dependency on ts-morph
 import type { SourceFile, Project, Node } from "ts-morph";
 import type * as ts from "typescript";
-import { loadTsMorph } from "../ts-morph-loader";
+import { loadTsMorph, loadTypescript } from "../ts-morph-loader";
 
 import {
   extractFunctionName,
+  getStaticChildren,
   type StaticWorkflowIR,
   type StaticWorkflowNode,
   type StaticFlowNode,
@@ -42,6 +43,7 @@ import {
   type AnalysisStats,
   type StaticRetryConfig,
   type StaticTimeoutConfig,
+  type TypeInfo,
 } from "../types";
 
 /**
@@ -972,6 +974,9 @@ function analyzeWorkflowCall(
   } catch {
     // ignore
   }
+
+  enrichStepReadTypes(root);
+  enrichStepOutputTypes(root);
 
   if (workflowInfo.variableDeclaration) {
     const decl = workflowInfo.variableDeclaration as { getVariableStatement?: () => Node };
@@ -2470,8 +2475,12 @@ function analyzeStepCall(
         stepNode.callee = body.getText();
       }
 
-      // Extract ctx.ref() reads from the function body
-      stepNode.reads = extractCtxRefReads(operationArg);
+      // Extract ctx.ref() reads from the function body (with param index per ref for correct type mapping)
+      const extractedReads = extractCtxRefReads(operationArg);
+      if (extractedReads) {
+        stepNode.reads = extractedReads.reads;
+        stepNode.readParamIndices = extractedReads.paramIndices;
+      }
 
       // Try to detect dep source from callee pattern: deps.xxx() or ctx.deps.xxx()
       if (!stepNode.depSource && stepNode.callee) {
@@ -2504,11 +2513,13 @@ function analyzeStepCall(
     if (options.errors) stepNode.errors = options.errors;
     if (options.out) stepNode.out = options.out;
     if (options.dep) stepNode.depSource = options.dep;
-    // Merge explicit reads with auto-detected ctx.ref() reads
+    // Merge explicit reads with auto-detected ctx.ref() reads (do not assign param indices for explicit-only reads)
     if (options.reads) {
       const existing = stepNode.reads ?? [];
       const merged = new Set([...existing, ...options.reads]);
       stepNode.reads = Array.from(merged);
+      // Only keep readParamIndices for reads that came from ctx.ref(); do not extend with fallback indices
+      // so we never guess param index for explicit reads and avoid false type-mismatches.
     }
   }
 
@@ -2546,32 +2557,57 @@ function analyzeStepCall(
 }
 
 /**
- * Extract ctx.ref() reads from a function body.
- * Looks for patterns like ctx.ref('key') and extracts the key.
+ * Returns true if ancestor is the same node as descendant or an ancestor of descendant.
  */
-function extractCtxRefReads(fnNode: Node): string[] | undefined {
+function nodeContains(ancestor: Node, descendant: Node): boolean {
+  let n: Node | undefined = descendant;
+  while (n) {
+    if (n === ancestor) return true;
+    n = n.getParent();
+  }
+  return false;
+}
+
+/**
+ * Extract ctx.ref() reads from a function body with the parameter index each ref is passed to.
+ * Finds the dep call (deps.xxx or ctx.deps.xxx) that ultimately receives this ref, so that
+ * wrapping (e.g. deps.useToken(1, String(ctx.ref("token")))) still maps to the correct param index (1).
+ */
+function extractCtxRefReads(fnNode: Node): { reads: string[]; paramIndices: number[] } | undefined {
   const { Node } = loadTsMorph();
   const reads: string[] = [];
+  const paramIndices: number[] = [];
 
-  // Walk all descendants looking for ctx.ref() calls
   fnNode.forEachDescendant((descendant) => {
-    if (Node.isCallExpression(descendant)) {
-      const callee = descendant.getExpression();
-      // Match ctx.ref('key') pattern
-      if (Node.isPropertyAccessExpression(callee)) {
-        const propName = callee.getName();
-        const obj = callee.getExpression();
-        if (propName === "ref" && obj.getText() === "ctx") {
-          const args = descendant.getArguments();
-          if (args[0] && Node.isStringLiteral(args[0])) {
-            reads.push(args[0].getLiteralValue());
-          }
+    if (!Node.isCallExpression(descendant)) return;
+    const callee = descendant.getExpression();
+    if (!Node.isPropertyAccessExpression(callee)) return;
+    const propName = callee.getName();
+    const obj = callee.getExpression();
+    if (propName !== "ref" || obj.getText() !== "ctx") return;
+    const refArgs = descendant.getArguments();
+    if (!refArgs[0] || !Node.isStringLiteral(refArgs[0])) return;
+
+    const key = refArgs[0].getLiteralValue();
+    let paramIndex = 0;
+    let node: Node | undefined = descendant.getParent();
+    while (node) {
+      if (Node.isCallExpression(node)) {
+        const calleeText = node.getExpression().getText();
+        if (calleeText.startsWith("deps.") || calleeText.startsWith("ctx.deps.")) {
+          const args = node.getArguments();
+          const idx = args.findIndex((arg) => nodeContains(arg, descendant));
+          if (idx >= 0) paramIndex = idx;
+          break;
         }
       }
+      node = node.getParent();
     }
+    reads.push(key);
+    paramIndices.push(paramIndex);
   });
 
-  return reads.length > 0 ? reads : undefined;
+  return reads.length > 0 ? { reads, paramIndices } : undefined;
 }
 
 /**
@@ -4217,6 +4253,7 @@ function extractDependencies(
   for (const prop of depsNode.getProperties()) {
     let name: string;
     let typeSignature: string | undefined;
+    let signature: DependencyInfo["signature"] = undefined;
 
     if (Node.isPropertyAssignment(prop)) {
       name = prop.getName();
@@ -4225,8 +4262,9 @@ function extractDependencies(
         try {
           const type = (init as { getType: () => { getText: () => string } }).getType();
           typeSignature = type.getText();
+          signature = extractTypedSignature(init, type);
         } catch {
-          // Type checker may be unavailable (e.g. no tsconfig); leave typeSignature undefined
+          // Type checker may be unavailable (e.g. no tsconfig); leave typeSignature/signature undefined
         }
       }
     } else if (Node.isShorthandPropertyAssignment(prop)) {
@@ -4236,8 +4274,9 @@ function extractDependencies(
         try {
           const type = (ident as { getType: () => { getText: () => string } }).getType();
           typeSignature = type.getText();
+          signature = extractTypedSignature(ident, type);
         } catch {
-          // Type checker may be unavailable; leave typeSignature undefined
+          // Type checker may be unavailable; leave typeSignature/signature undefined
         }
       }
     } else {
@@ -4250,10 +4289,154 @@ function extractDependencies(
       name,
       typeSignature,
       errorTypes,
+      signature,
     });
   }
 
   return dependencies;
+}
+
+/**
+ * Populate step.readTypes from root.dependencies so data-flow can report type mismatches.
+ * Maps each read key to the dependency param type by index (first ref -> first param, etc.).
+ */
+function enrichStepReadTypes(root: StaticWorkflowNode): void {
+  const depMap = new Map(root.dependencies.map((d) => [d.name, d]));
+  function visit(node: StaticFlowNode): void {
+    if (node.type === "step") {
+      const step = node as StaticStepNode;
+      const reads = step.reads;
+      const callee = step.callee ?? step.name;
+      if (reads?.length && callee) {
+        const dep = depMap.get(callee) ?? depMap.get(extractFunctionName(callee));
+        const sig = dep?.signature;
+        if (sig?.params?.length) {
+          const readTypes: Record<string, TypeInfo> = {};
+          const paramIndices = step.readParamIndices;
+          reads.forEach((key, i) => {
+            const paramIndex = paramIndices?.[i];
+            if (paramIndex === undefined) return;
+            const param = sig.params[paramIndex];
+            if (param?.type) readTypes[key] = param.type;
+          });
+          if (Object.keys(readTypes).length > 0) step.readTypes = readTypes;
+        }
+      }
+    }
+    for (const c of getStaticChildren(node)) visit(c);
+  }
+  for (const c of root.children) visit(c);
+}
+
+/**
+ * When inferStepIOFromInnerCall did not resolve (e.g. in-memory source), populate
+ * step outputTypeInfo/errorTypeInfo/causeTypeInfo from root.dependencies by matching step callee.
+ */
+function enrichStepOutputTypes(root: StaticWorkflowNode): void {
+  const depMap = new Map(root.dependencies.map((d) => [d.name, d]));
+  function visit(node: StaticFlowNode): void {
+    if (node.type === "step") {
+      const step = node as StaticStepNode;
+      if (step.outputTypeInfo) return;
+      const callee = step.callee ?? step.name;
+      if (!callee) return;
+      const dep = depMap.get(callee) ?? depMap.get(extractFunctionName(callee));
+      const sig = dep?.signature;
+      if (!sig?.returnType) return;
+      const resultLike = extractResultLikeFromTypeString(sig.returnType.display);
+      if (resultLike) {
+        step.outputTypeInfo = resultLike.okType;
+        step.errorTypeInfo = resultLike.errorType;
+        step.causeTypeInfo = resultLike.causeType;
+      }
+    }
+    for (const c of getStaticChildren(node)) visit(c);
+  }
+  for (const c of root.children) visit(c);
+}
+
+function extractTypedSignature(
+  node: Node,
+  _type: { getText: () => string }
+): DependencyInfo["signature"] {
+  const tsLib = loadTypescript();
+
+  const tsNode = (node as unknown as { compilerNode: ts.Node }).compilerNode;
+  if (!tsNode) return undefined;
+
+  const kind = tsNode.kind;
+  const isFunctionLike =
+    kind === tsLib.SyntaxKind.FunctionDeclaration ||
+    kind === tsLib.SyntaxKind.ArrowFunction ||
+    kind === tsLib.SyntaxKind.FunctionExpression ||
+    kind === tsLib.SyntaxKind.MethodDeclaration;
+
+  try {
+    const project = node.getSourceFile().getProject();
+    const typeChecker = project.getTypeChecker();
+    const tc = typeChecker.compilerObject as ts.TypeChecker;
+
+    let sig: ts.Signature | undefined;
+    if (isFunctionLike) {
+      sig = tc.getSignatureFromDeclaration(tsNode as ts.SignatureDeclaration);
+    } else if (kind === tsLib.SyntaxKind.Identifier) {
+      // Shorthand property: { fetchUser } – identifier refers to a value; get call signature from its type
+      const type = tc.getTypeAtLocation(tsNode);
+      const callSigs = type.getCallSignatures?.();
+      sig = callSigs?.length ? callSigs[0] : undefined;
+    }
+    if (!sig) return undefined;
+
+    const params = sig.getParameters().map((param, index) => {
+      const decl = param.valueDeclaration;
+      const paramType = decl
+        ? tc.getTypeOfSymbolAtLocation(param, decl)
+        : tc.getAnyType();
+      const paramTypeString = tc.typeToString(paramType);
+      return {
+        name: param.getName() ?? `param${index}`,
+        type: {
+          display: paramTypeString,
+          canonical: paramTypeString.replace(/\s+/g, " ").trim(),
+          kind: "plain" as const,
+          confidence: "exact" as const,
+          source: "checker" as const,
+        },
+      };
+    });
+
+    const returnType = sig.getReturnType();
+    const returnTypeString = tc.typeToString(returnType);
+
+    const returnTypeInfo: TypeInfo = {
+      display: returnTypeString,
+      canonical: returnTypeString.replace(/\s+/g, " ").trim(),
+      kind: detectTypeKindFromString(returnTypeString),
+      confidence: "exact",
+      source: "checker",
+    };
+
+    const resultLike = extractResultLikeFromType(tc, returnType);
+
+    return {
+      params,
+      returnType: returnTypeInfo,
+      resultLike: resultLike ? {
+        okType: resultLike.okType,
+        errorType: resultLike.errorType,
+        causeType: resultLike.causeType,
+      } : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function detectTypeKindFromString(typeString: string): TypeInfo["kind"] {
+  if (typeString.includes("AsyncResult")) return "asyncResult";
+  if (typeString.includes("Promise<Result")) return "promiseResult";
+  if (typeString.includes("Result")) return "result";
+  return "plain";
 }
 
 /**
@@ -4588,6 +4771,7 @@ function getLocation(node: Node): SourceLocation {
 /**
  * Best-effort: infer stepNode.outputType and stepNode.inputType from the inner call using the type checker.
  * Uses the TypeScript compiler node so getResolvedSignature resolves correctly (ts-morph wrapper can miss in some setups).
+ * Also populates outputTypeInfo, errorTypeInfo, causeTypeInfo for Result-like types.
  */
 function inferStepIOFromInnerCall(
   contextNode: Node,
@@ -4603,7 +4787,16 @@ function inferStepIOFromInnerCall(
     const tsNode = (innerCallNode as { compilerNode: ts.CallExpression }).compilerNode;
     const sig = tc.getResolvedSignature(tsNode);
     if (sig) {
-      stepNode.outputType = tc.typeToString(sig.getReturnType());
+      const returnType = sig.getReturnType();
+      stepNode.outputType = tc.typeToString(returnType);
+
+      const resultLike = extractResultLikeFromType(tc, returnType);
+      if (resultLike) {
+        stepNode.outputTypeInfo = resultLike.okType;
+        stepNode.errorTypeInfo = resultLike.errorType;
+        stepNode.causeTypeInfo = resultLike.causeType;
+      }
+
       const decl = sig.getDeclaration();
       if (decl && "parameters" in decl && Array.isArray((decl as ts.SignatureDeclaration).parameters)) {
         const params = (decl as ts.SignatureDeclaration).parameters;
@@ -4619,6 +4812,77 @@ function inferStepIOFromInnerCall(
   } catch {
     // Type checker may be unavailable or call not resolved
   }
+}
+
+/**
+ * Extract Result-like ok/error/cause types from a type string (e.g. from dependency returnType.display).
+ * Handles AsyncResult<T,E,C>, Promise<Result<...>>, Promise<AsyncResult<...>>, and Result<T,E,C>.
+ */
+function extractResultLikeFromTypeString(
+  typeString: string
+): { okType: TypeInfo; errorType: TypeInfo; causeType?: TypeInfo } | null {
+  const promiseAsyncResultMatch = typeString.match(
+    /Promise<\s*AsyncResult<\s*([^,]+)\s*,\s*([^,>]+)(?:\s*,\s*([^>]+))?\s*>>/
+  );
+  if (promiseAsyncResultMatch) {
+    return {
+      okType: createTypeInfoFromString(promiseAsyncResultMatch[1].trim(), "asyncResult"),
+      errorType: createTypeInfoFromString(promiseAsyncResultMatch[2].trim(), "asyncResult"),
+      causeType: promiseAsyncResultMatch[3]
+        ? createTypeInfoFromString(promiseAsyncResultMatch[3].trim(), "asyncResult")
+        : undefined,
+    };
+  }
+
+  const asyncResultMatch = typeString.match(/AsyncResult<\s*([^,]+)\s*,\s*([^,>]+)(?:\s*,\s*([^>]+))?\s*>/);
+  if (asyncResultMatch) {
+    return {
+      okType: createTypeInfoFromString(asyncResultMatch[1].trim(), "asyncResult"),
+      errorType: createTypeInfoFromString(asyncResultMatch[2].trim(), "asyncResult"),
+      causeType: asyncResultMatch[3]
+        ? createTypeInfoFromString(asyncResultMatch[3].trim(), "asyncResult")
+        : undefined,
+    };
+  }
+
+  const promiseResultMatch = typeString.match(/Promise<Result<\s*([^,]+)\s*,\s*([^,>]+)(?:\s*,\s*([^>]+))?\s*>>/);
+  if (promiseResultMatch) {
+    return {
+      okType: createTypeInfoFromString(promiseResultMatch[1].trim(), "promiseResult"),
+      errorType: createTypeInfoFromString(promiseResultMatch[2].trim(), "promiseResult"),
+      causeType: promiseResultMatch[3]
+        ? createTypeInfoFromString(promiseResultMatch[3].trim(), "promiseResult")
+        : undefined,
+    };
+  }
+
+  const resultMatch = typeString.match(/Result<\s*([^,]+)\s*,\s*([^,>]+)(?:\s*,\s*([^>]+))?\s*>/);
+  if (resultMatch) {
+    return {
+      okType: createTypeInfoFromString(resultMatch[1].trim(), "result"),
+      errorType: createTypeInfoFromString(resultMatch[2].trim(), "result"),
+      causeType: resultMatch[3] ? createTypeInfoFromString(resultMatch[3].trim(), "result") : undefined,
+    };
+  }
+
+  return null;
+}
+
+function extractResultLikeFromType(
+  tc: ts.TypeChecker,
+  type: ts.Type
+): { okType: TypeInfo; errorType: TypeInfo; causeType?: TypeInfo } | null {
+  return extractResultLikeFromTypeString(tc.typeToString(type));
+}
+
+function createTypeInfoFromString(typeStr: string, _parentKind: "asyncResult" | "result" | "promiseResult"): TypeInfo {
+  return {
+    display: typeStr,
+    canonical: typeStr.replace(/\s+/g, " ").trim(),
+    kind: "plain",
+    confidence: "inferred",
+    source: "checker",
+  };
 }
 
 /**

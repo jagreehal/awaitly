@@ -60,11 +60,13 @@ Example: `checkout.ts` with `--suffix=workflow` produces `checkout.workflow.md`
 ## Features
 
 - **Static Analysis** - Extract workflow structure from TypeScript source without execution
+- **Type Extraction** - Extract Result-like types (AsyncResult, Result) from dependencies and steps
 - **Path Generation** - Enumerate all possible execution paths through a workflow
 - **Complexity Metrics** - Calculate cyclomatic complexity, cognitive complexity, and more
 - **Mermaid Diagrams** - Generate flowchart visualizations
 - **Test Matrix** - Generate test coverage matrices for workflow paths
 - **Cross-Workflow Composition** - Analyze dependencies between workflows
+- **Data Flow Analysis** - Track data dependencies with typed propagation
 
 ## Installation
 
@@ -472,12 +474,104 @@ Main static-analysis node types and when fields are populated:
 - **StaticSagaStepNode**: `callee`, `name`, `description`, `markdown`, `jsdocDescription?`, `hasCompensation`, `compensationCallee`, `isTryStep`.  
   `description` and `markdown` come from saga step options (e.g. `saga.step(fn, { description, markdown })`). `jsdocDescription` is extracted from JSDoc above the saga step statement when present.
 
-- **DependencyInfo**: `name`, `typeSignature?`, `errorTypes`.  
-  `typeSignature` is the TypeScript type of the dependency (e.g. the function type), when the type checker is available; it may be undefined. `errorTypes` is not yet inferred from types and is typically empty.
+- **DependencyInfo**: `name`, `typeSignature?`, `errorTypes`, `signature?`.  
+  `typeSignature` is the TypeScript type of the dependency (e.g. the function type), when the type checker is available; it may be undefined. `errorTypes` is not yet inferred from types and is typically empty. `signature` provides typed parameter and return type information when available.
 
 ### JSDoc
 
 The analyzer extracts JSDoc comments from workflow declarations (`createWorkflow` / `createSagaWorkflow` variable statements) and from step call sites (the statement containing `await step(...)`, `step.sleep(...)`, `saga.step(...)`, etc.). Extracted text is exposed as **`jsdocDescription`** on the root (`StaticWorkflowNode`) and on step nodes (`StaticStepNode`, `StaticSagaStepNode`). Only the main description (text before the first `@tag`) is extracted; `@param` / `@returns` are not parsed into separate fields. Option-based `description` and `markdown` remain the canonical documentation fields and take precedence for display; JSDoc is additive so consumers can use `description ?? jsdocDescription` for fallback.
+
+### Type Extraction
+
+The analyzer extracts type information from workflows when the TypeScript type checker is available. This includes:
+
+- **Step output types** - Extracted from dependency return types
+- **Error types** - Inferred from Result-like types
+- **Parameter types** - For dependency functions
+- **Typed signatures** - Full function signatures with Result-like type details
+
+#### TypeInfo
+
+Type information is represented by the `TypeInfo` interface:
+
+```typescript
+interface TypeInfo {
+  /** Human-readable type string */
+  display: string;
+  /** Normalized, fully qualified type string */
+  canonical: string;
+  /** Kind of Result-like type detected */
+  kind: "asyncResult" | "result" | "promiseResult" | "plain" | "unknown";
+  /** Confidence level of the extraction */
+  confidence: "exact" | "inferred" | "fallback";
+  /** Where the type information came from */
+  source: "checker" | "annotation" | "fallback";
+}
+```
+
+#### Confidence Levels
+
+- **`exact`**: Type extracted directly from explicit type annotations (e.g., `: AsyncResult<User, Error>`)
+- **`inferred`**: Type inferred from usage patterns or string parsing of type signatures
+- **`fallback`**: Default when type checker unavailable or type cannot be resolved
+
+#### Result-like Types
+
+The analyzer recognizes and extracts generics from:
+
+- `AsyncResult<T, E, C>` - Async Result with ok, error, and cause types
+- `Result<T, E, C>` - Synchronous Result
+- `Promise<Result<T, E>>` - Wrapped Promise Result
+
+#### Example: Extracting Typed Dependencies
+
+```typescript
+import { analyze } from 'awaitly-analyze';
+
+const ir = analyze('./user-workflow.ts').single();
+
+// Access typed dependency signatures
+for (const dep of ir.root.dependencies) {
+  console.log(`Dependency: ${dep.name}`);
+  
+  if (dep.signature) {
+    console.log(`  Parameters:`);
+    for (const param of dep.signature.params) {
+      console.log(`    - ${param.name}: ${param.type.display}`);
+    }
+    console.log(`  Returns: ${dep.signature.returnType.display}`);
+    
+    if (dep.signature.resultLike) {
+      console.log(`  Ok Type: ${dep.signature.resultLike.okType.display}`);
+      console.log(`  Error Type: ${dep.signature.resultLike.errorType.display}`);
+    }
+  }
+}
+```
+
+#### Example: Step Type Information
+
+```typescript
+import { analyze } from 'awaitly-analyze';
+
+const ir = analyze('./user-workflow.ts').single();
+
+// Walk steps to get output type info
+function walkSteps(nodes) {
+  for (const node of nodes) {
+    if (node.type === 'step') {
+      console.log(`Step: ${node.stepId}`);
+      console.log(`  Output Type: ${node.outputType}`);
+      console.log(`  Output Type Info:`, node.outputTypeInfo);
+      console.log(`  Error Type Info:`, node.errorTypeInfo);
+      console.log(`  Cause Type Info:`, node.causeTypeInfo);
+    }
+    if (node.children) walkSteps(node.children);
+  }
+}
+
+walkSteps(ir.root.children);
+```
 
 ### JSON output shape
 
@@ -488,13 +582,14 @@ The output of `renderStaticJSON(ir)` has this structure. Agents and doc generato
   - `metadata`: `{ analyzedAt, filePath, tsVersion?, warnings?, stats? }`
   - `references`: object mapping workflow name to `{ root, metadata? }` (when inlined)
 
-- **StaticWorkflowNode** (`root`): `type: "workflow"`, `id`, `workflowName`, `source?`, `dependencies[]`, `errorTypes[]`, `children[]`, `description?`, `markdown?`, `jsdocDescription?`, `name?`, `key?`, `location?`
+- **StaticWorkflowNode** (`root`): `type: "workflow"`, `id`, `workflowName`, `source?`, `dependencies[]`, `errorTypes[]`, `children[]`, `description?`, `markdown?`, `jsdocDescription?`, `name?`, `key?`, `location?`, `typeSummary?`
 
-- **DependencyInfo** (each entry in `dependencies`): `name`, `typeSignature?`, `errorTypes[]`
+- **DependencyInfo** (each entry in `dependencies`): `name`, `typeSignature?`, `errorTypes[]`, `signature?`
+  - `signature` (optional): `{ params: [{ name, type: TypeInfo }], returnType: TypeInfo, resultLike?: { okType: TypeInfo, errorType: TypeInfo, causeType?: TypeInfo } }`
 
 - **Flow nodes** (`children` and nested): discriminated by `type`:
-  - `"step"`: `id`, `stepId`, `name?`, `key?`, `callee?`, `description?`, `markdown?`, `jsdocDescription?`, `retry?`, `timeout?`, `location?`
-  - `"saga-step"`: `id`, `name?`, `callee?`, `description?`, `markdown?`, `jsdocDescription?`, `hasCompensation`, `compensationCallee?`, `isTryStep?`, `location?`
+  - `"step"`: `id`, `stepId`, `name?`, `key?`, `callee?`, `description?`, `markdown?`, `jsdocDescription?`, `retry?`, `timeout?`, `location?`, `outputType?`, `inputType?`, `outputTypeInfo?`, `errorTypeInfo?`, `causeTypeInfo?`
+  - `"saga-step"`: `id`, `name?`, `callee?`, `description?`, `markdown?`, `jsdocDescription?`, `hasCompensation`, `compensationCallee?`, `isTryStep?`, `location?`, `outputTypeInfo?`, `errorTypeInfo?`, `compensationParamTypeInfo?`
   - `"sequence"`: `id`, `children[]`
   - `"parallel"`: `id`, `children[]`, `mode` ("all" | "allSettled"), `callee?`
   - `"race"`: `id`, `children[]`, `callee?`
@@ -504,6 +599,13 @@ The output of `renderStaticJSON(ir)` has this structure. Agents and doc generato
   - `"stream"`: `id`, `streamType`, `namespace?`, `options?`, `callee?`
   - `"workflow-ref"`: `id`, `workflowName`, `resolved`, `resolvedPath?`, `inlinedIR?`
   - `"unknown"`: `id`, `reason`, `sourceCode?`
+
+- **TypeInfo** (embedded in various nodes):
+  - `display`: Human-readable type string
+  - `canonical`: Normalized type string
+  - `kind`: "asyncResult" | "result" | "promiseResult" | "plain" | "unknown"
+  - `confidence`: "exact" | "inferred" | "fallback"
+  - `source`: "checker" | "annotation" | "fallback"
 
 A JSON Schema for this structure is available at `schema/static-workflow-ir.schema.json` in this package.
 
