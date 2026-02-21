@@ -16,7 +16,8 @@ Create a reusable hook for running workflows in components:
 
 ```typescript
 import { useState, useCallback } from 'react';
-import { createWorkflow, type Result, type UnexpectedError } from 'awaitly';
+import { type Result, type UnexpectedError } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 type WorkflowState<T, E> =
   | { status: 'idle' }
@@ -135,7 +136,8 @@ Use awaitly in Next.js 13+ server actions:
 // app/actions/checkout.ts
 'use server';
 
-import { createWorkflow, type AsyncResult } from 'awaitly';
+import { type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 import { validateCart, processPayment, sendEmail } from '@/lib/services';
 
 type CheckoutResult = { orderId: string };
@@ -206,7 +208,7 @@ Use awaitly in Next.js API routes:
 ```typescript
 // app/api/orders/route.ts
 import { NextResponse } from 'next/server';
-import { createWorkflow } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -286,7 +288,8 @@ app.post('/api/orders', resultHandler(async (req) => {
 ### Route handlers with typed errors
 
 ```typescript
-import { createWorkflow, type AsyncResult } from 'awaitly';
+import { type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 import { Router } from 'express';
 
 const router = Router();
@@ -332,7 +335,8 @@ router.post('/users', async (req, res) => {
 
 ```typescript
 import Fastify from 'fastify';
-import { createWorkflow, type Result } from 'awaitly';
+import { type Result } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 const fastify = Fastify();
 

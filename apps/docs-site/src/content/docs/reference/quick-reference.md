@@ -10,6 +10,7 @@ description: Decision guide for choosing the right awaitly APIs
 For minimal bundle use `awaitly/result`; for full API (Awaitly namespace, pipe, etc.) use `awaitly`.
 
 ```typescript
+// Minimal: from 'awaitly/result'. Or from 'awaitly' for full API (Awaitly, pipe, etc.)
 import { ok, err, type AsyncResult } from 'awaitly';
 
 async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
@@ -311,7 +312,9 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 
 | Need | Import from |
 |------|-------------|
-| Result types + composition (`ok`, `err`, `isOk`, `isErr`, `map`, `mapError`, `andThen`, `tap`, `from`, `fromPromise`, `all`, `allAsync`, `partition`, `match`, `run`, `TaggedError`) | `awaitly` |
+| Result types only (minimal bundle) | `awaitly/result` |
+| Result types + composition (`ok`, `err`, `isOk`, `isErr`, `map`, `mapError`, `andThen`, `tap`, `from`, `fromPromise`, `all`, `allAsync`, `partition`, `match`, `TaggedError`) | `awaitly` |
+| run() for step composition | `awaitly/run` |
 | Workflow engine (`createWorkflow`, `Duration`, `isStepComplete`, `createResumeStateCollector`, `isWorkflowCancelled`, step types, `ResumeState`) | `awaitly/workflow` |
 | Workflow instance (`.run(name?, fn, config?)`) | Returned by `createWorkflow` |
 | Saga pattern (`createSagaWorkflow`) | `awaitly/workflow` |
@@ -338,7 +341,9 @@ For optimal bundle size, import from specific entry points:
 
 | Entry Point | Use Case |
 |-------------|----------|
-| `awaitly` | Result types, transforms, and `run()` for composition |
+| `awaitly/result` | Result types only (smallest bundle; sizes in docs are gzipped when given) |
+| `awaitly` | Result types, transforms for composition |
+| `awaitly/run` | run() for step composition |
 | `awaitly/workflow` | Workflow engine (`createWorkflow`, `Duration`, etc.) |
 | `awaitly/functional` | Functional utilities (`pipe`, `flow`, `compose`, `R` namespace) |
 | `awaitly/hitl` | Human-in-the-loop (`createApprovalStep`, `isPendingApproval`, etc.) |
