@@ -4,7 +4,19 @@
 
 ### Minor Changes
 
+- 333bd8b: **Static analysis: type extraction, test harness, data flow**
+
+  - **Type extraction**: Result-like type extraction with `TypeInfo` (display, canonical, kind, confidence, source). Extracts `AsyncResult<T, E, C>`, `Result<T, E>`, `Promise<Result<T, E>>`; confidence levels `exact` / `inferred` / `fallback`. Step nodes include `outputTypeInfo`, `errorTypeInfo`, `causeTypeInfo`; dependency signatures include typed params and result-like return types.
+  - **Test harness**: `normalizeAnalysisOutput()`, `loadFixture()`, support for generating and comparing expected outputs; ID, path, timestamp, and TypeScript version normalization for deterministic tests.
+  - **Data flow**: Typed data flow propagation (`writeType`, `readTypes` on nodes), `TypeMismatch` detection, `keyTypes` map for data keys.
+  - **Tests**: All tests updated to use `workflow.run()` API.
+
+## 0.18.0
+
+### Minor Changes
+
 - **Type Extraction**: Added comprehensive type extraction for Result-like types
+
   - New `TypeInfo` interface with `display`, `canonical`, `kind`, `confidence`, `source` fields
   - Extracts `AsyncResult<T, E, C>`, `Result<T, E>`, and `Promise<Result<T, E>>` generics
   - Confidence levels: `exact` (explicit annotations), `inferred` (usage patterns), `fallback` (unavailable)
@@ -12,12 +24,14 @@
   - Dependency signatures include typed params and resultLike return types
 
 - **Test Harness**: Added deterministic testing utilities
+
   - `normalizeAnalysisOutput()` for stable test outputs across machines/CI
   - `loadFixture()` for loading workflow fixtures
   - Support for generating and comparing expected outputs
   - ID, path, timestamp, and TypeScript version normalization
 
 - **Data Flow Enhancements**: Added typed data flow propagation
+
   - `writeType` and `readTypes` on data flow nodes
   - `TypeMismatch` detection between producer and consumer types
   - `keyTypes` map tracking type of each data key
