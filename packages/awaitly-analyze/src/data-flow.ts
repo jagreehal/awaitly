@@ -3,12 +3,14 @@
  *
  * Analyzes data dependencies between steps in a workflow based on
  * `out` (writes) and `reads` (ctx.ref calls) extracted from the IR.
+ * Includes typed propagation for type-aware diagnostics.
  */
 
 import type {
   StaticWorkflowIR,
   StaticFlowNode,
   StaticStepNode,
+  TypeInfo,
 } from "./types";
 import { getStaticChildren } from "./types";
 
@@ -33,6 +35,10 @@ export interface DataFlowNode {
     line: number;
     column: number;
   };
+  /** Type information for the written value */
+  writeType?: TypeInfo;
+  /** Type information for values being read */
+  readTypes?: Map<string, TypeInfo>;
 }
 
 /**
@@ -45,6 +51,8 @@ export interface DataFlowEdge {
   to: string;
   /** The key being transferred */
   key: string;
+  /** Type of the data being transferred */
+  type?: TypeInfo;
 }
 
 /**
@@ -61,6 +69,10 @@ export interface DataFlowGraph {
   undefinedReads: UndefinedRead[];
   /** Keys written multiple times (potential issues) */
   duplicateWrites: DuplicateWrite[];
+  /** Type mismatches in data flow */
+  typeMismatches: TypeMismatch[];
+  /** Map of key to producer type info */
+  keyTypes: Map<string, TypeInfo>;
 }
 
 /**
@@ -85,6 +97,24 @@ export interface DuplicateWrite {
   writerIds: string[];
 }
 
+/**
+ * A type mismatch between producer and consumer.
+ */
+export interface TypeMismatch {
+  /** The key with the mismatch */
+  key: string;
+  /** The producer step ID */
+  producerId: string;
+  /** The consumer step ID */
+  consumerId: string;
+  /** The producer's type */
+  producerType: TypeInfo;
+  /** The expected consumer type (if known) */
+  consumerType?: TypeInfo;
+  /** Human-readable message */
+  message: string;
+}
+
 // =============================================================================
 // Graph Building
 // =============================================================================
@@ -96,37 +126,54 @@ export function buildDataFlowGraph(ir: StaticWorkflowIR): DataFlowGraph {
   const nodes: DataFlowNode[] = [];
   const edges: DataFlowEdge[] = [];
   const producedKeys = new Set<string>();
-  const keyProducers = new Map<string, string[]>(); // key -> step ids that write it
+  const keyProducers = new Map<string, string[]>();
+  const keyTypes = new Map<string, TypeInfo>();
+  const typeMismatches: TypeMismatch[] = [];
 
-  // Collect all steps with data flow info
   collectDataFlowNodes(ir.root.children, nodes);
 
-  // Build producer map
   for (const node of nodes) {
     if (node.writes) {
       producedKeys.add(node.writes);
       const producers = keyProducers.get(node.writes) ?? [];
       producers.push(node.id);
       keyProducers.set(node.writes, producers);
+
+      if (node.writeType) {
+        keyTypes.set(node.writes, node.writeType);
+      }
     }
   }
 
-  // Build edges and find undefined reads
   const undefinedReads: UndefinedRead[] = [];
   for (const node of nodes) {
     for (const key of node.reads) {
       const producers = keyProducers.get(key);
       if (producers && producers.length > 0) {
-        // Add edge from each producer to this consumer
         for (const producerId of producers) {
+          const producerNode = nodes.find(n => n.id === producerId);
+          const producerType = producerNode?.writeType;
+          const consumerType = node.readTypes?.get(key);
+
           edges.push({
             from: producerId,
             to: node.id,
             key,
+            type: producerType,
           });
+
+          if (producerType && consumerType && !typesCompatible(producerType, consumerType)) {
+            typeMismatches.push({
+              key,
+              producerId,
+              consumerId: node.id,
+              producerType,
+              consumerType,
+              message: `Type mismatch for "${key}": producer writes ${producerType.display}, consumer expects ${consumerType.display}`,
+            });
+          }
         }
       } else {
-        // This is a read of an undefined key
         undefinedReads.push({
           key,
           readerId: node.id,
@@ -136,7 +183,6 @@ export function buildDataFlowGraph(ir: StaticWorkflowIR): DataFlowGraph {
     }
   }
 
-  // Find duplicate writes
   const duplicateWrites: DuplicateWrite[] = [];
   for (const [key, writers] of keyProducers) {
     if (writers.length > 1) {
@@ -153,7 +199,16 @@ export function buildDataFlowGraph(ir: StaticWorkflowIR): DataFlowGraph {
     producedKeys,
     undefinedReads,
     duplicateWrites,
+    typeMismatches,
+    keyTypes,
   };
+}
+
+function typesCompatible(producer: TypeInfo, consumer: TypeInfo): boolean {
+  if (producer.canonical === consumer.canonical) return true;
+  if (producer.display === consumer.display) return true;
+  if (producer.kind === "unknown" || consumer.kind === "unknown") return true;
+  return false;
 }
 
 /**
@@ -166,7 +221,6 @@ function collectDataFlowNodes(
   for (const node of flowNodes) {
     if (node.type === "step") {
       const stepNode = node as StaticStepNode;
-      // Only include if it has out or reads
       if (stepNode.out || (stepNode.reads && stepNode.reads.length > 0)) {
         result.push({
           id: stepNode.stepId ?? stepNode.id,
@@ -176,11 +230,14 @@ function collectDataFlowNodes(
           location: stepNode.location
             ? { line: stepNode.location.line, column: stepNode.location.column }
             : undefined,
+          writeType: stepNode.outputTypeInfo,
+          readTypes: stepNode.readTypes
+            ? new Map(Object.entries(stepNode.readTypes))
+            : undefined,
         });
       }
     }
 
-    // Recurse into children
     const children = getStaticChildren(node);
     if (children.length > 0) {
       collectDataFlowNodes(children, result);
@@ -375,7 +432,7 @@ export interface DataFlowIssue {
   /** Issue severity */
   severity: "error" | "warning";
   /** Issue type */
-  type: "undefined-read" | "duplicate-write" | "cycle";
+  type: "undefined-read" | "duplicate-write" | "cycle" | "type-mismatch";
   /** Human-readable message */
   message: string;
   /** Related step IDs */
@@ -390,7 +447,6 @@ export interface DataFlowIssue {
 export function validateDataFlow(graph: DataFlowGraph): DataFlowValidation {
   const issues: DataFlowIssue[] = [];
 
-  // Check for undefined reads
   for (const read of graph.undefinedReads) {
     issues.push({
       severity: "warning",
@@ -401,7 +457,6 @@ export function validateDataFlow(graph: DataFlowGraph): DataFlowValidation {
     });
   }
 
-  // Check for duplicate writes
   for (const write of graph.duplicateWrites) {
     issues.push({
       severity: "warning",
@@ -412,7 +467,6 @@ export function validateDataFlow(graph: DataFlowGraph): DataFlowValidation {
     });
   }
 
-  // Check for cycles
   const cycles = findCycles(graph);
   for (const cycle of cycles) {
     issues.push({
@@ -420,6 +474,16 @@ export function validateDataFlow(graph: DataFlowGraph): DataFlowValidation {
       type: "cycle",
       message: `Circular data dependency detected: ${cycle.join(" -> ")}`,
       stepIds: cycle,
+    });
+  }
+
+  for (const mismatch of graph.typeMismatches) {
+    issues.push({
+      severity: "warning",
+      type: "type-mismatch",
+      message: mismatch.message,
+      stepIds: [mismatch.producerId, mismatch.consumerId],
+      key: mismatch.key,
     });
   }
 

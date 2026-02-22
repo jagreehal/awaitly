@@ -21,8 +21,6 @@ import { Awaitly } from 'awaitly';
 Awaitly.ok(1); Awaitly.err('E'); Awaitly.pipe(2, (n) => n * 2);
 ```
 
-`AsyncResult` and `Result` are available from both `awaitly` and `awaitly/result`.
-
 ## Results
 
 ### Constructors

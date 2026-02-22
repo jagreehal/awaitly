@@ -10,6 +10,26 @@
  */
 
 // =============================================================================
+// Type Extraction Types
+// =============================================================================
+
+/**
+ * Information about a type extracted from the type checker.
+ */
+export interface TypeInfo {
+  /** Human-readable type string (what the user wrote) */
+  display: string;
+  /** Canonical type string (normalized, fully qualified) */
+  canonical: string;
+  /** Kind of Result-like type detected */
+  kind: "asyncResult" | "result" | "promiseResult" | "plain" | "unknown";
+  /** Confidence level of the extraction */
+  confidence: "exact" | "inferred" | "fallback";
+  /** Where the type information came from */
+  source: "checker" | "annotation" | "fallback";
+}
+
+// =============================================================================
 // Static Node Types
 // =============================================================================
 
@@ -79,6 +99,8 @@ export interface StaticStepNode extends StaticBaseNode {
   out?: string;
   /** Keys read via ctx.ref() inside this step */
   reads?: string[];
+  /** For each reads[i], the dependency parameter index this ref is passed to (so readTypes uses the correct param type). */
+  readParamIndices?: number[];
   /** Dependency source (from step.dep() or detected from callee) */
   depSource?: string;
   /** Inferred input type(s) from type checker (e.g. step argument types) */
@@ -89,6 +111,17 @@ export interface StaticStepNode extends StaticBaseNode {
   depLocation?: SourceLocation;
   /** Sleep duration string for step.sleep() (e.g. "5s", "1h") */
   sleepDuration?: string;
+  // === Typed extraction fields ===
+  /** Typed output type information (extracted from AsyncResult<T, E, C>) */
+  outputTypeInfo?: TypeInfo;
+  /** Typed error type information */
+  errorTypeInfo?: TypeInfo;
+  /** Typed cause type information */
+  causeTypeInfo?: TypeInfo;
+  /** Typed operation return type (before unwrapping) */
+  operationTypeInfo?: TypeInfo;
+  /** Expected type per read key (from dependency param types; used for type-mismatch diagnostics) */
+  readTypes?: Record<string, TypeInfo>;
 }
 
 /**
@@ -318,6 +351,13 @@ export interface StaticSagaStepNode extends StaticBaseNode {
   jsdocExample?: string;
   /** Whether this is a tryStep (error-mapped step) */
   isTryStep?: boolean;
+  // === Typed extraction fields ===
+  /** Typed output type information */
+  outputTypeInfo?: TypeInfo;
+  /** Typed error type information */
+  errorTypeInfo?: TypeInfo;
+  /** Typed compensation parameter type */
+  compensationParamTypeInfo?: TypeInfo;
 }
 
 /**
@@ -380,6 +420,15 @@ export interface StaticWorkflowNode extends StaticBaseNode {
   declaredErrors?: string[];
   /** Inferred return type of the workflow callback (from type checker) */
   workflowReturnType?: string;
+  /** Type summary for the entire workflow */
+  typeSummary?: {
+    /** Union of all possible error types */
+    workflowErrorUnion?: TypeInfo;
+    /** Union of all possible cause types */
+    workflowCauseUnion?: TypeInfo;
+    /** Map of step ID to output type */
+    stepOutputTypes?: Map<string, TypeInfo>;
+  };
 }
 
 /**
@@ -396,6 +445,16 @@ export interface DependencyInfo {
   typeSignature?: string;
   /** Error types this dependency can return (not yet inferred from types) */
   errorTypes: string[];
+  /** Typed signature information (extracted from type checker) */
+  signature?: {
+    params: Array<{ name: string; type: TypeInfo }>;
+    returnType: TypeInfo;
+    resultLike?: {
+      okType: TypeInfo;
+      errorType: TypeInfo;
+      causeType?: TypeInfo;
+    };
+  };
 }
 
 /**

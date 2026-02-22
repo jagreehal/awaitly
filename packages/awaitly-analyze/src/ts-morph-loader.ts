@@ -8,8 +8,10 @@
 import { createRequire } from "module";
 
 export type TsMorphModule = typeof import("ts-morph");
+export type TypeScriptModule = typeof import("typescript");
 
 let cached: TsMorphModule | null = null;
+let cachedTs: TypeScriptModule | null = null;
 
 export function loadTsMorph(): TsMorphModule {
   if (cached) return cached;
@@ -27,6 +29,24 @@ export function loadTsMorph(): TsMorphModule {
         `  npm install ts-morph\n` +
         `  # or\n` +
         `  pnpm add ts-morph`
+    );
+  }
+}
+
+/** Load TypeScript compiler module (used for SyntaxKind and type-checker APIs). */
+export function loadTypescript(): TypeScriptModule {
+  if (cachedTs) return cachedTs;
+  try {
+    const require = createRequire(import.meta.url);
+    cachedTs = require("typescript") as TypeScriptModule;
+    return cachedTs;
+  } catch {
+    throw new Error(
+      `awaitly-analyze requires typescript as a peer dependency.\n\n` +
+        `Install it with:\n` +
+        `  npm install typescript\n` +
+        `  # or\n` +
+        `  pnpm add typescript`
     );
   }
 }
