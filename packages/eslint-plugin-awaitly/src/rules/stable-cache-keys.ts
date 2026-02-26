@@ -22,6 +22,7 @@ import type {
 const STEP_METHODS = new Set([
   'step', 'try', 'retry', 'withTimeout', 'fromResult',
   'run', 'andThen', 'match', 'all', 'map', 'allSettled', 'parallel', 'race', 'sleep',
+  'withFallback', 'withResource', 'workflow',
 ]);
 
 const UNSTABLE_CALLS = new Set([

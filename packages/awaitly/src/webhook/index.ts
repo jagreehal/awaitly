@@ -6,7 +6,8 @@
  */
 
 import { type Result, type AsyncResult, type RunStep, ok, err, isOk, isUnexpectedError } from "../core";
-import { type Workflow, type UnexpectedError } from "../workflow";
+import type { Workflow } from "../workflow/types";
+import type { UnexpectedError } from "../core";
 
 // =============================================================================
 // Request/Response Types

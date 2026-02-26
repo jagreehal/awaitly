@@ -15,13 +15,15 @@ import {
 import {
   createWorkflow,
   createResumeStateCollector,
-  type AnyResultFn,
-  type ErrorsOfDeps,
-  type WorkflowOptions,
-  type WorkflowContext,
-  type WorkflowCancelledError,
-  type Workflow,
 } from "../workflow";
+import type {
+  AnyResultFn,
+  ErrorsOfDeps,
+  WorkflowOptions,
+  WorkflowContext,
+  WorkflowCancelledError,
+  Workflow,
+} from "../workflow/types";
 import {
   type SnapshotStore,
   type WorkflowSnapshot,
@@ -37,7 +39,8 @@ import {
 
 // Re-export for convenience
 export { type SnapshotStore } from "../persistence";
-export { isWorkflowCancelled, type WorkflowCancelledError } from "../workflow";
+export { isWorkflowCancelled } from "../workflow";
+export type { WorkflowCancelledError } from "../workflow/types";
 
 // In-memory store for zero-config usage
 let defaultStore: SnapshotStore | undefined;

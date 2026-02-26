@@ -14,7 +14,7 @@ import type { CallExpression, MemberExpression } from 'estree';
  * GOOD: step('fetchUser', () => fetchUser('1')) - thunk, step controls execution
  */
 
-const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'run', 'andThen', 'match', 'map']);
+const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'run', 'andThen', 'match', 'map', 'withFallback', 'withResource', 'workflow']);
 
 // Methods where the executor/function argument is at index 2 (3rd arg) instead of index 1 (2nd arg)
 // step.andThen('id', value, fn, options?) - fn is 3rd arg

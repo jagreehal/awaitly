@@ -7,7 +7,7 @@ sidebar:
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
 
-ESLint rules for awaitly workflow patterns. Catch common mistakes automatically with autofixes.
+ESLint rules for awaitly workflow patterns. Catch common mistakes automatically with autofixes. The plugin covers all step helpers, including `step.withFallback`, `step.withResource`, and `step.workflow`.
 
 ## Installation
 
@@ -68,7 +68,7 @@ step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 
 **Severity**: error | **Autofix**: No
 
-Requires a string literal as the first argument to `step()` and step helpers (`step.sleep`, `step.retry`, `step.parallel`, `step.race`, etc.). Ensures stable step IDs for visualization and static analysis.
+Requires a string literal as the first argument to `step()` and step helpers (`step.sleep`, `step.retry`, `step.parallel`, `step.race`, `step.withFallback`, `step.withResource`, `step.workflow`, etc.). Ensures stable step IDs for visualization and static analysis.
 
 ```typescript
 // Bad - missing step ID

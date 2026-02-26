@@ -403,7 +403,7 @@ export type WorkflowContext<C = void, Input = Record<string, unknown>, Data = Re
   get: <K extends keyof Data>(key: K) => Data[K] | undefined;
 };
 
-/** Workflow function type (no args) */
+/** Workflow function type (no args). E is the full step error union (deps errors + any ExtraE from step.workflow/withFallback). */
 export type WorkflowFn<T, E, Deps, C = void> = (context: { step: RunStep<E>; deps: Deps; ctx: WorkflowContext<C> }) => T | Promise<T>;
 
 /**
@@ -416,7 +416,8 @@ export type RunWithStateResult<T, E, U> = {
 };
 
 /**
- * Workflow return type. Error union is always closed: E | U (default U = UnexpectedError).
+ * Workflow return type. Error union is always closed: E | ExtraE | U (default U = UnexpectedError).
+ * ExtraE is inferred from the callback when using step.workflow or step.withFallback with errors not in deps.
  * Methods: .run() (4 overloads) and .runWithState() (4 overloads) for run-and-persist flows.
  *
  * Cause type is `unknown` because step.try/catchUnexpected receive thrown values.
@@ -424,23 +425,24 @@ export type RunWithStateResult<T, E, U> = {
 export interface Workflow<E, U = UnexpectedError, Deps = unknown, C = void> {
   /**
    * Execute workflow (anonymous run).
+   * ExtraE is inferred from the callback (e.g. from step.workflow / step.withFallback); result is Result<T, E | ExtraE | U>.
    */
-  run<T>(fn: WorkflowFn<T, E, Deps, C>): AsyncResult<T, E | U, unknown>;
+  run<T, ExtraE = never>(fn: WorkflowFn<T, E | ExtraE, Deps, C>): AsyncResult<T, E | ExtraE | U, unknown>;
 
   /**
    * Execute workflow with config overrides.
    */
-  run<T>(fn: WorkflowFn<T, E, Deps, C>, config: RunConfig<E, U, C, Deps>): AsyncResult<T, E | U, unknown>;
+  run<T, ExtraE = never>(fn: WorkflowFn<T, E | ExtraE, Deps, C>, config: RunConfig<E, U, C, Deps>): AsyncResult<T, E | ExtraE | U, unknown>;
 
   /**
    * Execute named workflow run (for logging, tracing, resume).
    */
-  run<T>(name: string, fn: WorkflowFn<T, E, Deps, C>): AsyncResult<T, E | U, unknown>;
+  run<T, ExtraE = never>(name: string, fn: WorkflowFn<T, E | ExtraE, Deps, C>): AsyncResult<T, E | ExtraE | U, unknown>;
 
   /**
    * Execute named workflow run with config overrides.
    */
-  run<T>(name: string, fn: WorkflowFn<T, E, Deps, C>, config: RunConfig<E, U, C, Deps>): AsyncResult<T, E | U, unknown>;
+  run<T, ExtraE = never>(name: string, fn: WorkflowFn<T, E | ExtraE, Deps, C>, config: RunConfig<E, U, C, Deps>): AsyncResult<T, E | ExtraE | U, unknown>;
 
   /**
    * Execute workflow and return result plus resume state for persistence.
@@ -451,22 +453,22 @@ export interface Workflow<E, U = UnexpectedError, Deps = unknown, C = void> {
    * const { result, resumeState } = await workflow.runWithState(fn);
    * await store.save(id, resumeState);
    */
-  runWithState<T>(fn: WorkflowFn<T, E, Deps, C>): Promise<RunWithStateResult<T, E, U>>;
+  runWithState<T, ExtraE = never>(fn: WorkflowFn<T, E | ExtraE, Deps, C>): Promise<RunWithStateResult<T, E | ExtraE, U>>;
 
   /**
    * Execute workflow with config overrides and return result plus resume state.
    */
-  runWithState<T>(fn: WorkflowFn<T, E, Deps, C>, config: RunConfig<E, U, C, Deps>): Promise<RunWithStateResult<T, E, U>>;
+  runWithState<T, ExtraE = never>(fn: WorkflowFn<T, E | ExtraE, Deps, C>, config: RunConfig<E, U, C, Deps>): Promise<RunWithStateResult<T, E | ExtraE, U>>;
 
   /**
    * Execute named workflow run and return result plus resume state.
    */
-  runWithState<T>(name: string, fn: WorkflowFn<T, E, Deps, C>): Promise<RunWithStateResult<T, E, U>>;
+  runWithState<T, ExtraE = never>(name: string, fn: WorkflowFn<T, E | ExtraE, Deps, C>): Promise<RunWithStateResult<T, E | ExtraE, U>>;
 
   /**
    * Execute named workflow run with config overrides and return result plus resume state.
    */
-  runWithState<T>(name: string, fn: WorkflowFn<T, E, Deps, C>, config: RunConfig<E, U, C, Deps>): Promise<RunWithStateResult<T, E, U>>;
+  runWithState<T, ExtraE = never>(name: string, fn: WorkflowFn<T, E | ExtraE, Deps, C>, config: RunConfig<E, U, C, Deps>): Promise<RunWithStateResult<T, E | ExtraE, U>>;
 }
 
 // =============================================================================

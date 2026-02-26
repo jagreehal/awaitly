@@ -306,11 +306,11 @@ export function createWorkflow<
   // ===========================================================================
   // Internal execute function - core workflow execution logic
   // ===========================================================================
-  async function internalExecute<T>(
+  async function internalExecute<T, ExtraE = never>(
     runName: string | undefined,
-    userFn: WorkflowFn<T, E, Deps, C>,
+    userFn: WorkflowFn<T, E | ExtraE, Deps, C>,
     config?: RunConfig<E, U, C, Deps>
-  ): Promise<Result<T, E | U, unknown>> {
+  ): Promise<Result<T, E | ExtraE | U, unknown>> {
     // Generate workflowId for this run
     const workflowId = runName ?? crypto.randomUUID();
 
@@ -415,30 +415,30 @@ export function createWorkflow<
       },
     };
 
-    // Helper to emit workflow events
-    const emitEvent = (event: WorkflowEvent<E | U, C>) => {
+    // Helper to emit workflow events (error union includes ExtraE from step.workflow/withFallback)
+    const emitEvent = (event: WorkflowEvent<E | ExtraE | U, C>) => {
       // Add context to event only if:
       // 1. Event doesn't already have context (preserves replayed events or per-step overrides)
       // 2. Workflow actually has a context (don't add context: undefined property)
       const eventWithContext =
         event.context !== undefined || context === undefined
           ? event
-          : ({ ...event, context: context as C } as WorkflowEvent<E | U, C>);
+          : ({ ...event, context: context as C } as WorkflowEvent<E | ExtraE | U, C>);
       const eventWithName =
         eventWithContext.workflowName === undefined
-          ? ({ ...eventWithContext, workflowName } as WorkflowEvent<E | U, C>)
+          ? ({ ...eventWithContext, workflowName } as WorkflowEvent<E | ExtraE | U, C>)
           : eventWithContext;
-      onEventHandler?.(eventWithName, context);
+      onEventHandler?.(eventWithName as Parameters<NonNullable<typeof onEventHandler>>[0], context);
     };
 
     // Helper to create cancellation result (always map through catchUnexpected)
-    const createCancelledResult = (reason?: string, lastStepKey?: string): Result<T, E | U, unknown> => {
+    const createCancelledResult = (reason?: string, lastStepKey?: string): Result<T, E | ExtraE | U, unknown> => {
       const cancelledError: WorkflowCancelledError = {
         type: "WORKFLOW_CANCELLED",
         reason,
         lastStepKey,
       };
-      return err(catchUnexpected(cancelledError), { cause: cancelledError }) as Result<T, E | U, unknown>;
+      return err(catchUnexpected(cancelledError), { cause: cancelledError }) as Result<T, E | ExtraE | U, unknown>;
     };
 
     // Check if signal is already aborted before starting
@@ -474,7 +474,7 @@ export function createWorkflow<
         });
         if (!shouldRunResult) {
           const skipCause = new Error("Workflow skipped by shouldRun hook");
-          return err(catchUnexpected(skipCause), { cause: skipCause }) as Result<T, E | U, unknown>;
+          return err(catchUnexpected(skipCause), { cause: skipCause }) as Result<T, E | ExtraE | U, unknown>;
         }
       } catch (thrown) {
         const hookDuration = performance.now() - hookStartTime;
@@ -487,7 +487,7 @@ export function createWorkflow<
           error: thrown as E,
         });
         // Hook threw - map through catchUnexpected
-        return err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | U, unknown>;
+        return err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | ExtraE | U, unknown>;
       }
     }
 
@@ -507,7 +507,7 @@ export function createWorkflow<
         });
         if (!beforeStartResult) {
           const skipCause = new Error("Workflow skipped by onBeforeStart hook");
-          return err(catchUnexpected(skipCause), { cause: skipCause }) as Result<T, E | U, unknown>;
+          return err(catchUnexpected(skipCause), { cause: skipCause }) as Result<T, E | ExtraE | U, unknown>;
         }
       } catch (thrown) {
         const hookDuration = performance.now() - hookStartTime;
@@ -519,7 +519,7 @@ export function createWorkflow<
           durationMs: hookDuration,
           error: thrown as E,
         });
-        return err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | U, unknown>;
+        return err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | ExtraE | U, unknown>;
       }
     }
 
@@ -807,7 +807,9 @@ export function createWorkflow<
             const originalCause =
               exit.meta.origin === "result"
                 ? exit.meta.resultCause
-                : exit.meta.thrown;
+                : exit.meta.origin === "throw"
+                  ? exit.meta.thrown
+                  : undefined;
             const errorResult = encodeCachedError(exit.error, exit.meta, originalCause);
             if (cache) {
               cache.set(key, errorResult, ttl ? { ttl } : undefined);
@@ -871,7 +873,9 @@ export function createWorkflow<
             const originalCause =
               exit.meta.origin === "result"
                 ? exit.meta.resultCause
-                : exit.meta.thrown;
+                : exit.meta.origin === "throw"
+                  ? exit.meta.thrown
+                  : undefined;
             const errorResult = encodeCachedError(exit.error, exit.meta, originalCause);
             if (cache) {
               cache.set(key, errorResult, ttl ? { ttl } : undefined);
@@ -934,7 +938,9 @@ export function createWorkflow<
             const originalCause =
               exit.meta.origin === "result"
                 ? exit.meta.resultCause
-                : exit.meta.thrown;
+                : exit.meta.origin === "throw"
+                  ? exit.meta.thrown
+                  : undefined;
             const errorResult = encodeCachedError(exit.error, exit.meta, originalCause);
             if (cache) {
               cache.set(key, errorResult, ttl ? { ttl } : undefined);
@@ -953,6 +959,103 @@ export function createWorkflow<
 
       // Wrap step.allSettled - delegate to real step (no caching for scope wrappers)
       cachedStepFn.allSettled = realStep.allSettled;
+
+      // Wrap step.withFallback - preserve fallback semantics while adding workflow cache hooks.
+      // Accept any operation/fallback error types (E1, E2) so users never need to cast; cast internally for core.
+      cachedStepFn.withFallback = async <StepT, E1, E2>(
+        id: string,
+        operation: () => AsyncResult<StepT, E1>,
+        options: { on?: E1 & string; fallback: () => AsyncResult<StepT, E2>; key?: string }
+      ): Promise<StepT> => {
+        const key = options.key ?? id; // matches core withFallback cache key behavior
+        const name = id;
+
+        if (cache && cache.has(key)) {
+          emitEvent({
+            type: "step_cache_hit",
+            workflowId,
+            stepKey: key,
+            name,
+            ts: Date.now(),
+          });
+
+          const cached = cache.get(key)!;
+          if (cached.ok) {
+            return cached.value as StepT;
+          }
+          const meta = decodeCachedMeta(cached.cause);
+          throw createEarlyExit(cached.error as E, meta);
+        }
+
+        if (cache) {
+          emitEvent({
+            type: "step_cache_miss",
+            workflowId,
+            stepKey: key,
+            name,
+            ts: Date.now(),
+          });
+        }
+
+        try {
+          const value = await realStep.withFallback(
+            id,
+            operation as () => AsyncResult<StepT, E>,
+            options as { on?: E & string; fallback: () => AsyncResult<StepT, E>; key?: string }
+          );
+          if (cache) {
+            cache.set(key, ok(value));
+          }
+          await callOnAfterStepHook(key, ok(value));
+          return value;
+        } catch (thrown) {
+          if (isEarlyExit(thrown)) {
+            const exit = thrown as EarlyExit<E>;
+            const originalCause =
+              exit.meta.origin === "result"
+                ? exit.meta.resultCause
+                : exit.meta.origin === "throw"
+                  ? exit.meta.thrown
+                  : undefined;
+            const errorResult = encodeCachedError(exit.error, exit.meta, originalCause);
+            if (cache) {
+              cache.set(key, errorResult);
+            }
+            await callOnAfterStepHook(key, errorResult, exit.meta);
+          }
+          throw thrown;
+        }
+      };
+
+      // Wrap step.withResource - run via core then call onAfterStep (keyed by id, consistent with other keyed steps)
+      cachedStepFn.withResource = async <T, R, AcquireE extends E, UseE extends E>(
+        id: string,
+        options: {
+          acquire: () => AsyncResult<R, AcquireE>;
+          use: (resource: R) => AsyncResult<T, UseE>;
+          release: (resource: R) => void | Promise<void>;
+        }
+      ): Promise<T> => {
+        const key = id;
+        try {
+          const value = await realStep.withResource(id, options);
+          await callOnAfterStepHook(key, ok(value));
+          return value;
+        } catch (thrown) {
+          if (isEarlyExit(thrown)) {
+            const exit = thrown as EarlyExit<E>;
+            const originalCause =
+              exit.meta.origin === "result"
+                ? exit.meta.resultCause
+                : exit.meta.origin === "throw"
+                  ? exit.meta.thrown
+                  : undefined;
+            const errorResult = encodeCachedError(exit.error, exit.meta, originalCause);
+            await callOnAfterStepHook(key, errorResult, exit.meta);
+          }
+          throw thrown;
+        }
+      };
 
       // Wrap step.retry - pass key explicitly so "no key" means don't cache (cachedStepFn treats key: undefined as no cache)
       cachedStepFn.retry = <StepT, StepE extends E, StepC = unknown>(
@@ -1646,6 +1749,12 @@ export function createWorkflow<
             : () => resultOrGetter as AsyncResult<unknown, E, unknown>;
         return cachedStepFn(id, op, options) as Promise<unknown>;
       };
+      // step.workflow: run sub-workflow (or any AsyncResult getter) as a step; cache + onAfterStep apply
+      cachedStepFn.workflow = (
+        id: string,
+        getter: () => AsyncResult<unknown, E, unknown>,
+        options?: StepOptions
+      ) => cachedStepFn(id, getter, options) as Promise<unknown>;
       cachedStepFn.andThen = (
         id: string,
         value: unknown,
@@ -1697,17 +1806,22 @@ export function createWorkflow<
       return cachedStepFn as RunStep<E>;
     };
 
-    // Wrap the user's callback to pass cached step, deps, and workflow context
+    // Wrap the user's callback to pass cached step, deps, and workflow context.
+    // Cast step to RunStep<E | ExtraE> so callbacks using step.workflow/withFallback get correct error inference.
     const wrappedFn = ({ step }: { step: RunStep<E> }) =>
-      userFn({ step: createCachedStep(step), deps: effectiveDeps, ctx: workflowContext });
+      userFn({
+        step: createCachedStep(step) as RunStep<E | ExtraE>,
+        deps: effectiveDeps,
+        ctx: workflowContext,
+      });
 
-    // Always use run() with catchUnexpected (default or user-provided). Closed error union E | U.
-    let result: Result<T, E | U | UnexpectedError | WorkflowCancelledError, unknown>;
+    // Always use run() with catchUnexpected (default or user-provided). Closed error union E | ExtraE | U.
+    let result: Result<T, E | ExtraE | U | UnexpectedError | WorkflowCancelledError, unknown>;
 
     try {
-      result = await run<T, E | U, C>(wrappedFn as (context: { step: RunStep<E | U> }) => Promise<T> | T, {
-        onError: onErrorHandler as ((error: E | U, stepName?: string, ctx?: C) => void) | undefined,
-        onEvent: onEventHandler as ((event: WorkflowEvent<E | U | UnexpectedError, C>, ctx: C) => void) | undefined,
+      result = await run<T, E | ExtraE | U, C>(wrappedFn as (context: { step: RunStep<E | ExtraE | U> }) => Promise<T> | T, {
+        onError: onErrorHandler as ((error: E | ExtraE | U, stepName?: string, ctx?: C) => void) | undefined,
+        onEvent: onEventHandler as ((event: WorkflowEvent<E | ExtraE | U | UnexpectedError, C>, ctx: C) => void) | undefined,
         catchUnexpected: catchUnexpected as (cause: unknown) => U,
         workflowId,
         workflowName,
@@ -1775,9 +1889,9 @@ export function createWorkflow<
         });
         // Path 2: We synthesized cancelledError from AbortError - ensure result.cause is WorkflowCancelledError
         if (cancelledError && !isWorkflowCancelled(result.cause)) {
-          return err(result.error, { cause: cancelledError }) as Result<T, E | U, unknown>;
+          return err(result.error, { cause: cancelledError }) as Result<T, E | ExtraE | U, unknown>;
         }
-        return result as Result<T, E | U, unknown>;
+        return result as Result<T, E | ExtraE | U, unknown>;
       }
     }
 
@@ -1806,7 +1920,7 @@ export function createWorkflow<
         reason,
         lastStepKey,
       };
-      return err(catchUnexpected(cancelledError), { cause: cancelledError }) as Result<T, E | U, unknown>;
+      return err(catchUnexpected(cancelledError), { cause: cancelledError }) as Result<T, E | ExtraE | U, unknown>;
     }
 
     // Emit workflow_success or workflow_error
@@ -1825,7 +1939,7 @@ export function createWorkflow<
         workflowId,
         ts: Date.now(),
         durationMs,
-        error: result.error as E | U,
+        error: result.error as E | ExtraE | U,
       });
     }
 
@@ -1836,48 +1950,48 @@ export function createWorkflow<
     // 2. Steps that are defined but not executed in this particular run
     // Use workflowId matching in snapshot metadata to detect wrong snapshots instead.
 
-    return result as Result<T, E | U, unknown>;
+    return result as Result<T, E | ExtraE | U, unknown>;
   }
 
   // ==========================================================================
   // workflow.run() - public method
   // ==========================================================================
-  function runMethod<T>(
-    fnOrName: string | WorkflowFn<T, E, Deps, C>,
-    maybeFnOrConfig?: WorkflowFn<T, E, Deps, C> | RunConfig<E, U, C, Deps>,
+  function runMethod<T, ExtraE = never>(
+    fnOrName: string | WorkflowFn<T, E | ExtraE, Deps, C>,
+    maybeFnOrConfig?: WorkflowFn<T, E | ExtraE, Deps, C> | RunConfig<E, U, C, Deps>,
     maybeConfig?: RunConfig<E, U, C, Deps>
-  ): Promise<Result<T, E | U, unknown>> {
+  ): Promise<Result<T, E | ExtraE | U, unknown>> {
     let runName: string | undefined;
-    let fn: WorkflowFn<T, E, Deps, C>;
+    let fn: WorkflowFn<T, E | ExtraE, Deps, C>;
     let config: RunConfig<E, U, C, Deps> | undefined;
 
     if (typeof fnOrName === "string") {
       runName = fnOrName;
-      fn = maybeFnOrConfig as WorkflowFn<T, E, Deps, C>;
+      fn = maybeFnOrConfig as WorkflowFn<T, E | ExtraE, Deps, C>;
       config = maybeConfig;
     } else {
       fn = fnOrName;
       config = maybeFnOrConfig as RunConfig<E, U, C, Deps> | undefined;
     }
 
-    return internalExecute(runName, fn, config);
+    return internalExecute<T, ExtraE>(runName, fn, config);
   }
 
   // ==========================================================================
   // workflow.runWithState() - run and return result + resume state for persistence
   // ==========================================================================
-  async function runWithStateMethod<T>(
-    fnOrName: string | WorkflowFn<T, E, Deps, C>,
-    maybeFnOrConfig?: WorkflowFn<T, E, Deps, C> | RunConfig<E, U, C, Deps>,
+  async function runWithStateMethod<T, ExtraE = never>(
+    fnOrName: string | WorkflowFn<T, E | ExtraE, Deps, C>,
+    maybeFnOrConfig?: WorkflowFn<T, E | ExtraE, Deps, C> | RunConfig<E, U, C, Deps>,
     maybeConfig?: RunConfig<E, U, C, Deps>
-  ): Promise<{ result: Result<T, E | U, unknown>; resumeState: ResumeState }> {
+  ): Promise<{ result: Result<T, E | ExtraE | U, unknown>; resumeState: ResumeState }> {
     let runName: string | undefined;
-    let fn: WorkflowFn<T, E, Deps, C>;
+    let fn: WorkflowFn<T, E | ExtraE, Deps, C>;
     let config: RunConfig<E, U, C, Deps> | undefined;
 
     if (typeof fnOrName === "string") {
       runName = fnOrName;
-      fn = maybeFnOrConfig as WorkflowFn<T, E, Deps, C>;
+      fn = maybeFnOrConfig as WorkflowFn<T, E | ExtraE, Deps, C>;
       config = maybeConfig;
     } else {
       fn = fnOrName;
@@ -1886,25 +2000,28 @@ export function createWorkflow<
 
     const collector = createResumeStateCollector();
     const userOnEvent = config?.onEvent;
-    const mergedOnEvent = (event: WorkflowEvent<E | U, C>, ctx: C) => {
+    const mergedOnEvent = (event: WorkflowEvent<E | ExtraE | U, C>, ctx: C) => {
       collector.handleEvent(event);
       try {
-        userOnEvent?.(event, ctx);
+        userOnEvent?.(event as WorkflowEvent<E | U, C>, ctx);
       } catch {
         // Observability shouldn't crash runs
       }
     };
-    const mergedConfig: RunConfig<E, U, C, Deps> = { ...config, onEvent: mergedOnEvent };
+    const mergedConfig: RunConfig<E, U, C, Deps> = {
+      ...config,
+      onEvent: mergedOnEvent as RunConfig<E, U, C, Deps>["onEvent"],
+    };
 
-    let result: Result<T, E | U, unknown>;
+    let result: Result<T, E | ExtraE | U, unknown>;
     let resumeState: ResumeState;
     try {
-      result = await internalExecute(runName, fn, mergedConfig);
+      result = await internalExecute<T, ExtraE>(runName, fn, mergedConfig);
     } catch (thrown) {
       // runWithState follows "never throw, always Result"; map thrown to Result
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const catchUnexpected = (optionsActual as any)?.catchUnexpected ?? defaultCatchUnexpected;
-      result = err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | U, unknown>;
+      result = err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | ExtraE | U, unknown>;
     } finally {
       resumeState = collector.getResumeState();
     }

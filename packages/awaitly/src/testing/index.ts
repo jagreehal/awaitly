@@ -7,7 +7,7 @@
 
 import type { Result, AsyncResult, StepOptions, WorkflowEvent, Ok, Err } from "../core";
 import { ok, err, isOk } from "../core";
-import type { AnyResultFn, ErrorsOfDeps } from "../workflow";
+import type { AnyResultFn, ErrorsOfDeps } from "../workflow/types";
 
 // =============================================================================
 // Internal Types

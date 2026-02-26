@@ -461,6 +461,41 @@ const users = await step.map('fetchUsers', ['1', '2', '3'], (id) => deps.fetchUs
 In `createWorkflow`, use a getter with `step.run` when you use a key so cache hits don't run the operation. For `step.all` and `step.map`, caching applies only when you pass `{ key: '...' }`; without a key they never cache by step id.
 </Aside>
 
+### step.withFallback - primary with fallback
+
+Run a primary operation; if it fails, run a fallback. Same early-exit semantics as `step()`—the workflow's error union includes both primary and fallback error types. Use a string ID as the first argument; optional `on` filter and `key`.
+
+```typescript
+const user = await step.withFallback('getUser', () => deps.fetchUser(id), {
+  fallback: () => deps.getUserFromCache(id),
+  on: (err) => err === 'NOT_FOUND',
+});
+```
+
+### step.withResource - acquire / use / release
+
+Manage a resource with acquire, use, and release. The first argument is the step ID; the second is an options object with `acquire`, `use`, and `release`. Optional `key` for caching. Release runs on success and on early exit.
+
+```typescript
+const data = await step.withResource('useDb', {
+  acquire: () => connect(),
+  use: (db) => query(db),
+  release: (db) => db.close(),
+});
+```
+
+### step.workflow - child workflow as step
+
+Run a child workflow as a step. First argument is the step ID; second is a getter that returns the child workflow run (e.g. `() => childWorkflow.run(...)`). Optional `key`. Events and cache go through the step engine; [awaitly-analyze](/docs/guides/static-analysis/) detects child workflow refs when the getter calls `childWorkflow.run(...)` and draws them as workflow-ref nodes.
+
+```typescript
+const result = await step.workflow('child-call', () =>
+  childWorkflow.run(async ({ step }) => {
+    return await step('child-step', () => Promise.resolve(ok(42)));
+  })
+);
+```
+
 ## Parallel steps
 
 Run multiple steps concurrently:
@@ -539,6 +574,9 @@ Workflow diagram and generated docs show:
 | `step.withTimeout(id, fn, opts)` | Operation might hang |
 | `step.sleep(id, duration, opts)` | Need intentional delay (rate limiting, polling) |
 | `step.forEach(id, items, opts)` | Processing collections with static analyzability |
+| `step.withFallback(id, primary, opts?)` | Primary fails, run fallback |
+| `step.withResource(id, { acquire, use, release }, opts?)` | Resource scope |
+| `step.workflow(id, getter, opts?)` | Child workflow as step |
 
 ## Next
 

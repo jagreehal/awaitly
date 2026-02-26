@@ -145,6 +145,24 @@ describe('require-thunk-for-key', () => {
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
+
+    it('allows step.workflow with getter and key', () => {
+      const code = `step.workflow('child-call', () => childWorkflow.run(async ({ step }) => step('x', () => ok(1))), { key: 'child:1' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows step.withFallback with getter and key', () => {
+      const code = `step.withFallback('getUser', () => deps.getUser(id), { fallback: () => deps.getUserFromCache(id), key: 'user:1' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows step.withResource with key (options object is second arg)', () => {
+      const code = `step.withResource('useDb', { acquire: () => connect(), use: (db) => query(db), release: (db) => db.close() }, { key: 'db:1' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
   });
 
   describe('invalid cases', () => {
@@ -209,6 +227,20 @@ describe('require-thunk-for-key', () => {
 
     it('reports step.map with key and immediate call (third arg)', () => {
       const code = `step.map('fetchUsers', userIds, createMapper(), { key: 'users:1' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-thunk-for-key');
+    });
+
+    it('reports step.workflow with key and immediate call (second arg)', () => {
+      const code = `step.workflow('child-call', childWorkflow.run(async ({ step }) => step('x', () => ok(1))), { key: 'child:1' });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-thunk-for-key');
+    });
+
+    it('reports step.withFallback with key and immediate call (second arg)', () => {
+      const code = `step.withFallback('getUser', deps.getUser(id), { fallback: () => deps.getUserFromCache(id), key: 'user:1' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
       expect(messages[0].ruleId).toBe('awaitly/require-thunk-for-key');

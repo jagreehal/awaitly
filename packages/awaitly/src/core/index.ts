@@ -991,6 +991,87 @@ export interface RunStep<E = unknown> {
   ) => Promise<T[]>;
 
   /**
+   * Execute a primary operation with a fallback if the primary fails.
+   *
+   * If the primary operation returns an error, the fallback is executed instead.
+   * When `on` is specified, the fallback only runs for that specific error;
+   * other errors propagate without invoking the fallback.
+   *
+   * Returns `Promise<T>` — errors escape via earlyExit into the workflow's error channel.
+   * The error union `E1 | E2` is the generic constraint propagated to the workflow.
+   *
+   * @overload Fallback on ANY error from primary
+   * @overload Fallback on SPECIFIC error literal only (via `on`)
+   *
+   * @param id - Unique step identifier (single step ID for events)
+   * @param operation - Primary operation that returns AsyncResult
+   * @param options - Fallback configuration
+   * @returns The success value from primary or fallback
+   *
+   * @example
+   * ```typescript
+   * const user = await step.withFallback(
+   *   'getUser',
+   *   () => fetchFromPrimary(id),
+   *   { fallback: () => fetchFromCache(id) }
+   * );
+   *
+   * // With specific error filter
+   * const data = await step.withFallback(
+   *   'getData',
+   *   () => fetchFromApi(id),
+   *   { on: 'NOT_FOUND', fallback: () => getDefault(id) }
+   * );
+   * ```
+   */
+  withFallback: {
+    // Overload 1: fallback on ANY error from primary
+    <T, E1 extends E, E2 extends E>(
+      id: string,
+      operation: () => AsyncResult<T, E1>,
+      options: { fallback: () => AsyncResult<T, E2>; key?: string }
+    ): Promise<T>;
+
+    // Overload 2: fallback on SPECIFIC error literal only
+    <T, E1 extends E & string, E2 extends E>(
+      id: string,
+      operation: () => AsyncResult<T, E1>,
+      options: { on: E1; fallback: () => AsyncResult<T, E2>; key?: string }
+    ): Promise<T>;
+  };
+
+  /**
+   * Execute an operation with automatic resource lifecycle management.
+   *
+   * Acquires a resource, uses it, and guarantees release regardless of outcome.
+   * Release always runs after use completes (even on error or throw).
+   * Release errors are logged via console.warn but never override the use result.
+   *
+   * No caching support — caching resource-using steps is dangerous.
+   *
+   * @param id - Unique step identifier
+   * @param options - Resource lifecycle configuration
+   * @returns The success value from the use function
+   *
+   * @example
+   * ```typescript
+   * const data = await step.withResource('useDb', {
+   *   acquire: () => connectToDb(),
+   *   use: (db) => db.query('SELECT * FROM users'),
+   *   release: (db) => db.close(),
+   * });
+   * ```
+   */
+  withResource: <T, R, AcquireE extends E, UseE extends E>(
+    id: string,
+    options: {
+      acquire: () => AsyncResult<R, AcquireE>;
+      use: (resource: R) => AsyncResult<T, UseE>;
+      release: (resource: R) => void | Promise<void>;
+    }
+  ) => Promise<T>;
+
+  /**
    * Execute an operation with retry and optional timeout.
    *
    * Use this for operations that may fail transiently (network issues, rate limits)
@@ -1394,6 +1475,27 @@ export interface RunStep<E = unknown> {
   run: <T, StepE extends E, StepC = unknown>(
     id: string,
     result: AsyncResult<T, StepE, StepC>,
+    options?: StepOptions
+  ) => Promise<T>;
+
+  /**
+   * Run a sub-workflow (or any AsyncResult-returning operation) as a step.
+   * Use for workflow composition; the getter's error type (SubE) flows into the parent's error union.
+   *
+   * @param id - Unique step identifier
+   * @param getter - Function that returns AsyncResult (e.g. () => subWorkflow.run(fn))
+   * @param options - Step options (key, ttl, etc.)
+   * @returns The success value (unwrapped)
+   * @throws {EarlyExit} If the result is an error
+   *
+   * @example
+   * ```typescript
+   * const authResult = await step.workflow("authorize", () => authorizeWorkflow.run(fn));
+   * ```
+   */
+  workflow: <T, SubE extends E, StepC = unknown>(
+    id: string,
+    getter: () => AsyncResult<T, SubE, StepC>,
     options?: StepOptions
   ) => Promise<T>;
 
@@ -2016,7 +2118,8 @@ export const EARLY_EXIT_SYMBOL: unique symbol = Symbol("early-exit");
  */
 export type StepFailureMeta =
   | { origin: "result"; resultCause?: unknown }
-  | { origin: "throw"; thrown: unknown };
+  | { origin: "throw"; thrown: unknown }
+  | { origin: "fallback"; fallbackUsed: true; fallbackReason: string };
 
 /**
  * Early exit object thrown to short-circuit workflow execution.
@@ -3715,6 +3818,15 @@ export async function run<T, E, C = void>(
       return stepFn(id, () => result, options);
     };
 
+    // step.workflow: Run sub-workflow (or any AsyncResult getter) as a step; same engine as step(id, getter, opts)
+    stepFn.workflow = <T, SubE, StepC = unknown>(
+      id: string,
+      getter: () => AsyncResult<T, SubE, StepC>,
+      options?: StepOptions
+    ): Promise<T> => {
+      return stepFn(id, getter as () => AsyncResult<T, E, StepC>, options);
+    };
+
     // step.andThen: Chain AsyncResult operations
     stepFn.andThen = <T, U, StepE, StepC = unknown>(
       id: string,
@@ -3787,6 +3899,637 @@ export async function run<T, E, C = void>(
       );
     };
 
+    // step.withFallback: Execute primary with fallback on error
+    stepFn.withFallback = <T, E1, E2>(
+      id: string,
+      operation: () => AsyncResult<T, E1>,
+      options: { on?: E1 & string; fallback: () => AsyncResult<T, E2>; key?: string }
+    ): Promise<T> => {
+      if (typeof id !== 'string' || id.length === 0) {
+        throw new Error(
+          '[awaitly] step.withFallback() requires an explicit string ID as the first argument. ' +
+          'Example: step.withFallback("getUser", () => fetchUser(id), { fallback: () => fetchFromCache(id) })'
+        );
+      }
+
+      const stepKey = options.key ?? id;
+      const stepName = id;
+      const stepId = generateStepId(stepKey);
+      const hasEventListeners = onEvent;
+
+      return (async () => {
+        const startTime = hasEventListeners ? performance.now() : 0;
+
+        if (onEvent) {
+          emitEvent({
+            type: "step_start",
+            workflowId,
+            stepId,
+            stepKey,
+            name: stepName,
+            ts: Date.now(),
+          });
+        }
+
+        // Try the primary operation
+        let primaryResult: Result<T, E1>;
+        try {
+          primaryResult = await operation();
+        } catch (thrown) {
+          // If it's an earlyExit from a nested step, propagate
+          if (isEarlyExitE(thrown)) {
+            emitEvent({
+              type: "step_aborted",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs: performance.now() - startTime,
+            });
+            throw thrown;
+          }
+
+          // Primary threw — map to UNEXPECTED_ERROR
+          let mappedError: E | UnexpectedError;
+          try {
+            mappedError = effectiveCatchUnexpected(thrown) as E | UnexpectedError;
+          } catch (mapperError) {
+            throw createMapperException(mapperError);
+          }
+
+          // If `on` is specified, only run fallback if it matches the mapped error
+          if (options.on !== undefined && options.on !== mappedError) {
+            const durationMs = performance.now() - startTime;
+            emitEvent({
+              type: "step_error",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              error: mappedError,
+            });
+            if (stepKey) {
+              emitEvent({
+                type: "step_complete",
+                workflowId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                result: err(mappedError, { cause: thrown }),
+                meta: { origin: "throw", thrown },
+              });
+            }
+            onError?.(mappedError as E, stepName, context);
+            throw earlyExit(mappedError as E, { origin: "throw", thrown });
+          }
+
+          // Run fallback for thrown error
+          let fallbackResultFromThrow: Result<T, E2>;
+          try {
+            fallbackResultFromThrow = await options.fallback();
+          } catch (fallbackThrown) {
+            if (isEarlyExitE(fallbackThrown)) {
+              emitEvent({
+                type: "step_aborted",
+                workflowId,
+                stepId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs: performance.now() - startTime,
+              });
+              throw fallbackThrown;
+            }
+            let fallbackMappedError: E | UnexpectedError;
+            try {
+              fallbackMappedError = effectiveCatchUnexpected(fallbackThrown) as E | UnexpectedError;
+            } catch (mapperError) {
+              throw createMapperException(mapperError);
+            }
+            const durationMs = performance.now() - startTime;
+            emitEvent({
+              type: "step_error",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              error: fallbackMappedError,
+            });
+            if (stepKey) {
+              emitEvent({
+                type: "step_complete",
+                workflowId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                result: err(fallbackMappedError, { cause: fallbackThrown }),
+                meta: { origin: "throw", thrown: fallbackThrown },
+              });
+            }
+            onError?.(fallbackMappedError as E, stepName, context);
+            throw earlyExit(fallbackMappedError as E, { origin: "throw", thrown: fallbackThrown });
+          }
+
+          if (fallbackResultFromThrow.ok) {
+            const durationMs = performance.now() - startTime;
+            emitEvent({
+              type: "step_success",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+            });
+            if (stepKey) {
+              emitEvent({
+                type: "step_complete",
+                workflowId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                result: fallbackResultFromThrow,
+                meta: { origin: "fallback" as const, fallbackUsed: true as const, fallbackReason: String(mappedError) },
+              });
+            }
+            return fallbackResultFromThrow.value;
+          } else {
+            // Fallback also failed
+            const durationMs = performance.now() - startTime;
+            const wrappedError = wrapForStep(fallbackResultFromThrow.error, {
+              origin: "result",
+              resultCause: fallbackResultFromThrow.cause,
+            });
+            emitEvent({
+              type: "step_error",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              error: wrappedError,
+            });
+            if (stepKey) {
+              emitEvent({
+                type: "step_complete",
+                workflowId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                result: fallbackResultFromThrow,
+                meta: { origin: "result", resultCause: fallbackResultFromThrow.cause },
+              });
+            }
+            onError?.(wrappedError as unknown as E, stepName, context);
+            throw earlyExit(wrappedError as unknown as E, {
+              origin: "result",
+              resultCause: fallbackResultFromThrow.cause,
+            });
+          }
+        }
+
+        // Primary returned a result (didn't throw)
+        if (primaryResult.ok) {
+          const durationMs = performance.now() - startTime;
+          emitEvent({
+            type: "step_success",
+            workflowId,
+            stepId,
+            stepKey,
+            name: stepName,
+            ts: Date.now(),
+            durationMs,
+          });
+          if (stepKey) {
+            emitEvent({
+              type: "step_complete",
+              workflowId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              result: primaryResult,
+            });
+          }
+          return primaryResult.value;
+        }
+
+        // Primary returned an error
+        const primaryError = primaryResult.error;
+
+        // If `on` is specified and doesn't match, earlyExit with primary error (no fallback)
+        if (options.on !== undefined && options.on !== primaryError) {
+          const durationMs = performance.now() - startTime;
+          const wrappedError = wrapForStep(primaryError, {
+            origin: "result",
+            resultCause: primaryResult.cause,
+          });
+          emitEvent({
+            type: "step_error",
+            workflowId,
+            stepId,
+            stepKey,
+            name: stepName,
+            ts: Date.now(),
+            durationMs,
+            error: wrappedError,
+          });
+          if (stepKey) {
+            emitEvent({
+              type: "step_complete",
+              workflowId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              result: primaryResult,
+              meta: { origin: "result", resultCause: primaryResult.cause },
+            });
+          }
+          onError?.(wrappedError as unknown as E, stepName, context);
+          throw earlyExit(wrappedError as unknown as E, {
+            origin: "result",
+            resultCause: primaryResult.cause,
+          });
+        }
+
+        // Run fallback
+        let fallbackResult: Result<T, E2>;
+        try {
+          fallbackResult = await options.fallback();
+        } catch (thrown) {
+          if (isEarlyExitE(thrown)) {
+            emitEvent({
+              type: "step_aborted",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs: performance.now() - startTime,
+            });
+            throw thrown;
+          }
+          // Fallback threw — map via effectiveCatchUnexpected
+          let mappedError: E | UnexpectedError;
+          try {
+            mappedError = effectiveCatchUnexpected(thrown) as E | UnexpectedError;
+          } catch (mapperError) {
+            throw createMapperException(mapperError);
+          }
+          const durationMs = performance.now() - startTime;
+          emitEvent({
+            type: "step_error",
+            workflowId,
+            stepId,
+            stepKey,
+            name: stepName,
+            ts: Date.now(),
+            durationMs,
+            error: mappedError,
+          });
+          if (stepKey) {
+            emitEvent({
+              type: "step_complete",
+              workflowId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              result: err(mappedError, { cause: thrown }),
+              meta: { origin: "throw", thrown },
+            });
+          }
+          onError?.(mappedError as E, stepName, context);
+          throw earlyExit(mappedError as E, { origin: "throw", thrown });
+        }
+
+        if (fallbackResult.ok) {
+          const durationMs = performance.now() - startTime;
+          emitEvent({
+            type: "step_success",
+            workflowId,
+            stepId,
+            stepKey,
+            name: stepName,
+            ts: Date.now(),
+            durationMs,
+          });
+          if (stepKey) {
+            emitEvent({
+              type: "step_complete",
+              workflowId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              result: fallbackResult,
+              meta: { origin: "fallback" as const, fallbackUsed: true as const, fallbackReason: String(primaryError) },
+            });
+          }
+          return fallbackResult.value;
+        }
+
+        // Fallback also returned an error
+        const durationMs = performance.now() - startTime;
+        const wrappedError = wrapForStep(fallbackResult.error, {
+          origin: "result",
+          resultCause: fallbackResult.cause,
+        });
+        emitEvent({
+          type: "step_error",
+          workflowId,
+          stepId,
+          stepKey,
+          name: stepName,
+          ts: Date.now(),
+          durationMs,
+          error: wrappedError,
+        });
+        if (stepKey) {
+          emitEvent({
+            type: "step_complete",
+            workflowId,
+            stepKey,
+            name: stepName,
+            ts: Date.now(),
+            durationMs,
+            result: fallbackResult,
+            meta: { origin: "result", resultCause: fallbackResult.cause },
+          });
+        }
+        onError?.(wrappedError as unknown as E, stepName, context);
+        throw earlyExit(wrappedError as unknown as E, {
+          origin: "result",
+          resultCause: fallbackResult.cause,
+        });
+      })();
+    };
+
+    // step.withResource: Acquire/use/release lifecycle with guaranteed release
+    stepFn.withResource = <T, R, AcquireE, UseE>(
+      id: string,
+      options: {
+        acquire: () => AsyncResult<R, AcquireE>;
+        use: (resource: R) => AsyncResult<T, UseE>;
+        release: (resource: R) => void | Promise<void>;
+      }
+    ): Promise<T> => {
+      if (typeof id !== 'string' || id.length === 0) {
+        throw new Error(
+          '[awaitly] step.withResource() requires an explicit string ID as the first argument. ' +
+          'Example: step.withResource("useDb", { acquire: () => connect(), use: (db) => query(db), release: (db) => db.close() })'
+        );
+      }
+
+      const stepKey = id;
+      const stepName = id;
+      const stepId = generateStepId(stepKey);
+      const hasEventListeners = onEvent;
+
+      return (async () => {
+        const startTime = hasEventListeners ? performance.now() : 0;
+
+        if (onEvent) {
+          emitEvent({
+            type: "step_start",
+            workflowId,
+            stepId,
+            stepKey,
+            name: stepName,
+            ts: Date.now(),
+          });
+        }
+
+        // Acquire
+        let acquireResult: Result<R, AcquireE>;
+        try {
+          acquireResult = await options.acquire();
+        } catch (thrown) {
+          if (isEarlyExitE(thrown)) {
+            emitEvent({
+              type: "step_aborted",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs: performance.now() - startTime,
+            });
+            throw thrown;
+          }
+          let mappedError: E | UnexpectedError;
+          try {
+            mappedError = effectiveCatchUnexpected(thrown) as E | UnexpectedError;
+          } catch (mapperError) {
+            throw createMapperException(mapperError);
+          }
+          const durationMs = performance.now() - startTime;
+          emitEvent({
+            type: "step_error",
+            workflowId,
+            stepId,
+            stepKey,
+            name: stepName,
+            ts: Date.now(),
+            durationMs,
+            error: mappedError,
+          });
+          if (stepKey) {
+            emitEvent({
+              type: "step_complete",
+              workflowId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              result: err(mappedError, { cause: thrown }),
+              meta: { origin: "throw", thrown },
+            });
+          }
+          onError?.(mappedError as E, stepName, context);
+          throw earlyExit(mappedError as E, { origin: "throw", thrown });
+        }
+
+        if (!acquireResult.ok) {
+          // Acquire failed — no release needed
+          const durationMs = performance.now() - startTime;
+          const wrappedError = wrapForStep(acquireResult.error, {
+            origin: "result",
+            resultCause: acquireResult.cause,
+          });
+          emitEvent({
+            type: "step_error",
+            workflowId,
+            stepId,
+            stepKey,
+            name: stepName,
+            ts: Date.now(),
+            durationMs,
+            error: wrappedError,
+          });
+          if (stepKey) {
+            emitEvent({
+              type: "step_complete",
+              workflowId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              result: acquireResult,
+              meta: { origin: "result", resultCause: acquireResult.cause },
+            });
+          }
+          onError?.(wrappedError as unknown as E, stepName, context);
+          throw earlyExit(wrappedError as unknown as E, {
+            origin: "result",
+            resultCause: acquireResult.cause,
+          });
+        }
+
+        const resource = acquireResult.value;
+        let useResult: Result<T, UseE> | undefined;
+        let useThrown: unknown;
+        let useThrewNonResult = false;
+
+        // Use
+        try {
+          useResult = await options.use(resource);
+        } catch (thrown) {
+          if (isEarlyExitE(thrown)) {
+            // Release before propagating
+            try {
+              await options.release(resource);
+            } catch (releaseErr) {
+              console.warn(
+                `[awaitly] step.withResource("${id}"): release threw after earlyExit:`,
+                releaseErr
+              );
+            }
+            throw thrown;
+          }
+          useThrown = thrown;
+          useThrewNonResult = true;
+        }
+
+        // Release — ALWAYS runs after use (unless acquire failed)
+        try {
+          await options.release(resource);
+        } catch (releaseErr) {
+          console.warn(
+            `[awaitly] step.withResource("${id}"): release threw:`,
+            releaseErr
+          );
+        }
+
+        // Emit events AFTER release completes
+        if (useThrewNonResult) {
+          let mappedError: E | UnexpectedError;
+          try {
+            mappedError = effectiveCatchUnexpected(useThrown) as E | UnexpectedError;
+          } catch (mapperError) {
+            throw createMapperException(mapperError);
+          }
+          const durationMs = performance.now() - startTime;
+          emitEvent({
+            type: "step_error",
+            workflowId,
+            stepId,
+            stepKey,
+            name: stepName,
+            ts: Date.now(),
+            durationMs,
+            error: mappedError,
+          });
+          if (stepKey) {
+            emitEvent({
+              type: "step_complete",
+              workflowId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              result: err(mappedError, { cause: useThrown }),
+              meta: { origin: "throw", thrown: useThrown },
+            });
+          }
+          onError?.(mappedError as E, stepName, context);
+          throw earlyExit(mappedError as E, { origin: "throw", thrown: useThrown });
+        }
+
+        // useResult is defined if useThrewNonResult is false
+        const result = useResult!;
+        if (result.ok) {
+          const durationMs = performance.now() - startTime;
+          emitEvent({
+            type: "step_success",
+            workflowId,
+            stepId,
+            stepKey,
+            name: stepName,
+            ts: Date.now(),
+            durationMs,
+          });
+          if (stepKey) {
+            emitEvent({
+              type: "step_complete",
+              workflowId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              result,
+            });
+          }
+          return result.value;
+        }
+
+        // Use returned an error
+        const durationMs = performance.now() - startTime;
+        const wrappedError = wrapForStep(result.error, {
+          origin: "result",
+          resultCause: result.cause,
+        });
+        emitEvent({
+          type: "step_error",
+          workflowId,
+          stepId,
+          stepKey,
+          name: stepName,
+          ts: Date.now(),
+          durationMs,
+          error: wrappedError,
+        });
+        if (stepKey) {
+          emitEvent({
+            type: "step_complete",
+            workflowId,
+            stepKey,
+            name: stepName,
+            ts: Date.now(),
+            durationMs,
+            result,
+            meta: { origin: "result", resultCause: result.cause },
+          });
+        }
+        onError?.(wrappedError as unknown as E, stepName, context);
+        throw earlyExit(wrappedError as unknown as E, {
+          origin: "result",
+          resultCause: result.cause,
+        });
+      })();
+    };
+
     const step = stepFn as RunStep<E | UnexpectedError>;
     const value = await fn({ step });
 
@@ -3824,7 +4567,9 @@ export async function run<T, E, C = void>(
       // Extract original cause from early exit metadata
       const originalCause = error.meta.origin === "throw"
         ? error.meta.thrown
-        : error.meta.resultCause;
+        : error.meta.origin === "result"
+          ? error.meta.resultCause
+          : undefined;
 
       return err(error.error, { cause: originalCause });
     }

@@ -7,7 +7,7 @@
  */
 
 import type { Result, WorkflowEvent } from "../core";
-import type { ResumeState, Workflow } from "../workflow";
+import type { ResumeState, Workflow } from "../workflow/types";
 import { createApprovalStateCollector, isPendingApproval, injectApproval } from "../workflow";
 
 // =============================================================================

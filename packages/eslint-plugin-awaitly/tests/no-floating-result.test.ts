@@ -77,6 +77,18 @@ describe('no-floating-result', () => {
       expect(messages).toHaveLength(0);
     });
 
+    it('allows step.workflow with assignment', () => {
+      const code = `const result = await step.workflow('child-call', () => childWorkflow.run(async ({ step }) => step('x', () => ok(1))));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows step.withFallback with assignment', () => {
+      const code = `const user = await step.withFallback('getUser', () => deps.getUser(id), { fallback: () => deps.getUserFromCache(id) });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
     it('allows chained step()', () => {
       const code = `step(() => fetchUser()).value;`;
       const messages = linter.verify(code, config);
@@ -145,6 +157,20 @@ describe('no-floating-result', () => {
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
       expect(messages[0].message).toContain('step.map');
+    });
+
+    it('reports floating step.workflow()', () => {
+      const code = `step.workflow('child-call', () => childWorkflow.run(async ({ step }) => step('x', () => ok(1))));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step');
+    });
+
+    it('reports floating step.withFallback()', () => {
+      const code = `step.withFallback('getUser', () => deps.getUser(id), { fallback: () => deps.getUserFromCache(id) });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step');
     });
 
     it('reports multiple floating steps', () => {

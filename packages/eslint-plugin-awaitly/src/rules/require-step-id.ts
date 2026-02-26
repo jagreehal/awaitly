@@ -35,7 +35,7 @@ import type { CallExpression, MemberExpression } from 'estree';
  */
 
 // Step helper methods that require string (id/name) as first argument
-const STEP_HELPER_METHODS = ['sleep', 'retry', 'withTimeout', 'try', 'fromResult', 'parallel', 'race', 'allSettled', 'run', 'andThen', 'match', 'all', 'map'];
+const STEP_HELPER_METHODS = ['sleep', 'retry', 'withTimeout', 'try', 'fromResult', 'parallel', 'race', 'allSettled', 'run', 'andThen', 'match', 'all', 'map', 'withFallback', 'withResource', 'workflow'];
 
 /** Saga context param names that may receive step/tryStep (common in createSagaWorkflow / runSaga callbacks). */
 const SAGA_CONTEXT_NAMES = ['saga', 'ctx', 'sagaContext', 's'];
@@ -226,7 +226,7 @@ const rule: Rule.RuleModule = {
     type: 'problem',
     docs: {
       description:
-        "Require a string literal as the first argument to step() and step helper methods (sleep, retry, withTimeout, try, fromResult, parallel, race, allSettled, run, andThen, match, all, map).",
+        "Require a string literal as the first argument to step() and step helper methods (sleep, retry, withTimeout, try, fromResult, parallel, race, allSettled, run, andThen, match, all, map, withFallback, withResource, workflow).",
       recommended: true,
     },
     schema: [],
@@ -353,6 +353,9 @@ const rule: Rule.RuleModule = {
             match: 'handleUser',
             all: 'fetchAll',
             map: 'fetchUsers',
+            withFallback: 'getUser',
+            withResource: 'useDb',
+            workflow: 'child-call',
           };
 
           if (!firstArg) {

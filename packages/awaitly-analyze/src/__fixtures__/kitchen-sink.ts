@@ -402,12 +402,43 @@ export async function runKitchenSink(userId: string) {
       : await step("ternary-false", () => deps.computeValue());
 
     // -----------------------------------------------------------------------
-    // 36. Workflow ref (call another workflow)
+    // 36. step.withFallback
+    // -----------------------------------------------------------------------
+    const fallbackResult = await step.withFallback(
+      "fallback-fetch",
+      () => deps.fetchPosts(user.id),
+      { fallback: () => deps.fetchFromCacheA() }
+    );
+
+    // -----------------------------------------------------------------------
+    // 37. step.withFallback with on filter
+    // -----------------------------------------------------------------------
+    const filteredFallback = await step.withFallback(
+      "filtered-fallback",
+      () => deps.fetchUser(userId),
+      {
+        on: "NOT_FOUND" as const,
+        fallback: () => ok({ id: "default", name: "Default", isPremium: false, role: "user" }),
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    // 38. step.withResource
+    // -----------------------------------------------------------------------
+    // @ts-expect-error Analyzer pattern — runtime withResource may not exist on step type in fixtures
+    const resourceResult = await step.withResource("use-resource", {
+      acquire: () => deps.fetchUser(userId),
+      use: (resource) => deps.fetchPosts(resource.id),
+      release: (resource) => { /* cleanup */ },
+    });
+
+    // -----------------------------------------------------------------------
+    // 39. Workflow ref (call another workflow)
     // -----------------------------------------------------------------------
     const enriched = await otherWorkflow.run(async ({ step: s, deps: d }) => {
       return await s("enrich", () => d.enrichUser(user.id));
     });
 
-    return { user, enriched, whenOrVal, unlessOrVal, ternaryResult, writer, reader, mapped };
+    return { user, enriched, whenOrVal, unlessOrVal, ternaryResult, writer, reader, mapped, fallbackResult, filteredFallback, resourceResult };
   });
 }

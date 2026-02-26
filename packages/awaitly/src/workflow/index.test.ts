@@ -4218,6 +4218,159 @@ describe("Step Timeout", () => {
     });
   });
 
+  describe("step.withFallback() method", () => {
+    it("works inside createWorkflow().run()", async () => {
+      const workflow = createWorkflow("workflow", {});
+      // ExtraE inferred or specified so step accepts operation/fallback error types
+      const result = await workflow.run<string, "PRIMARY_ERROR">(async ({ step }) => {
+        return await step.withFallback("get-user", () => Promise.resolve(err("PRIMARY_ERROR" as const)), {
+          fallback: () => Promise.resolve(ok("fallback-value")),
+        });
+      });
+
+      expect(isOk(result)).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe("fallback-value");
+      }
+    });
+
+    it("uses workflow cache when key is provided", async () => {
+      const primary = vi.fn(() => Promise.resolve(err("PRIMARY_ERROR" as const)));
+      const fallback = vi.fn(() => Promise.resolve(ok("fallback-value")));
+      const workflow = createWorkflow("workflow", {}, { cache: new Map() });
+
+      const first = await workflow.run<string, "PRIMARY_ERROR">(async ({ step }) => {
+        return await step.withFallback("get-user", primary, {
+          key: "user:1",
+          fallback,
+        });
+      });
+
+      const second = await workflow.run<string, "PRIMARY_ERROR">(async ({ step }) => {
+        return await step.withFallback("get-user", primary, {
+          key: "user:1",
+          fallback,
+        });
+      });
+
+      expect(isOk(first)).toBe(true);
+      expect(isOk(second)).toBe(true);
+      expect(primary).toHaveBeenCalledTimes(1);
+      expect(fallback).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("step.withResource() method", () => {
+    it("works inside createWorkflow().run()", async () => {
+      const release = vi.fn();
+      const workflow = createWorkflow("workflow", {});
+
+      const result = await workflow.run(async ({ step }) => {
+        return await step.withResource("db-step", {
+          acquire: () => Promise.resolve(ok({ conn: "db" })),
+          use: (resource: { conn: string }) => Promise.resolve(ok(`used-${resource.conn}`)),
+          release,
+        });
+      });
+
+      expect(isOk(result)).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe("used-db");
+      }
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledWith({ conn: "db" });
+    });
+
+    it("calls onAfterStep for keyed resource steps", async () => {
+      const onAfterStep = vi.fn();
+      const workflow = createWorkflow("workflow", {}, { onAfterStep });
+
+      const result = await workflow.run(async ({ step }) => {
+        return await step.withResource("db-step", {
+          acquire: () => Promise.resolve(ok({ conn: "db" })),
+          use: (resource: { conn: string }) => Promise.resolve(ok(`used-${resource.conn}`)),
+          release: () => {},
+        });
+      });
+
+      expect(isOk(result)).toBe(true);
+      expect(onAfterStep).toHaveBeenCalledTimes(1);
+      expect(onAfterStep).toHaveBeenCalledWith(
+        "db-step",
+        expect.objectContaining({ ok: true }),
+        expect.stringMatching(/^[0-9a-f-]{36}$/),
+        undefined
+      );
+    });
+  });
+
+  describe("step.workflow() method", () => {
+    it("runs sub-workflow (AsyncResult getter) as a step", async () => {
+      const workflow = createWorkflow("workflow", {});
+
+      const result = await workflow.run(async ({ step }) => {
+        return await step.workflow("sub", () => Promise.resolve(ok("sub-value")));
+      });
+
+      expect(isOk(result)).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe("sub-value");
+      }
+    });
+
+    it("error from sub-workflow fails parent with that error", async () => {
+      const workflow = createWorkflow("workflow", {});
+      const getter = () => Promise.resolve(err("SUB_ERROR" as const));
+
+      const result = await workflow.run<unknown, "SUB_ERROR">(async ({ step }) => {
+        return await step.workflow("sub", getter);
+      });
+
+      expect(isOk(result)).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toBe("SUB_ERROR");
+      }
+    });
+
+    it("calls onAfterStep for keyed step.workflow", async () => {
+      const onAfterStep = vi.fn();
+      const workflow = createWorkflow("workflow", {}, { onAfterStep });
+
+      const result = await workflow.run(async ({ step }) => {
+        return await step.workflow("sub-step", () => Promise.resolve(ok(42)), { key: "sub-step" });
+      });
+
+      expect(isOk(result)).toBe(true);
+      expect(onAfterStep).toHaveBeenCalledTimes(1);
+      expect(onAfterStep).toHaveBeenCalledWith(
+        "sub-step",
+        expect.objectContaining({ ok: true, value: 42 }),
+        expect.stringMatching(/^[0-9a-f-]{36}$/),
+        undefined
+      );
+    });
+
+    it("infers error union from step.workflow when ExtraE is specified", async () => {
+      const workflow = createWorkflow("workflow", {});
+
+      const result = await workflow.run<number, "B_ERROR">(async ({ step }) => {
+        const a = await step.workflow("a", () => Promise.resolve(ok(1)));
+        await step.workflow("b", () => Promise.resolve(err("B_ERROR" as const)));
+        return a;
+      });
+
+      expect(isOk(result)).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toBe("B_ERROR");
+      }
+      // With run<number, "B_ERROR">, result.error is "B_ERROR" | UnexpectedError | ...
+      if (!result.ok && result.error === "B_ERROR") {
+        const _err: "B_ERROR" = result.error;
+        expect(_err).toBe("B_ERROR");
+      }
+    });
+  });
+
   describe("isStepTimeoutError type guard", () => {
     it("correctly identifies StepTimeoutError", () => {
       const timeoutError: StepTimeoutError = {

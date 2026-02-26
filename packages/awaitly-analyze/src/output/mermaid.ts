@@ -349,6 +349,9 @@ function getStepKindSuffix(node: StaticStepNode): string {
   if (callee === "step.andThen") return " (AndThen)";
   if (callee === "step.match") return " (Match)";
   if (callee === "step.map") return " (Map)";
+  if (callee === "step.withFallback") return " (Fallback)";
+  if (callee === "step.withResource") return " (Resource)";
+  if (callee === "step.workflow") return " (Workflow)";
   return "";
 }
 

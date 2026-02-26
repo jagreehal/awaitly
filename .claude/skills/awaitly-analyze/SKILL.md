@@ -33,6 +33,7 @@ Use awaitly-analyze to understand workflow structure **without execution**. Entr
 ### Strict mode and step IDs
 - In strict mode, agents **MUST** ensure every step call uses a **static string literal** as the first argument (ID or name). See awaitly-patterns skill.
 - Agents **MUST NOT** emit legacy step forms (e.g. `step(fn, opts)` without id); they produce `stepId: "<missing>"` and strict validation diagnostics.
+- Static analysis recognizes `step.workflow`, `step.withFallback`, and `step.withResource` (step ID from first argument). For `step.workflow`, getters that call `childWorkflow.run(...)` are traversed so child workflow refs are detected and emitted as workflow-ref nodes in diagrams.
 
 ---
 
