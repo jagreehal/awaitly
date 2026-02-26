@@ -1,7 +1,11 @@
+import path from "path";
+import { fileURLToPath } from "url";
 import { defineConfig } from "tsup";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 export default defineConfig({
-  entry: ["src/index.ts"],
+  entry: [path.resolve(__dirname, "src", "index.ts")],
   format: ["cjs", "esm"],
   dts: true,
   clean: true,

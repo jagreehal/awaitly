@@ -29,7 +29,8 @@
     "test:watch": "vitest watch",
     "lint": "eslint .",
     "clean": "rm -rf dist",
-    "quality": "pnpm type-check && pnpm type-check:fixtures && pnpm test && pnpm lint"
+    "quality": "pnpm type-check && pnpm type-check:fixtures && pnpm test && pnpm lint",
+    "generate-showcase": "tsx src/__fixtures__/showcase/generate-showcase.ts"
   },
   "keywords": [
     "awaitly",
@@ -69,6 +70,7 @@
     "mermaid": "^11.12.3",
     "ts-morph": "^27.0.2",
     "tsup": "^8.5.1",
+    "tsx": "^4.19.2",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   },

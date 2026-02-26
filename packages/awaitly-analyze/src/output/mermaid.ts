@@ -39,6 +39,8 @@ export interface MermaidOptions {
   showInlineErrors?: boolean;
   /** Expand retry steps into separate retry logic nodes */
   expandRetry?: boolean;
+  /** Use merge nodes after conditionals so sequential when/unless render as same-level (decision → branches → merge → next decision) */
+  sameLevelConditionals?: boolean;
   /** Custom node styles */
   styles?: MermaidStyles;
 }
@@ -50,6 +52,8 @@ export interface MermaidStyles {
   parallel?: string;
   race?: string;
   conditional?: string;
+  /** Merge nodes after conditionals (when sameLevelConditionals); distinct from conditional reduces "pink overload" */
+  merge?: string;
   switch?: string;
   loop?: string;
   workflowRef?: string;
@@ -66,6 +70,7 @@ const DEFAULT_OPTIONS: Required<MermaidOptions> = {
   useSubgraphs: true,
   showInlineErrors: false,
   expandRetry: false,
+  sameLevelConditionals: false,
   styles: {
     step: "fill:#e1f5fe,stroke:#01579b",
     sagaStep: "fill:#e8eaf6,stroke:#1a237e",
@@ -73,6 +78,7 @@ const DEFAULT_OPTIONS: Required<MermaidOptions> = {
     parallel: "fill:#e8f5e9,stroke:#1b5e20",
     race: "fill:#fff3e0,stroke:#e65100",
     conditional: "fill:#fce4ec,stroke:#880e4f",
+    merge: "fill:#e3f2fd,stroke:#1565c0",
     switch: "fill:#f3e5f5,stroke:#4a148c",
     loop: "fill:#f3e5f5,stroke:#4a148c",
     workflowRef: "fill:#e0f2f1,stroke:#004d40",
@@ -170,6 +176,7 @@ function renderStaticMermaidInternal(
   lines.push(`  classDef parallelStyle ${opts.styles.parallel}`);
   lines.push(`  classDef raceStyle ${opts.styles.race}`);
   lines.push(`  classDef conditionalStyle ${opts.styles.conditional}`);
+  lines.push(`  classDef mergeStyle ${opts.styles.merge}`);
   lines.push(`  classDef switchStyle ${opts.styles.switch}`);
   lines.push(`  classDef loopStyle ${opts.styles.loop}`);
   lines.push(`  classDef workflowRefStyle ${opts.styles.workflowRef}`);
@@ -219,6 +226,8 @@ interface RenderContext {
   stepIdMap: Map<string, string>;
   /** Optional label annotations appended to step labels (stepId -> annotation lines) */
   stepLabelAnnotations?: Map<string, string[]>;
+  /** When rendering inside a loop, annotate step labels as per-iteration */
+  inLoop?: { loopType: string; iterSource?: string };
 }
 
 interface Edge {
@@ -394,9 +403,7 @@ function renderStepNode(
     label = `${label}\\n[${node.key}]`;
   }
 
-  if (node.depSource) {
-    label += `\\n(dep: ${node.depSource})`;
-  }
+  // dep source info is shown in step details table, not in diagram labels
 
   // Apply label annotations from enhanced renderer (data flow, errors)
   if (context.stepLabelAnnotations && node.stepId) {
@@ -581,11 +588,11 @@ function renderRaceNode(
 
   // Fork node (hexagon for race) - include name if present
   const raceLabel = node.name ? escapeLabel(node.name) : "Race";
-  lines.push(`  ${forkId}{{{"${raceLabel}"}}}`);
+  lines.push(`  ${forkId}{{"${raceLabel}"}}`);
   context.styleClasses.set(forkId, "raceStyle");
 
   // Join node
-  lines.push(`  ${joinId}{{{"Winner"}}}`);
+  lines.push(`  ${joinId}{{"Winner"}}`);
   context.styleClasses.set(joinId, "raceStyle");
 
   // Render each competing branch
@@ -661,6 +668,19 @@ function renderConditionalNode(
     lastNodeIds.push(decisionId);
   }
 
+  if (context.opts.sameLevelConditionals && lastNodeIds.length > 0) {
+    const mergeId = `merge_${++context.nodeCounter}`;
+    lines.push(`  ${mergeId}["Merge"]`);
+    context.styleClasses.set(mergeId, "mergeStyle");
+    for (const id of lastNodeIds) {
+      context.edges.push({ from: id, to: mergeId });
+    }
+    return {
+      firstNodeId: decisionId,
+      lastNodeIds: [mergeId],
+    };
+  }
+
   return {
     firstNodeId: decisionId,
     lastNodeIds,
@@ -714,6 +734,19 @@ function renderDecisionNode(
   } else {
     // No alternate - decision can skip directly
     lastNodeIds.push(nodeId);
+  }
+
+  if (context.opts.sameLevelConditionals && lastNodeIds.length > 0) {
+    const mergeId = `merge_${++context.nodeCounter}`;
+    lines.push(`  ${mergeId}["Merge"]`);
+    context.styleClasses.set(mergeId, "mergeStyle");
+    for (const id of lastNodeIds) {
+      context.edges.push({ from: id, to: mergeId });
+    }
+    return {
+      firstNodeId: nodeId,
+      lastNodeIds: [mergeId],
+    };
   }
 
   return {
@@ -780,8 +813,11 @@ function renderLoopNode(
   lines.push(`  ${loopStartId}(["${escapeLabel(loopLabel)}"])`);
   context.styleClasses.set(loopStartId, "loopStyle");
 
-  // Loop body
+  // Loop body (mark context so step labels get "per-iteration")
+  const prevInLoop = context.inLoop;
+  context.inLoop = { loopType: node.loopType, iterSource: node.iterSource };
   const bodyResult = renderNodes(node.body, context, lines);
+  context.inLoop = prevInLoop;
 
   // Connect loop start to body
   if (bodyResult.firstNodeId) {
@@ -853,6 +889,7 @@ function renderUnknownNode(
 
 function escapeLabel(label: string): string {
   return label
+    .replace(/\\n/g, " ")
     .replace(/\r?\n/g, " ")
     .replace(/"/g, "'")
     .replace(/\[/g, "(")

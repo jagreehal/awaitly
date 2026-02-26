@@ -1,0 +1,13 @@
+---
+title: Analyzer Showcase
+description: Code → Mermaid for every workflow pattern. See what the static analyzer produces for each step type and control flow.
+---
+
+import { AnalyzerShowcase } from '~/components';
+import showcaseData from '../../../data/analyzer-showcase.data.json';
+
+This page shows **what the analyzer produces** for each workflow pattern: the source code (from real fixture files) and the generated Mermaid diagram. Step-level details (types, errors, retry/timeout) are extracted when the type checker is available.
+
+<AnalyzerShowcase entries={showcaseData} client:load />
+
+See [Static Analysis](/docs/guides/static-analysis/) for the full API and [Visualization](/docs/guides/visualization/) for runtime diagrams.

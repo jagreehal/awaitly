@@ -56,6 +56,23 @@
   }
 }
 
+/* Remove native <summary> disclosure triangle — unlayered + !important so we win over Starlight/Tailwind */
+summary,
+details summary {
+  list-style: none !important;
+  list-style-type: none !important;
+}
+summary::-webkit-details-marker,
+details summary::-webkit-details-marker {
+  display: none !important;
+}
+summary::marker,
+details summary::marker {
+  content: "" !important;
+  display: none !important;
+  font-size: 0 !important;
+}
+
 /* Doc widget buttons: fixed height/alignment (until widgets use shadcn Button) */
 .widget-btn {
   display: inline-flex;

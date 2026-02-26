@@ -198,8 +198,9 @@ function processStep(node: StaticStepNode, ctx: DSLContext): { firstId: string |
     }
   }
 
-  if (node.depSource) {
-    label += ` (dep: ${node.depSource})`;
+  const sourceLabel = node.depSource ?? node.stepKind;
+  if (sourceLabel) {
+    label += ` (dep: ${sourceLabel})`;
   }
 
   addState(ctx, id, label, "step", {

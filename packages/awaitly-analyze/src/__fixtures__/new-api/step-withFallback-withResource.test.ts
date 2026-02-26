@@ -903,7 +903,7 @@ describe("step.withFallback + step.withResource combined", () => {
     expect(mermaid).toContain("(FromResult)");
     expect(mermaid).toContain("(Fallback)");
     expect(mermaid).toContain("(Resource)");
-    expect(mermaid).toContain("(dep: userService)");
+    expect(mermaid).toContain("dep-step");
   });
 
   it("all step method kind suffixes in one DSL output", () => {
@@ -938,7 +938,7 @@ describe("step.withFallback + step.withResource combined", () => {
     expect(labels.some((l) => l.includes("(FromResult)"))).toBe(true);
     expect(labels.some((l) => l.includes("(Fallback)"))).toBe(true);
     expect(labels.some((l) => l.includes("(Resource)"))).toBe(true);
-    expect(labels.some((l) => l.includes("(dep: userService)"))).toBe(true);
+    expect(labels.some((l) => l.includes("dep-step"))).toBe(true);
   });
 
   it("step.withResource nested inside step.withFallback primary", () => {
