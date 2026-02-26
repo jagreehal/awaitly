@@ -120,5 +120,26 @@ describe('stable-cache-keys', () => {
       expect(messages).toHaveLength(1);
       expect(messages[0].message).toContain('uuid');
     });
+
+    it('reports Date.now() in step.workflow key', () => {
+      const code = `step.workflow('child', () => childWorkflow.run(fn), { key: \`child:\${Date.now()}\` });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('Date.now');
+    });
+
+    it('reports Date.now() in step.withFallback key', () => {
+      const code = `step.withFallback('getUser', () => deps.getUser(id), { fallback: () => deps.getUserFromCache(id), key: \`user:\${Date.now()}\` });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('Date.now');
+    });
+
+    it('reports Math.random() in step.withResource key', () => {
+      const code = `step.withResource('useDb', { acquire: () => connect(), use: (db) => query(db), release: (db) => db.close() }, { key: \`db:\${Math.random()}\` });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('Math.random');
+    });
   });
 });

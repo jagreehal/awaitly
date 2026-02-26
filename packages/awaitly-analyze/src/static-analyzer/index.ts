@@ -2084,6 +2084,30 @@ function analyzeCallExpression(
     return analyzeStepFromResultCall(node, args, opts, warnings, stats);
   }
 
+  // step.withFallback() call
+  if (isStepMethodCall(callee, "withFallback", context)) {
+    return analyzeStepCall(node, args, opts, warnings, stats, { displayCallee: "step.withFallback" });
+  }
+
+  // step.withResource() call
+  if (isStepMethodCall(callee, "withResource", context)) {
+    return analyzeStepCall(node, args, opts, warnings, stats, { displayCallee: "step.withResource" });
+  }
+
+  // step.workflow() call
+  if (isStepMethodCall(callee, "workflow", context)) {
+    const getterResults = args[1]
+      ? analyzeCallbackArgument(args[1], opts, warnings, stats, sagaContext, context)
+      : [];
+    const stepNode = analyzeStepCall(node, args, opts, warnings, stats, { displayCallee: "step.workflow" });
+    if (getterResults.length === 0) return stepNode;
+    return {
+      id: generateId(),
+      type: "sequence",
+      children: [stepNode, ...getterResults],
+    } as StaticSequenceNode;
+  }
+
   // Effect-style ergonomics methods
   // step.run() - unwrap AsyncResult directly
   if (isStepMethodCall(callee, "run", context)) {

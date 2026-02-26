@@ -2145,6 +2145,65 @@ async function run() {
       expect(stats?.workflowRefCount).toBe(0);
     });
 
+    it("should detect child workflow refs invoked via step.workflow()", () => {
+      const source = `
+        const childWorkflow = createWorkflow("childWorkflow", {});
+        const parentWorkflow = createWorkflow("parentWorkflow", {});
+
+        async function runParent() {
+          return await parentWorkflow.run(async ({ step }) => {
+            return await step.workflow("child-call", () =>
+              childWorkflow.run(async ({ step }) => {
+                await step("child-step", () => Promise.resolve({ ok: true, value: 1 }));
+                return 1;
+              })
+            );
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const parentResult = results.find((r) => r.root.workflowName === "parentWorkflow");
+      expect(parentResult).toBeDefined();
+
+      const stats = parentResult?.metadata?.stats;
+      expect(stats?.workflowRefCount).toBe(1);
+
+      const refs = findNodesByType<StaticWorkflowRefNode>(parentResult!.root, "workflow-ref");
+      expect(refs.length).toBe(1);
+      expect(refs[0].workflowName).toBe("childWorkflow");
+
+      const mermaid = renderStaticMermaid(parentResult!);
+      expect(mermaid).toContain("childWorkflow");
+    });
+
+    it("should not count nested child workflow steps in parent stats for step.workflow()", () => {
+      const source = `
+        const childWorkflow = createWorkflow("childWorkflow", {});
+        const parentWorkflow = createWorkflow("parentWorkflow", {});
+
+        async function runParent() {
+          return await parentWorkflow.run(async ({ step }) => {
+            await step.workflow("child-call", () =>
+              childWorkflow.run(async ({ step }) => {
+                await step("child-step", () => Promise.resolve({ ok: true, value: 1 }));
+                return 1;
+              })
+            );
+            await step("parent-step", () => Promise.resolve({ ok: true, value: 2 }));
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const parentResult = results.find((r) => r.root.workflowName === "parentWorkflow");
+      expect(parentResult).toBeDefined();
+
+      // Parent should contain the step.workflow step + parent-step, not the child's internal step.
+      expect(parentResult!.metadata.stats.totalSteps).toBe(2);
+      expect(parentResult!.metadata.stats.workflowRefCount).toBe(1);
+    });
+
     it("should not attribute shadowed workflow invocations to outer workflow", () => {
       const source = `
         const workflow = createWorkflow("workflow", {});
@@ -5375,6 +5434,8 @@ async function run() {
             await step.withTimeout("timeout-op", () => deps.slow(), { ms: 1000 });
             await step.try("try-op", () => deps.risky(), { error: "ERR" });
             await step.fromResult("fr-op", () => deps.resultOp(), {});
+            await step.withFallback("fb-op", () => deps.primary(), { fallback: () => deps.secondary() });
+            await step.withResource("res-op", { acquire: () => deps.acquire(), use: (r) => deps.use(r), release: () => {} });
             await step("dep-step", step.dep("userService", () => deps.getUser()));
           });
         }
@@ -5387,6 +5448,8 @@ async function run() {
       expect(mermaid).toContain("(Timeout: 1000ms)");
       expect(mermaid).toContain("(Try)");
       expect(mermaid).toContain("(FromResult)");
+      expect(mermaid).toContain("(Fallback)");
+      expect(mermaid).toContain("(Resource)");
       expect(mermaid).toContain("(dep: userService)");
     });
 

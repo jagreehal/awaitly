@@ -78,6 +78,11 @@ export default defineConfig({
     // Functional programming utilities
     // =========================================================================
     functional: 'src/functional-entry.ts',
+
+    // =========================================================================
+    // Resolver (DataLoader pattern)
+    // =========================================================================
+    resolver: 'src/resolver-entry.ts',
   },
   format: ['cjs', 'esm'],
   dts: true,

@@ -158,6 +158,30 @@ describe('require-step-id', () => {
     });
   });
 
+  describe('valid cases - step.withFallback()', () => {
+    it('allows step.withFallback with string literal id', () => {
+      const code = `step.withFallback('getUser', () => deps.getUser(id), { fallback: () => deps.getUserFromCache(id) });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
+  describe('valid cases - step.withResource()', () => {
+    it('allows step.withResource with string literal id', () => {
+      const code = `step.withResource('useDb', { acquire: () => connect(), use: (db) => query(db), release: (db) => db.close() });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
+  describe('valid cases - step.workflow()', () => {
+    it('allows step.workflow with string literal id', () => {
+      const code = `step.workflow('child-call', () => childWorkflow.run(async ({ step }) => step('x', () => ok(1))));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+  });
+
   describe('valid cases - saga.step / saga.tryStep', () => {
     it('allows saga.step with name first and options', () => {
       const code = `
@@ -330,6 +354,54 @@ describe('require-step-id', () => {
       expect(messages).toHaveLength(1);
       expect(messages[0].ruleId).toBe('awaitly/require-step-id');
       expect(messages[0].message).toContain('step.fromResult()');
+    });
+  });
+
+  describe('invalid cases - step.withFallback()', () => {
+    it('reports when step.withFallback first argument is function (missing id)', () => {
+      const code = `step.withFallback(() => deps.getUser(id), { fallback: () => deps.getUserFromCache(id) });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('step.withFallback()');
+    });
+    it('reports when step.withFallback first argument is identifier', () => {
+      const code = `step.withFallback(myId, () => deps.getUser(id), { fallback: () => deps.getUserFromCache(id) });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step.withFallback()');
+    });
+  });
+
+  describe('invalid cases - step.withResource()', () => {
+    it('reports when step.withResource first argument is missing', () => {
+      const code = `step.withResource({ acquire: () => connect(), use: (db) => query(db), release: (db) => db.close() });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('step.withResource()');
+    });
+    it('reports when step.withResource first argument is identifier', () => {
+      const code = `step.withResource(resId, { acquire: () => connect(), use: (db) => query(db), release: (db) => db.close() });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step.withResource()');
+    });
+  });
+
+  describe('invalid cases - step.workflow()', () => {
+    it('reports when step.workflow first argument is function (missing id)', () => {
+      const code = `step.workflow(() => childWorkflow.run(async ({ step }) => step('x', () => ok(1))));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].message).toContain('step.workflow()');
+    });
+    it('reports when step.workflow first argument is identifier', () => {
+      const code = `step.workflow(stepId, () => childWorkflow.run(async ({ step }) => step('x', () => ok(1))));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step.workflow()');
     });
   });
 

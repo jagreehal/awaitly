@@ -144,6 +144,12 @@ describe("renderWorkflowDSL", () => {
           await step.retry("retry-op", () => deps.fetch(), { attempts: 2 });
           await step.withTimeout("timeout-op", () => deps.slow(), { ms: 1000 });
           await step.try("try-op", () => deps.risky(), { error: "ERR" });
+          await step.workflow("wf-op", () => childWorkflow.run(async ({ step }) => {
+            await step("inner", () => deps.fetch());
+            return 1;
+          }));
+          await step.withFallback("fb-op", () => deps.primary(), { fallback: () => deps.secondary() });
+          await step.withResource("res-op", { acquire: () => deps.acquire(), use: (r) => deps.use(r), release: () => {} });
           await step("dep-step", step.dep("userService", () => deps.getUser()));
         });
       }
@@ -157,6 +163,9 @@ describe("renderWorkflowDSL", () => {
     expect(labels.some(l => l.includes("(Retry: 2)"))).toBe(true);
     expect(labels.some(l => l.includes("(Timeout: 1000ms)"))).toBe(true);
     expect(labels.some(l => l.includes("(Try)"))).toBe(true);
+    expect(labels.some(l => l.includes("(Workflow)"))).toBe(true);
+    expect(labels.some(l => l.includes("(Fallback)"))).toBe(true);
+    expect(labels.some(l => l.includes("(Resource)"))).toBe(true);
     expect(labels.some(l => l.includes("(dep: userService)"))).toBe(true);
   });
 

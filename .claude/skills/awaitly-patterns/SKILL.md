@@ -483,10 +483,13 @@ const result = await processOrder.run(async ({ step, deps }) => {
 | Parallel (object) | `step.all(name, shape)` or `step.parallel(name, operations)` | `step.all('fetchAll', { user: () => deps.getUser(id), posts: () => deps.getPosts(id) })` |
 | Parallel (array) | `step.parallel(name, callback)` | `step.parallel('Fetch users', () => Awaitly.allAsync([deps.getUser('1'), deps.getUser('2')]))` |
 | Parallel over array | `step.map(id, items, mapper, opts?)` | `step.map('fetchUsers', ids, (id) => deps.getUser(id))` |
+| Fallback on primary error | `step.withFallback(id, primaryGetter, opts?)` | `step.withFallback('getUser', () => deps.getUser(id), { fallback: () => deps.getUserFromCache(id) })` |
+| Resource (acquire/use/release) | `step.withResource(id, { acquire, use, release }, opts?)` | `step.withResource('useDb', { acquire: () => connect(), use: (db) => query(db), release: (db) => db.close() })` |
+| Child workflow as step | `step.workflow(id, getter, opts?)` | `step.workflow('child', () => childWorkflow.run(async ({ step }) => { ... }))` |
 
 Other helpers (e.g. `step.race`, `step.allSettled`) may exist; consult package types before use.
 
-**Effect-style helpers (`step.run`, `step.andThen`, `step.match`, `step.all`, `step.map`)** run through the full step engine: they emit step events, support retry/timeout options, and in `createWorkflow` use the cache and `onAfterStep` when you pass a key. `step.run` takes an already-created `AsyncResult` (no getter overload): `step.run('getUser', deps.getUser(id), { key: 'user:1' })`. If you need lazy execution with cache short-circuit, use base `step`: `step('getUser', () => deps.getUser(id), { key: 'user:1' })`. For `step.all` and `step.map`, caching applies only when you pass an explicit `key`; without a key they do not cache by step id (matches core `run()` semantics).
+**Effect-style helpers (`step.run`, `step.andThen`, `step.match`, `step.all`, `step.map`, `step.withFallback`, `step.withResource`, `step.workflow`)** run through the full step engine: they emit step events, support retry/timeout options, and in `createWorkflow` use the cache and `onAfterStep` when you pass a key. `step.run` takes an already-created `AsyncResult` (no getter overload): `step.run('getUser', deps.getUser(id), { key: 'user:1' })`. If you need lazy execution with cache short-circuit, use base `step`: `step('getUser', () => deps.getUser(id), { key: 'user:1' })`. For `step.all` and `step.map`, caching applies only when you pass an explicit `key`; without a key they do not cache by step id (matches core `run()` semantics).
 
 **`step.try()` handles both sync and async**: It catches exceptions from sync code (like `JSON.parse`) and rejections from async code (like `fetch`).
 

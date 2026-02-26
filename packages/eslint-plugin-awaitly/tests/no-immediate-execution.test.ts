@@ -94,6 +94,18 @@ describe('no-immediate-execution', () => {
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
+
+    it('allows step.workflow with getter', () => {
+      const code = `step.workflow('sub', () => childWorkflow.run(async ({ step }) => step('x', () => ok(1))));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
+
+    it('allows step.withFallback with getter', () => {
+      const code = `step.withFallback('getUser', () => deps.getUser(id), { fallback: () => deps.getUserFromCache(id) });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(0);
+    });
   });
 
   describe('invalid cases', () => {
@@ -165,6 +177,20 @@ describe('no-immediate-execution', () => {
       expect(messages).toHaveLength(1);
       expect(messages[0].ruleId).toBe('awaitly/no-immediate-execution');
       expect(messages[0].message).toContain('createMapper');
+    });
+
+    it('reports immediate execution with step.workflow (second arg)', () => {
+      const code = `step.workflow('sub', childWorkflow.run(async ({ step }) => step('x', () => ok(1))));`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/no-immediate-execution');
+    });
+
+    it('reports immediate execution with step.withFallback (second arg)', () => {
+      const code = `step.withFallback('getUser', deps.getUser(id), { fallback: () => deps.getUserFromCache(id) });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].ruleId).toBe('awaitly/no-immediate-execution');
     });
   });
 

@@ -16,7 +16,7 @@ import type { CallExpression, MemberExpression, ObjectExpression, Property, Iden
  * GOOD: step(fetchUser, { key: 'user:1' }) - fetchUser is a function reference (thunk)
  */
 
-const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'run', 'andThen', 'map']);
+const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'run', 'andThen', 'map', 'withFallback', 'withResource', 'workflow']);
 
 // Methods where the executor/function argument is at index 2 (3rd arg) instead of index 1 (2nd arg)
 // Note: step.match is excluded - its 3rd arg is a handlers object, not an executor
@@ -335,6 +335,7 @@ const rule: Rule.RuleModule = {
         const hasExplicitId = isStringLiteral(args[0]);
         if (hasExplicitId) {
           const methodName = getStepMethodName(node);
+          if (methodName === 'withResource') return;
           executorArg = methodName && EXECUTOR_AT_INDEX_2.has(methodName) ? args[2] : args[1];
           if (!executorArg) return;
         }
