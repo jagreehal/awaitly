@@ -19,6 +19,7 @@ import type { SourceFile, Project, Node } from "ts-morph";
 import type * as ts from "typescript";
 import { loadTsMorph, loadTypescript } from "../ts-morph-loader";
 
+import { extractResultLike } from "../type-extractor";
 import {
   extractFunctionName,
   getStaticChildren,
@@ -977,6 +978,7 @@ function analyzeWorkflowCall(
 
   enrichStepReadTypes(root);
   enrichStepOutputTypes(root);
+  enrichStepDepSource(root);
 
   if (workflowInfo.variableDeclaration) {
     const decl = workflowInfo.variableDeclaration as { getVariableStatement?: () => Node };
@@ -2091,7 +2093,26 @@ function analyzeCallExpression(
 
   // step.withResource() call
   if (isStepMethodCall(callee, "withResource", context)) {
-    return analyzeStepCall(node, args, opts, warnings, stats, { displayCallee: "step.withResource" });
+    const stepNode = analyzeStepCall(node, args, opts, warnings, stats, {
+      displayCallee: "step.withResource",
+    });
+    stepNode.stepKind = "withResource";
+    // Parse options object for acquire/use/release and attach resourceOps
+    if (args[1] && Node.isObjectLiteralExpression(args[1])) {
+      const resourceOps: { acquire?: string; use?: string; release?: string } = {};
+      for (const prop of args[1].getProperties()) {
+        if (!Node.isPropertyAssignment(prop)) continue;
+        const key = prop.getName();
+        if (key !== "acquire" && key !== "use" && key !== "release") continue;
+        const init = prop.getInitializer();
+        if (init) {
+          const calleeStr = extractCalleeFromResourceCallback(init);
+          if (calleeStr) resourceOps[key as "acquire" | "use" | "release"] = calleeStr;
+        }
+      }
+      if (Object.keys(resourceOps).length > 0) stepNode.resourceOps = resourceOps;
+    }
+    return stepNode;
   }
 
   // step.workflow() call
@@ -2307,6 +2328,7 @@ function analyzeStepSleepCall(
     type: "step",
     stepId,
     callee: "step.sleep",
+    stepKind: "sleep",
     sleepDuration,
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
@@ -2671,6 +2693,7 @@ function analyzeStepRetryCall(
     type: "step",
     stepId,
     callee: "step.retry",
+    stepKind: "retry",
     depSource: depSourceOverride ?? normalizeCalleeToDepSource(operationCallee),
     name: stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
@@ -2746,6 +2769,7 @@ function analyzeStepTimeoutCall(
     type: "step",
     stepId,
     callee: "step.withTimeout",
+    stepKind: "withTimeout",
     depSource: depSourceOverride ?? normalizeCalleeToDepSource(operationCallee),
     name: stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
@@ -2817,6 +2841,7 @@ function analyzeStepTryCall(
     type: "step",
     stepId,
     callee: "step.try",
+    stepKind: "try",
     depSource: depSourceOverride ?? normalizeCalleeToDepSource(operationCallee),
     name: stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
@@ -2887,6 +2912,7 @@ function analyzeStepFromResultCall(
     type: "step",
     stepId,
     callee: "step.fromResult",
+    stepKind: "fromResult",
     depSource: depSourceOverride ?? normalizeCalleeToDepSource(operationCallee),
     name: stepId,
     location: opts.includeLocations ? getLocation(node) : undefined,
@@ -2957,20 +2983,24 @@ function analyzeParallelCall(
     const nameArg = args[0];
     parallelNode.name = Node.isStringLiteral(nameArg) ? nameArg.getLiteralValue() : nameArg.getText();
     const operationsNode = args[1];
-    for (const prop of operationsNode.getProperties()) {
+    const props = operationsNode.getProperties();
+    for (let branchIndex = 0; branchIndex < props.length; branchIndex++) {
+      const prop = props[branchIndex];
       if (Node.isPropertyAssignment(prop)) {
         const name = prop.getName();
         const init = prop.getInitializer();
         if (init) {
+          const scopePrefix = `parallel.${parallelNode.name ?? branchIndex}.`;
           if (Node.isObjectLiteralExpression(init)) {
             const fnProp = init.getProperty("fn");
             const errorsProp = init.getProperty("errors");
             if (fnProp && Node.isPropertyAssignment(fnProp)) {
               const fnInit = fnProp.getInitializer();
               if (fnInit) {
-                const implicitStep = tryExtractImplicitStep(fnInit, opts, stats);
+                const implicitStep = tryExtractImplicitStep(fnInit, opts, stats, scopePrefix);
                 if (implicitStep) {
                   implicitStep.name = name;
+                  implicitStep.depSource = extractFunctionName(implicitStep.callee ?? "");
                   if (errorsProp && Node.isPropertyAssignment(errorsProp)) {
                     const errorsInit = errorsProp.getInitializer();
                     if (errorsInit) {
@@ -2983,15 +3013,21 @@ function analyzeParallelCall(
               }
             }
           }
-          const implicitStep = tryExtractImplicitStep(init, opts, stats);
+          const implicitStep = tryExtractImplicitStep(init, opts, stats, scopePrefix);
           if (implicitStep) {
             implicitStep.name = name;
+            implicitStep.depSource = extractFunctionName(implicitStep.callee ?? "");
             parallelNode.children.push(implicitStep);
           } else {
             const children = analyzeCallbackArgument(init, opts, warnings, stats, sagaContext, context);
             if (children.length > 0) {
               const child = children[0];
               child.name = name;
+              if (child.type === "step") {
+                const s = child as StaticStepNode;
+                if (s.stepId?.startsWith("implicit:"))
+                  s.stepId = scopePrefix + (s.name ?? s.stepId.slice("implicit:".length));
+              }
               parallelNode.children.push(child);
             }
           }
@@ -3108,9 +3144,18 @@ function analyzeStepForEachCall(
           loopNode.collect = collectMode;
         }
       } else if (propName === "run" && (Node.isArrowFunction(init) || Node.isFunctionExpression(init))) {
-        // Simple form: run: (item) => processItem(item)
-        const bodyNodes = analyzeNode(init.getBody(), opts, warnings, stats, sagaContext, context);
-        loopNode.body = bodyNodes;
+        // Simple form: run: (item) => deps.processItem(item) — extract implicit step so Mermaid shows a step inside the loop
+        const forEachPrefix = `forEach.${loopNode.loopId ?? "forEach"}.`;
+        const implicitStep = tryExtractImplicitStep(init, opts, stats, forEachPrefix);
+        if (implicitStep) {
+          if (!implicitStep.depSource && implicitStep.callee) {
+            implicitStep.depSource = extractFunctionName(implicitStep.callee);
+          }
+          loopNode.body = [implicitStep];
+        } else {
+          const bodyNodes = analyzeNode(init.getBody(), opts, warnings, stats, sagaContext, context);
+          loopNode.body = bodyNodes;
+        }
       } else if (propName === "item" && Node.isCallExpression(init)) {
         // Complex form: item: step.item((item, i, step) => { ... })
         const itemArgs = init.getArguments();
@@ -3400,15 +3445,63 @@ function wrapInStepNode(
 }
 
 /**
+ * Extract callee string from a resource callback (acquire/use/release).
+ * e.g. () => deps.acquire() -> "deps.acquire", (r) => deps.useResource(r) -> "deps.useResource", () => {} -> "inline".
+ */
+function extractCalleeFromResourceCallback(node: Node): string | undefined {
+  const { Node } = loadTsMorph();
+  if (Node.isArrowFunction(node)) {
+    const body = node.getBody();
+    if (Node.isCallExpression(body)) return body.getExpression().getText();
+    if (Node.isBlock(body)) {
+      const stmts = body.getStatements();
+      if (stmts.length === 0) return "inline";
+      if (stmts.length === 1 && Node.isReturnStatement(stmts[0])) {
+        const expr = stmts[0].getExpression();
+        if (expr && Node.isCallExpression(expr)) return expr.getExpression().getText();
+      }
+      return "inline";
+    }
+  }
+  if (Node.isFunctionExpression(node)) {
+    const body = node.getBody();
+    if (!Node.isBlock(body)) return undefined;
+    const stmts = body.getStatements();
+    if (stmts.length === 0) return "inline";
+    if (stmts.length === 1 && Node.isReturnStatement(stmts[0])) {
+      const expr = stmts[0].getExpression();
+      if (expr && Node.isCallExpression(expr)) return expr.getExpression().getText();
+    }
+    return "inline";
+  }
+  return undefined;
+}
+
+/**
  * Try to extract an implicit step from a callback that wraps a direct call expression.
  * e.g., () => deps.fetchPosts(id) -> implicit step for "fetchPosts"
+ * When scopePrefix is provided, stepId is deterministic path-style (e.g. "race.cacheA", "parallel.0.fetchA").
  */
 function tryExtractImplicitStep(
   node: Node,
   opts: Required<AnalyzerOptions>,
-  stats: AnalysisStats
+  stats: AnalysisStats,
+  scopePrefix?: string
 ): StaticStepNode | undefined {
   const { Node } = loadTsMorph();
+  const makeStep = (
+    name: string,
+    callee: string,
+    locationNode: Node
+  ): StaticStepNode => ({
+    id: generateId(),
+    type: "step",
+    stepId: scopePrefix ? scopePrefix + name : `implicit:${name}`,
+    location: opts.includeLocations ? getLocation(locationNode) : undefined,
+    callee,
+    name,
+  });
+
   // Check if it's an arrow function with a call expression body
   if (Node.isArrowFunction(node)) {
     const body = node.getBody();
@@ -3416,14 +3509,7 @@ function tryExtractImplicitStep(
       const callee = body.getExpression().getText();
       const name = extractFunctionName(callee);
       stats.totalSteps++;
-      return {
-        id: generateId(),
-        type: "step",
-        stepId: `implicit:${name}`,
-        location: opts.includeLocations ? getLocation(body) : undefined,
-        callee,
-        name,
-      };
+      return makeStep(name, callee, body);
     }
   }
 
@@ -3438,14 +3524,7 @@ function tryExtractImplicitStep(
         const callee = expr.getExpression().getText();
         const name = extractFunctionName(callee);
         stats.totalSteps++;
-        return {
-          id: generateId(),
-          type: "step",
-          stepId: `implicit:${name}`,
-          location: opts.includeLocations ? getLocation(expr) : undefined,
-          callee,
-          name,
-        };
+        return makeStep(name, callee, expr);
       }
     }
   }
@@ -3477,12 +3556,23 @@ function analyzeAllAsyncCall(
 
   // Extract operations from array argument
   if (args[0] && Node.isArrayLiteralExpression(args[0])) {
-    for (const element of args[0].getElements()) {
+    const elements = args[0].getElements();
+    for (let i = 0; i < elements.length; i++) {
+      const element = elements[i];
       // Use analyzeCallbackArgument for arrow functions/function expressions
       const children = analyzeCallbackArgument(element, opts, warnings, stats, sagaContext, context);
 
       // If analyzeCallbackArgument found known patterns (step, etc.), use those
       if (children.length > 0) {
+        const scopePrefix = `parallel.${i}.`;
+        for (const c of children) {
+          if (c.type === "step") {
+            const s = c as StaticStepNode;
+            if (!s.depSource && s.callee) s.depSource = extractFunctionName(s.callee);
+            if (s.stepId?.startsWith("implicit:"))
+              s.stepId = scopePrefix + (s.name ?? s.stepId.slice("implicit:".length));
+          }
+        }
         // Group multiple children in a sequence
         if (children.length > 1) {
           parallelNode.children.push({
@@ -3502,10 +3592,11 @@ function analyzeAllAsyncCall(
         const implicitStep: StaticStepNode = {
           id: generateId(),
           type: "step",
-          stepId: `implicit:${name}`,
+          stepId: `parallel.${i}.${name}`,
           location: opts.includeLocations ? getLocation(element) : undefined,
           callee,
           name,
+          depSource: name,
         };
         parallelNode.children.push(implicitStep);
       }
@@ -3537,13 +3628,24 @@ function analyzeRaceCall(
 
   // Extract operations from array or object
   if (args[0] && Node.isArrayLiteralExpression(args[0])) {
-    for (const element of args[0].getElements()) {
-      // Try to extract implicit step first (arrow function with direct call)
-      const implicitStep = tryExtractImplicitStep(element, opts, stats);
+    const elements = args[0].getElements();
+    for (let i = 0; i < elements.length; i++) {
+      const element = elements[i];
+      const scopePrefix = `race.${i}.`;
+      const implicitStep = tryExtractImplicitStep(element, opts, stats, scopePrefix);
       if (implicitStep) {
+        implicitStep.depSource = implicitStep.name ?? extractFunctionName(implicitStep.callee ?? "");
         raceNode.children.push(implicitStep);
       } else {
         const children = analyzeCallbackArgument(element, opts, warnings, stats, sagaContext, context);
+        for (const c of children) {
+          if (c.type === "step") {
+            const s = c as StaticStepNode;
+            if (!s.depSource && s.callee) s.depSource = extractFunctionName(s.callee);
+            if (s.stepId?.startsWith("implicit:"))
+              s.stepId = scopePrefix + (s.name ?? s.stepId.slice("implicit:".length));
+          }
+        }
         raceNode.children.push(...children);
       }
     }
@@ -3554,15 +3656,23 @@ function analyzeRaceCall(
         const name = prop.getName();
         const init = prop.getInitializer();
         if (init) {
-          const implicitStep = tryExtractImplicitStep(init, opts, stats);
+          const scopePrefix = `race.${name}.`;
+          const implicitStep = tryExtractImplicitStep(init, opts, stats, scopePrefix);
           if (implicitStep) {
             implicitStep.name = name;
+            implicitStep.depSource = name;
             raceNode.children.push(implicitStep);
           } else {
             const children = analyzeCallbackArgument(init, opts, warnings, stats, sagaContext, context);
             if (children.length > 0) {
               const child = children[0];
               child.name = name;
+              if (child.type === "step") {
+                const s = child as StaticStepNode;
+                s.depSource = s.depSource ?? name;
+                if (s.stepId?.startsWith("implicit:"))
+                  s.stepId = scopePrefix + (s.name ?? s.stepId.slice("implicit:".length));
+              }
               raceNode.children.push(child);
             }
           }
@@ -3681,6 +3791,7 @@ function analyzeSagaStepCall(
 
   if (operationArg) {
     sagaNode.callee = extractCallee(operationArg);
+    if (sagaNode.callee) sagaNode.depSource = extractFunctionName(sagaNode.callee);
     if (!sagaNode.name) sagaNode.name = sagaNode.callee;
   }
 
@@ -4282,11 +4393,11 @@ function extractDependencies(
     if (Node.isPropertyAssignment(prop)) {
       name = prop.getName();
       const init = prop.getInitializer();
-      if (init && typeof (init as { getType?: () => { getText: () => string } }).getType === "function") {
+      if (init && typeof (init as { getType?: () => MorphTypeForExtraction }).getType === "function") {
         try {
-          const type = (init as { getType: () => { getText: () => string } }).getType();
-          typeSignature = type.getText();
-          signature = extractTypedSignature(init, type);
+          const morphType = (init as { getType: () => MorphTypeForExtraction }).getType();
+          typeSignature = morphType.getText();
+          signature = extractTypedSignature(init, morphType);
         } catch {
           // Type checker may be unavailable (e.g. no tsconfig); leave typeSignature/signature undefined
         }
@@ -4294,11 +4405,11 @@ function extractDependencies(
     } else if (Node.isShorthandPropertyAssignment(prop)) {
       name = prop.getName();
       const ident = prop.getNameNode();
-      if (ident && typeof (ident as { getType?: () => { getText: () => string } }).getType === "function") {
+      if (ident && typeof (ident as { getType?: () => MorphTypeForExtraction }).getType === "function") {
         try {
-          const type = (ident as { getType: () => { getText: () => string } }).getType();
-          typeSignature = type.getText();
-          signature = extractTypedSignature(ident, type);
+          const morphType = (ident as { getType: () => MorphTypeForExtraction }).getType();
+          typeSignature = morphType.getText();
+          signature = extractTypedSignature(ident, morphType);
         } catch {
           // Type checker may be unavailable; leave typeSignature/signature undefined
         }
@@ -4372,6 +4483,7 @@ function enrichStepOutputTypes(root: StaticWorkflowNode): void {
         step.outputTypeInfo = resultLike.okType;
         step.errorTypeInfo = resultLike.errorType;
         step.causeTypeInfo = resultLike.causeType;
+        step.outputTypeKind = "declared";
       }
     }
     for (const c of getStaticChildren(node)) visit(c);
@@ -4379,9 +4491,43 @@ function enrichStepOutputTypes(root: StaticWorkflowNode): void {
   for (const c of root.children) visit(c);
 }
 
+/** Built-in step callees: use stepKind for display, not depSource. */
+const BUILTIN_STEP_CALLEES = new Set([
+  "step.sleep",
+  "step.withResource",
+  "step.retry",
+  "step.withTimeout",
+  "step.try",
+  "step.fromResult",
+]);
+
+/**
+ * Ensure every step has a display source: depSource (workflow dep) or stepKind (built-in).
+ * For built-in steps (sleep, withResource, etc.) sets stepKind when missing; for others sets depSource from callee.
+ */
+function enrichStepDepSource(root: StaticWorkflowNode): void {
+  function visit(node: StaticFlowNode): void {
+    if (node.type === "step") {
+      const step = node as StaticStepNode;
+      if (!step.callee) return;
+      const kind = extractFunctionName(step.callee);
+      if (BUILTIN_STEP_CALLEES.has(step.callee)) {
+        if (!step.stepKind) step.stepKind = kind;
+      } else if (!step.depSource) {
+        step.depSource = kind;
+      }
+    }
+    for (const c of getStaticChildren(node)) visit(c);
+  }
+  for (const c of root.children) visit(c);
+}
+
+/** Ts-morph Type shape: getText() and compiler type for type-extractor. */
+type MorphTypeForExtraction = { getText: () => string; compilerType: ts.Type };
+
 function extractTypedSignature(
   node: Node,
-  _type: { getText: () => string }
+  morphType: MorphTypeForExtraction
 ): DependencyInfo["signature"] {
   const tsLib = loadTypescript();
 
@@ -4404,8 +4550,8 @@ function extractTypedSignature(
     if (isFunctionLike) {
       sig = tc.getSignatureFromDeclaration(tsNode as ts.SignatureDeclaration);
     } else if (kind === tsLib.SyntaxKind.Identifier) {
-      // Shorthand property: { fetchUser } – identifier refers to a value; get call signature from its type
-      const type = tc.getTypeAtLocation(tsNode);
+      // Shorthand property: { fetchUser } – use ts-morph type and pass compiler type for extraction
+      const type = morphType.compilerType;
       const callSigs = type.getCallSignatures?.();
       sig = callSigs?.length ? callSigs[0] : undefined;
     }
@@ -4440,7 +4586,7 @@ function extractTypedSignature(
       source: "checker",
     };
 
-    const resultLike = extractResultLikeFromType(tc, returnType);
+    const resultLike = extractResultLike(returnType, tc);
 
     return {
       params,
@@ -4793,9 +4939,12 @@ function getLocation(node: Node): SourceLocation {
 }
 
 /**
- * Best-effort: infer stepNode.outputType and stepNode.inputType from the inner call using the type checker.
- * Uses the TypeScript compiler node so getResolvedSignature resolves correctly (ts-morph wrapper can miss in some setups).
- * Also populates outputTypeInfo, errorTypeInfo, causeTypeInfo for Result-like types.
+ * Best-effort: infer stepNode.outputType and stepNode.inputType from the inner call.
+ * Uses ts-morph's getType() for the call's return type (passed to type-extractor); uses
+ * getResolvedSignature(compilerNode) only for parameter types (inputType).
+ * For step.retry/withTimeout/try/fromResult we use the inner operation's type. When that
+ * stays unknown/any or does not extract as Result-like, we refine by following the
+ * callee's type (e.g. deps.fetchData) and use its call signature's return type.
  */
 function inferStepIOFromInnerCall(
   contextNode: Node,
@@ -4809,18 +4958,51 @@ function inferStepIOFromInnerCall(
     const typeChecker = project.getTypeChecker();
     const tc = typeChecker.compilerObject as ts.TypeChecker;
     const tsNode = (innerCallNode as { compilerNode: ts.CallExpression }).compilerNode;
-    const sig = tc.getResolvedSignature(tsNode);
-    if (sig) {
-      const returnType = sig.getReturnType();
-      stepNode.outputType = tc.typeToString(returnType);
 
-      const resultLike = extractResultLikeFromType(tc, returnType);
-      if (resultLike) {
-        stepNode.outputTypeInfo = resultLike.okType;
-        stepNode.errorTypeInfo = resultLike.errorType;
-        stepNode.causeTypeInfo = resultLike.causeType;
+    // Return type via ts-morph so we pass a single ts.Type into type-extractor
+    const morphReturnType = innerCallNode.getType() as MorphTypeForExtraction;
+    const returnType = morphReturnType.compilerType;
+    stepNode.outputType = morphReturnType.getText();
+
+    let resultLike = extractResultLike(returnType, tc);
+    const needsRefinement =
+      !resultLike ||
+      stepNode.outputType === "any" ||
+      stepNode.outputType === "unknown";
+
+    if (needsRefinement) {
+      // Refine by following the callee: type of deps.fetchData -> call signature -> return type
+      const calleeTsNode = tsNode.expression;
+      const calleeType = tc.getTypeAtLocation(calleeTsNode);
+      const callSigs = calleeType.getCallSignatures?.() ?? [];
+      const sig = callSigs[0];
+      if (sig) {
+        const refinedReturnType = sig.getReturnType();
+        const refinedTypeStr = tc.typeToString(refinedReturnType);
+        stepNode.outputType = refinedTypeStr;
+        resultLike = extractResultLike(refinedReturnType, tc);
       }
+    }
 
+    if (resultLike) {
+      stepNode.outputTypeInfo = resultLike.okType;
+      stepNode.errorTypeInfo = resultLike.errorType;
+      stepNode.causeTypeInfo = resultLike.causeType;
+      stepNode.outputTypeKind = "declared";
+    } else {
+      stepNode.outputTypeKind =
+        stepNode.outputType === "any" ? "unknown" : "inferred";
+    }
+
+    // Parameter types: resolved signature from call, or fallback to callee's first signature
+    let sig = tc.getResolvedSignature(tsNode);
+    if (!sig) {
+      const calleeTsNode = tsNode.expression;
+      const calleeType = tc.getTypeAtLocation(calleeTsNode);
+      const callSigs = calleeType.getCallSignatures?.() ?? [];
+      sig = callSigs[0];
+    }
+    if (sig) {
       const decl = sig.getDeclaration();
       if (decl && "parameters" in decl && Array.isArray((decl as ts.SignatureDeclaration).parameters)) {
         const params = (decl as ts.SignatureDeclaration).parameters;
@@ -4890,13 +5072,6 @@ function extractResultLikeFromTypeString(
   }
 
   return null;
-}
-
-function extractResultLikeFromType(
-  tc: ts.TypeChecker,
-  type: ts.Type
-): { okType: TypeInfo; errorType: TypeInfo; causeType?: TypeInfo } | null {
-  return extractResultLikeFromTypeString(tc.typeToString(type));
 }
 
 function createTypeInfoFromString(typeStr: string, _parentKind: "asyncResult" | "result" | "promiseResult"): TypeInfo {
@@ -4982,7 +5157,7 @@ function getDefinitionLocationForCallee(calleeNode: Node): SourceLocation | unde
       if (nameNode) sym = typeChecker.getSymbolAtLocation(nameNode as typeof tsNode);
     }
     if (!sym) {
-      const type = typeChecker.getTypeAtLocation(tsNode);
+      const type = (calleeNode.getType() as { compilerType: ts.Type }).compilerType;
       if (type) {
         const maybeSym = type.getSymbol?.() ?? (type as { symbol?: unknown }).symbol;
         if (maybeSym) sym = maybeSym as ReturnType<typeof typeChecker.getSymbolAtLocation>;

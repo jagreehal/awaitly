@@ -1,0 +1,492 @@
+[
+  {
+    "title": "Linear steps",
+    "code": "/**\n * Showcase: linear steps only.\n * Analyzer produces a simple sequence: Start → step1 → step2 → step3 → End.\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\nconst fetchUser = async (id: string): AsyncResult<{ id: string; name: string }, \"NOT_FOUND\"> =>\n  ok({ id, name: \"Alice\" });\nconst fetchOrders = async (userId: string): AsyncResult<Array<{ id: string }>, \"FETCH_ERROR\"> =>\n  ok([{ id: \"1\" }]);\nconst sendEmail = async (_userId: string): AsyncResult<void, \"SEND_ERROR\"> => ok(undefined);\n\nexport const linearWorkflow = createWorkflow(\"linearWorkflow\", {\n  fetchUser,\n  fetchOrders,\n  sendEmail,\n});\n\nexport async function runLinear(userId: string) {\n  return await linearWorkflow.run(async ({ step, deps }) => {\n    const user = await step(\"getUser\", () => deps.fetchUser(userId), { errors: [\"NOT_FOUND\"] });\n    const orders = await step(\"getOrders\", () => deps.fetchOrders(user.id), { errors: [\"FETCH_ERROR\"] });\n    await step(\"notify\", () => deps.sendEmail(user.id), { errors: [\"SEND_ERROR\"] });\n    return { user, orders };\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: linearWorkflow\n\n  start((Start))\n  step_1[\"getUser\"]\n  step_2[\"getOrders\"]\n  step_3[\"notify\"]\n  end_node((End))\n\n  %% Edges\n  step_1 --> step_2\n  step_2 --> step_3\n  start --> step_1\n  step_3 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle\n  class step_2 stepStyle\n  class step_3 stepStyle",
+    "stepDetails": [
+      {
+        "stepId": "getUser",
+        "name": "getUser",
+        "callee": "deps.fetchUser",
+        "errors": [
+          "NOT_FOUND"
+        ],
+        "depSource": "fetchUser",
+        "outputType": "{ id: string; name: string; }",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "{ id: string; name: string; }",
+        "outputTypeText": "{ id: string; name: string; }",
+        "errorTypeDisplay": "\"NOT_FOUND\""
+      },
+      {
+        "stepId": "getOrders",
+        "name": "getOrders",
+        "callee": "deps.fetchOrders",
+        "errors": [
+          "FETCH_ERROR"
+        ],
+        "depSource": "fetchOrders",
+        "outputType": "{ id: string; }[]",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "{ id: string; }[]",
+        "outputTypeText": "{ id: string; }[]",
+        "errorTypeDisplay": "\"FETCH_ERROR\""
+      },
+      {
+        "stepId": "notify",
+        "name": "notify",
+        "callee": "deps.sendEmail",
+        "errors": [
+          "SEND_ERROR"
+        ],
+        "depSource": "sendEmail",
+        "outputType": "void",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "void",
+        "outputTypeText": "void",
+        "errorTypeDisplay": "\"SEND_ERROR\""
+      }
+    ]
+  },
+  {
+    "title": "step.sleep",
+    "code": "/**\n * Showcase: step.sleep()\n * Renders as a step node with \"(Sleep: 5s)\" in the diagram.\n */\nimport { createWorkflow } from \"awaitly\";\n\nexport const sleepWorkflow = createWorkflow(\"sleepWorkflow\", {});\n\nexport async function runSleep() {\n  return await sleepWorkflow.run(async ({ step }) => {\n    await step.sleep(\"pause\", \"5s\");\n    await step.sleep(\"longPause\", \"1h\");\n    return \"done\";\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: sleepWorkflow\n\n  start((Start))\n  step_1[\"pause (Sleep: 5s)\"]\n  step_2[\"longPause (Sleep: 1h)\"]\n  end_node((End))\n\n  %% Edges\n  step_1 --> step_2\n  start --> step_1\n  step_2 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle\n  class step_2 stepStyle",
+    "stepDetails": [
+      {
+        "stepId": "pause",
+        "name": "pause",
+        "callee": "step.sleep",
+        "stepKind": "sleep"
+      },
+      {
+        "stepId": "longPause",
+        "name": "longPause",
+        "callee": "step.sleep",
+        "stepKind": "sleep"
+      }
+    ]
+  },
+  {
+    "title": "step.retry",
+    "code": "/**\n * Showcase: step.retry()\n * Renders as a step with \"(Retry: 3)\" in the diagram.\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\nconst fetchData = async (): AsyncResult<{ data: string }, \"NETWORK_ERROR\"> => ok({ data: \"ok\" });\n\nexport const retryWorkflow = createWorkflow(\"retryWorkflow\", { fetchData });\n\nexport async function runRetry() {\n  return await retryWorkflow.run(async ({ step, deps }) => {\n    const result = await step.retry(\"fetch\", () => deps.fetchData(), {\n      attempts: 3,\n      backoff: \"exponential\",\n    });\n    return result;\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: retryWorkflow\n\n  start((Start))\n  step_1[\"fetch (Retry: 3)\"]\n  end_node((End))\n\n  %% Edges\n  start --> step_1\n  step_1 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle",
+    "stepDetails": [
+      {
+        "stepId": "fetch",
+        "name": "fetch",
+        "callee": "step.retry",
+        "retry": {
+          "attempts": 3,
+          "backoff": "exponential"
+        },
+        "depSource": "fetchData",
+        "stepKind": "retry",
+        "outputTypeKind": "unknown",
+        "outputTypeText": "any"
+      }
+    ]
+  },
+  {
+    "title": "step.withTimeout",
+    "code": "/**\n * Showcase: step.withTimeout()\n * Renders as a step with \"(Timeout: 5000ms)\" in the diagram.\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\nconst slowOp = async (): AsyncResult<number, \"TIMEOUT\"> => ok(42);\n\nexport const timeoutWorkflow = createWorkflow(\"timeoutWorkflow\", { slowOp });\n\nexport async function runTimeout() {\n  return await timeoutWorkflow.run(async ({ step, deps }) => {\n    const result = await step.withTimeout(\"slowCall\", () => deps.slowOp(), { ms: 5000 });\n    return result;\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: timeoutWorkflow\n\n  start((Start))\n  step_1[\"slowCall (Timeout: 5000ms)\"]\n  end_node((End))\n\n  %% Edges\n  start --> step_1\n  step_1 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle",
+    "stepDetails": [
+      {
+        "stepId": "slowCall",
+        "name": "slowCall",
+        "callee": "step.withTimeout",
+        "timeout": {
+          "ms": 5000
+        },
+        "depSource": "slowOp",
+        "stepKind": "withTimeout",
+        "outputTypeKind": "unknown",
+        "outputTypeText": "any"
+      }
+    ]
+  },
+  {
+    "title": "step.try & step.fromResult",
+    "code": "/**\n * Showcase: step.try() and step.fromResult()\n * Renders as steps with \"(Try)\" and \"(FromResult)\" in the diagram.\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\nconst riskyOp = async (): AsyncResult<number, \"RISKY_ERROR\"> => ok(1);\nconst fetchResult = async (): AsyncResult<string, \"FETCH_ERROR\"> => ok(\"data\");\n\nexport const tryWorkflow = createWorkflow(\"tryWorkflow\", { riskyOp, fetchResult });\n\nexport async function runTry() {\n  return await tryWorkflow.run(async ({ step, deps }) => {\n    await step.try(\"attempt\", () => deps.riskyOp(), { error: \"RISKY_ERROR\" as const });\n    const data = await step.fromResult(\"load\", () => deps.fetchResult(), { error: \"FETCH_ERROR\" as const });\n    return data;\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: tryWorkflow\n\n  start((Start))\n  step_1[\"attempt (Try)\"]\n  step_2[\"load (FromResult)\"]\n  end_node((End))\n\n  %% Edges\n  step_1 --> step_2\n  start --> step_1\n  step_2 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle\n  class step_2 stepStyle",
+    "stepDetails": [
+      {
+        "stepId": "attempt",
+        "name": "attempt",
+        "callee": "step.try",
+        "depSource": "riskyOp",
+        "stepKind": "try",
+        "outputTypeKind": "unknown",
+        "outputTypeText": "any"
+      },
+      {
+        "stepId": "load",
+        "name": "load",
+        "callee": "step.fromResult",
+        "depSource": "fetchResult",
+        "stepKind": "fromResult",
+        "outputTypeKind": "unknown",
+        "outputTypeText": "any"
+      }
+    ]
+  },
+  {
+    "title": "step.withFallback",
+    "code": "/**\n * Showcase: step.withFallback()\n * Renders as a step with \"(Fallback)\" in the diagram.\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\nconst fetchPrimary = async (): AsyncResult<string, \"NOT_FOUND\"> => ok(\"primary\");\nconst fetchFallback = async (): AsyncResult<string, never> => ok(\"fallback\");\n\nexport const fallbackWorkflow = createWorkflow(\"fallbackWorkflow\", {\n  fetchPrimary,\n  fetchFallback,\n});\n\nexport async function runFallback() {\n  return await fallbackWorkflow.run(async ({ step, deps }) => {\n    const result = await step.withFallback(\n      \"fetchWithFallback\",\n      () => deps.fetchPrimary(),\n      { fallback: () => deps.fetchFallback() }\n    );\n    return result;\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: fallbackWorkflow\n\n  start((Start))\n  step_1[\"fetchWithFallback (Fallback)\"]\n  end_node((End))\n\n  %% Edges\n  start --> step_1\n  step_1 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle",
+    "stepDetails": [
+      {
+        "stepId": "fetchWithFallback",
+        "name": "fetchWithFallback",
+        "callee": "step.withFallback",
+        "depSource": "fetchPrimary",
+        "outputTypeKind": "unknown",
+        "outputTypeText": "any"
+      }
+    ]
+  },
+  {
+    "title": "step.withResource",
+    "code": "/**\n * Showcase: step.withResource()\n * Renders as a step with \"(Resource)\" in the diagram.\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\nconst acquire = async (): AsyncResult<{ id: string }, \"ACQUIRE_ERROR\"> => ok({ id: \"conn-1\" });\nconst useResource = async (_r: { id: string }): AsyncResult<string, \"USE_ERROR\"> => ok(\"result\");\n\nexport const resourceWorkflow = createWorkflow(\"resourceWorkflow\", { acquire, useResource });\n\nexport async function runResource() {\n  return await resourceWorkflow.run(async ({ step, deps }) => {\n    const result = await step.withResource(\"useConn\", {\n      acquire: () => deps.acquire(),\n      use: (r) => deps.useResource(r),\n      release: () => {},\n    });\n    return result;\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: resourceWorkflow\n\n  start((Start))\n  step_1[\"useConn (Resource)\"]\n  end_node((End))\n\n  %% Edges\n  start --> step_1\n  step_1 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle",
+    "stepDetails": [
+      {
+        "stepId": "useConn",
+        "name": "useConn",
+        "callee": "step.withResource",
+        "stepKind": "withResource",
+        "kind": "resource",
+        "acquire": "deps.acquire",
+        "use": "deps.useResource",
+        "release": "inline"
+      }
+    ]
+  },
+  {
+    "title": "step.dep",
+    "code": "/**\n * Showcase: step.dep() wrapper\n * Step is wrapped with step.dep('serviceName', operation).\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\nconst fetchUser = async (id: string): AsyncResult<{ id: string }, \"NOT_FOUND\"> => ok({ id });\n\nexport const depWorkflow = createWorkflow(\"depWorkflow\", { fetchUser });\n\nexport async function runDep(userId: string) {\n  return await depWorkflow.run(async ({ step, deps }) => {\n    const user = await step(\n      \"getUser\",\n      step.dep(\"userService\", () => deps.fetchUser(userId))\n    );\n    return user;\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: depWorkflow\n\n  start((Start))\n  step_1[\"getUser\"]\n  end_node((End))\n\n  %% Edges\n  start --> step_1\n  step_1 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle",
+    "stepDetails": [
+      {
+        "stepId": "getUser",
+        "name": "getUser",
+        "callee": "deps.fetchUser",
+        "depSource": "userService",
+        "outputType": "{ id: string; }",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "{ id: string; }",
+        "outputTypeText": "{ id: string; }",
+        "errorTypeDisplay": "\"NOT_FOUND\""
+      }
+    ]
+  },
+  {
+    "title": "step.race",
+    "code": "/**\n * Showcase: step.race() — first to complete wins.\n * Renders as a Race fork with racer branches and Winner join.\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\nconst cacheA = async (): AsyncResult<string, \"MISS\"> => ok(\"a\");\nconst cacheB = async (): AsyncResult<string, \"MISS\"> => ok(\"b\");\n\nexport const raceWorkflow = createWorkflow(\"raceWorkflow\", { cacheA, cacheB });\n\nexport async function runRace() {\n  return await raceWorkflow.run(async ({ step, deps }) => {\n    const result = await step.race({\n      cacheA: () => deps.cacheA(),\n      cacheB: () => deps.cacheB(),\n    });\n    return result;\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: raceWorkflow\n\n  start((Start))\n  race_fork_1{{\"Race\"}}\n  race_join_2{{\"Winner\"}}\n  step_3[\"cacheA\"]\n  step_4[\"cacheB\"]\n  end_node((End))\n\n  %% Edges\n  race_fork_1 -->|racer 1| step_3\n  step_3 --> race_join_2\n  race_fork_1 -->|racer 2| step_4\n  step_4 --> race_join_2\n  start --> race_fork_1\n  race_join_2 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class race_fork_1 raceStyle\n  class race_join_2 raceStyle\n  class step_3 stepStyle\n  class step_4 stepStyle",
+    "stepDetails": [
+      {
+        "stepId": "race.cacheA.cacheA",
+        "name": "cacheA",
+        "callee": "deps.cacheA",
+        "depSource": "cacheA",
+        "outputType": "string",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "string",
+        "outputTypeText": "string",
+        "errorTypeDisplay": "\"MISS\""
+      },
+      {
+        "stepId": "race.cacheB.cacheB",
+        "name": "cacheB",
+        "callee": "deps.cacheB",
+        "depSource": "cacheB",
+        "outputType": "string",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "string",
+        "outputTypeText": "string",
+        "errorTypeDisplay": "\"MISS\""
+      }
+    ]
+  },
+  {
+    "title": "when / unless / whenOr / unlessOr",
+    "code": "/**\n * Showcase: when(), unless(), whenOr(), unlessOr()\n * Renders as conditional nodes with true/false branches.\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\nimport { when, unless, whenOr, unlessOr } from \"awaitly/conditional\";\n\nconst audit = async (): AsyncResult<boolean, \"AUDIT_FAILED\"> => ok(true);\nconst compute = async (): AsyncResult<number, \"COMPUTE_ERROR\"> => ok(99);\n\nexport const conditionalWorkflow = createWorkflow(\"conditionalWorkflow\", { audit, compute });\n\nexport async function runConditional(isPremium: boolean) {\n  return await conditionalWorkflow.run(async ({ step, deps }) => {\n    await when(isPremium, () => step(\"whenStep\", () => deps.audit()));\n    await unless(isPremium, () => step(\"unlessStep\", () => deps.compute()));\n    const a = await whenOr(isPremium, () => step(\"whenOrStep\", () => deps.audit()), false);\n    const b = await unlessOr(isPremium, () => step(\"unlessOrStep\", () => deps.compute()), 0);\n    return { a, b };\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: conditionalWorkflow\n\n  start((Start))\n  decision_1{\"isPremium\"}\n  step_2[\"whenStep\"]\n  merge_3[\"Merge\"]\n  decision_4{\"isPremium\"}\n  step_5[\"unlessStep\"]\n  merge_6[\"Merge\"]\n  decision_7{\"isPremium\"}\n  step_8[\"whenOrStep\"]\n  merge_9[\"Merge\"]\n  decision_10{\"isPremium\"}\n  step_11[\"unlessOrStep\"]\n  merge_12[\"Merge\"]\n  end_node((End))\n\n  %% Edges\n  decision_1 -->|true| step_2\n  step_2 --> merge_3\n  decision_1 --> merge_3\n  decision_4 -->|false| step_5\n  step_5 --> merge_6\n  decision_4 --> merge_6\n  merge_3 --> decision_4\n  decision_7 -->|true| step_8\n  step_8 --> merge_9\n  decision_7 --> merge_9\n  merge_6 --> decision_7\n  decision_10 -->|false| step_11\n  step_11 --> merge_12\n  decision_10 --> merge_12\n  merge_9 --> decision_10\n  start --> decision_1\n  merge_12 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class decision_1 conditionalStyle\n  class step_2 stepStyle\n  class merge_3 mergeStyle\n  class decision_4 conditionalStyle\n  class step_5 stepStyle\n  class merge_6 mergeStyle\n  class decision_7 conditionalStyle\n  class step_8 stepStyle\n  class merge_9 mergeStyle\n  class decision_10 conditionalStyle\n  class step_11 stepStyle\n  class merge_12 mergeStyle",
+    "stepDetails": [
+      {
+        "stepId": "whenStep",
+        "name": "whenStep",
+        "callee": "deps.audit",
+        "depSource": "audit",
+        "outputType": "boolean",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "boolean",
+        "outputTypeText": "boolean",
+        "errorTypeDisplay": "\"AUDIT_FAILED\""
+      },
+      {
+        "stepId": "unlessStep",
+        "name": "unlessStep",
+        "callee": "deps.compute",
+        "depSource": "compute",
+        "outputType": "number",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "number",
+        "outputTypeText": "number",
+        "errorTypeDisplay": "\"COMPUTE_ERROR\""
+      },
+      {
+        "stepId": "whenOrStep",
+        "name": "whenOrStep",
+        "callee": "deps.audit",
+        "depSource": "audit",
+        "outputType": "boolean",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "boolean",
+        "outputTypeText": "boolean",
+        "errorTypeDisplay": "\"AUDIT_FAILED\""
+      },
+      {
+        "stepId": "unlessOrStep",
+        "name": "unlessOrStep",
+        "callee": "deps.compute",
+        "depSource": "compute",
+        "outputType": "number",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "number",
+        "outputTypeText": "number",
+        "errorTypeDisplay": "\"COMPUTE_ERROR\""
+      }
+    ]
+  },
+  {
+    "title": "switch",
+    "code": "/**\n * Showcase: switch (expression) { case ... } with steps in branches.\n * Renders as a switch node with case labels.\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\nconst adminAction = async (): AsyncResult<void, \"ADMIN_ERROR\"> => ok(undefined);\nconst userAction = async (): AsyncResult<void, \"USER_ERROR\"> => ok(undefined);\nconst defaultAction = async (): AsyncResult<void, never> => ok(undefined);\n\nexport const switchWorkflow = createWorkflow(\"switchWorkflow\", {\n  adminAction,\n  userAction,\n  defaultAction,\n});\n\nexport async function runSwitch(role: string) {\n  return await switchWorkflow.run(async ({ step, deps }) => {\n    switch (role) {\n      case \"admin\":\n        await step(\"admin\", () => deps.adminAction(), { errors: [\"ADMIN_ERROR\"] });\n        break;\n      case \"user\":\n        await step(\"user\", () => deps.userAction(), { errors: [\"USER_ERROR\"] });\n        break;\n      default:\n        await step(\"default\", () => deps.defaultAction());\n        break;\n    }\n    return role;\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: switchWorkflow\n\n  start((Start))\n  switch_1{\"switch: role\"}\n  step_2[\"admin\"]\n  step_3[\"user\"]\n  step_4[\"default\"]\n  end_node((End))\n\n  %% Edges\n  switch_1 -->|'admin'| step_2\n  switch_1 -->|'user'| step_3\n  switch_1 -->|default| step_4\n  start --> switch_1\n  step_2 --> end_node\n  step_3 --> end_node\n  step_4 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class switch_1 switchStyle\n  class step_2 stepStyle\n  class step_3 stepStyle\n  class step_4 stepStyle",
+    "stepDetails": [
+      {
+        "stepId": "admin",
+        "name": "admin",
+        "callee": "deps.adminAction",
+        "errors": [
+          "ADMIN_ERROR"
+        ],
+        "depSource": "adminAction",
+        "outputType": "void",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "void",
+        "outputTypeText": "void",
+        "errorTypeDisplay": "\"ADMIN_ERROR\""
+      },
+      {
+        "stepId": "user",
+        "name": "user",
+        "callee": "deps.userAction",
+        "errors": [
+          "USER_ERROR"
+        ],
+        "depSource": "userAction",
+        "outputType": "void",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "void",
+        "outputTypeText": "void",
+        "errorTypeDisplay": "\"USER_ERROR\""
+      },
+      {
+        "stepId": "default",
+        "name": "default",
+        "callee": "deps.defaultAction",
+        "depSource": "defaultAction",
+        "outputType": "void",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "void",
+        "outputTypeText": "void",
+        "errorTypeDisplay": "never"
+      }
+    ]
+  },
+  {
+    "title": "for / while / for-of / for-in",
+    "code": "/**\n * Showcase: for, while, for-of, for-in loops with steps inside.\n * Renders as loop nodes (for, for-of, for-in, while).\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\nconst processItem = async (id: string): AsyncResult<void, \"PROCESS_ERROR\"> => ok(undefined);\n\nexport const loopWorkflow = createWorkflow(\"loopWorkflow\", { processItem });\n\nexport async function runLoops() {\n  return await loopWorkflow.run(async ({ step, deps }) => {\n    for (let i = 0; i < 3; i++) {\n      await step(\"forStep\", () => deps.processItem(String(i)), { errors: [\"PROCESS_ERROR\"] });\n    }\n    const items = [\"a\", \"b\"];\n    for (const item of items) {\n      await step(\"forOfStep\", () => deps.processItem(item), { errors: [\"PROCESS_ERROR\"] });\n    }\n    const obj = { x: 1 };\n    for (const key in obj) {\n      await step(\"forInStep\", () => deps.processItem(key), { errors: [\"PROCESS_ERROR\"] });\n    }\n    let n = 0;\n    while (n < 2) {\n      await step(\"whileStep\", () => deps.processItem(String(n)), { errors: [\"PROCESS_ERROR\"] });\n      n++;\n    }\n    return \"done\";\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: loopWorkflow\n\n  start((Start))\n  loop_start_1([\"for\"])\n  step_3[\"forStep\"]\n  loop_end_2([\"Continue?\"])\n  loop_start_4([\"for-of: items\"])\n  step_6[\"forOfStep\"]\n  loop_end_5([\"Continue?\"])\n  loop_start_7([\"for-in: obj\"])\n  step_9[\"forInStep\"]\n  loop_end_8([\"Continue?\"])\n  loop_start_10([\"while\"])\n  step_12[\"whileStep\"]\n  loop_end_11([\"Continue?\"])\n  end_node((End))\n\n  %% Edges\n  loop_start_1 -->|iterate| step_3\n  step_3 --> loop_end_2\n  loop_end_2 -->|next| loop_start_1\n  loop_start_4 -->|iterate| step_6\n  step_6 --> loop_end_5\n  loop_end_5 -->|next| loop_start_4\n  loop_end_2 --> loop_start_4\n  loop_start_7 -->|iterate| step_9\n  step_9 --> loop_end_8\n  loop_end_8 -->|next| loop_start_7\n  loop_end_5 --> loop_start_7\n  loop_start_10 -->|iterate| step_12\n  step_12 --> loop_end_11\n  loop_end_11 -->|next| loop_start_10\n  loop_end_8 --> loop_start_10\n  start --> loop_start_1\n  loop_end_11 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class loop_start_1 loopStyle\n  class step_3 stepStyle\n  class loop_end_2 loopStyle\n  class loop_start_4 loopStyle\n  class step_6 stepStyle\n  class loop_end_5 loopStyle\n  class loop_start_7 loopStyle\n  class step_9 stepStyle\n  class loop_end_8 loopStyle\n  class loop_start_10 loopStyle\n  class step_12 stepStyle\n  class loop_end_11 loopStyle",
+    "stepDetails": [
+      {
+        "stepId": "forStep",
+        "name": "forStep",
+        "callee": "deps.processItem",
+        "errors": [
+          "PROCESS_ERROR"
+        ],
+        "depSource": "processItem",
+        "outputType": "void",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "void",
+        "outputTypeText": "void",
+        "errorTypeDisplay": "\"PROCESS_ERROR\"",
+        "repeats": "loop",
+        "loopType": "for"
+      },
+      {
+        "stepId": "forOfStep",
+        "name": "forOfStep",
+        "callee": "deps.processItem",
+        "errors": [
+          "PROCESS_ERROR"
+        ],
+        "depSource": "processItem",
+        "outputType": "void",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "void",
+        "outputTypeText": "void",
+        "errorTypeDisplay": "\"PROCESS_ERROR\"",
+        "repeats": "loop",
+        "loopType": "for-of",
+        "iterationSource": "items"
+      },
+      {
+        "stepId": "forInStep",
+        "name": "forInStep",
+        "callee": "deps.processItem",
+        "errors": [
+          "PROCESS_ERROR"
+        ],
+        "depSource": "processItem",
+        "outputType": "void",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "void",
+        "outputTypeText": "void",
+        "errorTypeDisplay": "\"PROCESS_ERROR\"",
+        "repeats": "loop",
+        "loopType": "for-in",
+        "iterationSource": "obj"
+      },
+      {
+        "stepId": "whileStep",
+        "name": "whileStep",
+        "callee": "deps.processItem",
+        "errors": [
+          "PROCESS_ERROR"
+        ],
+        "depSource": "processItem",
+        "outputType": "void",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "void",
+        "outputTypeText": "void",
+        "errorTypeDisplay": "\"PROCESS_ERROR\"",
+        "repeats": "loop",
+        "loopType": "while"
+      }
+    ]
+  },
+  {
+    "title": "Workflow ref",
+    "code": "/**\n * Showcase: workflow ref — calling another workflow.\n * Renders as a workflow-ref node [[childWorkflow]].\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\nconst enrich = async (id: string): AsyncResult<{ id: string; enriched: true }, \"ENRICH_ERROR\"> =>\n  ok({ id, enriched: true });\nconst fetchUser = async (id: string): AsyncResult<{ id: string }, \"NOT_FOUND\"> => ok({ id });\n\nexport const childWorkflow = createWorkflow(\"childWorkflow\", { enrich });\nexport const parentWorkflow = createWorkflow(\"parentWorkflow\", { fetchUser });\n\nexport async function runParent(userId: string) {\n  return await parentWorkflow.run(async ({ step, deps }) => {\n    const user = await step(\"getUser\", () => deps.fetchUser(userId), { errors: [\"NOT_FOUND\"] });\n    const enriched = await childWorkflow.run(async ({ step: s, deps: d }) => {\n      return await s(\"enrich\", () => d.enrich(user.id), { errors: [\"ENRICH_ERROR\"] });\n    });\n    return { user, enriched };\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: parentWorkflow\n\n  start((Start))\n  step_1[\"getUser\"]\n  workflow_ref_2[[childWorkflow]]\n  end_node((End))\n\n  %% Edges\n  step_1 --> workflow_ref_2\n  start --> step_1\n  workflow_ref_2 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle\n  class workflow_ref_2 workflowRefStyle",
+    "stepDetails": [
+      {
+        "stepId": "getUser",
+        "name": "getUser",
+        "callee": "deps.fetchUser",
+        "errors": [
+          "NOT_FOUND"
+        ],
+        "depSource": "fetchUser",
+        "outputType": "{ id: string; }",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "{ id: string; }",
+        "outputTypeText": "{ id: string; }",
+        "errorTypeDisplay": "\"NOT_FOUND\""
+      }
+    ]
+  },
+  {
+    "title": "Complex (parallel + conditional + forEach)",
+    "code": "/**\n * Showcase: complex — parallel inside conditional, step.if, step.parallel, step.forEach.\n * Renders as nested subgraphs and decision nodes.\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\nconst fetchA = async (): AsyncResult<string, \"ERR\"> => ok(\"a\");\nconst fetchB = async (): AsyncResult<string, \"ERR\"> => ok(\"b\");\nconst processItem = async (x: string): AsyncResult<string, \"ERR\"> => ok(x);\n\nexport const complexWorkflow = createWorkflow(\"complexWorkflow\", { fetchA, fetchB, processItem });\n\nexport async function runComplex(doParallel: boolean, items: string[]) {\n  return await complexWorkflow.run(async ({ step, deps }) => {\n    if (step.if(\"choice\", \"doParallel\", () => doParallel)) {\n      const { a, b } = await step.parallel(\"fetchBoth\", {\n        a: () => deps.fetchA(),\n        b: () => deps.fetchB(),\n      });\n      await step.forEach(\"processAll\", items, {\n        run: (item) => deps.processItem(item),\n      });\n      return { a, b };\n    } else {\n      const a = await step(\"fetchAOnly\", () => deps.fetchA(), { errors: [\"ERR\"] });\n      return { a };\n    }\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: complexWorkflow\n\n  start((Start))\n  decision_1{\"doParallel\"}\n  parallel_fork_2{{\"fetchBoth (all)\"}}\n  parallel_join_3{{\"Join\"}}\n  step_4[\"a\"]\n  step_5[\"b\"]\n  loop_start_6([\"step.forEach: items\"])\n  step_8[\"processItem\"]\n  loop_end_7([\"Continue?\"])\n  step_9[\"fetchAOnly\"]\n  merge_10[\"Merge\"]\n  end_node((End))\n\n  %% Edges\n  parallel_fork_2 -->|branch 1| step_4\n  step_4 --> parallel_join_3\n  parallel_fork_2 -->|branch 2| step_5\n  step_5 --> parallel_join_3\n  loop_start_6 -->|iterate| step_8\n  step_8 --> loop_end_7\n  loop_end_7 -->|next| loop_start_6\n  parallel_join_3 --> loop_start_6\n  decision_1 -->|doParallel| parallel_fork_2\n  decision_1 -->|Not doParallel| step_9\n  loop_end_7 --> merge_10\n  step_9 --> merge_10\n  start --> decision_1\n  merge_10 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class decision_1 conditionalStyle\n  class parallel_fork_2 parallelStyle\n  class parallel_join_3 parallelStyle\n  class step_4 stepStyle\n  class step_5 stepStyle\n  class loop_start_6 loopStyle\n  class step_8 stepStyle\n  class loop_end_7 loopStyle\n  class step_9 stepStyle\n  class merge_10 mergeStyle",
+    "stepDetails": [
+      {
+        "stepId": "parallel.fetchBoth.fetchA",
+        "name": "a",
+        "callee": "deps.fetchA",
+        "depSource": "fetchA",
+        "outputType": "string",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "string",
+        "outputTypeText": "string",
+        "errorTypeDisplay": "\"ERR\""
+      },
+      {
+        "stepId": "parallel.fetchBoth.fetchB",
+        "name": "b",
+        "callee": "deps.fetchB",
+        "depSource": "fetchB",
+        "outputType": "string",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "string",
+        "outputTypeText": "string",
+        "errorTypeDisplay": "\"ERR\""
+      },
+      {
+        "stepId": "forEach.processAll.processItem",
+        "name": "processItem",
+        "callee": "deps.processItem",
+        "depSource": "processItem",
+        "outputType": "string",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "string",
+        "outputTypeText": "string",
+        "errorTypeDisplay": "\"ERR\"",
+        "repeats": "loop",
+        "loopType": "step.forEach",
+        "iterationSource": "items"
+      },
+      {
+        "stepId": "fetchAOnly",
+        "name": "fetchAOnly",
+        "callee": "deps.fetchA",
+        "errors": [
+          "ERR"
+        ],
+        "depSource": "fetchA",
+        "outputType": "string",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "string",
+        "outputTypeText": "string",
+        "errorTypeDisplay": "\"ERR\""
+      }
+    ]
+  },
+  {
+    "title": "Saga workflow",
+    "code": "/**\n * Showcase: Saga workflow — createSagaWorkflow with saga.step() and saga.tryStep().\n * Renders as saga-step nodes with \"(compensable)\" and \"(try)\" in the diagram.\n */\nimport { ok, type AsyncResult } from \"awaitly\";\nimport { createSagaWorkflow } from \"awaitly/saga\";\n\nconst reserve = async (id: string): AsyncResult<{ reservationId: string }, \"UNAVAILABLE\"> =>\n  ok({ reservationId: \"res_1\" });\nconst release = async (reservationId: string): AsyncResult<void, \"RELEASE_FAILED\"> =>\n  ok(undefined);\nconst charge = async (id: string, amount: number): AsyncResult<{ chargeId: string }, \"CHARGE_FAILED\"> =>\n  ok({ chargeId: \"ch_1\" });\nconst notify = async (id: string): AsyncResult<void, \"NOTIFY_FAILED\"> => ok(undefined);\n\nexport const orderSaga = createSagaWorkflow(\"orderSaga\", {\n  reserve,\n  release,\n  charge,\n  notify,\n});\n\nexport async function runOrderSaga(orderId: string, amount: number) {\n  return await orderSaga(async ({ saga, deps }) => {\n    const reservation = await saga.step(\"Reserve\", () => deps.reserve(orderId), {\n      compensate: async (val) => {\n        await deps.release(val.reservationId);\n      },\n    });\n\n    const payment = await saga.step(\n      \"Charge\",\n      () => deps.charge(orderId, amount),\n      {\n        compensate: async (_val) => {\n          /* refund in real impl */\n        },\n      }\n    );\n\n    await saga.tryStep(\"Notify\", () => deps.notify(orderId), {\n      error: \"NOTIFY_FAILED\" as const,\n    });\n\n    return { reservation, payment };\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: orderSaga\n\n  start((Start))\n  saga_step_1[\"Reserve\\n(compensable)\"]\n  saga_step_2[\"Charge\\n(compensable)\"]\n  saga_step_3[\"Notify\\n(try)\"]\n  end_node((End))\n\n  %% Edges\n  saga_step_1 --> saga_step_2\n  saga_step_2 --> saga_step_3\n  start --> saga_step_1\n  saga_step_3 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class saga_step_1 sagaStepStyle\n  class saga_step_2 sagaStepStyle\n  class saga_step_3 sagaStepStyle",
+    "stepDetails": [
+      {
+        "stepId": "Reserve",
+        "name": "Reserve",
+        "callee": "deps.reserve",
+        "depSource": "reserve",
+        "try": false,
+        "compensate": true
+      },
+      {
+        "stepId": "Charge",
+        "name": "Charge",
+        "callee": "deps.charge",
+        "depSource": "charge",
+        "try": false,
+        "compensate": true
+      },
+      {
+        "stepId": "Notify",
+        "name": "Notify",
+        "callee": "deps.notify",
+        "depSource": "notify",
+        "try": true,
+        "compensate": false
+      }
+    ]
+  }
+]

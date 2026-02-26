@@ -36,6 +36,8 @@ export interface MermaidHTMLTimeoutConfig {
 }
 
 export interface NodeMetadata {
+  /** Allow extra properties (e.g. errorType from analyzer) so consumers can assign without casting. */
+  [key: string]: unknown;
   /** Mermaid node ID (matches the ID in the rendered diagram) */
   mermaidId: string;
   /** Node type from the IR */
@@ -64,6 +66,8 @@ export interface NodeMetadata {
   inputType?: string;
   /** Output type */
   outputType?: string;
+  /** Error type (from Result/AsyncResult, e.g. "NOT_FOUND" | "FETCH_ERROR") */
+  errorType?: string;
   /** Output key */
   out?: string;
   /** Keys this step reads */
@@ -1017,10 +1021,11 @@ function generateClientJS(): string {
           html += '<div class="inspector-code">' + esc(meta.description) + '</div></div>';
         }
 
-        if (meta.inputType || meta.outputType) {
+        if (meta.inputType || meta.outputType || meta.errorType) {
           html += '<div class="inspector-section"><h3>Types</h3>';
           if (meta.inputType) html += row('Input', meta.inputType);
           if (meta.outputType) html += row('Output', meta.outputType);
+          if (meta.errorType) html += row('Error type', meta.errorType);
           html += '</div>';
         }
 

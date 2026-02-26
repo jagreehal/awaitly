@@ -210,11 +210,11 @@ describe("Choose-path style diagram (graph TD)", () => {
     // Decision diamond with condition label
     expect(diagram).toContain("Choose Path");
 
-    // Both branch steps: quoted labels so (dep: ...) is valid, e.g. step_2["option-a (dep: doA)"]
+    // Both branch steps appear as node labels (dep shown in step details, not in diagram)
     expect(diagram).toContain("option-a");
     expect(diagram).toContain("option-b");
-    expect(diagram).toMatch(/\[".*\(dep: doA\)"\]/);
-    expect(diagram).toMatch(/\[".*\(dep: doB\)"\]/);
+    expect(diagram).toMatch(/\["option-a[^"]*"\]/);
+    expect(diagram).toMatch(/\["option-b[^"]*"\]/);
 
     // Semantic edge labels: decision -> branches with conditionLabel (Choose Path / Not Choose Path)
     expect(diagram).toContain("|Choose Path|");

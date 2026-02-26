@@ -166,7 +166,7 @@ describe("renderWorkflowDSL", () => {
     expect(labels.some(l => l.includes("(Workflow)"))).toBe(true);
     expect(labels.some(l => l.includes("(Fallback)"))).toBe(true);
     expect(labels.some(l => l.includes("(Resource)"))).toBe(true);
-    expect(labels.some(l => l.includes("(dep: userService)"))).toBe(true);
+    expect(labels.some(l => l.includes("dep-step"))).toBe(true);
   });
 
   it("shows AllSettled in DSL parallel label", () => {

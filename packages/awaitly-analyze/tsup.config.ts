@@ -27,7 +27,8 @@ export default defineConfig([
     minify: true,
     external: ['ts-morph'],
     banner: {
-      js: '#!/usr/bin/env node',
+      js: `#!/usr/bin/env node
+import { createRequire as __cr } from 'module'; import { fileURLToPath as __ftp } from 'url'; import { dirname as __dn } from 'path'; const require = __cr(import.meta.url); const __filename = __ftp(import.meta.url); const __dirname = __dn(__filename);`,
     },
   },
 ]);

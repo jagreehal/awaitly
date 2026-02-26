@@ -101,8 +101,10 @@ export interface StaticStepNode extends StaticBaseNode {
   reads?: string[];
   /** For each reads[i], the dependency parameter index this ref is passed to (so readTypes uses the correct param type). */
   readParamIndices?: number[];
-  /** Dependency source (from step.dep() or detected from callee) */
+  /** Workflow dependency name (from step.dep() or deps.xxx). Use sourceLabel for display (depSource ?? stepKind ?? callee). */
   depSource?: string;
+  /** Built-in step kind for display when there is no workflow dep (e.g. sleep, withResource, retry, withTimeout, try, fromResult). */
+  stepKind?: string;
   /** Inferred input type(s) from type checker (e.g. step argument types) */
   inputType?: string;
   /** Inferred output type from type checker (e.g. unwrapped Promise/Result success type) */
@@ -112,6 +114,8 @@ export interface StaticStepNode extends StaticBaseNode {
   /** Sleep duration string for step.sleep() (e.g. "5s", "1h") */
   sleepDuration?: string;
   // === Typed extraction fields ===
+  /** How the output type was determined: declared (Result/AsyncResult), inferred (checker, not any), unknown (any or missing) */
+  outputTypeKind?: "inferred" | "declared" | "unknown";
   /** Typed output type information (extracted from AsyncResult<T, E, C>) */
   outputTypeInfo?: TypeInfo;
   /** Typed error type information */
@@ -122,6 +126,8 @@ export interface StaticStepNode extends StaticBaseNode {
   operationTypeInfo?: TypeInfo;
   /** Expected type per read key (from dependency param types; used for type-mismatch diagnostics) */
   readTypes?: Record<string, TypeInfo>;
+  /** For step.withResource: callee-style strings for acquire/use/release (e.g. "deps.acquire", "inline") */
+  resourceOps?: { acquire?: string; use?: string; release?: string };
 }
 
 /**
@@ -331,6 +337,8 @@ export interface StaticSagaStepNode extends StaticBaseNode {
   type: "saga-step";
   /** The function being called (e.g., "deps.reserve", "deps.charge") */
   callee?: string;
+  /** Dependency source extracted from callee (e.g., "reserve" from "deps.reserve") */
+  depSource?: string;
   /** Whether this step has a compensation function */
   hasCompensation: boolean;
   /** The compensation function callee (e.g., "deps.release", "deps.refund") */
@@ -352,6 +360,8 @@ export interface StaticSagaStepNode extends StaticBaseNode {
   /** Whether this is a tryStep (error-mapped step) */
   isTryStep?: boolean;
   // === Typed extraction fields ===
+  /** How the output type was determined: declared | inferred | unknown */
+  outputTypeKind?: "inferred" | "declared" | "unknown";
   /** Typed output type information */
   outputTypeInfo?: TypeInfo;
   /** Typed error type information */

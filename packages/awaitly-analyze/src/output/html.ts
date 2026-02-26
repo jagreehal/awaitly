@@ -125,7 +125,7 @@ function walkStepNode(
   counter: { value: number },
 ): void {
   const mermaidId = `step_${++counter.value}`;
-  result[mermaidId] = {
+  const meta: NodeMetadata = {
     mermaidId,
     type: "step",
     name: node.name ?? node.callee ?? "step",
@@ -137,10 +137,18 @@ function walkStepNode(
     timeout: node.timeout,
     errors: node.errors,
     inputType: node.inputType,
-    outputType: node.outputType,
+    outputType:
+      node.outputTypeInfo?.display ??
+      (node.outputType !== "any" || node.outputTypeKind === "unknown"
+        ? node.outputType
+        : undefined),
     out: node.out,
     reads: node.reads,
   };
+  if (node.errorTypeInfo?.display) {
+    (meta as Record<string, unknown>).errorType = node.errorTypeInfo.display;
+  }
+  result[mermaidId] = meta;
 }
 
 function walkSagaStepNode(

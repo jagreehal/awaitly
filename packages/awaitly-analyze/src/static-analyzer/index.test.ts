@@ -4391,6 +4391,86 @@ async function run() {
       expect(loopNode!.loopId).toBe("process-all");
     });
 
+    it("step.forEach run form: loop body should contain implicit step for (item) => deps.processItem(item)", () => {
+      const source = `
+        const workflow = createWorkflow("run-form-test", {
+          processItem: async (item: string) => ({ ok: item }),
+        });
+        export async function run() {
+          return await workflow.run(async ({ step, deps }) => {
+            await step.forEach("processAll", ["a", "b"], {
+              run: (item) => deps.processItem(item),
+            });
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+
+      function findLoop(nodes: StaticFlowNode[]): StaticLoopNode | undefined {
+        for (const n of nodes) {
+          if (n.type === "loop") return n as StaticLoopNode;
+          for (const c of getStaticChildren(n)) {
+            const found = findLoop([c]);
+            if (found) return found;
+          }
+        }
+        return undefined;
+      }
+
+      const loopNode = findLoop(results[0].root.children);
+      expect(loopNode).toBeDefined();
+      expect(loopNode!.loopType).toBe("step.forEach");
+      // run: (item) => deps.processItem(item) should yield one implicit step in body so Mermaid shows a step inside the loop
+      expect(loopNode!.body.length).toBe(1);
+      expect(loopNode!.body[0].type).toBe("step");
+      expect((loopNode!.body[0] as StaticStepNode).name).toBe("processItem");
+    });
+
+    it("step.forEach item form: loop body should contain both steps from step.item callback", () => {
+      // Use 'step' as the third param name so the analyzer recognizes step() calls inside the callback.
+      // Block with two statements becomes one sequence node containing two steps.
+      const source = `
+        const workflow = createWorkflow("item-form-test", {
+          validate: async (x: string) => ({ ok: true }),
+          process: async (x: string) => ({ done: true }),
+        });
+        export async function run() {
+          return await workflow.run(async ({ step, deps }) => {
+            await step.forEach("batch", ["x", "y"], {
+              item: step.item((item, i, step) => {
+                step("validate", () => deps.validate(item));
+                step("process", () => deps.process(item));
+              }),
+            });
+          });
+        }
+      `;
+      const results = analyzeWorkflowSource(source);
+      expect(results).toHaveLength(1);
+
+      function findLoop(nodes: StaticFlowNode[]): StaticLoopNode | undefined {
+        for (const n of nodes) {
+          if (n.type === "loop") return n as StaticLoopNode;
+          for (const c of getStaticChildren(n)) {
+            const found = findLoop([c]);
+            if (found) return found;
+          }
+        }
+        return undefined;
+      }
+
+      const loopNode = findLoop(results[0].root.children);
+      expect(loopNode).toBeDefined();
+      expect(loopNode!.body.length).toBeGreaterThanOrEqual(1);
+      const bodySteps = loopNode!.body.flatMap((n) =>
+        n.type === "sequence" ? (n as StaticSequenceNode).children : [n]
+      );
+      expect(bodySteps.length).toBe(2);
+      expect((bodySteps[0] as StaticStepNode).name).toBe("validate");
+      expect((bodySteps[1] as StaticStepNode).name).toBe("process");
+    });
+
     it("should produce a StaticLoopNode for step.forEach() with step.item()", () => {
       const source = `
         const workflow = createWorkflow("item-test", {
@@ -5450,7 +5530,7 @@ async function run() {
       expect(mermaid).toContain("(FromResult)");
       expect(mermaid).toContain("(Fallback)");
       expect(mermaid).toContain("(Resource)");
-      expect(mermaid).toContain("(dep: userService)");
+      expect(mermaid).toContain("dep-step");
     });
 
     it("should detect step.allSettled and show AllSettled in Mermaid", () => {

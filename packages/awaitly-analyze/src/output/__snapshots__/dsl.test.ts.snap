@@ -362,9 +362,9 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
         "type": "join",
       },
       {
-        "id": "implicit:fetchPosts",
+        "id": "parallel.Fetch posts and friends.fetchPosts",
         "inputType": undefined,
-        "label": "posts",
+        "label": "posts (dep: fetchPosts)",
         "location": {
           "column": 19,
           "endColumn": 43,
@@ -376,9 +376,9 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
         "type": "step",
       },
       {
-        "id": "implicit:fetchFriends",
+        "id": "parallel.Fetch posts and friends.fetchFriends",
         "inputType": undefined,
-        "label": "friends",
+        "label": "friends (dep: fetchFriends)",
         "location": {
           "column": 21,
           "endColumn": 47,
@@ -397,21 +397,21 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "event": "branch:0",
         "fromStateId": "parallel_fork_1",
-        "toStateId": "implicit:fetchPosts",
+        "toStateId": "parallel.Fetch posts and friends.fetchPosts",
       },
       {
         "event": "done",
-        "fromStateId": "implicit:fetchPosts",
+        "fromStateId": "parallel.Fetch posts and friends.fetchPosts",
         "toStateId": "parallel_join_2",
       },
       {
         "event": "branch:1",
         "fromStateId": "parallel_fork_1",
-        "toStateId": "implicit:fetchFriends",
+        "toStateId": "parallel.Fetch posts and friends.fetchFriends",
       },
       {
         "event": "done",
-        "fromStateId": "implicit:fetchFriends",
+        "fromStateId": "parallel.Fetch posts and friends.fetchFriends",
         "toStateId": "parallel_join_2",
       },
       {
@@ -476,9 +476,9 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
         "type": "join",
       },
       {
-        "id": "implicit:fetchPosts",
+        "id": "parallel.0.fetchPosts",
         "inputType": undefined,
-        "label": "fetchPosts",
+        "label": "fetchPosts (dep: fetchPosts)",
         "location": {
           "column": 6,
           "endColumn": 30,
@@ -490,9 +490,9 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
         "type": "step",
       },
       {
-        "id": "implicit:fetchFriends",
+        "id": "parallel.1.fetchFriends",
         "inputType": undefined,
-        "label": "fetchFriends",
+        "label": "fetchFriends (dep: fetchFriends)",
         "location": {
           "column": 6,
           "endColumn": 32,
@@ -504,9 +504,9 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
         "type": "step",
       },
       {
-        "id": "implicit:fetchSettings",
+        "id": "parallel.2.fetchSettings",
         "inputType": undefined,
-        "label": "fetchSettings",
+        "label": "fetchSettings (dep: fetchSettings)",
         "location": {
           "column": 6,
           "endColumn": 33,
@@ -525,31 +525,31 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "event": "branch:0",
         "fromStateId": "parallel_fork_1",
-        "toStateId": "implicit:fetchPosts",
+        "toStateId": "parallel.0.fetchPosts",
       },
       {
         "event": "done",
-        "fromStateId": "implicit:fetchPosts",
+        "fromStateId": "parallel.0.fetchPosts",
         "toStateId": "parallel_join_2",
       },
       {
         "event": "branch:1",
         "fromStateId": "parallel_fork_1",
-        "toStateId": "implicit:fetchFriends",
+        "toStateId": "parallel.1.fetchFriends",
       },
       {
         "event": "done",
-        "fromStateId": "implicit:fetchFriends",
+        "fromStateId": "parallel.1.fetchFriends",
         "toStateId": "parallel_join_2",
       },
       {
         "event": "branch:2",
         "fromStateId": "parallel_fork_1",
-        "toStateId": "implicit:fetchSettings",
+        "toStateId": "parallel.2.fetchSettings",
       },
       {
         "event": "done",
-        "fromStateId": "implicit:fetchSettings",
+        "fromStateId": "parallel.2.fetchSettings",
         "toStateId": "parallel_join_2",
       },
       {
