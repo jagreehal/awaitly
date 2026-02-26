@@ -1,5 +1,11 @@
 # awaitly-mongo
 
+## 19.1.0
+
+### Minor Changes
+
+- 102e866: - **awaitly-analyze**: Fix Mermaid diagram labels: normalize literal `\n` in `escapeLabel` so saga steps (e.g. "Notify (try)") and step annotations render on one line instead of showing backslash-n. Update tests to expect current dep-step label output (no "(dep: ...)" in diagram labels).
+
 ## 19.0.0
 
 ### Patch Changes
