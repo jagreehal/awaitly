@@ -1,5 +1,16 @@
 # awaitly-postgres
 
+## 20.0.0
+
+### Minor Changes
+
+- ed7d7ef: Minor updates across awaitly packages: core library, analyzers, visualizer, database adapters (postgres, libsql, mongo), ESLint plugin, and docs.
+
+### Patch Changes
+
+- Updated dependencies [ed7d7ef]
+  - awaitly@1.30.0
+
 ## 19.1.0
 
 ### Minor Changes
