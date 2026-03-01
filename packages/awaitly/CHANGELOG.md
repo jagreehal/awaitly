@@ -1,5 +1,11 @@
 # awaitly
 
+## 1.30.0
+
+### Minor Changes
+
+- ed7d7ef: Minor updates across awaitly packages: core library, analyzers, visualizer, database adapters (postgres, libsql, mongo), ESLint plugin, and docs.
+
 ## 1.29.0
 
 ### Minor Changes

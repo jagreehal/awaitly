@@ -1,5 +1,11 @@
 # eslint-plugin-awaitly
 
+## 0.17.0
+
+### Minor Changes
+
+- ed7d7ef: Minor updates across awaitly packages: core library, analyzers, visualizer, database adapters (postgres, libsql, mongo), ESLint plugin, and docs.
+
 ## 0.16.0
 
 ### Minor Changes
