@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import MermaidDiagram from "./MermaidDiagram";
 import { createHighlighter } from "shiki";
 
@@ -57,6 +57,12 @@ export interface ShowcaseEntry {
   title: string;
   code: string;
   mermaid: string;
+  /** Workflow result type (e.g. Promise<{ user; orders }>) */
+  resultType?: string;
+  /** Inferred or declared error tags for the workflow */
+  incErrors?: string[];
+  /** Workflow input type when analyzer supports it */
+  inputType?: string;
   stepDetails?: Array<{
     stepId?: string;
     name?: string;
@@ -219,7 +225,9 @@ function StepDetailsCard({
               )}
               {step.try && <StepBadge label="try" variant="amber" />}
               {errors.map((e) => (
-                <StepBadge key={e} label={e} variant="red" />
+                <Fragment key={e}>
+                  <StepBadge label={e} variant="red" />
+                </Fragment>
               ))}
               {retryInfo && (
                 <StepBadge label={`retry: ${retryInfo}`} variant="amber" />
@@ -263,6 +271,34 @@ function ShowcaseEntryCard({ entry }: { entry: ShowcaseEntry }) {
         <span className="inline-block h-5 w-1 rounded-full bg-[var(--sl-color-accent)]" />
         {entry.title}
       </h2>
+
+      {/* Workflow types */}
+      {(entry.inputType ?? entry.resultType ?? (entry.incErrors?.length ?? 0) > 0) && (
+        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-[var(--sl-color-gray-5)] bg-[var(--sl-color-gray-7,transparent)] px-3 py-2 text-xs">
+          {entry.inputType && (
+            <span className="flex items-center gap-1.5">
+              <span className="font-medium text-[var(--sl-color-gray-3)]">Input:</span>
+              <code className="font-mono text-[var(--sl-color-gray-2)]">{entry.inputType}</code>
+            </span>
+          )}
+          {entry.resultType && (
+            <span className="flex items-center gap-1.5">
+              <span className="font-medium text-[var(--sl-color-gray-3)]">Result:</span>
+              <code className="font-mono text-[var(--sl-color-gray-2)]">{entry.resultType}</code>
+            </span>
+          )}
+          {entry.incErrors && entry.incErrors.length > 0 && (
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span className="font-medium text-[var(--sl-color-gray-3)]">Errors:</span>
+              {entry.incErrors.map((e) => (
+                <Fragment key={e}>
+                  <StepBadge label={e} variant="red" />
+                </Fragment>
+              ))}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Tabbed container */}
       <div className="overflow-hidden rounded-lg border border-[var(--sl-color-gray-5)]">
@@ -332,7 +368,9 @@ export default function AnalyzerShowcase({ entries }: AnalyzerShowcaseProps) {
   return (
     <div className="space-y-10">
       {entries.map((entry) => (
-        <ShowcaseEntryCard key={entry.title} entry={entry} />
+        <Fragment key={entry.title}>
+          <ShowcaseEntryCard entry={entry} />
+        </Fragment>
       ))}
     </div>
   );
