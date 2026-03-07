@@ -13,6 +13,9 @@ You can use **named exports** (tree-shake friendly) or the **Awaitly** namespace
 // Minimal bundle: Result types only
 import { ok, err, map, andThen, type AsyncResult } from 'awaitly/result';
 
+// Result retry (standalone, no workflow engine)
+import { tryAsyncRetry, type RetryConfig } from 'awaitly/result/retry';
+
 // Full package: named exports
 import { ok, err, pipe, map, type AsyncResult } from 'awaitly';
 
@@ -42,7 +45,7 @@ Creates a successful Result.
 When to use: Wrap a successful value in a Result for consistent return types.
 
 ```typescript
-ok(value: T): Ok<T>
+ok(): Ok<void>
 ```
 
 ### Type guards
@@ -374,6 +377,29 @@ pending operations. Only returns all values if every result succeeds.
 
 ```typescript
 traverseParallel(items: T[], fn: (item: T, index: number) => AsyncResult<U, E, C>): AsyncResult<U[], PromiseRejectedError | E, PromiseRejectionCause | C>
+```
+
+## Result retry (awaitly/result/retry)
+
+Standalone retry for async operations without the full workflow engine. Import from `awaitly/result/retry`.
+
+### tryAsyncRetry
+
+Wraps an async function that might throw into an AsyncResult, with retry support.
+
+When to use: Wrap async work with retry logic for transient failures without needing the full workflow engine.
+
+```typescript
+tryAsyncRetry(fn: () => Promise<T>, config: { retry: RetryConfig<unknown> }): AsyncResult<T, unknown>
+tryAsyncRetry<T, E>(fn: () => Promise<T>, onError: (cause: unknown) => E, config: { retry: RetryConfig<E> }): AsyncResult<T, E>
+```
+
+### RetryConfig
+
+Configuration for retry behavior: `times` (attempts), `delayMs`, `backoff` (`'constant' | 'linear' | 'exponential'`), optional `shouldRetry(error)` predicate.
+
+```typescript
+type RetryConfig<E = unknown> = { times: number; delayMs: number; backoff?: 'constant' | 'linear' | 'exponential'; shouldRetry?: (error: E) => boolean }
 ```
 
 ## Options reference

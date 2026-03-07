@@ -28,6 +28,9 @@ In other words: **neverthrow wraps results; awaitly models effects.** That’s t
 | Result type | `Result<T, E>` | `Result<T, E>` |
 | Async result | `AsyncResult<T, E>` | `ResultAsync<T, E>` |
 | Method style | Functions | Methods |
+| Retry (standalone) | `tryAsyncRetry()` | Not included |
+| Result serialization | `deserialize()` (typed errors) | Not included |
+| Flatten nested Results | `flatten()` | Not included |
 | Workflow orchestration | Built-in | Not included |
 | Workflow error inference from deps | Yes | No |
 | Step IDs + events / tracing | Yes | No |

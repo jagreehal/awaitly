@@ -153,6 +153,11 @@ export {
   anyAsync,
   zip,
   zipAsync,
+  flatten,
+  deserialize,
+  DESERIALIZATION_ERROR,
+  serialize,
+  matchErrorPartial,
 } from "./result";
 
 export { TaggedError } from "./tagged-error";
@@ -200,6 +205,8 @@ export type {
   CauseOf,
   MatchErrorHandlers,
   SettledError,
+  DeserializationError,
+  SerializedResult,
 } from "./result";
 
 export type {

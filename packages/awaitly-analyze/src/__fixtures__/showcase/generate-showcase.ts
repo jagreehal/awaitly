@@ -182,7 +182,17 @@ function main(): void {
 
     const mermaid = renderStaticMermaid(ir, { sameLevelConditionals: true });
     const stepDetails = collectStepDetails(ir.root.children);
-    results.push({ title, code, mermaid, stepDetails });
+    const resultType = ir.root.workflowReturnType ?? undefined;
+    const incErrors =
+      (ir.root.declaredErrors?.length ? ir.root.declaredErrors : ir.root.errorTypes) ?? undefined;
+    results.push({
+      title,
+      code,
+      mermaid,
+      stepDetails,
+      ...(resultType && { resultType }),
+      ...(incErrors?.length && { incErrors }),
+    });
   }
 
   writeFileSync(outPath, JSON.stringify(results, null, 2), "utf8");

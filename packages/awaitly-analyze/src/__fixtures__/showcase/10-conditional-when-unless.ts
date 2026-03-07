@@ -10,8 +10,10 @@ const compute = async (): AsyncResult<number, "COMPUTE_ERROR"> => ok(99);
 
 export const conditionalWorkflow = createWorkflow("conditionalWorkflow", { audit, compute });
 
-export async function runConditional(isPremium: boolean) {
-  return await conditionalWorkflow.run(async ({ step, deps }) => {
+export type ConditionalResult = { a: boolean; b: number };
+
+export async function runConditional(isPremium: boolean): Promise<ConditionalResult> {
+  return await conditionalWorkflow.run(async ({ step, deps }): Promise<ConditionalResult> => {
     await when(isPremium, () => step("whenStep", () => deps.audit()));
     await unless(isPremium, () => step("unlessStep", () => deps.compute()));
     const a = await whenOr(isPremium, () => step("whenOrStep", () => deps.audit()), false);

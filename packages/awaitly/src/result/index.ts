@@ -14,13 +14,20 @@
  * Represents a successful result.
  * Use `ok(value)` to create instances.
  */
-export type Ok<T> = { ok: true; value: T };
+export type Ok<T> = {
+  ok: true;
+  value: T;
+};
 
 /**
  * Represents a failed result.
  * Use `err(error)` to create instances.
  */
-export type Err<E, C = unknown> = { ok: false; error: E; cause?: C };
+export type Err<E, C = unknown> = {
+  ok: false;
+  error: E;
+  cause?: C;
+};
 
 /**
  * Represents a successful computation or a failed one.
@@ -123,22 +130,21 @@ export type MaybeAsyncResult<T, E, C = unknown> = Result<T, E, C> | Promise<Resu
  *
  * @remarks When to use: Wrap a successful value in a Result for consistent return types.
  */
-export const ok = <T>(value: T): Ok<T> => ({ ok: true, value });
+export function ok(): Ok<void>;
+export function ok<T>(value: T): Ok<T>;
+export function ok<T>(value?: T): Ok<T | void> {
+  return { ok: true as const, value: value as T | void };
+}
 
 /**
  * Creates a failed Result.
  *
  * @remarks When to use: Return a typed failure without throwing so callers can handle it explicitly.
  */
-export const err = <E, C = unknown>(
-  error: E,
-  options?: { cause?: C }
-): Err<E, C> =>
-  ({
-    ok: false,
-    error,
-    ...(options?.cause !== undefined ? { cause: options.cause } : {}),
-  }) as Err<E, C>;
+export function err<E, C = unknown>(error: E, options?: { cause?: C }): Err<E, C> {
+  const cause = options?.cause;
+  return { ok: false as const, error, ...(cause !== undefined ? { cause } : {}) } as Err<E, C>;
+}
 
 // =============================================================================
 // Type Guards
@@ -954,3 +960,109 @@ export async function zipAsync<A, EA, CA, B, EB, CB>(
   const [ra, rb] = await Promise.all([wrapRejection(a), wrapRejection(b)]);
   return zip(ra, rb);
 }
+
+// =============================================================================
+// Flatten
+// =============================================================================
+
+/**
+ * Flattens a nested Result into a single Result.
+ *
+ * @remarks When to use: Unwrap a Result<Result<T, E1>, E2> into Result<T, E1 | E2> after an operation that returns nested Results.
+ */
+export function flatten<T, E1, C1, E2, C2>(
+  result: Result<Result<T, E1, C1>, E2, C2>
+): Result<T, E1 | E2, C1 | C2> {
+  if (!result.ok) return result as Err<E2, C2>;
+  return result.value;
+}
+
+// =============================================================================
+// Deserialization (improved hydrate)
+// =============================================================================
+
+/** Discriminant for deserialization errors */
+export const DESERIALIZATION_ERROR = "DESERIALIZATION_ERROR" as const;
+
+/** Error type returned when deserialize() receives invalid input */
+export type DeserializationError = { type: typeof DESERIALIZATION_ERROR; value: unknown };
+
+/**
+ * Deserialize a value back into a Result.
+ * Returns a typed DeserializationError on invalid input instead of null.
+ *
+ * @remarks When to use: Rehydrate Results from JSON, RPC, or server actions with type-safe error handling.
+ */
+export function deserialize<T, E, C = unknown>(
+  value: unknown
+): Result<T, E | DeserializationError, C> {
+  if (typeof value !== "object" || value === null) {
+    return err({ type: DESERIALIZATION_ERROR, value } as DeserializationError);
+  }
+  if (!("ok" in value)) {
+    return err({ type: DESERIALIZATION_ERROR, value } as DeserializationError);
+  }
+
+  const obj = value as Record<string, unknown>;
+  if (obj.ok === true && "value" in obj) {
+    return ok(obj.value as T);
+  }
+  if (obj.ok === false && "error" in obj) {
+    return err(obj.error as E, { cause: obj.cause as C });
+  }
+  return err({ type: DESERIALIZATION_ERROR, value } as DeserializationError);
+}
+
+// =============================================================================
+// Serialization
+// =============================================================================
+
+/** A plain serialized form of a Result, safe to JSON.stringify. */
+export type SerializedResult<T, E> = { ok: true; value: T } | { ok: false; error: E };
+
+/**
+ * Serialize a Result to a plain object (inverse of `deserialize`).
+ * Strips cause — safe for JSON.stringify, RPC, and server actions.
+ *
+ * @remarks When to use: Sending Results over the wire or storing them in JSON.
+ */
+export function serialize<T, E>(result: Result<T, E>): SerializedResult<T, E> {
+  return result.ok
+    ? { ok: true, value: result.value }
+    : { ok: false, error: result.error };
+}
+
+// =============================================================================
+// Partial error matching
+// =============================================================================
+
+/**
+ * Non-exhaustive error match — handle the errors you care about; let the rest fall through to fallback.
+ *
+ * @example
+ * ```typescript
+ * const message = matchErrorPartial(
+ *   error,
+ *   { NOT_FOUND: () => 'Resource not found' },
+ *   (e) => `Unexpected: ${e}`
+ * );
+ * ```
+ */
+export function matchErrorPartial<E extends string, R>(
+  error: E | UnexpectedError,
+  handlers: Partial<MatchErrorHandlers<E, R>>,
+  fallback: (error: E | UnexpectedError) => R
+): R {
+  if (isUnexpectedError(error)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const h = (handlers as any).UNEXPECTED_ERROR as ((e: UnexpectedError) => R) | undefined;
+    return h ? h(error) : fallback(error);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const h = (handlers as any)[error as string] as ((e: E) => R) | undefined;
+  return h ? h(error as E) : fallback(error);
+}
+
+// Retry helper is intentionally NOT re-exported here.
+// Import from the dedicated subpath to keep awaitly/result minimal:
+//   import { tryAsyncRetry } from 'awaitly/result/retry';

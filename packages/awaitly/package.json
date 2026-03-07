@@ -28,6 +28,11 @@
       "import": "./dist/result.js",
       "require": "./dist/result.cjs"
     },
+    "./result/retry": {
+      "types": "./dist/result/retry.d.ts",
+      "import": "./dist/result/retry.js",
+      "require": "./dist/result/retry.cjs"
+    },
     "./workflow": {
       "types": "./dist/workflow.d.ts",
       "import": "./dist/workflow.js",

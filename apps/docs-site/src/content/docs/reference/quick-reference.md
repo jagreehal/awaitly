@@ -313,6 +313,7 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 | Need | Import from |
 |------|-------------|
 | Result types only (minimal bundle) | `awaitly/result` |
+| Standalone retry for async/Result (no workflow) | `awaitly/result/retry` (`tryAsyncRetry`, `RetryConfig`) |
 | Result types + composition (`ok`, `err`, `isOk`, `isErr`, `map`, `mapError`, `andThen`, `tap`, `from`, `fromPromise`, `all`, `allAsync`, `partition`, `match`, `TaggedError`) | `awaitly` |
 | run() for step composition | `awaitly/run` |
 | Workflow engine (`createWorkflow`, `Duration`, `isStepComplete`, `createResumeStateCollector`, `isWorkflowCancelled`, step types, `ResumeState`) | `awaitly/workflow` |
@@ -342,6 +343,7 @@ For optimal bundle size, import from specific entry points:
 | Entry Point | Use Case |
 |-------------|----------|
 | `awaitly/result` | Result types only (smallest bundle; sizes in docs are gzipped when given) |
+| `awaitly/result/retry` | Result retry: `tryAsyncRetry`, `RetryConfig` (no workflow engine) |
 | `awaitly` | Result types, transforms for composition |
 | `awaitly/run` | run() for step composition |
 | `awaitly/workflow` | Workflow engine (`createWorkflow`, `Duration`, etc.) |

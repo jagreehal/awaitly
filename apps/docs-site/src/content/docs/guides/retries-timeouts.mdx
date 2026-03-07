@@ -5,7 +5,7 @@ description: Add resilience to workflow steps
 
 import { Aside, Tabs, TabItem, AnimatedWorkflowDiagram } from '~/components';
 
-Add retries and timeouts to individual steps without wrapping your entire workflow in try/catch.
+Add retries and timeouts to individual steps without wrapping your entire workflow in try/catch. For retries **outside** workflows (plain async/Result code), use [tryAsyncRetry](/foundations/result-types/#retry-with-tryasyncretry) from `awaitly/result/retry`; see [API Reference - Result retry](/reference/api/#result-retry-awaitlyresultretry).
 
 <AnimatedWorkflowDiagram
   steps={[

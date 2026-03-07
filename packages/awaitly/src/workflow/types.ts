@@ -426,6 +426,9 @@ export interface Workflow<E, U = UnexpectedError, Deps = unknown, C = void> {
   /**
    * Execute workflow (anonymous run).
    * ExtraE is inferred from the callback (e.g. from step.workflow / step.withFallback); result is Result<T, E | ExtraE | U>.
+   * T is inferred from the callback return type. For nested workflows (calling another workflow.run() inside the callback),
+   * inference can sometimes fall back to `any`; adding an explicit return type to the callback (e.g.
+   * `async (ctx): Promise<{ user: User; enriched: Enriched }> => { ... }`) gives the compiler a target and preserves types.
    */
   run<T, ExtraE = never>(fn: WorkflowFn<T, E | ExtraE, Deps, C>): AsyncResult<T, E | ExtraE | U, unknown>;
 

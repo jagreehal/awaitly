@@ -46,7 +46,10 @@ function parseDurationString(input: string): DurationObject | undefined {
  * // Type shown: Ok<number>
  * ```
  */
-export type Ok<T> = { ok: true; value: T };
+export type Ok<T> = {
+  ok: true;
+  value: T;
+};
 
 /**
  * Represents a failed result.
@@ -62,7 +65,11 @@ export type Ok<T> = { ok: true; value: T };
  * // Type shown: Err<{ type: string; message: string }>
  * ```
  */
-export type Err<E, C = unknown> = { ok: false; error: E; cause?: C };
+export type Err<E, C = unknown> = {
+  ok: false;
+  error: E;
+  cause?: C;
+};
 
 /**
  * Represents a successful computation or a failed one.
@@ -209,7 +216,9 @@ export type MaybeAsyncResult<T, E, C = unknown> = Result<T, E, C> | Promise<Resu
  * }
  * ```
  */
-export const ok = <T>(value: T): Ok<T> => ({ ok: true, value });
+export function ok<T>(value: T): Ok<T> {
+  return { ok: true as const, value };
+}
 
 /**
  * Creates a failed Result.
@@ -231,15 +240,10 @@ export const ok = <T>(value: T): Ok<T> => ({ ok: true, value });
  * // Type: Err<{ type: string; cause: Error }>
  * ```
  */
-export const err = <E, C = unknown>(
-  error: E,
-  options?: { cause?: C }
-): Err<E, C> =>
-  ({
-    ok: false,
-    error,
-    ...(options?.cause !== undefined ? { cause: options.cause } : {}),
-  }) as Err<E, C>;
+export function err<E, C = unknown>(error: E, options?: { cause?: C }): Err<E, C> {
+  const cause = options?.cause;
+  return { ok: false as const, error, ...(cause !== undefined ? { cause } : {}) } as Err<E, C>;
+}
 
 // =============================================================================
 // Type Guards
@@ -866,6 +870,32 @@ export interface RunStep<E = unknown> {
     options:
       | { error: Err; key?: string; ttl?: number }
       | { onError: (resultError: ResultE) => Err; key?: string; ttl?: number }
+  ) => Promise<T>;
+
+  /**
+   * Execute an operation that may return null/undefined and convert to a typed error.
+   *
+   * Shorthand for wrapping `fromNullable()` in a step — avoids boilerplate when
+   * looking up optional values (database finds, map lookups, etc.).
+   *
+   * @param id - Unique step identifier
+   * @param operation - A function that returns `T | null | undefined` (or a Promise thereof)
+   * @param onNull - Returns the typed error when operation returns null/undefined
+   *
+   * @example
+   * ```typescript
+   * const user = await step.fromNullable(
+   *   'getUser',
+   *   () => db.users.findById(id),
+   *   () => ({ type: 'NOT_FOUND' as const, id })
+   * );
+   * ```
+   */
+  fromNullable: <T, const Err extends E>(
+    id: string,
+    operation: () => T | null | undefined | Promise<T | null | undefined>,
+    onNull: () => Err,
+    options?: { key?: string; ttl?: number }
   ) => Promise<T>;
 
   /**
@@ -3000,7 +3030,7 @@ export async function run<T, E, C = void>(
 
         // All retries exhausted with Result error - handle final error
         // At this point lastResult must be an error result (we only reach here on error)
-        const errorResult = lastResult as { ok: false; error: StepE; cause?: StepC };
+        const errorResult = lastResult as Err<StepE, StepC>;
         const totalDurationMs = performance.now() - overallStartTime;
         const wrappedError = wrapForStep(errorResult.error, {
           origin: "result",
@@ -3233,6 +3263,29 @@ export async function run<T, E, C = void>(
           });
         }
       })();
+    };
+
+    // step.fromNullable: Execute an operation returning T | null/undefined and convert to typed error
+    stepFn.fromNullable = <T, Err>(
+      id: string,
+      operation: () => T | null | undefined | Promise<T | null | undefined>,
+      onNull: () => Err,
+      options?: { key?: string; ttl?: number }
+    ): Promise<T> => {
+      if (typeof id !== 'string' || id.length === 0) {
+        throw new Error(
+          '[awaitly] step.fromNullable() requires an explicit string ID as the first argument. ' +
+          'Example: step.fromNullable("getUser", () => db.find(id), () => ({ type: "NOT_FOUND" }))'
+        );
+      }
+      return stepFn(
+        id,
+        async () => {
+          const value = await operation();
+          return value != null ? ok(value) : err(onNull());
+        },
+        options
+      );
     };
 
     // step.retry: Execute an operation with retry and optional timeout

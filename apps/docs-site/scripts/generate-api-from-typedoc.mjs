@@ -229,6 +229,9 @@ function generateMarkdown(project) {
     "// Minimal bundle: Result types only",
     "import { ok, err, map, andThen, type AsyncResult } from 'awaitly/result';",
     "",
+    "// Result retry (standalone, no workflow engine)",
+    "import { tryAsyncRetry, type RetryConfig } from 'awaitly/result/retry';",
+    "",
     "// Full package: named exports",
     "import { ok, err, pipe, map, type AsyncResult } from 'awaitly';",
     "",
@@ -275,7 +278,30 @@ function generateMarkdown(project) {
     }
   }
 
-  // Append static Options reference (keep hand-maintained block)
+  // Result retry (awaitly/result/retry) - not in main TypeDoc entry
+  lines.push("## Result retry (awaitly/result/retry)");
+  lines.push("");
+  lines.push("Standalone retry for async operations without the full workflow engine. Import from `awaitly/result/retry`.");
+  lines.push("");
+  lines.push("### tryAsyncRetry");
+  lines.push("");
+  lines.push("Wraps an async function that might throw into an AsyncResult, with retry support.");
+  lines.push("");
+  lines.push("When to use: Wrap async work with retry logic for transient failures without needing the full workflow engine.");
+  lines.push("");
+  lines.push("```typescript");
+  lines.push("tryAsyncRetry(fn: () => Promise<T>, config: { retry: RetryConfig<unknown> }): AsyncResult<T, unknown>");
+  lines.push("tryAsyncRetry<T, E>(fn: () => Promise<T>, onError: (cause: unknown) => E, config: { retry: RetryConfig<E> }): AsyncResult<T, E>");
+  lines.push("```");
+  lines.push("");
+  lines.push("### RetryConfig");
+  lines.push("");
+  lines.push("Configuration for retry behavior: `times` (attempts), `delayMs`, `backoff` (`'constant' | 'linear' | 'exponential'`), optional `shouldRetry(error)` predicate.");
+  lines.push("");
+  lines.push("```typescript");
+  lines.push("type RetryConfig<E = unknown> = { times: number; delayMs: number; backoff?: 'constant' | 'linear' | 'exponential'; shouldRetry?: (error: E) => boolean }");
+  lines.push("```");
+  lines.push("");
   lines.push("## Options reference");
   lines.push("");
   lines.push("Single place for all workflow and step option keys (for docs and static analysis).");
