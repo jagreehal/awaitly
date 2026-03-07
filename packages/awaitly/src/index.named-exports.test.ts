@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as root from "./index";
 import { Awaitly, ok, err, map, pipe } from "./index";
 
 describe("root named exports", () => {
@@ -13,5 +14,11 @@ describe("root named exports", () => {
     const piped = pipe(2, (n) => n * 2);
     const pipedViaNamespace = Awaitly.pipe(2, (n) => n * 2);
     expect(piped).toBe(pipedViaNamespace);
+  });
+
+  it("exports new result helpers as named root exports", () => {
+    expect(root.flatten).toBe(Awaitly.flatten);
+    expect(root.deserialize).toBe(Awaitly.deserialize);
+    expect(root.DESERIALIZATION_ERROR).toBe(Awaitly.DESERIALIZATION_ERROR);
   });
 });

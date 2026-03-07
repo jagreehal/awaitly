@@ -40,6 +40,9 @@ function main() {
     lines.push(`- **Steps:** ${ir.metadata.stats.totalSteps}`);
     if (ir.metadata.stats.conditionalCount) lines.push(`- **Decision points:** ${ir.metadata.stats.conditionalCount}`);
     if (ir.metadata.stats.parallelCount) lines.push(`- **Parallel operations:** ${ir.metadata.stats.parallelCount}`);
+    if (root.workflowReturnType) lines.push(`- **Result type:** ${root.workflowReturnType}`);
+    const errors = root.declaredErrors?.length ? root.declaredErrors : root.errorTypes;
+    if (errors?.length) lines.push(`- **Errors:** ${errors.join(' | ')}`);
     lines.push('');
 
     function listSteps(node, depth = 0) {

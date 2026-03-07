@@ -340,6 +340,63 @@ const results = await allAsync([
 // One fails: { ok: false, error: 'NOT_FOUND' }
 ```
 
+## Flatten
+
+Unwrap nested Results:
+
+```typescript
+import { flatten, ok, err } from 'awaitly/result';
+
+const nested = ok(ok(42));
+const flat = flatten(nested);
+// { ok: true, value: 42 }
+
+const nestedErr = ok(err('INNER'));
+const flat2 = flatten(nestedErr);
+// { ok: false, error: 'INNER' }
+```
+
+## Deserialization
+
+Rehydrate Results from JSON, RPC, or server actions with type-safe error handling:
+
+```typescript
+import { deserialize, DESERIALIZATION_ERROR } from 'awaitly/result';
+
+// Valid serialized Result
+const result = deserialize<User, AppError>(rpcResponse);
+if (result.ok) {
+  console.log(result.value); // User
+}
+
+// Invalid input returns a typed DeserializationError
+const invalid = deserialize({ foo: 'bar' });
+if (!invalid.ok && invalid.error.type === DESERIALIZATION_ERROR) {
+  console.log('Bad input:', invalid.error.value);
+}
+```
+
+## Retry with tryAsyncRetry
+
+Retry async operations without the full workflow engine:
+
+```typescript
+import { tryAsyncRetry } from 'awaitly/result/retry';
+
+const result = await tryAsyncRetry(
+  () => fetch('/api/data').then(r => r.json()),
+  (cause) => ({ type: 'FETCH_FAILED' as const, cause }),
+  {
+    retry: {
+      times: 3,
+      delayMs: 100,
+      backoff: 'exponential',
+      shouldRetry: (e) => e.type === 'FETCH_FAILED',
+    },
+  }
+);
+```
+
 ## Summary
 
 | Function | Purpose |
@@ -355,8 +412,11 @@ const results = await allAsync([
 | `from(fn)` | Wrap sync throwing code |
 | `fromPromise(promise)` | Wrap async throwing code |
 | `tryAsync(fn, mapError)` | Wrap with custom error |
+| `tryAsyncRetry(fn, config)` | Wrap with retry support |
 | `all(results)` | Combine, fail on first error |
 | `partition(results)` | Separate successes/failures |
+| `flatten(nested)` | Unwrap nested Results |
+| `deserialize(value)` | Rehydrate from JSON/RPC |
 
 ## Next
 

@@ -11,6 +11,7 @@ export default defineConfig({
     core: 'src/core-entry.ts',
     run: 'src/run-entry.ts',
     result: 'src/result/index.ts',
+    'result/retry': 'src/result/retry.ts',
     workflow: 'src/workflow-entry.ts',
 
     // =========================================================================

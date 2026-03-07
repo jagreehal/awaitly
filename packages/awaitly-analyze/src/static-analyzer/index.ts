@@ -968,10 +968,18 @@ function analyzeWorkflowCall(
     declaredErrors: workflowStrict.declaredErrors,
   };
 
-  // Best-effort: workflow callback return type (inline callback or callback-by-identifier)
+  // Best-effort: workflow callback return type (inline callback or callback-by-identifier).
+  // Prefer type checker so we get User, Enriched etc. instead of any.
   try {
-    const inferred = getWorkflowCallbackReturnType(callbackForReturnType);
-    if (inferred) root.workflowReturnType = inferred;
+    const inferred =
+      callbackForReturnType &&
+      getWorkflowCallbackReturnTypeFromChecker(callbackForReturnType, sourceFile);
+    if (inferred) {
+      root.workflowReturnType = inferred;
+    } else if (callbackForReturnType) {
+      const fallback = getWorkflowCallbackReturnType(callbackForReturnType);
+      if (fallback) root.workflowReturnType = fallback;
+    }
   } catch {
     // ignore
   }
@@ -1057,9 +1065,40 @@ function extractStepParameterInfo(callback: Node): StepParameterInfo | undefined
 }
 
 /**
+ * Infer workflow callback return type using the TypeScript type checker.
+ * Preserves type aliases (e.g. User, Enriched) instead of expanding to object shapes with any.
+ */
+function getWorkflowCallbackReturnTypeFromChecker(
+  cb: Node,
+  sourceFile: SourceFile
+): string | undefined {
+  const { Node } = loadTsMorph();
+  let node: Node = cb;
+  while (Node.isParenthesizedExpression(node)) {
+    node = node.getExpression();
+  }
+  try {
+    const project = sourceFile.getProject();
+    const typeChecker = project.getTypeChecker();
+    const tc = typeChecker.compilerObject as ts.TypeChecker;
+    const tsNode = (node as unknown as { compilerNode: ts.Node }).compilerNode;
+    const type = tc.getTypeAtLocation(tsNode);
+    const callSigs = type.getCallSignatures?.() ?? [];
+    const sig = callSigs[0];
+    if (!sig) return undefined;
+    const returnType = sig.getReturnType();
+    return tc.typeToString(returnType);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Infer workflow callback return type from the callback node (inline function or identifier).
  * When the callback is passed by identifier (e.g. workflow(callback)), resolves to the
  * declaration and gets return type from the initializer or function declaration.
+ * Uses type node text (may expand to any); prefer getWorkflowCallbackReturnTypeFromChecker when
+ * type checker is available to preserve type aliases.
  */
 function getWorkflowCallbackReturnType(cb: Node | undefined): string | undefined {
   if (!cb) return undefined;

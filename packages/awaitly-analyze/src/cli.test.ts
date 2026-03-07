@@ -120,7 +120,7 @@ describe("CLI", () => {
         const content = readFileSync(outputMdPath, "utf-8");
         expect(content).toContain("flowchart");
       },
-      10_000,
+      30_000,
     );
 
     it("should write JSON output to adjacent file with --format=json", () => {

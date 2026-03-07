@@ -2029,10 +2029,8 @@ export function createWorkflow<
   }
 
   const workflow: Workflow<E, U, Deps, C> = {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    run: runMethod as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    runWithState: runWithStateMethod as any,
+    run: runMethod as Workflow<E, U, Deps, C>["run"],
+    runWithState: runWithStateMethod as Workflow<E, U, Deps, C>["runWithState"],
   };
 
   return workflow;
