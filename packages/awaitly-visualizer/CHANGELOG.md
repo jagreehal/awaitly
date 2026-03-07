@@ -1,5 +1,12 @@
 # awaitly-visualizer
 
+## 20.0.0
+
+### Patch Changes
+
+- Updated dependencies [52cae14]
+  - awaitly@1.31.0
+
 ## 19.0.0
 
 ### Minor Changes
