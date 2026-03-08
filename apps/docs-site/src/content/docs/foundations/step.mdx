@@ -81,6 +81,29 @@ const user = await step('fetchUser', () => deps.fetchUser('1'), {
 });
 ```
 
+### Optional metadata (static analysis & observability)
+
+You can attach optional metadata to steps for diagrams, diagnostics, and observability (e.g. OpenTelemetry, workflow summaries). Three groups:
+
+- **Architecture & intent**: `intent`, `domain`, `owner`, `tags` — for grouping and labeling (e.g. `domain: 'payments'`).
+- **Effects & dependencies**: `stateChanges`, `emits`, `calls` — what the step mutates, what events it emits, which external services it calls.
+- **Error classification**: `errorMeta` — map from error tag to `{ retryable?, severity?, description? }` for diagnostics and `step_error` events.
+
+See [Static Analysis](/guides/static-analysis/) and [Documenting workflows](/guides/documenting-workflows/) for where this metadata is used.
+
+```typescript
+await step('charge', () => deps.charge(orderId), {
+  domain: 'payments',
+  intent: 'charge customer',
+  owner: 'billing-team',
+  calls: ['stripe.charges.create'],
+  errorMeta: {
+    RATE_LIMITED: { retryable: true, severity: 'medium' },
+    CARD_DECLINED: { retryable: false, severity: 'high' },
+  },
+});
+```
+
 ## Step ID and key: label vs instance
 
 The **first argument** is the step **label** (what kind of step: `'fetchUser'`, `'sendEmail'`). It must be a string literal and is used in diagrams, events, and static docs.

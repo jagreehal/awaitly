@@ -14,6 +14,8 @@ Core model:
 - Execute with `workflow.run(...)`.
 - Render or export from captured state.
 
+Step events may include optional metadata (`domain`, `intent`, `owner`, etc.) when step options are set; renderers and diagnostics can surface this.
+
 ---
 
 ## Agent Contract (MUST follow)

@@ -559,7 +559,254 @@ export type StepOptions<
    * ```
    */
   dep?: string;
+
+  // ==========================================================================
+  // Agent Metadata — Architecture & Intent
+  // ==========================================================================
+
+  /**
+   * Why this step exists in the business flow.
+   * Unlike `description` (which says *what* the step does), `intent` explains
+   * the business reason it exists in the workflow.
+   *
+   * @example
+   * ```typescript
+   * await step('validateCart', () => validate(cart), {
+   *   description: 'Validates cart contents and pricing',
+   *   intent: 'Prevent charging customers for out-of-stock items',
+   * });
+   * ```
+   */
+  intent?: string;
+
+  /**
+   * Business domain this step belongs to.
+   * Used by the static analyzer to group steps by bounded context.
+   *
+   * @example
+   * ```typescript
+   * await step('chargeCard', () => charge(card, amount), {
+   *   domain: 'payments',
+   * });
+   * ```
+   */
+  domain?: string;
+
+  /**
+   * Team, service, or bounded-context that owns this step.
+   *
+   * @example
+   * ```typescript
+   * await step('shipOrder', () => ship(order), {
+   *   owner: 'fulfillment-team',
+   * });
+   * ```
+   */
+  owner?: string;
+
+  /**
+   * Classification tags for this step.
+   *
+   * Recommended vocabulary:
+   * `'side-effect'`, `'external-api'`, `'idempotent'`, `'read-only'`,
+   * `'cacheable'`, `'pii'`, `'pci'`, `'compensatable'`
+   *
+   * @example
+   * ```typescript
+   * await step('chargeCard', () => charge(card, amount), {
+   *   tags: ['side-effect', 'external-api', 'pci'],
+   * });
+   * ```
+   */
+  tags?: readonly string[];
+
+  // ==========================================================================
+  // Agent Metadata — Effects & Dependencies
+  // ==========================================================================
+
+  /**
+   * Human-oriented descriptions of state mutations this step performs.
+   * These are free-text labels for documentation and visualization — they are
+   * not machine-parsed at runtime.
+   *
+   * A future `stateEffects` field will provide structured effect declarations.
+   *
+   * @example
+   * ```typescript
+   * await step('placeOrder', () => place(cart), {
+   *   stateChanges: ['order.status → PLACED', 'inventory.reserved += qty'],
+   * });
+   * ```
+   */
+  stateChanges?: readonly string[];
+
+  /**
+   * Domain events this step produces.
+   * Used by the static analyzer to build event flow graphs.
+   *
+   * @example
+   * ```typescript
+   * await step('placeOrder', () => place(cart), {
+   *   emits: ['OrderPlaced', 'InventoryReserved'],
+   * });
+   * ```
+   */
+  emits?: readonly string[];
+
+  /**
+   * External systems or services this step calls.
+   * Used by the static analyzer to map external dependencies.
+   *
+   * @example
+   * ```typescript
+   * await step('chargeCard', () => charge(card, amount), {
+   *   calls: ['stripe-api', 'fraud-detection-service'],
+   * });
+   * ```
+   */
+  calls?: readonly string[];
+
+  // ==========================================================================
+  // Agent Metadata — Error Classification
+  // ==========================================================================
+
+  /**
+   * Structured metadata for each error this step may produce.
+   * Keys should match entries in the `errors` array.
+   *
+   * Note: `retryable` classifies the error's nature (whether it CAN be retried),
+   * separate from whether this step actually retries it (that's `retry.retryOn`).
+   * Both dimensions are useful — "this error IS retryable" vs "this step DOES retry it".
+   * Defaults to `undefined` (unknown), not `true`.
+   *
+   * @example
+   * ```typescript
+   * await step('chargeCard', () => charge(card, amount), {
+   *   errors: ['CARD_DECLINED', 'GATEWAY_TIMEOUT'],
+   *   errorMeta: {
+   *     CARD_DECLINED: {
+   *       retryable: false,
+   *       severity: 'business',
+   *       description: 'Card was declined by issuer',
+   *     },
+   *     GATEWAY_TIMEOUT: {
+   *       retryable: true,
+   *       severity: 'infrastructure',
+   *       description: 'Payment gateway did not respond in time',
+   *     },
+   *   },
+   * });
+   * ```
+   */
+  errorMeta?: Record<string, ErrorClassification>;
 };
+
+/** Shared error classification — used in StepOptions.errorMeta, diagnostics, and wide events. */
+export interface ErrorClassification {
+  retryable?: boolean;
+  severity?: 'business' | 'infrastructure' | 'validation';
+  description?: string;
+}
+
+/** Runtime-visible business context from StepOptions. Does NOT include errorMeta. */
+export interface StepMetadata {
+  intent?: string;
+  domain?: string;
+  owner?: string;
+  tags?: readonly string[];
+  stateChanges?: readonly string[];
+  emits?: readonly string[];
+  calls?: readonly string[];
+}
+
+/** Runtime error diagnostics. classification is the matched ErrorClassification for this error. */
+export interface StepErrorDiagnostics {
+  tag: string;
+  classification?: ErrorClassification;
+  attempt?: number;             // 1-based
+  cumulativeDurationMs?: number; // execution only, excludes backoff
+  origin: 'result' | 'throw' | 'timeout';
+}
+
+/** Extract canonical error tag. Priority: _tag > tag > code > Error.name > "unknown".
+ * Tags are case-sensitive, whitespace-trimmed, otherwise raw.
+ * Note: Error.name is fallback-grade (often too coarse like "Error", "TypeError"). */
+export function extractErrorTag(error: unknown): string {
+  if (error == null) return 'unknown';
+
+  if (typeof error === 'string') return error.trim() || 'unknown';
+
+  if (typeof error === 'object') {
+    // Priority 1: _tag (TaggedError pattern)
+    const tagged = error as Record<string, unknown>;
+    if (typeof tagged._tag === 'string') {
+      const trimmed = tagged._tag.trim();
+      if (trimmed) return trimmed;
+    }
+    // Priority 2: tag
+    if (typeof tagged.tag === 'string') {
+      const trimmed = tagged.tag.trim();
+      if (trimmed) return trimmed;
+    }
+    // Priority 3: code — string used directly, number stringified, anything else skipped
+    if (typeof tagged.code === 'string') {
+      const trimmed = tagged.code.trim();
+      if (trimmed) return trimmed;
+    } else if (typeof tagged.code === 'number') {
+      return String(tagged.code);
+    }
+    // Priority 4: Error.name (fallback-grade)
+    if (error instanceof Error && error.name) {
+      const trimmed = error.name.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+
+  return 'unknown';
+}
+
+/** Look up ErrorClassification from errorMeta for a given tag. */
+export function lookupErrorClassification(
+  tag: string,
+  errorMeta?: Record<string, ErrorClassification>,
+): ErrorClassification | undefined {
+  if (!errorMeta || !tag) return undefined;
+  return errorMeta[tag];
+}
+
+/** Extract StepMetadata from StepOptions (returns undefined when empty). */
+export function extractStepMetadata(options: StepOptions): StepMetadata | undefined {
+  const { intent, domain, owner, tags, stateChanges, emits, calls } = options;
+  if (!intent && !domain && !owner && !tags?.length && !stateChanges?.length && !emits?.length && !calls?.length) {
+    return undefined;
+  }
+  const metadata: StepMetadata = {};
+  if (intent) metadata.intent = intent;
+  if (domain) metadata.domain = domain;
+  if (owner) metadata.owner = owner;
+  if (tags?.length) metadata.tags = tags;
+  if (stateChanges?.length) metadata.stateChanges = stateChanges;
+  if (emits?.length) metadata.emits = emits;
+  if (calls?.length) metadata.calls = calls;
+  return metadata;
+}
+
+/** Build StepErrorDiagnostics from error + errorMeta. */
+function buildStepErrorPayload(
+  error: unknown,
+  errorMeta: StepOptions['errorMeta'],
+  origin: StepErrorDiagnostics['origin'],
+  attempt?: number,
+  cumulativeDurationMs?: number,
+): StepErrorDiagnostics {
+  const tag = extractErrorTag(error);
+  const classification = lookupErrorClassification(tag, errorMeta);
+  const diagnostics: StepErrorDiagnostics = { tag, origin };
+  if (classification !== undefined) diagnostics.classification = classification;
+  if (attempt !== undefined) diagnostics.attempt = attempt;
+  if (cumulativeDurationMs !== undefined) diagnostics.cumulativeDurationMs = cumulativeDurationMs;
+  return diagnostics;
+}
 
 // =============================================================================
 // Retry and Timeout Types
@@ -1876,14 +2123,14 @@ export type WorkflowEvent<E, C = unknown> =
   | { type: "workflow_start"; workflowId: string; workflowName?: string; ts: number; context?: C }
   | { type: "workflow_success"; workflowId: string; workflowName?: string; ts: number; durationMs: number; context?: C }
   | { type: "workflow_error"; workflowId: string; workflowName?: string; ts: number; durationMs: number; error: E; context?: C }
-  | { type: "step_start"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; context?: C }
-  | { type: "step_success"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; context?: C }
-  | { type: "step_error"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; error: E; context?: C }
-  | { type: "step_aborted"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; context?: C }
-  | { type: "step_complete"; workflowId: string; workflowName?: string; stepKey: string; name?: string; description?: string; ts: number; durationMs: number; result: Result<unknown, unknown, unknown>; meta?: StepFailureMeta; context?: C }
-  | { type: "step_cache_hit"; workflowId: string; workflowName?: string; stepKey: string; name?: string; ts: number; context?: C }
-  | { type: "step_cache_miss"; workflowId: string; workflowName?: string; stepKey: string; name?: string; ts: number; context?: C }
-  | { type: "step_skipped"; workflowId: string; workflowName?: string; stepKey?: string; name?: string; reason?: string; decisionId?: string; ts: number; context?: C }
+  | { type: "step_start"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; metadata?: StepMetadata; context?: C }
+  | { type: "step_success"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; metadata?: StepMetadata; context?: C }
+  | { type: "step_error"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; error: E; metadata?: StepMetadata; diagnostics?: StepErrorDiagnostics; context?: C }
+  | { type: "step_aborted"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; metadata?: StepMetadata; context?: C }
+  | { type: "step_complete"; workflowId: string; workflowName?: string; stepKey: string; name?: string; description?: string; ts: number; durationMs: number; result: Result<unknown, unknown, unknown>; meta?: StepFailureMeta; metadata?: StepMetadata; context?: C }
+  | { type: "step_cache_hit"; workflowId: string; workflowName?: string; stepKey: string; name?: string; ts: number; metadata?: StepMetadata; context?: C }
+  | { type: "step_cache_miss"; workflowId: string; workflowName?: string; stepKey: string; name?: string; ts: number; metadata?: StepMetadata; context?: C }
+  | { type: "step_skipped"; workflowId: string; workflowName?: string; stepKey?: string; name?: string; reason?: string; decisionId?: string; ts: number; metadata?: StepMetadata; context?: C }
   | { type: "scope_start"; workflowId: string; workflowName?: string; scopeId: string; scopeType: ScopeType; name?: string; ts: number; context?: C }
   | { type: "scope_end"; workflowId: string; workflowName?: string; scopeId: string; ts: number; durationMs: number; winnerId?: string; context?: C }
   // Retry events
@@ -1899,6 +2146,8 @@ export type WorkflowEvent<E, C = unknown> =
       maxAttempts: number;
       delayMs: number;
       error: E;
+      metadata?: StepMetadata;
+      diagnostics?: StepErrorDiagnostics;
       context?: C;
     }
   | {
@@ -1912,6 +2161,8 @@ export type WorkflowEvent<E, C = unknown> =
       durationMs: number;
       attempts: number;
       lastError: E;
+      metadata?: StepMetadata;
+      diagnostics?: StepErrorDiagnostics;
       context?: C;
     }
   // Timeout event
@@ -1925,6 +2176,8 @@ export type WorkflowEvent<E, C = unknown> =
       ts: number;
       timeoutMs: number;
       attempt?: number;
+      metadata?: StepMetadata;
+      diagnostics?: StepErrorDiagnostics;
       context?: C;
     }
   // Hook events
@@ -2676,6 +2929,7 @@ export async function run<T, E, C = void>(
         }
 
         const parsedOptions: StepOptions = stepOptions ?? {};
+        const stepMetadata = extractStepMetadata(parsedOptions);
 
         // Name is always derived from ID
         const stepName = id;
@@ -2715,6 +2969,7 @@ export async function run<T, E, C = void>(
             name: stepName,
             description: stepDescription,
             ts: Date.now(),
+            ...(stepMetadata && { metadata: stepMetadata }),
           });
         }
 
@@ -2751,6 +3006,7 @@ export async function run<T, E, C = void>(
                 description: stepDescription,
                 ts: Date.now(),
                 durationMs,
+                ...(stepMetadata && { metadata: stepMetadata }),
               });
               if (explicitKey) {
                 emitEvent({
@@ -2762,6 +3018,7 @@ export async function run<T, E, C = void>(
                   ts: Date.now(),
                   durationMs,
                   result,
+                  ...(stepMetadata && { metadata: stepMetadata }),
                 });
               }
               return result.value;
@@ -2785,6 +3042,8 @@ export async function run<T, E, C = void>(
                 maxAttempts: effectiveRetry.attempts,
                 delayMs: delay,
                 error: result.error as unknown as E,
+                ...(stepMetadata && { metadata: stepMetadata }),
+                diagnostics: buildStepErrorPayload(result.error, parsedOptions.errorMeta, 'result', attempt, performance.now() - overallStartTime),
               });
 
               effectiveRetry.onRetry(result.error, attempt, delay);
@@ -2804,6 +3063,8 @@ export async function run<T, E, C = void>(
                 durationMs: performance.now() - overallStartTime,
                 attempts: attempt,
                 lastError: result.error as unknown as E,
+                ...(stepMetadata && { metadata: stepMetadata }),
+                diagnostics: buildStepErrorPayload(result.error, parsedOptions.errorMeta, 'result', attempt, performance.now() - overallStartTime),
               });
             }
 
@@ -2825,6 +3086,8 @@ export async function run<T, E, C = void>(
                 ts: Date.now(),
                 timeoutMs,
                 attempt,
+                ...(stepMetadata && { metadata: stepMetadata }),
+                diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt),
               });
               emitEvent({
                 type: "step_success",
@@ -2835,6 +3098,7 @@ export async function run<T, E, C = void>(
                 description: stepDescription,
                 ts: Date.now(),
                 durationMs: performance.now() - overallStartTime,
+                ...(stepMetadata && { metadata: stepMetadata }),
               });
               if (explicitKey) {
                 emitEvent({
@@ -2846,6 +3110,7 @@ export async function run<T, E, C = void>(
                   ts: Date.now(),
                   durationMs: performance.now() - overallStartTime,
                   result: ok(undefined),
+                  ...(stepMetadata && { metadata: stepMetadata }),
                 });
               }
               // Return undefined as success value (timeout was treated as optional)
@@ -2863,6 +3128,7 @@ export async function run<T, E, C = void>(
                 description: stepDescription,
                 ts: Date.now(),
                 durationMs,
+                ...(stepMetadata && { metadata: stepMetadata }),
               });
               throw thrown;
             }
@@ -2881,6 +3147,8 @@ export async function run<T, E, C = void>(
                 ts: Date.now(),
                 timeoutMs,
                 attempt,
+                ...(stepMetadata && { metadata: stepMetadata }),
+                diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt),
               });
 
               // Check if we should retry after timeout
@@ -2898,6 +3166,8 @@ export async function run<T, E, C = void>(
                   maxAttempts: effectiveRetry.attempts,
                   delayMs: delay,
                   error: thrown as unknown as E,
+                  ...(stepMetadata && { metadata: stepMetadata }),
+                  diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt, performance.now() - overallStartTime),
                 });
 
                 effectiveRetry.onRetry(thrown, attempt, delay);
@@ -2917,6 +3187,8 @@ export async function run<T, E, C = void>(
                   durationMs: performance.now() - overallStartTime,
                   attempts: attempt,
                   lastError: thrown as unknown as E,
+                  ...(stepMetadata && { metadata: stepMetadata }),
+                  diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt, performance.now() - overallStartTime),
                 });
               }
 
@@ -2933,6 +3205,8 @@ export async function run<T, E, C = void>(
                 ts: Date.now(),
                 durationMs: totalDurationMs,
                 error: thrown as unknown as E,
+                ...(stepMetadata && { metadata: stepMetadata }),
+                diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt, totalDurationMs),
               });
               if (explicitKey) {
                 emitEvent({
@@ -2945,6 +3219,7 @@ export async function run<T, E, C = void>(
                   durationMs: totalDurationMs,
                   result: err(thrown as unknown as E, { cause: thrown }),
                   meta: { origin: "throw", thrown },
+                  ...(stepMetadata && { metadata: stepMetadata }),
                 });
               }
               onError?.(thrown as unknown as E, stepName, context);
@@ -2968,6 +3243,8 @@ export async function run<T, E, C = void>(
                 maxAttempts: effectiveRetry.attempts,
                 delayMs: delay,
                 error: thrown as unknown as E,
+                ...(stepMetadata && { metadata: stepMetadata }),
+                diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'throw', attempt, performance.now() - overallStartTime),
               });
 
               effectiveRetry.onRetry(thrown, attempt, delay);
@@ -2987,6 +3264,8 @@ export async function run<T, E, C = void>(
                 durationMs: performance.now() - overallStartTime,
                 attempts: attempt,
                 lastError: thrown as unknown as E,
+                ...(stepMetadata && { metadata: stepMetadata }),
+                diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'throw', attempt, performance.now() - overallStartTime),
               });
             }
 
@@ -3009,6 +3288,8 @@ export async function run<T, E, C = void>(
               ts: Date.now(),
               durationMs: totalDurationMs,
               error: mappedError,
+              ...(stepMetadata && { metadata: stepMetadata }),
+              diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'throw', attempt, totalDurationMs),
             });
             if (explicitKey) {
               emitEvent({
@@ -3021,6 +3302,7 @@ export async function run<T, E, C = void>(
                 durationMs: totalDurationMs,
                 result: err(mappedError, { cause: thrown }),
                 meta: { origin: "throw", thrown },
+                ...(stepMetadata && { metadata: stepMetadata }),
               });
             }
             onError?.(mappedError as E, stepName, context);
@@ -3046,6 +3328,8 @@ export async function run<T, E, C = void>(
           ts: Date.now(),
           durationMs: totalDurationMs,
           error: wrappedError,
+          ...(stepMetadata && { metadata: stepMetadata }),
+          diagnostics: buildStepErrorPayload(errorResult.error, parsedOptions.errorMeta, 'result', effectiveRetry.attempts, totalDurationMs),
         });
         if (explicitKey) {
           emitEvent({
@@ -3058,6 +3342,7 @@ export async function run<T, E, C = void>(
             durationMs: totalDurationMs,
             result: errorResult,
             meta: { origin: "result", resultCause: errorResult.cause },
+            ...(stepMetadata && { metadata: stepMetadata }),
           });
         }
         onError?.(wrappedError as unknown as E, stepName, context);

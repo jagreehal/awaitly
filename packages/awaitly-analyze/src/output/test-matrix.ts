@@ -11,7 +11,11 @@ import type {
   TestPath,
   TestCondition,
   TestMatrixSummary,
+  StaticWorkflowIR,
+  StaticFlowNode,
+  StaticStepNode,
 } from "../types";
+import { getStaticChildren } from "../types";
 
 // =============================================================================
 // Options
@@ -38,12 +42,19 @@ const DEFAULT_OPTIONS: Required<TestMatrixOptions> = {
 
 /**
  * Generate a test coverage matrix from workflow paths.
+ *
+ * When `ir` is provided, error metadata from steps is used to influence
+ * test path priority (e.g. business-severity errors boost priority).
  */
 export function generateTestMatrix(
   paths: WorkflowPath[],
-  options: TestMatrixOptions = {}
+  options: TestMatrixOptions = {},
+  ir?: StaticWorkflowIR
 ): TestMatrix {
   const opts = { ...DEFAULT_OPTIONS, ...options };
+
+  // Build a lookup from node ID to StaticStepNode for error metadata
+  const stepMap = ir ? buildStepMap(ir) : new Map<string, StaticStepNode>();
 
   // Filter paths if needed
   let filteredPaths = paths;
@@ -53,7 +64,7 @@ export function generateTestMatrix(
 
   // Generate test paths
   const testPaths = filteredPaths.map((path) =>
-    generateTestPath(path, opts)
+    generateTestPath(path, opts, stepMap)
   );
 
   // Extract conditions
@@ -75,12 +86,13 @@ export function generateTestMatrix(
 
 function generateTestPath(
   path: WorkflowPath,
-  opts: Required<TestMatrixOptions>
+  opts: Required<TestMatrixOptions>,
+  stepMap: Map<string, StaticStepNode>
 ): TestPath {
   const testName = opts.testNameGenerator(path);
 
-  // Determine priority based on path characteristics
-  const priority = determinePriority(path);
+  // Determine priority based on path characteristics and error metadata
+  const priority = determinePriority(path, stepMap);
 
   // Generate setup conditions as human-readable strings
   const setupConditions = path.conditions.map((c) => {
@@ -104,10 +116,62 @@ function generateTestPath(
   };
 }
 
-function determinePriority(path: WorkflowPath): "high" | "medium" | "low" {
+function determinePriority(
+  path: WorkflowPath,
+  stepMap: Map<string, StaticStepNode>
+): "high" | "medium" | "low" {
   // High priority: Happy path (no conditions, no loops)
   if (path.conditions.length === 0 && !path.hasLoops) {
     return "high";
+  }
+
+  // Check error metadata from steps in this path
+  if (stepMap.size > 0) {
+    let hasBusinessSeverity = false;
+    let allInfraRetryable = true;
+    let hasAnyError = false;
+    let hasUnannotatedErrors = false;
+
+    for (const stepRef of path.steps) {
+      const stepNode = stepMap.get(stepRef.nodeId);
+      if (!stepNode) continue;
+
+      // Steps with declared errors but no errorMeta have unannotated errors
+      if (stepNode.errors?.length && !stepNode.errorMeta) {
+        hasUnannotatedErrors = true;
+        continue;
+      }
+      if (!stepNode.errorMeta) continue;
+
+      // Check for declared errors missing from errorMeta
+      if (stepNode.errors?.length) {
+        const annotatedTags = new Set(Object.keys(stepNode.errorMeta));
+        if (stepNode.errors.some((e) => !annotatedTags.has(e))) {
+          hasUnannotatedErrors = true;
+        }
+      }
+
+      for (const meta of Object.values(stepNode.errorMeta)) {
+        hasAnyError = true;
+        if (meta.severity === "business") {
+          hasBusinessSeverity = true;
+        }
+        if (!(meta.severity === "infrastructure" && meta.retryable)) {
+          allInfraRetryable = false;
+        }
+      }
+    }
+
+    // Boost priority: path includes steps with business-severity errors
+    if (hasBusinessSeverity) {
+      return "high";
+    }
+
+    // Lower priority: all errors are retryable infrastructure (transient, auto-recovered)
+    // But only if there are no unannotated errors — unknown errors should not be downgraded
+    if (hasAnyError && allInfraRetryable && !hasUnannotatedErrors) {
+      return "low";
+    }
   }
 
   // Low priority: Complex paths with loops and many conditions
@@ -408,6 +472,28 @@ export function formatTestMatrixAsCode(
 
 function escapeString(str: string): string {
   return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
+}
+
+/**
+ * Build a map from node ID to StaticStepNode for error metadata lookups.
+ */
+function buildStepMap(ir: StaticWorkflowIR): Map<string, StaticStepNode> {
+  const map = new Map<string, StaticStepNode>();
+
+  function walk(node: StaticFlowNode): void {
+    if (node.type === "step") {
+      map.set(node.id, node);
+    }
+    for (const child of getStaticChildren(node)) {
+      walk(child);
+    }
+  }
+
+  for (const node of ir.root.children) {
+    walk(node);
+  }
+
+  return map;
 }
 
 /**

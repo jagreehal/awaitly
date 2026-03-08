@@ -264,6 +264,183 @@ describe("Autotel Adapter", () => {
       expect(adapter.getActiveSpansCount().steps).toBe(0);
     });
 
+    it("should set step.domain and step.owner attributes when metadata present", () => {
+      const adapter = createAutotelAdapter({ serviceName: "checkout" });
+
+      adapter.handleEvent({
+        type: "step_start",
+        workflowId: "wf-1",
+        stepId: "step-1",
+        name: "Charge card",
+        ts: Date.now(),
+        metadata: { domain: "payments", owner: "billing-team" },
+      });
+
+      adapter.handleEvent({
+        type: "step_success",
+        workflowId: "wf-1",
+        stepId: "step-1",
+        name: "Charge card",
+        ts: Date.now(),
+        durationMs: 50,
+      });
+
+      const metrics = adapter.getMetrics();
+      expect(metrics.stepDurations[0].attributes).toMatchObject({
+        "step.domain": "payments",
+        "step.owner": "billing-team",
+      });
+    });
+
+    it("should NOT set step.tags or step.calls as attributes", () => {
+      const adapter = createAutotelAdapter({ serviceName: "checkout" });
+
+      adapter.handleEvent({
+        type: "step_start",
+        workflowId: "wf-1",
+        stepId: "step-1",
+        name: "Charge card",
+        ts: Date.now(),
+        metadata: {
+          domain: "payments",
+          tags: ["critical", "billing"],
+          calls: ["stripe.charges.create"],
+        },
+      });
+
+      adapter.handleEvent({
+        type: "step_success",
+        workflowId: "wf-1",
+        stepId: "step-1",
+        name: "Charge card",
+        ts: Date.now(),
+        durationMs: 50,
+      });
+
+      const metrics = adapter.getMetrics();
+      const attrs = metrics.stepDurations[0].attributes!;
+      expect(attrs).not.toHaveProperty("step.tags");
+      expect(attrs).not.toHaveProperty("step.calls");
+    });
+
+    it("should set step.intent when <= 100 chars", () => {
+      const adapter = createAutotelAdapter({ serviceName: "checkout" });
+      const shortIntent = "charge the customer credit card";
+
+      adapter.handleEvent({
+        type: "step_start",
+        workflowId: "wf-1",
+        stepId: "step-1",
+        name: "Charge card",
+        ts: Date.now(),
+        metadata: { intent: shortIntent },
+      });
+
+      adapter.handleEvent({
+        type: "step_success",
+        workflowId: "wf-1",
+        stepId: "step-1",
+        name: "Charge card",
+        ts: Date.now(),
+        durationMs: 50,
+      });
+
+      const metrics = adapter.getMetrics();
+      expect(metrics.stepDurations[0].attributes).toMatchObject({
+        "step.intent": shortIntent,
+      });
+    });
+
+    it("should omit step.intent when > 100 chars", () => {
+      const adapter = createAutotelAdapter({ serviceName: "checkout" });
+      const longIntent = "a".repeat(101);
+
+      adapter.handleEvent({
+        type: "step_start",
+        workflowId: "wf-1",
+        stepId: "step-1",
+        name: "Charge card",
+        ts: Date.now(),
+        metadata: { intent: longIntent, domain: "payments" },
+      });
+
+      adapter.handleEvent({
+        type: "step_success",
+        workflowId: "wf-1",
+        stepId: "step-1",
+        name: "Charge card",
+        ts: Date.now(),
+        durationMs: 50,
+      });
+
+      const metrics = adapter.getMetrics();
+      const attrs = metrics.stepDurations[0].attributes!;
+      expect(attrs).not.toHaveProperty("step.intent");
+      // Other metadata should still be present
+      expect(attrs["step.domain"]).toBe("payments");
+    });
+
+    it("should set error.severity and error.retryable on step_error with diagnostics", () => {
+      const adapter = createAutotelAdapter({ serviceName: "checkout" });
+
+      adapter.handleEvent({
+        type: "step_start",
+        workflowId: "wf-1",
+        stepId: "step-1",
+        name: "Charge card",
+        ts: Date.now(),
+      });
+
+      adapter.handleEvent({
+        type: "step_error",
+        workflowId: "wf-1",
+        stepId: "step-1",
+        name: "Charge card",
+        ts: Date.now(),
+        durationMs: 50,
+        error: new Error("connection refused"),
+        diagnostics: {
+          tag: "Error",
+          origin: "throw" as const,
+          classification: {
+            severity: "infrastructure" as const,
+            retryable: false,
+          },
+        },
+      });
+
+      const metrics = adapter.getMetrics();
+      const attrs = metrics.stepDurations[0].attributes!;
+      expect(attrs["error.severity"]).toBe("infrastructure");
+      expect(attrs["error.retryable"]).toBe(false);
+    });
+
+    it("should omit metadata attributes when no metadata on event", () => {
+      const adapter = createAutotelAdapter({ serviceName: "checkout" });
+
+      adapter.handleEvent({
+        type: "step_start",
+        workflowId: "wf-1",
+        stepId: "step-1",
+        name: "Fetch user",
+        ts: Date.now(),
+        // no metadata
+      });
+
+      adapter.handleEvent({
+        type: "step_success",
+        workflowId: "wf-1",
+        stepId: "step-1",
+        name: "Fetch user",
+        ts: Date.now(),
+        durationMs: 30,
+      });
+
+      const metrics = adapter.getMetrics();
+      // No default attributes, no metadata -> attributes should be undefined
+      expect(metrics.stepDurations[0].attributes).toBeUndefined();
+    });
+
     it("should reset metrics", () => {
       const adapter = createAutotelAdapter({ serviceName: "checkout" });
 

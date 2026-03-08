@@ -42,6 +42,18 @@ export interface StepLog {
   timedOut?: boolean;
   timeoutMs?: number;
   error?: string;
+  // Agent metadata
+  domain?: string;
+  owner?: string;
+  intent?: string;
+  calls?: readonly string[];
+  // Error diagnostics summary
+  errorDiagnostics?: {
+    tag: string;
+    severity?: string;
+    retryable?: boolean;
+    origin?: string;
+  };
 }
 
 /**
@@ -75,6 +87,7 @@ export interface WorkflowSummary {
   skippedCount: number;
   totalRetries: number;
   slowestStep?: { name: string; durationMs: number };
+  byDomain?: Record<string, { total: number; errors: number; avgDurationMs: number }>;
 }
 
 /**
@@ -170,6 +183,28 @@ function stepToLog(step: StepNode): StepLog {
     log.error = typeof step.error === "string" ? step.error : String(step.error);
   }
 
+  // Add metadata fields
+  if (step.metadata) {
+    if (step.metadata.domain) log.domain = step.metadata.domain;
+    if (step.metadata.owner) log.owner = step.metadata.owner;
+    if (step.metadata.intent) log.intent = step.metadata.intent;
+    if (step.metadata.calls?.length) log.calls = step.metadata.calls;
+  }
+
+  // Add error diagnostics summary
+  if (step.errorDiagnostics) {
+    log.errorDiagnostics = {
+      tag: step.errorDiagnostics.tag,
+      origin: step.errorDiagnostics.origin,
+    };
+    if (step.errorDiagnostics.classification?.severity) {
+      log.errorDiagnostics.severity = step.errorDiagnostics.classification.severity;
+    }
+    if (step.errorDiagnostics.classification?.retryable !== undefined) {
+      log.errorDiagnostics.retryable = step.errorDiagnostics.classification.retryable;
+    }
+  }
+
   return log;
 }
 
@@ -201,6 +236,31 @@ function calculateSummary(steps: StepNode[]): WorkflowSummary {
     }
   }
 
+  // Calculate byDomain grouping
+  const domainMap = new Map<string, { total: number; errors: number; totalDuration: number }>();
+  for (const step of steps) {
+    const domain = step.metadata?.domain;
+    if (domain && (step.state === "success" || step.state === "error")) {
+      const entry = domainMap.get(domain) ?? { total: 0, errors: 0, totalDuration: 0 };
+      entry.total++;
+      if (step.state === "error") entry.errors++;
+      if (step.durationMs !== undefined) entry.totalDuration += step.durationMs;
+      domainMap.set(domain, entry);
+    }
+  }
+
+  let byDomain: Record<string, { total: number; errors: number; avgDurationMs: number }> | undefined;
+  if (domainMap.size > 0) {
+    byDomain = {};
+    for (const [domain, entry] of domainMap) {
+      byDomain[domain] = {
+        total: entry.total,
+        errors: entry.errors,
+        avgDurationMs: entry.total > 0 ? Math.round(entry.totalDuration / entry.total) : 0,
+      };
+    }
+  }
+
   return {
     totalSteps: steps.length,
     successCount,
@@ -209,6 +269,7 @@ function calculateSummary(steps: StepNode[]): WorkflowSummary {
     skippedCount,
     totalRetries,
     slowestStep,
+    ...(byDomain && { byDomain }),
   };
 }
 

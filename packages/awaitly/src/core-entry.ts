@@ -33,6 +33,16 @@ export {
   type EmptyInputError,
   type MaybeAsyncResult,
 
+  // Agent metadata types
+  type ErrorClassification,
+  type StepMetadata,
+  type StepErrorDiagnostics,
+
+  // Agent metadata helpers
+  extractErrorTag,
+  lookupErrorClassification,
+  extractStepMetadata,
+
   // Type utilities
   type ErrorOf,
   type Errors,

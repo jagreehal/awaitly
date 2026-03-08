@@ -128,6 +128,38 @@ export interface StaticStepNode extends StaticBaseNode {
   readTypes?: Record<string, TypeInfo>;
   /** For step.withResource: callee-style strings for acquire/use/release (e.g. "deps.acquire", "inline") */
   resourceOps?: { acquire?: string; use?: string; release?: string };
+
+  // === Agent metadata — Architecture & Intent ===
+  /** Business intent / reason this step exists in the flow */
+  intent?: string;
+  /** Business domain classification */
+  domain?: string;
+  /** Team or service owner */
+  owner?: string;
+  /** Classification tags */
+  tags?: string[];
+
+  // === Agent metadata — Effects & Dependencies ===
+  /** State mutations described as strings */
+  stateChanges?: string[];
+  /** Domain events this step emits */
+  emits?: string[];
+  /** External systems/services called */
+  calls?: string[];
+
+  // === Agent metadata — Error classification ===
+  /** Per-error metadata (keys match entries in errors array) */
+  errorMeta?: Record<
+    string,
+    {
+      retryable?: boolean;
+      severity?: string;
+      description?: string;
+    }
+  >;
+
+  /** Cache TTL in milliseconds */
+  ttl?: number | "<dynamic>";
 }
 
 /**
@@ -159,6 +191,12 @@ export interface StaticRetryConfig {
   baseDelay?: number | "<dynamic>";
   /** Condition as source code string */
   retryOn?: string;
+  /** Initial delay in milliseconds before the first retry */
+  initialDelay?: number | "<dynamic>";
+  /** Maximum delay cap in milliseconds */
+  maxDelay?: number | "<dynamic>";
+  /** Whether jitter is applied to retry delays */
+  jitter?: boolean | "<dynamic>";
 }
 
 /**
@@ -166,6 +204,10 @@ export interface StaticRetryConfig {
  */
 export interface StaticTimeoutConfig {
   ms?: number | "<dynamic>";
+  /** Whether an AbortSignal is wired to the timeout */
+  signal?: boolean | "<dynamic>";
+  /** Behaviour when the timeout fires */
+  onTimeout?: "error" | "option" | "disconnect" | "<dynamic>";
 }
 
 /**

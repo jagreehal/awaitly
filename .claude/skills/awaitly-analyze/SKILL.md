@@ -192,4 +192,4 @@ Do not invent CLI flags; consult package CLI help or README for supported option
 
 ## IR node types (reference)
 
-The analyzer produces a static IR tree. **Common** node types include: `workflow`, `step`, `saga-step`, `sequence`, `parallel`, `race`, `conditional`, `decision`, `switch`, `loop`, `stream`, `workflow-ref` (non-exhaustive; consult package types). Step nodes have a string step ID (or `<missing>` if legacy form). **MUST NOT** assume presence or shape of a `.type` string at runtime; consult types for the current schema.
+The analyzer produces a static IR tree. **Common** node types include: `workflow`, `step`, `saga-step`, `sequence`, `parallel`, `race`, `conditional`, `decision`, `switch`, `loop`, `stream`, `workflow-ref` (non-exhaustive; consult package types). Step nodes have a string step ID (or `<missing>` if legacy form). When step options include metadata, step nodes may also have optional fields: `intent`, `domain`, `owner`, `tags`, `stateChanges`, `emits`, `calls`, `errorMeta` (see schema). **MUST NOT** assume presence or shape of a `.type` string at runtime; consult types for the current schema.

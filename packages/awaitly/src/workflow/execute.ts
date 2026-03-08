@@ -26,6 +26,7 @@ import {
   type StreamForEachResultType,
   type StreamWriterInterface,
   type StreamReaderInterface,
+  extractStepMetadata,
 } from "../core";
 
 import type {
@@ -740,6 +741,9 @@ export function createWorkflow<
         // Update lastStepKey AFTER the step completes (moved to success/error handlers below)
         // This ensures lastStepKey always means "last successfully completed keyed step"
 
+        // Extract metadata for cache events (same extraction as core step function)
+        const stepMetadata = extractStepMetadata(opts);
+
         // Only use cache if key is provided and cache exists
         if (key && cache && cache.has(key)) {
           emitEvent({
@@ -748,6 +752,7 @@ export function createWorkflow<
             stepKey: key,
             name,
             ts: Date.now(),
+            ...(stepMetadata && { metadata: stepMetadata }),
           });
 
           const cached = cache.get(key)!;
@@ -774,6 +779,7 @@ export function createWorkflow<
             stepKey: key,
             name,
             ts: Date.now(),
+            ...(stepMetadata && { metadata: stepMetadata }),
           });
         }
 

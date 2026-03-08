@@ -9,6 +9,8 @@ Analyze workflow source code to extract structure, dependencies, and generate vi
 
 **Step names:** `step()` requires a string literal as the first argument. The analyzer uses that string as the step **display name** (for docs/diagrams). There is no inference; a missing or non-string first argument is reported as an error. See [Steps](/docs/foundations/step/#basic-usage) for usage.
 
+**Step metadata:** The analyzer also reads optional step metadata when present (`intent`, `domain`, `owner`, `tags`, `stateChanges`, `emits`, `calls`, `errorMeta`) and includes it in the IR and generated diagrams/tooling — e.g. `step('charge', () => charge(), { domain: 'payments', intent: 'charge customer' })`.
+
 ## CLI Tool
 
 The `awaitly-analyze` CLI analyzes TypeScript workflow files and outputs Mermaid diagrams or JSON:

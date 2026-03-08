@@ -2378,6 +2378,10 @@ function analyzeStepSleepCall(
     if (options.key) stepNode.key = options.key;
     if (options.description) stepNode.description = options.description;
     if (options.markdown) stepNode.markdown = options.markdown;
+    if (options.intent) stepNode.intent = options.intent;
+    if (options.domain) stepNode.domain = options.domain;
+    if (options.owner) stepNode.owner = options.owner;
+    if (options.tags) stepNode.tags = options.tags;
   }
 
   // Step name is always the first argument in awaitly (step.sleep('id', ...)), not from options.
@@ -2606,6 +2610,28 @@ function analyzeStepCall(
       // Only keep readParamIndices for reads that came from ctx.ref(); do not extend with fallback indices
       // so we never guess param index for explicit reads and avoid false type-mismatches.
     }
+    if (options.intent) stepNode.intent = options.intent;
+    if (options.domain) stepNode.domain = options.domain;
+    if (options.owner) stepNode.owner = options.owner;
+    if (options.tags) stepNode.tags = options.tags;
+    if (options.stateChanges) stepNode.stateChanges = options.stateChanges;
+    if (options.emits) stepNode.emits = options.emits;
+    if (options.calls) stepNode.calls = options.calls;
+    if (options.errorMeta) stepNode.errorMeta = options.errorMeta;
+    if (options.ttl != null) stepNode.ttl = options.ttl;
+
+    // Validate errorMeta keys reference declared errors
+    if (options.errorMeta && options.errors) {
+      for (const key of Object.keys(options.errorMeta)) {
+        if (!options.errors.includes(key)) {
+          warnings.push({
+            code: "errorMeta-unknown-key",
+            message: `errorMeta key "${key}" is not declared in errors array`,
+            location: stepNode.location,
+          });
+        }
+      }
+    }
   }
 
   // In awaitly, step name is always derived from the first argument (id), not from options.
@@ -2749,6 +2775,15 @@ function analyzeStepRetryCall(
     if (options.errors) stepNode.errors = options.errors;
     if (options.out) stepNode.out = options.out;
     if (options.reads) stepNode.reads = options.reads;
+    if (options.intent) stepNode.intent = options.intent;
+    if (options.domain) stepNode.domain = options.domain;
+    if (options.owner) stepNode.owner = options.owner;
+    if (options.tags) stepNode.tags = options.tags;
+    if (options.stateChanges) stepNode.stateChanges = options.stateChanges;
+    if (options.emits) stepNode.emits = options.emits;
+    if (options.calls) stepNode.calls = options.calls;
+    if (options.errorMeta) stepNode.errorMeta = options.errorMeta;
+    if (options.ttl != null) stepNode.ttl = options.ttl;
   }
 
   if (opts.includeLocations && innerCallNode && Node.isCallExpression(innerCallNode)) {
@@ -2821,6 +2856,10 @@ function analyzeStepTimeoutCall(
     const options = extractStepOptions(args[2]);
     if (options.key) stepNode.key = options.key;
     if (options.dep) stepNode.depSource = options.dep;
+    if (options.intent) stepNode.intent = options.intent;
+    if (options.domain) stepNode.domain = options.domain;
+    if (options.owner) stepNode.owner = options.owner;
+    if (options.tags) stepNode.tags = options.tags;
   }
 
   if (opts.includeLocations && innerCallNode && Node.isCallExpression(innerCallNode)) {
@@ -2892,6 +2931,10 @@ function analyzeStepTryCall(
     const options = extractStepOptions(args[2]);
     if (options.key) stepNode.key = options.key;
     if (options.dep) stepNode.depSource = options.dep;
+    if (options.intent) stepNode.intent = options.intent;
+    if (options.domain) stepNode.domain = options.domain;
+    if (options.owner) stepNode.owner = options.owner;
+    if (options.tags) stepNode.tags = options.tags;
   }
 
   if (opts.includeLocations && innerCallNode && Node.isCallExpression(innerCallNode)) {
@@ -2963,6 +3006,10 @@ function analyzeStepFromResultCall(
     const options = extractStepOptions(args[2]);
     if (options.key) stepNode.key = options.key;
     if (options.dep) stepNode.depSource = options.dep;
+    if (options.intent) stepNode.intent = options.intent;
+    if (options.domain) stepNode.domain = options.domain;
+    if (options.owner) stepNode.owner = options.owner;
+    if (options.tags) stepNode.tags = options.tags;
   }
 
   if (opts.includeLocations && innerCallNode && Node.isCallExpression(innerCallNode)) {
@@ -4701,6 +4748,18 @@ interface StepOptions {
   out?: string;
   dep?: string;
   reads?: string[];
+  intent?: string;
+  domain?: string;
+  owner?: string;
+  tags?: string[];
+  stateChanges?: string[];
+  emits?: string[];
+  calls?: string[];
+  errorMeta?: Record<
+    string,
+    { retryable?: boolean; severity?: string; description?: string }
+  >;
+  ttl?: number | "<dynamic>";
 }
 
 function extractStepOptions(optionsNode: Node): StepOptions {
@@ -4740,10 +4799,81 @@ function extractStepOptions(optionsNode: Node): StepOptions {
     } else if (propName === "reads" && init) {
       // Extract reads array: reads: ['a', 'b']
       options.reads = extractStringArrayValue(init);
+    } else if (propName === "intent" && init) {
+      options.intent = extractStringValue(init);
+    } else if (propName === "domain" && init) {
+      options.domain = extractStringValue(init);
+    } else if (propName === "owner" && init) {
+      options.owner = extractStringValue(init);
+    } else if (propName === "tags" && init) {
+      options.tags = extractStringArrayValue(init);
+    } else if (propName === "stateChanges" && init) {
+      options.stateChanges = extractStringArrayValue(init);
+    } else if (propName === "emits" && init) {
+      options.emits = extractStringArrayValue(init);
+    } else if (propName === "calls" && init) {
+      options.calls = extractStringArrayValue(init);
+    } else if (
+      propName === "errorMeta" &&
+      init &&
+      Node.isObjectLiteralExpression(init)
+    ) {
+      options.errorMeta = extractErrorMeta(init);
+    } else if (propName === "ttl" && init) {
+      options.ttl = extractNumberValue(init);
     }
   }
 
   return options;
+}
+
+function extractErrorMeta(
+  node: Node
+):
+  | Record<
+      string,
+      { retryable?: boolean; severity?: string; description?: string }
+    >
+  | undefined {
+  const { Node } = loadTsMorph();
+  if (!Node.isObjectLiteralExpression(node)) return undefined;
+
+  const meta: Record<
+    string,
+    { retryable?: boolean; severity?: string; description?: string }
+  > = {};
+
+  for (const prop of node.getProperties()) {
+    if (!Node.isPropertyAssignment(prop)) continue;
+    const errorKey = prop.getName();
+    const init = prop.getInitializer();
+    if (!init || !Node.isObjectLiteralExpression(init)) continue;
+
+    const entry: {
+      retryable?: boolean;
+      severity?: string;
+      description?: string;
+    } = {};
+    for (const subProp of init.getProperties()) {
+      if (!Node.isPropertyAssignment(subProp)) continue;
+      const subName = subProp.getName();
+      const subInit = subProp.getInitializer();
+      if (!subInit) continue;
+
+      if (subName === "retryable") {
+        entry.retryable = extractBooleanValue(subInit);
+      } else if (subName === "severity") {
+        const val = extractStringValue(subInit);
+        if (val && val !== "<dynamic>") entry.severity = val;
+      } else if (subName === "description") {
+        const val = extractStringValue(subInit);
+        if (val && val !== "<dynamic>") entry.description = val;
+      }
+    }
+    meta[errorKey] = entry;
+  }
+
+  return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
 /**
@@ -4885,6 +5015,12 @@ function extractRetryConfig(node: Node): StaticRetryConfig {
       config.baseDelay = extractNumberValue(init);
     } else if (propName === "retryOn" && init) {
       config.retryOn = init.getText();
+    } else if (propName === "initialDelay" && init) {
+      config.initialDelay = extractNumberValue(init);
+    } else if (propName === "maxDelay" && init) {
+      config.maxDelay = extractNumberValue(init);
+    } else if (propName === "jitter" && init) {
+      config.jitter = extractBooleanValue(init) ?? "<dynamic>";
     }
   }
 
@@ -4907,6 +5043,15 @@ function extractTimeoutConfig(node: Node): StaticTimeoutConfig {
 
     if (propName === "ms" && init) {
       config.ms = extractNumberValue(init);
+    } else if (propName === "signal" && init) {
+      config.signal = extractBooleanValue(init) ?? "<dynamic>";
+    } else if (propName === "onTimeout" && init) {
+      const val = extractStringValue(init);
+      if (val === "error" || val === "option" || val === "disconnect") {
+        config.onTimeout = val;
+      } else {
+        config.onTimeout = "<dynamic>";
+      }
     }
   }
 
@@ -4933,6 +5078,13 @@ function extractNumberValue(node: Node): number | "<dynamic>" {
     return node.getLiteralValue();
   }
   return "<dynamic>";
+}
+
+function extractBooleanValue(node: Node): boolean | undefined {
+  const { Node } = loadTsMorph();
+  if (Node.isTrueLiteral(node)) return true;
+  if (Node.isFalseLiteral(node)) return false;
+  return undefined;
 }
 
 function extractCallee(node: Node): string {
