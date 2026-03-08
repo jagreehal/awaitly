@@ -1,0 +1,233 @@
+---
+title: AI SDK + awaitly Workflows
+description: Compose Vercel AI SDK with awaitly workflows for retry, caching, typed errors, and human-in-the-loop
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+awaitly doesn't need to wrap AI SDK — it **orchestrates** it. Use AI SDK for the AI parts (models, structured output, streaming, tools). Use awaitly for the workflow parts (retry, caching, typed errors, HITL, events, state persistence). They compose naturally because awaitly steps accept any async function.
+
+<Aside type="tip">
+See also [AI Integration Patterns](/guides/ai-integration/) for generic AI SDK patterns (streaming, tool calling phases, stable keys).
+</Aside>
+
+## Structured Output with Typed Errors
+
+Wrap AI SDK calls in Result-returning functions, then use them as workflow steps:
+
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+import { generateText, Output } from 'ai';
+import { ollama } from 'ollama-ai-provider';
+import { z } from 'zod';
+
+const ClassificationSchema = z.object({
+  priority: z.enum(['P0', 'P1', 'P2', 'P3']),
+  category: z.string(),
+});
+
+type Classification = z.infer<typeof ClassificationSchema>;
+
+async function classifyIssue(
+  title: string,
+  body: string
+): AsyncResult<Classification, 'AI_ERROR'> {
+  try {
+    const { output } = await generateText({
+      model: ollama('llama3'),
+      output: Output.object({ schema: ClassificationSchema }),
+      prompt: `Classify this issue:\nTitle: ${title}\nBody: ${body}`,
+    });
+    return ok(output);
+  } catch (e) {
+    return err('AI_ERROR', { cause: e });
+  }
+}
+
+async function getIssue(
+  id: string
+): AsyncResult<{ title: string; body: string }, 'NOT_FOUND'> {
+  // your implementation
+  return ok({ title: 'Bug report', body: 'Something broke' });
+}
+
+const triage = createWorkflow('triage-issue', { classifyIssue, getIssue });
+
+const result = await triage.run(async ({ step, deps }) => {
+  const issue = await step('getIssue', () => deps.getIssue('issue-123'));
+
+  // Retry flaky AI calls with exponential backoff
+  const classification = await step.retry(
+    'classify',
+    () => deps.classifyIssue(issue.title, issue.body),
+    { attempts: 3, delay: '1s', backoff: 'exponential' }
+  );
+
+  return { issue, classification };
+});
+// Result type: Result<{issue, classification}, 'NOT_FOUND' | 'AI_ERROR' | UnexpectedError>
+```
+
+## Caching Expensive LLM Calls
+
+Use step caching to avoid re-running identical AI calls:
+
+```typescript
+const result = await workflow.run(async ({ step, deps }) => {
+  // Same input = cached result, skip the API call
+  const embedding = await step(
+    'embed',
+    () => deps.embed(text),
+    {
+      key: `embed:${hash(text)}`,  // deterministic cache key
+      ttl: 86400,                   // cache for 24h
+    }
+  );
+
+  return embedding;
+});
+```
+
+## HITL Approval Before Tool Execution
+
+Gate dangerous AI-suggested actions with human approval:
+
+```typescript
+const result = await workflow.run(async ({ step, deps }) => {
+  // AI suggests an action
+  const action = await step('suggest-action', () =>
+    deps.suggestAction(context)
+  );
+
+  // Human must approve before execution
+  await step('approve', () => checkApproval(`execute:${action.type}`));
+
+  // Only runs after approval
+  await step('execute', () => deps.executeAction(action));
+
+  return action;
+});
+```
+
+## Streaming AI Responses
+
+Use awaitly's stream store to forward AI SDK streams through workflows:
+
+```typescript
+import { streamText } from 'ai';
+import { ollama } from 'ollama-ai-provider';
+
+const result = await workflow.run(async ({ step }) => {
+  const writer = step.getWritable<string>({ namespace: 'response' });
+
+  await step('generate', async () => {
+    const { textStream } = streamText({
+      model: ollama('llama3'),
+      prompt: userMessage,
+    });
+
+    for await (const chunk of textStream) {
+      await writer.write(chunk);
+    }
+    await writer.close();
+    return ok(undefined);
+  });
+
+  return { streamed: true };
+});
+```
+
+## Agent Loop with Retry
+
+Wrap AI SDK's agent loop in a workflow step for automatic retry on transient failures:
+
+```typescript
+import { generateText } from 'ai';
+import { ollama } from 'ollama-ai-provider';
+import { z } from 'zod';
+
+const result = await workflow.run(async ({ step, deps }) => {
+  const agentResult = await step.retry(
+    'agent-loop',
+    async () => {
+      const { text, toolCalls } = await generateText({
+        model: ollama('llama3'),
+        tools: {
+          getWeather: {
+            description: 'Get weather for a location',
+            parameters: z.object({ location: z.string() }),
+            execute: async ({ location }) => deps.getWeather(location),
+          },
+        },
+        maxSteps: 10,
+        prompt: 'What is the weather in London?',
+      });
+      return ok({ text, toolCalls });
+    },
+    { attempts: 2, delay: '5s' }
+  );
+
+  return agentResult;
+});
+```
+
+## Tool Approval
+
+AI SDK v6 supports tool approval callbacks. Combine with awaitly's HITL:
+
+```typescript
+import { generateText } from 'ai';
+import { ollama } from 'ollama-ai-provider';
+import { z } from 'zod';
+
+const result = await workflow.run(async ({ step, deps }) => {
+  const response = await step('agent', async () => {
+    const { text } = await generateText({
+      model: ollama('llama3'),
+      tools: {
+        deleteRecord: {
+          description: 'Delete a database record',
+          parameters: z.object({ id: z.string() }),
+          execute: async ({ id }) => deps.deleteRecord(id),
+        },
+      },
+      toolCallApproval: {
+        // Gate destructive tools through your approval system
+        onToolCall: async ({ toolName, args }) => {
+          const approved = await deps.checkApproval(
+            `${toolName}:${JSON.stringify(args)}`
+          );
+          return approved ? 'approve' : 'deny';
+        },
+      },
+      maxSteps: 5,
+      prompt: userPrompt,
+    });
+    return ok(text);
+  });
+
+  return response;
+});
+```
+
+## Why This Works
+
+awaitly steps accept **any async function**. This means every AI SDK feature — structured output, streaming, tool calling, agent loops — works inside a step without any wrapper or adapter:
+
+| Concern | Use |
+|---------|-----|
+| Models, structured output, streaming | AI SDK |
+| Retry, backoff, timeouts | awaitly workflow steps |
+| Typed errors, Result types | awaitly Result |
+| Caching LLM responses | awaitly step caching |
+| Human approval gates | awaitly HITL |
+| Workflow events, observability | awaitly events |
+| State persistence, durability | awaitly persistence |
+
+## Related
+
+- [AI Integration Patterns](/guides/ai-integration/) — Generic patterns for any AI SDK
+- [Retries & Timeouts](/guides/retries-timeouts/) — Handling transient AI API failures
+- [Human in the Loop](/guides/human-in-loop/) — Approval gates and escalation
+- [Streaming](/guides/streaming/) — awaitly's stream store

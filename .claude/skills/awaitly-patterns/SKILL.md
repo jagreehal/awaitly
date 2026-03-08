@@ -1031,14 +1031,14 @@ it('run(name, fn) uses name as workflowId in events', async () => {
 ### Documentation options
 
 - **Workflows:** Set `description` and `markdown` in `createWorkflow` (deps or second-argument options) for doc generation and static analysis. Not available on `run()` / `runSaga()` (no options object).
-- **Steps:** Set `description` and `markdown` in step options, e.g. `step('id', fn, { key, description, markdown })`, `step.sleep(id, duration, { description, markdown })`, `saga.step('name', fn, { description, markdown, compensate })`.
+- **Steps:** Set `description` and `markdown` in step options, e.g. `step('id', fn, { key, description, markdown })`, `step.sleep(id, duration, { description, markdown })`, `saga.step('name', fn, { description, markdown, compensate })`. Optional metadata for observability and static analysis: `intent`, `domain`, `owner`, `tags`, `stateChanges`, `emits`, `calls`, `errorMeta` (see API reference).
 
 ### Static analysis output
 
 `awaitly-analyze` can output JSON via `renderStaticJSON(ir)`. The shape includes:
 
 - `root.workflowName`, `root.description`, `root.markdown`
-- `root.children` (steps and control nodes; steps have `stepId`, `name`, `key`, `description`, `markdown`)
+- `root.children` (steps and control nodes; steps have `stepId`, `name`, `key`, `description`, `markdown`; when step options include metadata, also `intent`, `domain`, `owner`, `tags`, `stateChanges`, `emits`, `calls`, `errorMeta`)
 - `root.dependencies` (each: `name`, `typeSignature?` when type checker available, `errorTypes`)
 
 Full structure is documented in awaitly-analyze README (“JSON output shape”) and in `packages/awaitly-analyze/schema/static-workflow-ir.schema.json`.
@@ -1049,7 +1049,7 @@ Full structure is documented in awaitly-analyze README (“JSON output shape”)
 |---------|--------------------------------------------------------|
 | Creation-time (createWorkflow / createSagaWorkflow) | `description`, `markdown`, `strict`, `catchUnexpected`, `onEvent`, `createContext`, `cache`, `resumeState`, `signal`, `streamStore` |
 | Per-run (second argument to `workflow.run(fn, config)` or `workflow.run(name, fn, config)`) | `deps` (partial override; merges with creation-time deps), `onEvent`, `resumeState`, `cache`, `signal`, `createContext`, `onError`, `onBeforeStart`, `onAfterStep`, `shouldRun`, `streamStore` — use for testing (deps override) or per-run hooks. |
-| Step (step, step.run, step.andThen, step.match, step.all, step.map, step.sleep, step.retry, step.withTimeout, step.try, step.fromResult, step.parallel, step.race, step.allSettled) | **Every step type**: first arg is string (ID or name, required). No `name` in options. `step(id, fn, opts)`, `step.run(id, result, opts?)`, `step.andThen(id, value, fn, opts?)`, `step.match(id, result, { ok, err }, opts?)`, `step.all(name, shape, opts?)`, `step.map(id, items, mapper, opts?)`, `step.retry(id, fn, opts)`, `step.withTimeout(id, fn, opts)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, opts?)`, `step.parallel(name, operations | callback)`, `step.race(name, callback)`, `step.allSettled(name, callback)`. Options (where applicable): `key`, `description`, `markdown`, `ttl`, `retry`, `timeout`, `signal`. For createWorkflow cache: use `step(id, () => dep(), { key })` for lazy cache checks; `step.all`/`step.map` only cache when `key` is provided. |
+| Step (step, step.run, step.andThen, step.match, step.all, step.map, step.sleep, step.retry, step.withTimeout, step.try, step.fromResult, step.parallel, step.race, step.allSettled) | **Every step type**: first arg is string (ID or name, required). No `name` in options. `step(id, fn, opts)`, `step.run(id, result, opts?)`, `step.andThen(id, value, fn, opts?)`, `step.match(id, result, { ok, err }, opts?)`, `step.all(name, shape, opts?)`, `step.map(id, items, mapper, opts?)`, `step.retry(id, fn, opts)`, `step.withTimeout(id, fn, opts)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, opts?)`, `step.parallel(name, operations | callback)`, `step.race(name, callback)`, `step.allSettled(name, callback)`. Options (where applicable): `key`, `description`, `markdown`, `ttl`, `retry`, `timeout`, `signal`, and optional metadata `intent`, `domain`, `owner`, `tags`, `stateChanges`, `emits`, `calls`, `errorMeta`. For createWorkflow cache: use `step(id, () => dep(), { key })` for lazy cache checks; `step.all`/`step.map` only cache when `key` is provided. |
 | Saga step (saga.step / saga.tryStep) | First argument is step name (required). Options: `description`, `markdown`, `compensate`. No `name` in options. |
 
 ---

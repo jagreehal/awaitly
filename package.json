@@ -22,12 +22,12 @@
     "generate-api": "pnpm run generate-api-typedoc && node apps/docs-site/scripts/generate-api-from-typedoc.mjs"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.29.8",
+    "@changesets/cli": "^2.30.0",
     "@eslint/js": "^10.0.1",
     "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",
-    "eslint": "^10.0.2",
+    "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-unicorn": "^63.0.0",
     "turbo": "^2.8.14",

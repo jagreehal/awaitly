@@ -65,6 +65,10 @@ export interface BaseNode {
   timedOut?: boolean;
   /** Timeout duration in ms (if timed out) */
   timeoutMs?: number;
+  /** Agent metadata from step options (domain, intent, owner, etc.) */
+  metadata?: import("awaitly/core").StepMetadata;
+  /** Error diagnostics (tag, classification, origin) */
+  errorDiagnostics?: import("awaitly/core").StepErrorDiagnostics;
 }
 
 /**

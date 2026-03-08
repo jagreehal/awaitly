@@ -23,7 +23,7 @@
  * ```
  */
 
-import type { WorkflowEvent } from "./core";
+import type { WorkflowEvent, StepMetadata } from "./core";
 
 // =============================================================================
 // Types
@@ -77,6 +77,7 @@ interface SpanInfo {
   stepKey?: string;
   name?: string;
   startTime: number;
+  metadata?: StepMetadata;
 }
 
 /**
@@ -226,6 +227,7 @@ export function createAutotelAdapter(
             stepKey: event.stepKey,
             name: event.name,
             startTime: event.ts,
+            metadata: event.metadata,
           });
         }
         break;
@@ -239,14 +241,37 @@ export function createAutotelAdapter(
             activeSpans.steps.delete(stepId);
 
             if (recordMetrics) {
+              // Build attributes: default + low-cardinality metadata
+              const attrs: Record<string, string | number | boolean> = {
+                ...(Object.keys(defaultAttributes).length > 0 ? defaultAttributes : {}),
+              };
+
+              // Add low-cardinality metadata attributes (cardinality guardrails)
+              if (span.metadata) {
+                if (span.metadata.domain) attrs["step.domain"] = span.metadata.domain;
+                if (span.metadata.owner) attrs["step.owner"] = span.metadata.owner;
+                // step.intent only if <= 100 chars (cardinality guard)
+                if (span.metadata.intent && span.metadata.intent.length <= 100) {
+                  attrs["step.intent"] = span.metadata.intent;
+                }
+                // Omit step.tags and step.calls from span attributes (high cardinality)
+              }
+
+              // Add error diagnostics attributes
+              if (event.type === "step_error" && event.diagnostics) {
+                if (event.diagnostics.classification?.severity) {
+                  attrs["error.severity"] = event.diagnostics.classification.severity;
+                }
+                if (event.diagnostics.classification?.retryable !== undefined) {
+                  attrs["error.retryable"] = event.diagnostics.classification.retryable;
+                }
+              }
+
               metrics.stepDurations.push({
                 name: getSpanName(span.name, span.stepKey),
                 durationMs: event.durationMs,
                 success: event.type === "step_success",
-                // Include default attributes with each step metric
-                attributes: Object.keys(defaultAttributes).length > 0 
-                  ? { ...defaultAttributes } 
-                  : undefined,
+                attributes: Object.keys(attrs).length > 0 ? attrs : undefined,
               });
             }
 

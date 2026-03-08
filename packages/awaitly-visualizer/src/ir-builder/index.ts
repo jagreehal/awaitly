@@ -78,6 +78,7 @@ interface ActiveStep {
   retryCount: number;
   timedOut: boolean;
   timeoutMs?: number;
+  metadata?: import("awaitly/core").StepMetadata;
 }
 
 interface ActiveScope {
@@ -320,6 +321,7 @@ export function createIRBuilder(options: IRBuilderOptions = {}) {
           startTs: event.ts,
           retryCount: 0,
           timedOut: false,
+          metadata: (event as any).metadata,
         });
         lastUpdatedAt = Date.now();
         break;
@@ -340,6 +342,7 @@ export function createIRBuilder(options: IRBuilderOptions = {}) {
             durationMs: event.durationMs,
             ...(active.retryCount > 0 && { retryCount: active.retryCount }),
             ...(active.timedOut && { timedOut: true, timeoutMs: active.timeoutMs }),
+            ...(active.metadata && { metadata: active.metadata }),
           };
           addNode(node);
           activeSteps.delete(id);
@@ -363,6 +366,8 @@ export function createIRBuilder(options: IRBuilderOptions = {}) {
             error: event.error,
             ...(active.retryCount > 0 && { retryCount: active.retryCount }),
             ...(active.timedOut && { timedOut: true, timeoutMs: active.timeoutMs }),
+            ...(active.metadata && { metadata: active.metadata }),
+            ...((event as any).diagnostics && { errorDiagnostics: (event as any).diagnostics }),
           };
           addNode(node);
           activeSteps.delete(id);
@@ -385,6 +390,7 @@ export function createIRBuilder(options: IRBuilderOptions = {}) {
             durationMs: event.durationMs,
             ...(active.retryCount > 0 && { retryCount: active.retryCount }),
             ...(active.timedOut && { timedOut: true, timeoutMs: active.timeoutMs }),
+            ...(active.metadata && { metadata: active.metadata }),
           };
           addNode(node);
           activeSteps.delete(id);
@@ -459,6 +465,7 @@ export function createIRBuilder(options: IRBuilderOptions = {}) {
           startTs: event.ts,
           endTs: event.ts,
           durationMs: 0,
+          ...((event as any).metadata && { metadata: (event as any).metadata }),
         };
         addNode(node);
         break;

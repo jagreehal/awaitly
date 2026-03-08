@@ -41,6 +41,8 @@ export interface MermaidOptions {
   expandRetry?: boolean;
   /** Use merge nodes after conditionals so sequential when/unless render as same-level (decision → branches → merge → next decision) */
   sameLevelConditionals?: boolean;
+  /** Group steps by domain into Mermaid subgraphs */
+  groupByDomain?: boolean;
   /** Custom node styles */
   styles?: MermaidStyles;
 }
@@ -71,6 +73,7 @@ const DEFAULT_OPTIONS: Required<MermaidOptions> = {
   showInlineErrors: false,
   expandRetry: false,
   sameLevelConditionals: false,
+  groupByDomain: false,
   styles: {
     step: "fill:#e1f5fe,stroke:#01579b",
     sagaStep: "fill:#e8eaf6,stroke:#1a237e",
@@ -110,6 +113,7 @@ function renderStaticMermaidInternal(
     styleClasses: new Map(),
     stepIdMap: new Map(),
     stepLabelAnnotations,
+    domainNodes: new Map(),
   };
 
   const lines: string[] = [];
@@ -154,6 +158,26 @@ function renderStaticMermaidInternal(
       lines.push(`    ${line}`);
     }
     lines.push("  end");
+  }
+
+  // Add domain subgraphs (groupByDomain)
+  if (opts.groupByDomain && context.domainNodes.size > 0) {
+    const usedSubgraphIds = new Set<string>();
+    for (const [domain, nodeIds] of context.domainNodes) {
+      let subgraphId = `domain_${sanitizeId(domain)}`;
+      // Deduplicate: distinct domain strings that sanitize to the same token
+      let suffix = 2;
+      while (usedSubgraphIds.has(subgraphId)) {
+        subgraphId = `domain_${sanitizeId(domain)}_${suffix++}`;
+      }
+      usedSubgraphIds.add(subgraphId);
+      lines.push("");
+      lines.push(`  subgraph ${subgraphId}["${escapeLabel(domain)}"]`);
+      for (const id of nodeIds) {
+        lines.push(`    ${id}`);
+      }
+      lines.push("  end");
+    }
   }
 
   // Add edges
@@ -228,6 +252,8 @@ interface RenderContext {
   stepLabelAnnotations?: Map<string, string[]>;
   /** When rendering inside a loop, annotate step labels as per-iteration */
   inLoop?: { loopType: string; iterSource?: string };
+  /** Map from domain name to mermaid node IDs belonging to that domain */
+  domainNodes: Map<string, string[]>;
 }
 
 interface Edge {
@@ -415,12 +441,27 @@ function renderStepNode(
     }
   }
 
+  // Append tags as small annotation text
+  if (node.tags && node.tags.length > 0) {
+    label += `\\n[${node.tags.join(", ")}]`;
+  }
+
   lines.push(`  ${nodeId}["${escapeLabel(label)}"]`);
   context.styleClasses.set(nodeId, "stepStyle");
 
   // Track step ID -> mermaid node ID for overlay features
   if (node.stepId) {
     context.stepIdMap.set(node.stepId, nodeId);
+  }
+
+  // Track domain membership for groupByDomain subgraphs
+  if (context.opts.groupByDomain && node.domain) {
+    const domainList = context.domainNodes.get(node.domain);
+    if (domainList) {
+      domainList.push(nodeId);
+    } else {
+      context.domainNodes.set(node.domain, [nodeId]);
+    }
   }
 
   // Track the last node IDs that continue the normal flow

@@ -107,9 +107,33 @@
         "description": { "type": "string" },
         "markdown": { "type": "string" },
         "jsdocDescription": { "type": "string" },
-        "retry": { "type": "object" },
-        "timeout": { "type": "object" },
-        "location": { "$ref": "#/$defs/SourceLocation" }
+        "retry": { "$ref": "#/$defs/StaticRetryConfig" },
+        "timeout": { "$ref": "#/$defs/StaticTimeoutConfig" },
+        "location": { "$ref": "#/$defs/SourceLocation" },
+        "intent": { "type": "string" },
+        "domain": { "type": "string" },
+        "owner": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "stateChanges": { "type": "array", "items": { "type": "string" } },
+        "emits": { "type": "array", "items": { "type": "string" } },
+        "calls": { "type": "array", "items": { "type": "string" } },
+        "errorMeta": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "retryable": { "type": "boolean" },
+              "severity": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          }
+        },
+        "ttl": {
+          "oneOf": [
+            { "type": "number" },
+            { "const": "<dynamic>" }
+          ]
+        }
       }
     },
     "StaticSagaStepNode": {
@@ -237,6 +261,71 @@
         "id": { "type": "string" },
         "reason": { "type": "string" },
         "sourceCode": { "type": "string" }
+      }
+    },
+    "StaticRetryConfig": {
+      "type": "object",
+      "properties": {
+        "attempts": {
+          "oneOf": [
+            { "type": "number" },
+            { "const": "<dynamic>" }
+          ]
+        },
+        "backoff": {
+          "oneOf": [
+            { "enum": ["fixed", "linear", "exponential"] },
+            { "const": "<dynamic>" }
+          ]
+        },
+        "baseDelay": {
+          "oneOf": [
+            { "type": "number" },
+            { "const": "<dynamic>" }
+          ]
+        },
+        "retryOn": { "type": "string" },
+        "initialDelay": {
+          "oneOf": [
+            { "type": "number" },
+            { "const": "<dynamic>" }
+          ]
+        },
+        "maxDelay": {
+          "oneOf": [
+            { "type": "number" },
+            { "const": "<dynamic>" }
+          ]
+        },
+        "jitter": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "const": "<dynamic>" }
+          ]
+        }
+      }
+    },
+    "StaticTimeoutConfig": {
+      "type": "object",
+      "properties": {
+        "ms": {
+          "oneOf": [
+            { "type": "number" },
+            { "const": "<dynamic>" }
+          ]
+        },
+        "signal": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "const": "<dynamic>" }
+          ]
+        },
+        "onTimeout": {
+          "oneOf": [
+            { "enum": ["error", "option", "disconnect"] },
+            { "const": "<dynamic>" }
+          ]
+        }
       }
     }
   }

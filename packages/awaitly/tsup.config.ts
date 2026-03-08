@@ -84,6 +84,11 @@ export default defineConfig({
     // Resolver (DataLoader pattern)
     // =========================================================================
     resolver: 'src/resolver-entry.ts',
+
+    // =========================================================================
+    // Diagnostics (wide event collector)
+    // =========================================================================
+    diagnostics: 'src/diagnostics-entry.ts',
   },
   format: ['cjs', 'esm'],
   dts: true,

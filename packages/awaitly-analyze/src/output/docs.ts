@@ -103,6 +103,61 @@ export function generateDocs(
       lines.push(`| ${name} | ${truncate(desc, 40)} | ${errors} | ${dataStr} |`);
     }
     lines.push("");
+
+    // Per-step extended metadata
+    for (const step of steps) {
+      const name = step.name ?? step.stepId ?? step.id;
+      const hasExtendedMeta =
+        step.intent || step.domain || step.owner || step.emits?.length ||
+        step.calls?.length || step.stateChanges?.length || step.errorMeta;
+      if (!hasExtendedMeta) continue;
+
+      lines.push(`### ${name}`);
+      lines.push("");
+      if (step.intent) {
+        lines.push(`**Intent:** ${step.intent}`);
+        lines.push("");
+      }
+      if (step.domain || step.owner) {
+        const meta = [];
+        if (step.domain) meta.push(`Domain: ${step.domain}`);
+        if (step.owner) meta.push(`Owner: ${step.owner}`);
+        lines.push(meta.join(" | "));
+        lines.push("");
+      }
+      if (step.emits && step.emits.length > 0) {
+        lines.push("**Emits:**");
+        for (const e of step.emits) {
+          lines.push(`- \`${e}\``);
+        }
+        lines.push("");
+      }
+      if (step.calls && step.calls.length > 0) {
+        lines.push("**Calls:**");
+        for (const c of step.calls) {
+          lines.push(`- \`${c}\``);
+        }
+        lines.push("");
+      }
+      if (step.stateChanges && step.stateChanges.length > 0) {
+        lines.push("**State Changes:**");
+        for (const s of step.stateChanges) {
+          lines.push(`- ${s}`);
+        }
+        lines.push("");
+      }
+      if (step.errorMeta) {
+        lines.push("**Error Details:**");
+        for (const [errTag, meta] of Object.entries(step.errorMeta)) {
+          const parts = [`\`${errTag}\``];
+          if (meta.severity) parts.push(`severity: ${meta.severity}`);
+          if (meta.retryable != null) parts.push(`retryable: ${meta.retryable}`);
+          if (meta.description) parts.push(meta.description);
+          lines.push(`- ${parts.join(" — ")}`);
+        }
+        lines.push("");
+      }
+    }
   }
 
   // Data flow

@@ -172,6 +172,11 @@
       "types": "./dist/resolver.d.ts",
       "import": "./dist/resolver.js",
       "require": "./dist/resolver.cjs"
+    },
+    "./diagnostics": {
+      "types": "./dist/diagnostics.d.ts",
+      "import": "./dist/diagnostics.js",
+      "require": "./dist/diagnostics.cjs"
     }
   },
   "files": [
@@ -226,7 +231,7 @@
   "devDependencies": {
     "@total-typescript/ts-reset": "^0.6.1",
     "@total-typescript/tsconfig": "^1.0.4",
-    "@types/node": "^25.3.3",
+    "@types/node": "^25.3.5",
     "@types/picomatch": "^4.0.2",
     "@vitest/coverage-v8": "^4.0.18",
     "eslint-plugin-awaitly": "workspace:*",
