@@ -1,5 +1,20 @@
 # awaitly-analyze
 
+## 0.22.1
+
+### Patch Changes
+
+- 5c871f5: Add optional step metadata to StepOptions for static analysis and observability.
+
+  - **awaitly**: StepOptions now supports optional fields — Architecture & intent (`intent`, `domain`, `owner`, `tags`), Effects & dependencies (`stateChanges`, `emits`, `calls`), and Error classification (`errorMeta`). Metadata flows into step events, diagnostics, and OpenTelemetry spans.
+  - **awaitly-analyze**: Static workflow IR and schema include step metadata; analyzer extracts these fields when present for diagrams and tooling.
+  - **awaitly-visualizer**: IR builder and renderers consume and display step metadata from the analyzer output.
+  - **awaitly-docs**: Document StepOptions metadata in foundations/step.mdx, reference/api.md, and guides/static-analysis.mdx; add AI SDK + awaitly workflows guide.
+
+- Updated dependencies [5c871f5]
+  - awaitly-visualizer@20.0.1
+  - awaitly@1.31.1
+
 ## 0.22.0
 
 ### Minor Changes
