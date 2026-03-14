@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@astrojs/check": "^0.9.6",
-    "@astrojs/react": "^4.4.2",
+    "@astrojs/react": "^5.0.0",
     "@astrojs/sitemap": "^3.7.1",
     "@astrojs/starlight": "^0.37.7",
     "@base-ui/react": "^1.2.0",
