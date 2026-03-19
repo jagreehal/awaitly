@@ -15,16 +15,18 @@ const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { ...
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts, sendEmail });
 
 const result = await workflow.run(async ({ step, deps }) => { ... });
-// result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | 'UNEXPECTED_ERROR'
+// result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | UnexpectedError
 ```
 
 Add a new dependency? The error union updates automatically.
 
-## `"UNEXPECTED_ERROR"`
+## `UnexpectedError`
 
-If code throws an exception (not a returned error), it becomes the string `"UNEXPECTED_ERROR"`. The original thrown value is in `result.cause`:
+If code throws an exception (not a returned error), it becomes an `UnexpectedError` (a `TaggedError`). The original thrown value is in `error.cause`:
 
 ```typescript
+import { isUnexpectedError } from 'awaitly';
+
 const badOperation = async (): AsyncResult<string, 'KNOWN_ERROR'> => {
   throw new Error('Something broke'); // Throws instead of returning err()
 };
@@ -34,8 +36,8 @@ const result = await workflow.run(async ({ step, deps }) => {
   return await step('badOperation', () => badOperation());
 });
 
-if (!result.ok && result.error === 'UNEXPECTED_ERROR') {
-  console.log(result.cause); // The original Error object
+if (!result.ok && isUnexpectedError(result.error)) {
+  console.log(result.error.cause); // The original Error object
 }
 ```
 
@@ -112,7 +114,7 @@ TypeScript ensures you handle all known error cases.
 
 ## Custom unexpected errors
 
-By default, thrown exceptions become the string `"UNEXPECTED_ERROR"`. With `run()`, use `ErrorOf`/`Errors` to derive error types from your deps:
+By default, thrown exceptions become an `UnexpectedError`. With `run()`, use `ErrorOf`/`Errors` to derive error types from your deps:
 
 ```typescript
 import { type Errors } from 'awaitly';
@@ -123,10 +125,10 @@ const result = await run<User, RunErrors>(async ({ step }) => {
   const posts = await step('fetchPosts', () => fetchPosts(user.id));
   return user;
 });
-// result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | 'UNEXPECTED_ERROR'
+// result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | UnexpectedError
 ```
 
-To replace `"UNEXPECTED_ERROR"` with a custom type, pass `catchUnexpected`:
+To replace `UnexpectedError` with a custom type, pass `catchUnexpected`:
 
 ```typescript
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts },

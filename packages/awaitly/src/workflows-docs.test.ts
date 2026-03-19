@@ -158,8 +158,8 @@ describe("Workflows Documentation - Your First Workflow", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok && isUnexpectedError(result.error)) {
-      // UnexpectedError is now the string "UNEXPECTED_ERROR"
-      expect(result.error).toBe("UNEXPECTED_ERROR");
+      // UnexpectedError is now an UnexpectedError instance
+      expect(result.error._tag).toBe("UnexpectedError");
     }
   });
 });

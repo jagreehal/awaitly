@@ -203,6 +203,7 @@ export function postgres(urlOrOptions: string | PostgresOptions): PostgresStore 
   if (lock) {
     store.tryAcquire = lock.tryAcquire.bind(lock);
     store.release = lock.release.bind(lock);
+    store.renew = lock.renew.bind(lock);
   }
 
   return store;

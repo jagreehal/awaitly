@@ -43,7 +43,8 @@ Use this as a checklist when generating or editing awaitly code. Satisfy every i
 - **MUST NOT** use a computed, concatenated, templated, or variable-derived value (e.g. `` step(`user-${i}`, ...) `` or `const id = 'getUser'; step(id, ...)`). Use a literal ID + optional `{ key }` for per-item identity.
 
 ### Error handling at boundaries
-- **MUST** check `result.error === Awaitly.UNEXPECTED_ERROR` first when handling `!result.ok`.
+- **MUST** check `isUnexpectedError(result.error)` first when handling `!result.ok`.
+- **MUST** access the original thrown value via `result.error.cause` (it's a property on the `UnexpectedError` instance).
 - **MUST** normalize other errors with `result.error.type ?? result.error` (handles string and object errors, including `STEP_TIMEOUT`).
 
 ### Concurrency inside workflows
@@ -135,17 +136,17 @@ const order = await step('createOrder', () => deps.createOrder(userResult.value)
 // Replace with: const user = await step('getUser', () => deps.getUser(id)); then use user.
 ```
 
-### R3: Handle `"UNEXPECTED_ERROR"` at boundaries, normalize other errors with `error.type ?? error`
+### R3: Handle `UnexpectedError` at boundaries, normalize other errors with `error.type ?? error`
 
-Errors can be strings (`'NOT_FOUND'`), objects (`{ type: 'NOT_FOUND', id }`), or the `"UNEXPECTED_ERROR"` string for uncaught exceptions. Always check for `"UNEXPECTED_ERROR"` first (it's a plain string, not an object), then normalize the rest:
+Errors can be strings (`'NOT_FOUND'`), objects (`{ type: 'NOT_FOUND', id }`), or an `UnexpectedError` instance for uncaught exceptions. Always check for `UnexpectedError` first using the type guard, then normalize the rest:
 
 ```typescript
-import { Awaitly } from 'awaitly';
+import { isUnexpectedError } from 'awaitly';
 
 if (!result.ok) {
-  if (result.error === Awaitly.UNEXPECTED_ERROR) {
-    // result.cause has the original thrown Error
-    console.error('Bug:', result.cause);
+  if (isUnexpectedError(result.error)) {
+    // result.error.cause has the original thrown Error
+    console.error('Bug:', result.error.cause);
     return { status: 500 };
   }
 
@@ -158,9 +159,24 @@ if (!result.ok) {
 }
 ```
 
-### R4: `"UNEXPECTED_ERROR"` is a string in the error union
+### R4: `UnexpectedError` is a TaggedError class in the error union
 
-`run()` and `createWorkflow` always include `"UNEXPECTED_ERROR"` in the error union. It represents any thrown exception escaping a dep. The original thrown value is in `result.cause`, not `result.error.cause`.
+`run()` and `createWorkflow` always include `UnexpectedError` in the error union. It's a `TaggedError` class (with `_tag: "UnexpectedError"`) representing any thrown exception escaping a dep. The original thrown value is in `result.error.cause`.
+
+Use `isUnexpectedError(error)` to narrow, or use `matchError` / `matchErrorPartial` for exhaustive pattern matching:
+
+```typescript
+import { matchError } from 'awaitly';
+
+matchError(result.error, {
+  NOT_FOUND: (e) => ({ status: 404 }),
+  ORDER_FAILED: (e) => ({ status: 400 }),
+  UnexpectedError: (e) => {
+    console.error('Bug:', e.cause);
+    return { status: 500 };
+  },
+});
+```
 
 ### R5: All async work inside workflows must go through step()
 
@@ -191,8 +207,8 @@ const result = await workflow.run(async ({ step, deps }) => {
 
 // Handle errors at the boundary
 if (!result.ok) {
-  if (result.error === Awaitly.UNEXPECTED_ERROR) {
-    console.error('Bug:', result.cause);
+  if (isUnexpectedError(result.error)) {
+    console.error('Bug:', result.error.cause);
   } else {
     switch (result.error.type ?? result.error) {
       case 'PAYMENT_FAILED':
@@ -253,7 +269,7 @@ When you see these patterns, apply the rewrite:
 | `try { await step(...) } catch (e) { ... }` | Remove try/catch; handle errors at boundary. If converting throws: `step.try('id', fn, { error: 'ERR' })`. |
 | `const x = await deps.fn()` (no step) | `const x = await step('id', () => deps.fn())`. |
 | Options object as first argument to `workflow.run(...)` | Move options to second argument: `workflow.run(fn, options)`. |
-| `return result` from a boundary handler (e.g. HTTP) | **MUST NOT** let Result objects escape. Convert to HTTP/status mapping using the boundary handling canonical snippet (check `result.ok`, then `result.error === Awaitly.UNEXPECTED_ERROR`, then `result.error.type ?? result.error`). |
+| `return result` from a boundary handler (e.g. HTTP) | **MUST NOT** let Result objects escape. Convert to HTTP/status mapping using the boundary handling canonical snippet (check `result.ok`, then `isUnexpectedError(result.error)`, then `result.error.type ?? result.error`). |
 
 ---
 
@@ -269,7 +285,7 @@ When you see these patterns, apply the rewrite:
 | Execute | `run(fn)` or `run(fn, options)` | `workflow.run(fn)` or `workflow.run(fn, config)` or `workflow.run(name, fn)` or `workflow.run(name, fn, config)` — **no callable** |
 | Step syntax | `step('id', promiseOrResult)` or `step('id', () => promiseOrResult)` | `step('id', deps.fn(args))` or `step('id', () => deps.fn(args))` |
 | Deps | Closures | Injected at creation; override per run with `workflow.run(fn, { deps: partialOverride })` |
-| Error types | **Recommended:** `run<T, ErrorOf<typeof dep>>(fn)` or `run<T, Errors<[typeof d1, typeof d2]>>(fn)` so `result.error` is typed. Or manual `E`; or `catchUnexpected` for custom unexpected. | Auto-inferred from deps |
+| Error types | **Recommended:** `run<T, ErrorOf<typeof dep>>(fn)` or `run<T, Errors<[typeof d1, typeof d2]>>(fn)` so `result.error` is typed. Or manual `E`; or `catchUnexpected` for custom unexpected. `UnexpectedError` always included. | Auto-inferred from deps (includes `UnexpectedError`) |
 | Features | Basic step execution | Retries, timeout, state persistence, caching |
 | Bundle | Smaller | Larger |
 | Best for | Single-use, wrapping throwing APIs | Shared deps, DI, testing (deps override), typed errors (best DX) |
@@ -319,9 +335,11 @@ const result = await workflow.run(async ({ step, deps }) => {
 
 ### Boundary handling canonical
 ```typescript
+import { isUnexpectedError } from 'awaitly';
+
 if (!result.ok) {
-  if (result.error === Awaitly.UNEXPECTED_ERROR) {
-    console.error('Bug:', result.cause);
+  if (isUnexpectedError(result.error)) {
+    console.error('Bug:', result.error.cause);
     return { status: 500 };
   }
   switch (result.error.type ?? result.error) {
@@ -359,7 +377,7 @@ async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
 
 For single-use workflows where deps are available via closures.
 
-**Recommended pattern for `run()`:** Derive the error type with `ErrorOf<typeof dep>` and pass it as the second type parameter to `run<T, RunErrors>()`. This gives typed `result.error` (your errors plus `"UNEXPECTED_ERROR"`) without manual unions.
+**Recommended pattern for `run()`:** Derive the error type with `ErrorOf<typeof dep>` and pass it as the second type parameter to `run<T, RunErrors>()`. This gives typed `result.error` (your errors plus `UnexpectedError`) without manual unions.
 
 ```typescript
 import { run } from 'awaitly/run';
@@ -377,7 +395,7 @@ const result = await run<User, RunErrors>(async ({ step }) => {
   const user = await step('fetchUser', () => fetchUser());
   return user;
 });
-// result.error is: 'NOT_FOUND' | 'UNEXPECTED_ERROR'
+// result.error is: 'NOT_FOUND' | UnexpectedError
 ```
 
 **Multiple deps:** Use `Errors<[typeof dep1, typeof dep2, ...]>` for the union of all dep error types:
@@ -392,7 +410,7 @@ const result = await run<Order, RunErrors>(async ({ step }) => {
   const user = await step('getUser', getUser(userId));
   return user;
 });
-// result.error is: 'NOT_FOUND' | 'UNEXPECTED_ERROR'
+// result.error is: 'NOT_FOUND' | UnexpectedError
 
 // Multiple deps: Errors<[...]> (union of all dep errors)
 type AllErrors = Errors<[typeof getUser, typeof createOrder]>;
@@ -401,7 +419,7 @@ const result2 = await run<Order, AllErrors>(async ({ step }) => {
   const order = await step('createOrder', createOrder(user));
   return order;
 });
-// result2.error is: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED_ERROR'
+// result2.error is: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
 ```
 
 **With explicit E** (manual type params):
@@ -413,10 +431,10 @@ const result = await run<Order, 'NOT_FOUND' | 'ORDER_FAILED'>(
     return order;
   }
 );
-// result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED_ERROR'
+// result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
 ```
 
-**With `catchUnexpected`** (custom unexpected type — replaces `"UNEXPECTED_ERROR"` with your type):
+**With `catchUnexpected`** (custom unexpected type — replaces `UnexpectedError` with your type):
 ```typescript
 type MyErrors = 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED';
 
@@ -431,13 +449,13 @@ const result = await run<Order, MyErrors>(
 // result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED' (custom unexpected)
 ```
 
-**Without type params** (error is `"UNEXPECTED_ERROR"` only):
+**Without type params** (error is `UnexpectedError` only):
 ```typescript
 const result = await run(async ({ step }) => {
   const user = await step('getUser', getUser(userId));
   return user;
 });
-// result.error is: 'UNEXPECTED_ERROR' (step error types not preserved at compile time)
+// result.error is: UnexpectedError (step error types not preserved at compile time)
 ```
 
 ### Step 2b: Use `createWorkflow('name', deps)` for DI cases
@@ -495,7 +513,7 @@ Other helpers (e.g. `step.race`, `step.allSettled`) may exist; consult package t
 
 **`step.try()` has the same control-flow as `step()`**: It returns the unwrapped value on success, or exits the workflow with the provided typed error on throw/rejection. Do not check `.ok` on its return value.
 
-**Timeout returns `STEP_TIMEOUT`**: When `step.withTimeout()` times out, it returns `{ type: 'STEP_TIMEOUT', timeoutMs, stepName }` directly (not wrapped in `UNEXPECTED_ERROR`). Handle it at the boundary like other typed errors (normalize with `result.error.type ?? result.error`; see R3).
+**Timeout returns `STEP_TIMEOUT`**: When `step.withTimeout()` times out, it returns `{ type: 'STEP_TIMEOUT', timeoutMs, stepName }` directly (not wrapped in `UnexpectedError`). Handle it at the boundary like other typed errors (normalize with `result.error.type ?? result.error`; see R3).
 
 ---
 
@@ -735,10 +753,10 @@ Start with strings. Migrate to objects when you need context.
 
 ### Simple: run() with closures
 
-**Recommended:** Use `ErrorOf<typeof dep>` (single dep) or `Errors<[typeof d1, typeof d2, ...]>` (multiple deps) to derive the error type and pass it to `run<T, RunErrors>()`. `"UNEXPECTED_ERROR"` is always included automatically.
+**Recommended:** Use `ErrorOf<typeof dep>` (single dep) or `Errors<[typeof d1, typeof d2, ...]>` (multiple deps) to derive the error type and pass it to `run<T, RunErrors>()`. `UnexpectedError` is always included automatically.
 
 ```typescript
-import { Awaitly, type AsyncResult, type Errors } from 'awaitly';
+import { Awaitly, isUnexpectedError, type AsyncResult, type Errors } from 'awaitly';
 import { run } from 'awaitly/run';
 
 // deps return Results, never throw
@@ -763,15 +781,14 @@ export async function handleRequest(userId: string) {
       return order;
     }
   );
-  // result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED_ERROR'
+  // result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
 
   if (result.ok) {
     return { status: 200, body: result.value };
   }
 
-  // Check for unexpected errors first (it's a plain string)
-  if (result.error === Awaitly.UNEXPECTED_ERROR) {
-    console.error('Bug:', result.cause);
+  if (isUnexpectedError(result.error)) {
+    console.error('Bug:', result.error.cause);
     return { status: 500 };
   }
 
@@ -797,24 +814,27 @@ const result = await run<Order, MyErrors>(
 // result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED' (custom unexpected)
 ```
 
-**Without type params** (only `"UNEXPECTED_ERROR"` in the type):
+**Without type params** (only `UnexpectedError` in the type):
 ```typescript
+import { isUnexpectedError } from 'awaitly';
+
 const result = await run(async ({ step }) => {
   const user = await step('getUser', getUser(userId));
   return user;
 });
 
 if (!result.ok) {
-  // result.error is 'UNEXPECTED_ERROR'
-  // result.cause has the original thrown error
-  console.error('Failed:', result.cause);
+  // result.error is UnexpectedError
+  if (isUnexpectedError(result.error)) {
+    console.error('Failed:', result.error.cause);
+  }
 }
 ```
 
 ### Full: createWorkflow('name', deps) with DI — execute only via .run()
 
 ```typescript
-import { Awaitly, type AsyncResult } from 'awaitly';
+import { Awaitly, isUnexpectedError, type AsyncResult } from 'awaitly';
 import { createWorkflow } from 'awaitly/workflow';
 
 // 1. deps return Results, never throw (see "Deps and throwing" above)
@@ -839,13 +859,13 @@ export async function handleRequest(userId: string) {
     return order;
   });
 
-  // 4. Handle at boundary — check "UNEXPECTED_ERROR" first (it's a plain string)
+  // 4. Handle at boundary — check UnexpectedError first
   if (result.ok) {
     return { status: 200, body: result.value };
   }
 
-  if (result.error === Awaitly.UNEXPECTED_ERROR) {
-    console.error('Bug:', result.cause);
+  if (isUnexpectedError(result.error)) {
+    console.error('Bug:', result.error.cause);
     return { status: 500 };
   }
 
@@ -1067,7 +1087,7 @@ Awaitly.ok(value)
 Awaitly.err(error)
 Awaitly.map(result, fn)
 Awaitly.allAsync([...])
-Awaitly.UNEXPECTED_ERROR
+Awaitly.isUnexpectedError(e)
 
 // Simple workflow (closures, no DI)
 import { run } from 'awaitly/run';
@@ -1089,6 +1109,7 @@ import { unwrapOk, unwrapErr } from 'awaitly/testing';
 import {
   ok, err,                           // constructors
   type AsyncResult, type Result,     // types
+  UnexpectedError, isUnexpectedError, matchError,  // error handling
   unwrapOr, unwrapOrElse,           // defaults
   map, mapError,                     // transform
   andThen, orElse,                   // chain
@@ -1096,7 +1117,6 @@ import {
   isOk, isErr,                       // guards
   tap, tapError,                     // side effects
   allAsync,                          // parallel
-  UNEXPECTED_ERROR,                  // error discriminant
 } from 'awaitly';
 ```
 
@@ -1105,4 +1125,126 @@ import {
 ```typescript
 // Result types only (minimal bundle, no namespace)
 import { ok, err, type AsyncResult } from 'awaitly/result';
+```
+
+---
+
+## Workflow Engine
+
+`createEngine()` provides a polling background engine for durable workflow orchestration.
+
+```typescript
+import { createEngine } from 'awaitly/engine';
+
+const engine = createEngine({
+  store,
+  workflows: {
+    checkout: { deps, fn: async ({ step, deps }) => { /* ... */ } },
+  },
+  concurrency: 5,
+  onEvent: (e) => console.log(e.type),
+});
+
+// Enqueue a workflow run
+await engine.enqueue('checkout', { id: 'order-123', input: { orderId: '123' } });
+
+// Schedule recurring runs
+engine.schedule('checkout', 'daily-cleanup', { intervalMs: 86_400_000 });
+
+// Start polling loop
+await engine.start();
+
+// Graceful shutdown
+await engine.stop();
+```
+
+**Import:** `'awaitly/engine'` — exports `createEngine`, `Engine`, `EngineOptions`, `EngineEvent`, `EnqueueOptions`, `ScheduleOptions`, `WorkflowRegistration`.
+
+---
+
+## Input Validation (Standard Schema)
+
+Validate workflow input against any Standard Schema-compatible schema (Zod, Valibot, ArkType).
+
+```typescript
+import { validateInput, isInputValidationError } from 'awaitly/workflow';
+import { z } from 'zod';
+
+const schema = z.object({ orderId: z.string(), amount: z.number().positive() });
+
+const result = await validateInput(schema, rawInput);
+if (!result.ok) {
+  // result.error is InputValidationError { type: "INPUT_VALIDATION_ERROR", issues, message }
+  console.error(result.error.issues);
+}
+```
+
+**Import:** `'awaitly/workflow'` — exports `validateInput`, `isInputValidationError`, type `InputValidationError`.
+
+Optional peer dep: `@standard-schema/spec`.
+
+---
+
+## Test Runner
+
+Run real workflows with real deps, capturing per-step results and events. Complements `createWorkflowHarness` (mocking) — no mocks needed.
+
+```typescript
+import { testWorkflow } from 'awaitly/testing';
+
+const result = await testWorkflow(
+  { getUser, getPosts },
+  async ({ step, deps: { getUser, getPosts } }) => {
+    const user = await step('user', () => getUser('1'));
+    const posts = await step('posts', () => getPosts(user.id));
+    return { user, posts };
+  }
+);
+
+expect(result.result.ok).toBe(true);
+expect(result.steps['user'].result.ok).toBe(true);
+expect(result.stepOrder).toEqual(['user', 'posts']);
+console.log(`Took ${result.durationMs}ms`);
+```
+
+**Import:** `'awaitly/testing'` — exports `testWorkflow`, `TestWorkflowResult`, `TestWorkflowOptions`, `TestStepResult`.
+
+---
+
+## Durable Error Types
+
+### LeaseExpiredError
+
+Returned when a workflow's lock lease expires mid-execution.
+
+```typescript
+import { isLeaseExpired } from 'awaitly/durable';
+
+if (isLeaseExpired(error)) {
+  console.warn(`Lease lost for workflow ${error.workflowId}`);
+}
+```
+
+### IdempotencyConflictError
+
+Returned when an idempotency key is reused with different input.
+
+```typescript
+import { isIdempotencyConflict } from 'awaitly/durable';
+
+if (isIdempotencyConflict(error)) {
+  console.warn(`Duplicate key ${error.idempotencyKey} for ${error.workflowId}`);
+}
+```
+
+### WorkflowLock.renew()
+
+Optional lease renewal. When a store implements `renew`, `durable.run` starts a heartbeat that extends the lease during execution. Failure aborts the workflow.
+
+```typescript
+// Store implementations (libsql, mongo, postgres) now support renew()
+const result = await durable.run('my-workflow', store, deps, fn, {
+  lockTtlMs: 30_000,
+  heartbeatIntervalMs: 10_000,
+});
 ```

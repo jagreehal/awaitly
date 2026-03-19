@@ -40,7 +40,6 @@ import {
   tapError,
   tryAsync,
   UnexpectedError,
-  UNEXPECTED_ERROR,
   unwrap,
   UnwrapError,
   unwrapOr,
@@ -161,7 +160,7 @@ describe("Result Core", () => {
 
     it("returns false for other error types", () => {
       expect(isPromiseRejectedError({ type: "OTHER_ERROR" })).toBe(false);
-      expect(isPromiseRejectedError({ type: "UNEXPECTED_ERROR", cause: {} })).toBe(
+      expect(isPromiseRejectedError({ type: "UnexpectedError", cause: {} })).toBe(
         false
       );
     });
@@ -187,6 +186,7 @@ describe("Result Core", () => {
       }
     });
   });
+
 });
 
 describe("Unwrapping", () => {
@@ -2208,11 +2208,10 @@ describe("Type safety for new error types", () => {
   it("run without explicit types returns UnexpectedError", async () => {
     const result = await run(async () => 42);
 
-    // Without explicit types, error is typeof UNEXPECTED_ERROR (string constant)
+    // Without explicit types, error is UnexpectedError
     // For typed errors, use run<T, E>(fn, { onError })
     if (isErr(result)) {
-      const _e: typeof UNEXPECTED_ERROR = result.error;
-      expect(_e).toBeDefined();
+      expect(isUnexpectedError(result.error)).toBe(true);
     }
   });
 });
@@ -2229,7 +2228,7 @@ describe("matchError() - exhaustive error matching", () => {
     const result = matchError<FetchError, number>(error, {
       NOT_FOUND: () => 404,
       FETCH_ERROR: () => 500,
-      UNEXPECTED_ERROR: () => 503,
+      UnexpectedError: () => 503,
     });
 
     expect(result).toBe(404);
@@ -2242,7 +2241,7 @@ describe("matchError() - exhaustive error matching", () => {
     const result = matchError<FetchError, number>(error, {
       NOT_FOUND: () => 404,
       FETCH_ERROR: () => 500,
-      UNEXPECTED_ERROR: () => 503,
+      UnexpectedError: () => 503,
     });
 
     expect(result).toBe(500);
@@ -2250,17 +2249,15 @@ describe("matchError() - exhaustive error matching", () => {
 
   it("matches UnexpectedError", () => {
     type FetchError = "NOT_FOUND" | "FETCH_ERROR";
-    const unexpectedError: UnexpectedError = {
-      type: UNEXPECTED_ERROR,
-      cause: { type: "UNCAUGHT_EXCEPTION", thrown: new Error("oops") },
-    };
+    const unexpectedError = new UnexpectedError({ cause: new Error("oops") });
     const error: FetchError | UnexpectedError = unexpectedError;
 
     const result = matchError<FetchError, number>(error, {
       NOT_FOUND: () => 404,
       FETCH_ERROR: () => 500,
-      UNEXPECTED_ERROR: (e) => {
-        expect(e.type).toBe(UNEXPECTED_ERROR);
+      UnexpectedError: (e) => {
+        expect(e._tag).toBe("UnexpectedError");
+        expect(e).toBeInstanceOf(UnexpectedError);
         return 503;
       },
     });
@@ -2281,7 +2278,7 @@ describe("matchError() - exhaustive error matching", () => {
         expect(e).toBe("B");
         return "matched-B";
       },
-      UNEXPECTED_ERROR: () => "unexpected",
+      UnexpectedError: () => "unexpected",
     });
 
     expect(result).toBe("matched-A");
@@ -2293,7 +2290,7 @@ describe("matchError() - exhaustive error matching", () => {
 
     const result = matchError(error, {
       ONLY_ERROR: () => "single",
-      UNEXPECTED_ERROR: () => "unexpected",
+      UnexpectedError: () => "unexpected",
     });
 
     expect(result).toBe("single");
@@ -2306,7 +2303,7 @@ describe("matchError() - exhaustive error matching", () => {
     const result = matchError<FetchError, { code: number; message: string }>(error, {
       NOT_FOUND: () => ({ code: 404, message: "Not found" }),
       TIMEOUT: () => ({ code: 408, message: "Timeout" }),
-      UNEXPECTED_ERROR: (e) => ({ code: 500, message: "Unexpected" }),
+      UnexpectedError: (_e) => ({ code: 500, message: "Unexpected" }),
     });
 
     expect(result).toEqual({ code: 404, message: "Not found" });
@@ -2328,27 +2325,43 @@ describe("matchError() - exhaustive error matching", () => {
       const httpStatus = matchError<FetchError, number>(result.error, {
         NOT_FOUND: () => 404,
         FETCH_ERROR: () => 500,
-        UNEXPECTED_ERROR: () => 503,
+        UnexpectedError: () => 503,
       });
       expect(httpStatus).toBe(404);
     }
   });
 
-  it("treats literal UNEXPECTED_ERROR as UnexpectedError", () => {
-    type AppError = "UNEXPECTED_ERROR" | "OTHER";
-    const error: AppError | UnexpectedError = "UNEXPECTED_ERROR";
+  it("treats UnexpectedError instance correctly", () => {
+    type AppError = "OTHER";
+    const unexpectedError = new UnexpectedError({ cause: new Error("test") });
+    const error: AppError | UnexpectedError = unexpectedError;
 
     matchError<AppError, number>(error, {
       OTHER: () => 200,
-      UNEXPECTED_ERROR: (e) => {
-        expect(typeof e).toBe("object");
-        expect(e).not.toBeNull();
-        if (typeof e === "object" && e !== null) {
-          expect((e as UnexpectedError).type).toBe(UNEXPECTED_ERROR);
-        }
+      UnexpectedError: (e) => {
+        expect(e).toBeInstanceOf(UnexpectedError);
+        expect(e._tag).toBe("UnexpectedError");
         return 500;
       },
     });
+  });
+
+  it("only matches real UnexpectedError instances (clean break)", () => {
+    const unexpectedError = new UnexpectedError({ cause: "test" });
+    const result = matchError(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      unexpectedError as any,
+      {
+        UnexpectedError: (e: UnexpectedError) => {
+          expect(e).toBeInstanceOf(UnexpectedError);
+          expect(e._tag).toBe("UnexpectedError");
+          return 500;
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any,
+    );
+
+    expect(result).toBe(500);
   });
 });
 

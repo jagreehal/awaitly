@@ -80,7 +80,7 @@ describe("step.withResource", () => {
     expect(releaseFn).toHaveBeenCalledWith("db-conn");
   });
 
-  it("use throws → release called once, error mapped to UNEXPECTED_ERROR", async () => {
+  it("use throws → release called once, error mapped to UnexpectedError", async () => {
     const releaseFn = vi.fn();
 
     const result = await run(async ({ step }) => {

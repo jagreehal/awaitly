@@ -75,6 +75,7 @@ import {
 } from "./cache-encoding";
 
 import { isWorkflowCancelled } from "./guards";
+import { validateInput } from "./validation";
 
 import type {
   JSONValue,
@@ -136,12 +137,12 @@ import {
  * The error union is automatically computed from all declared functions:
  * - Each function's error type is extracted
  * - Union of all errors is created
- * - Uncaught exceptions are mapped via `catchUnexpected` (default: legacy `UnexpectedError` shape).
+ * - Uncaught exceptions are mapped via `catchUnexpected` (default: `UnexpectedError`).
  *
  * ## Strict Mode
  *
  * Optional `catchUnexpected` maps uncaught exceptions to a typed error (closed union):
- * - When omitted, the default mapper returns the legacy `UnexpectedError` object.
+ * - When omitted, the default mapper returns an `UnexpectedError` instance.
  * - When provided, your error union is exactly `E | U`.
  *
  * @param deps - Object mapping names to Result-returning functions.
@@ -153,7 +154,7 @@ import {
  *   - `cache`: Step result cache (Map or custom StepCache implementation)
  *   - `resumeState`: Pre-populated step results for workflow replay
  *   - `createContext`: Factory for per-run context (passed to onEvent)
- *   - `catchUnexpected`: Optional; map uncaught exceptions to a typed error (default: legacy `UnexpectedError`)
+ *   - `catchUnexpected`: Optional; map uncaught exceptions to a typed error (default: `UnexpectedError`)
  *
  * @returns A workflow function that accepts your workflow logic and returns an AsyncResult.
  *          The error type is automatically inferred from the `deps` parameter.
@@ -371,7 +372,7 @@ export function createWorkflow<
       | (() => ResumeState | Promise<ResumeState>)
       | undefined;
 
-    // catchUnexpected: from creation-time options or default (legacy UnexpectedError shape).
+    // catchUnexpected: from creation-time options or default (UnexpectedError).
     // When omitted, U = UnexpectedError and we use defaultCatchUnexpected.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const catchUnexpected = (optionsActual as any)?.catchUnexpected ?? defaultCatchUnexpected;
@@ -522,6 +523,23 @@ export function createWorkflow<
         });
         return err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | ExtraE | U, unknown>;
       }
+    }
+
+    // Validate input against schema if provided
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const inputSchema = (optionsActual as any)?.inputSchema;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const inputValue = (optionsActual as any)?.input;
+    if (inputSchema && inputValue !== undefined) {
+      const validationResult = await validateInput(inputSchema, inputValue);
+      if (!validationResult.ok) {
+        return err(validationResult.error) as Result<T, E | ExtraE | U, unknown>;
+      }
+      // Assign validated input to workflow context
+      (workflowContext as { input: unknown }).input = validationResult.value;
+    } else if (inputValue !== undefined) {
+      // No schema, just pass input through to context
+      (workflowContext as { input: unknown }).input = inputValue;
     }
 
     // Emit workflow_start

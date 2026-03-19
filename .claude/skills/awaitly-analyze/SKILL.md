@@ -109,7 +109,10 @@ if (!strict.valid) {
 |-----|------------|
 | Passing a file path to `renderStaticMermaid` or `generatePaths` | Get IR first: `const ir = analyze(path).single();` then `renderStaticMermaid(ir)`, `generatePaths(ir)`. |
 | Assuming `analyze(path)` returns IR | Call `.single()` or `.named(name)` or `.all()` on the result. |
-| Inventing an export (e.g. `renderWorkflow`) | Use only exports listed here or in package types: `renderStaticMermaid`, `renderEnhancedMermaid`, `renderStaticJSON`, etc. |
+| Inventing an export (e.g. `renderWorkflow`) | Use only exports listed here or in package types: `renderStaticMermaid`, `renderEnhancedMermaid`, `renderRailwayMermaid`, `renderStaticJSON`, `diffWorkflows`, `renderDiffMarkdown`, `renderDiffJSON`, `renderDiffMermaid`, etc. |
+| Passing a file path to `diffWorkflows` | Get IR first: `const before = analyze(path1).single(); const after = analyze(path2).single();` then `diffWorkflows(before, after)`. |
+| Passing IR to `renderDiffMarkdown` | Pass a `WorkflowDiff` from `diffWorkflows(before, after)`. |
+| Omitting `after` IR from `renderDiffMermaid` | First arg is `after` IR: `renderDiffMermaid(afterIR, diff, options)`. |
 
 ---
 
@@ -132,11 +135,15 @@ For options (e.g. TS config, globs), consult package types (`AnalyzeResult`, `an
 | Need | Use | Notes |
 |------|-----|-------|
 | Mermaid diagram | `renderStaticMermaid(ir)` or `renderEnhancedMermaid(ir, options)` | First arg is IR. |
+| Railway diagram | `renderRailwayMermaid(ir, options?)` | Linear happy path with ok/err branching. First arg is IR. |
 | JSON | `renderStaticJSON(ir, { pretty: true })` | For machine consumption. |
 | Test matrix | `generateTestMatrix(paths)` then `formatTestMatrixMarkdown(matrix)` | Paths from `generatePaths(ir)`. |
 | Path stats | `calculatePathStatistics(paths)` | Paths from `generatePaths(ir)`. |
+| Diff (markdown) | `renderDiffMarkdown(diff, options?)` | First arg is `WorkflowDiff`. |
+| Diff (JSON) | `renderDiffJSON(diff, { pretty: true })` | First arg is `WorkflowDiff`. |
+| Diff (Mermaid) | `renderDiffMermaid(afterIR, diff, options?)` | First arg is `after` IR, second is `WorkflowDiff`. |
 
-For options (direction, showDataFlow, etc.), consult package types (`MermaidOptions`, `EnhancedMermaidOptions`, `JSONRenderOptions`).
+For options (direction, showDataFlow, etc.), consult package types (`MermaidOptions`, `EnhancedMermaidOptions`, `JSONRenderOptions`, `RailwayOptions`, `DiffMarkdownOptions`, `DiffMermaidOptions`).
 
 ---
 
@@ -178,12 +185,100 @@ For types and options, consult package types (`DataFlowGraph`, `ErrorFlowAnalysi
 
 ---
 
+## Railway Diagrams
+
+Generate linear happy-path Mermaid flowcharts with ok/err branching per step.
+
+```typescript
+import { renderRailwayMermaid } from 'awaitly-analyze';
+
+const diagram = renderRailwayMermaid(ir);
+const lrDiagram = renderRailwayMermaid(ir, { direction: 'LR' });
+const detailed = renderRailwayMermaid(ir, {
+  stepLabel: 'callee',    // 'callee' | 'stepId' | 'description'
+  showRetry: true,
+  showTimeout: true,
+  showKeys: true,
+});
+```
+
+**First arg is IR** (not file path). Options: `direction` (`'LR'` | `'TD'`), `stepLabel`, `showRetry`, `showTimeout`, `showKeys`, `useNodeIds`, `styles`.
+
+---
+
+## Workflow Diff Engine
+
+Compare two workflow IR snapshots to detect step additions, removals, renames, moves, and structural changes.
+
+### Diff from IR (do not pass paths)
+```typescript
+import { analyze, diffWorkflows, renderDiffMarkdown, renderDiffJSON, renderDiffMermaid } from 'awaitly-analyze';
+
+const before = analyze('./v1.ts').single();
+const after = analyze('./v2.ts').single();
+
+const diff = diffWorkflows(before, after);
+// diff.summary: { added, removed, renamed, moved, unchanged, structuralChanges, hasRegressions }
+
+const markdown = renderDiffMarkdown(diff);
+const json = renderDiffJSON(diff, { pretty: true });
+const mermaid = renderDiffMermaid(after, diff, { direction: 'LR' });
+```
+
+### Diff options
+```typescript
+const diff = diffWorkflows(before, after, {
+  detectRenames: true,     // default: true — match unmatched steps by callee
+  regressionMode: false,   // default: false — when true, removed steps flag hasRegressions
+});
+```
+
+### Renderer options
+```typescript
+// Markdown
+renderDiffMarkdown(diff, { showUnchanged: true, title: 'My Diff' });
+
+// Mermaid (requires after IR as first arg)
+renderDiffMermaid(after, diff, { showRemovedSteps: true, direction: 'TD' });
+```
+
+### Agent rules for diff
+- **MUST** pass IR to `diffWorkflows(before, after)` — not file paths.
+- **MUST** pass `after` IR as first arg to `renderDiffMermaid(after, diff, options)`.
+- **MUST NOT** confuse diff renderers with static renderers — `renderDiffMarkdown` takes a `WorkflowDiff`, not IR.
+
+---
+
 ## CLI (deterministic)
 
 ```bash
+# Static analysis
 npx awaitly-analyze ./workflow.ts
 npx awaitly-analyze ./workflow.ts --format json
+npx awaitly-analyze ./workflow.ts --format railway
 npx awaitly-analyze ./workflow.ts -o
+
+# Diff: two local files
+npx awaitly-analyze --diff v1.ts v2.ts
+
+# Diff: single file vs HEAD
+npx awaitly-analyze --diff src/workflow.ts
+
+# Diff: git ref vs local
+npx awaitly-analyze --diff main:src/workflow.ts src/workflow.ts
+
+# Diff: GitHub PR (all .ts files)
+npx awaitly-analyze --diff gh:#123
+
+# Diff: GitHub PR scoped to one file
+npx awaitly-analyze --diff gh:#123 src/workflow.ts
+
+# Diff with regression detection (removed steps flagged)
+npx awaitly-analyze --diff v1.ts v2.ts --regression
+
+# Diff output formats
+npx awaitly-analyze --diff v1.ts v2.ts --format json
+npx awaitly-analyze --diff v1.ts v2.ts --format mermaid --direction LR
 ```
 
 Do not invent CLI flags; consult package CLI help or README for supported options.

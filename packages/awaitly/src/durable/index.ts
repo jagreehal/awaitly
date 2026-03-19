@@ -179,6 +179,47 @@ export function isPersistenceError(error: unknown): error is PersistenceError {
 }
 
 /**
+ * Error returned when a workflow's lease expires mid-execution.
+ * Indicates the lock was lost and another process may have reclaimed the workflow.
+ */
+export type LeaseExpiredError = {
+  type: "LEASE_EXPIRED";
+  /** The workflow ID whose lease expired */
+  workflowId: string;
+  /** Guidance message */
+  message: string;
+};
+
+/**
+ * Type guard to check if an error is a LeaseExpiredError.
+ */
+export function isLeaseExpired(error: unknown): error is LeaseExpiredError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as LeaseExpiredError).type === "LEASE_EXPIRED"
+  );
+}
+
+/**
+ * Error returned when an idempotency key is reused with different input.
+ */
+export type IdempotencyConflictError = {
+  type: "IDEMPOTENCY_CONFLICT";
+  idempotencyKey: string;
+  workflowId: string;
+  message: string;
+};
+
+export function isIdempotencyConflict(error: unknown): error is IdempotencyConflictError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as IdempotencyConflictError).type === "IDEMPOTENCY_CONFLICT"
+  );
+}
+
+/**
  * Optional cross-process lock interface.
  * When a store implements this, durable.run uses it to ensure only one process
  * runs a given workflow ID at a time (when allowConcurrent is false).
@@ -208,6 +249,13 @@ export interface WorkflowLock {
    * does not match (e.g. lease already expired or taken by another).
    */
   release(id: string, ownerToken: string): Promise<void>;
+
+  /**
+   * Extend the lease for an already-held lock.
+   * Returns true if renewed, false if lost.
+   * Optional — when not implemented, no heartbeat runs.
+   */
+  renew?(id: string, ownerToken: string, options?: { ttlMs?: number }): Promise<boolean>;
 }
 
 /**
@@ -292,6 +340,19 @@ export interface DurableOptions<C = void> {
   lockTtlMs?: number;
 
   /**
+   * Heartbeat interval for lease renewal (ms).
+   * Only active when store implements WorkflowLock with renew().
+   * @default lockTtlMs / 3
+   */
+  heartbeatIntervalMs?: number;
+
+  /**
+   * Whether to abort the workflow when lease is lost mid-execution.
+   * @default true
+   */
+  abortOnLeaseLoss?: boolean;
+
+  /**
    * Metadata to store alongside workflow state.
    * Useful for debugging, auditing, or filtering workflows.
    *
@@ -320,6 +381,21 @@ export interface DurableOptions<C = void> {
    * Handler for expected and unexpected errors.
    */
   onError?: (error: unknown, stepName?: string, ctx?: C) => void;
+
+  /**
+   * Idempotency key for deduplication.
+   * If provided and a completed workflow with this key exists in the store,
+   * the stored result is returned without re-execution.
+   * If the stored input differs, an IdempotencyConflictError is returned.
+   */
+  idempotencyKey?: string;
+
+  /**
+   * Workflow input for idempotency conflict detection.
+   * When idempotencyKey is set, this is compared against stored input.
+   * Must be JSON-serializable.
+   */
+  input?: unknown;
 }
 
 /**
@@ -453,7 +529,9 @@ export const durable = {
       | WorkflowCancelledError
       | VersionMismatchError
       | ConcurrentExecutionError
-      | PersistenceError,
+      | PersistenceError
+      | LeaseExpiredError
+      | IdempotencyConflictError,
       unknown
     >
   > {
@@ -463,15 +541,61 @@ export const durable = {
       version = 1,
       allowConcurrent = false,
       lockTtlMs = 60_000,
+      heartbeatIntervalMs,
+      abortOnLeaseLoss,
       metadata,
       signal,
       createContext,
       onEvent,
       onError,
       onVersionMismatch,
+      idempotencyKey,
+      input,
     } = options;
 
     const effectiveStore = storeOption ?? getDefaultStore();
+
+    // Idempotency check — before concurrency and lock
+    if (idempotencyKey) {
+      const idemId = `idem:${idempotencyKey}`;
+      try {
+        const idemSnapshot = await effectiveStore.load(idemId);
+        if (idemSnapshot) {
+          // Check for input conflict
+          if (input !== undefined && idemSnapshot.metadata?.input !== undefined) {
+            const storedInput = JSON.stringify(idemSnapshot.metadata.input);
+            const currentInput = JSON.stringify(input);
+            if (storedInput !== currentInput) {
+              return err({
+                type: "IDEMPOTENCY_CONFLICT" as const,
+                idempotencyKey,
+                workflowId: id,
+                message: `Idempotency key '${idempotencyKey}' already used with different input for workflow '${id}'.`,
+              });
+            }
+          }
+
+          // If completed with a stored result, return it
+          if (idemSnapshot.execution.status === "completed" && idemSnapshot.metadata?.finalResult !== undefined) {
+            // Return the stored result directly
+            return idemSnapshot.metadata.finalResult as Result<T, ErrorsOfDeps<Deps> | UnexpectedError | WorkflowCancelledError | VersionMismatchError | ConcurrentExecutionError | PersistenceError | LeaseExpiredError | IdempotencyConflictError, unknown>;
+          }
+
+          // If still running, treat as concurrent
+          if (idemSnapshot.execution.status === "running") {
+            return err({
+              type: "CONCURRENT_EXECUTION" as const,
+              workflowId: id,
+              message: `Workflow '${id}' with idempotency key '${idempotencyKey}' is already running.`,
+              reason: "cross-process" as const,
+            });
+          }
+        }
+      } catch {
+        // If we can't check idempotency, continue with normal execution
+        // (don't block on idempotency check failure)
+      }
+    }
 
     // In-process concurrency check
     if (!allowConcurrent && activeWorkflows.has(id)) {
@@ -510,6 +634,27 @@ export const durable = {
         return err(error);
       }
       leaseOwnerToken = lease.ownerToken;
+    }
+
+    // Start heartbeat if store supports renew
+    let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    let leaseAbortController: AbortController | undefined;
+
+    const lockStore = effectiveStore as SnapshotStore & WorkflowLock;
+    if (leaseOwnerToken && typeof lockStore.renew === "function") {
+      const heartbeatMs = heartbeatIntervalMs ?? Math.floor(lockTtlMs / 3);
+      leaseAbortController = new AbortController();
+
+      heartbeatTimer = setInterval(async () => {
+        try {
+          const renewed = await lockStore.renew!(id, leaseOwnerToken!, { ttlMs: lockTtlMs });
+          if (!renewed) {
+            leaseAbortController!.abort(new Error("Lease expired"));
+          }
+        } catch {
+          leaseAbortController!.abort(new Error("Lease renewal failed"));
+        }
+      }, heartbeatMs);
     }
 
     // Mark as active (in-process)
@@ -704,7 +849,9 @@ export const durable = {
         },
 
         onError: onError as (error: E | UnexpectedError, stepName?: string, ctx?: C) => void,
-        signal,
+        signal: leaseAbortController && signal
+          ? AbortSignal.any([signal, leaseAbortController.signal])
+          : leaseAbortController?.signal ?? signal,
         createContext,
       };
 
@@ -744,6 +891,15 @@ export const durable = {
         throw runError;
       }
 
+      // Check if lease was lost during execution
+      if (abortOnLeaseLoss !== false && leaseAbortController?.signal.aborted) {
+        return err({
+          type: "LEASE_EXPIRED" as const,
+          workflowId: id,
+          message: `Lease expired for workflow '${id}' during execution. The workflow may have been reclaimed by another process.`,
+        });
+      }
+
       // On success: clean up stored state
       if (result.ok) {
         try {
@@ -758,6 +914,30 @@ export const durable = {
           };
           return err(error);
         }
+
+        // Save idempotency record on success
+        if (idempotencyKey) {
+          const idemId = `idem:${idempotencyKey}`;
+          try {
+            await effectiveStore.save(idemId, {
+              formatVersion: 1,
+              steps: {},
+              execution: {
+                status: "completed",
+                lastUpdated: new Date().toISOString(),
+                completedAt: new Date().toISOString(),
+              },
+              metadata: {
+                workflowId: id,
+                idempotencyKey,
+                input: input as JSONValue,
+                finalResult: result as JSONValue,
+              },
+            } satisfies WorkflowSnapshot);
+          } catch {
+            // Non-fatal: workflow succeeded but idempotency record failed to save
+          }
+        }
       }
       // On error/cancellation: state remains for resume
 
@@ -767,6 +947,10 @@ export const durable = {
     } finally {
       // Always remove from active set
       activeWorkflows.delete(id);
+      // Clear heartbeat timer before releasing lock
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+      }
       // Release cross-process lease if we acquired one (verify owner in adapter)
       // Guard the await so a failing release doesn't turn a successful run into a rejection
       if (leaseOwnerToken !== null && hasWorkflowLock(effectiveStore)) {

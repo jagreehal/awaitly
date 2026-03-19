@@ -6,7 +6,7 @@
  */
 
 import type { Result, AsyncResult, StepOptions, WorkflowEvent, Ok, Err } from "../core";
-import { ok, err, isOk } from "../core";
+import { ok, err, isOk, UnexpectedError } from "../core";
 import type { AnyResultFn, ErrorsOfDeps } from "../workflow/types";
 
 // =============================================================================
@@ -433,7 +433,7 @@ export function createWorkflowHarness<
       if (isTestEarlyExit(error)) {
         return err(error.error);
       }
-      return err({ type: "UNEXPECTED_ERROR", cause: error });
+      return err(new UnexpectedError({ cause: error }));
     }
   }
 
@@ -450,7 +450,7 @@ export function createWorkflowHarness<
       if (isTestEarlyExit(error)) {
         return err(error.error);
       }
-      return err({ type: "UNEXPECTED_ERROR", cause: error });
+      return err(new UnexpectedError({ cause: error }));
     }
   }
 
@@ -984,7 +984,7 @@ export function createSagaHarness<
       }
       // Run compensations for unexpected errors
       await runCompensations();
-      return err({ type: "UNEXPECTED_ERROR", cause: error });
+      return err(new UnexpectedError({ cause: error }));
     }
   }
 
@@ -1350,3 +1350,9 @@ export function formatEvent(event: WorkflowEvent<unknown>): string {
 export function formatEvents(events: WorkflowEvent<unknown>[]): string {
   return events.map(formatEvent).join(" → ");
 }
+
+// =============================================================================
+// Simple Test Runner
+// =============================================================================
+
+export { testWorkflow, type TestWorkflowResult, type TestWorkflowOptions, type TestStepResult } from "./test-runner";

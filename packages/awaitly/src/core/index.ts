@@ -88,35 +88,6 @@ export type Result<T, E = unknown, C = unknown> = Ok<T> | Err<E, C>;
  */
 export type AsyncResult<T, E = unknown, C = unknown> = Promise<Result<T, E, C>>;
 
-/**
- * Cause of a step failure: either a Result error or a thrown value.
- * Used inside UnexpectedError when a step returns Err or throws.
- */
-export type UnexpectedStepFailureCause =
-  | {
-      type: "STEP_FAILURE";
-      origin: "result";
-      error: unknown;
-      cause?: unknown;
-    }
-  | {
-      type: "STEP_FAILURE";
-      origin: "throw";
-      error: unknown;
-      thrown: unknown;
-    };
-
-/**
- * Union of causes for unexpected errors: uncaught exception or step failure.
- * Used as the cause field of UnexpectedError.
- */
-export type UnexpectedCause =
-  | { type: "UNCAUGHT_EXCEPTION"; thrown: unknown }
-  | UnexpectedStepFailureCause;
-
-/** Discriminant for UnexpectedError type - use in switch statements */
-export const UNEXPECTED_ERROR = "UNEXPECTED_ERROR" as const;
-
 /** Discriminant for PromiseRejectedError type - use in switch statements */
 export const PROMISE_REJECTED = "PROMISE_REJECTED" as const;
 
@@ -168,22 +139,19 @@ export const AWAITLY_TIMEOUT = "AWAITLY_TIMEOUT" as const;
  */
 export const tags = <const T extends readonly string[]>(...t: T): T => t;
 
-export type UnexpectedError = {
-  type: typeof UNEXPECTED_ERROR;
-  cause: UnexpectedCause;
-};
+import { UnexpectedError } from "../errors";
+export { UnexpectedError };
 
 /**
  * Default mapper for unexpected causes (uncaught exceptions, cancellation, etc.).
- * Returns the UNEXPECTED_ERROR string constant. The thrown value is preserved
- * in the Result's cause field, so no information is lost.
+ * Returns an UnexpectedError TaggedError instance.
  * Used when run() is called without catchUnexpected.
  *
- * @param _cause - The thrown value (preserved in Result cause, not embedded here)
- * @returns The UNEXPECTED_ERROR string constant
+ * @param cause - The thrown value
+ * @returns An UnexpectedError instance
  */
-export function defaultCatchUnexpected(_cause: unknown): typeof UNEXPECTED_ERROR {
-  return UNEXPECTED_ERROR;
+export function defaultCatchUnexpected(cause: unknown): UnexpectedError {
+  return new UnexpectedError({ cause });
 }
 
 export type PromiseRejectedError = { type: typeof PROMISE_REJECTED; cause: unknown };
@@ -299,11 +267,12 @@ export const isErr = <T, E, C>(r: Result<T, E, C>): r is Err<E, C> => !r.ok;
  *
  * @remarks When to use: Distinguish unexpected failures from your typed error union.
  */
-export const isUnexpectedError = (e: unknown): e is UnexpectedError | typeof UNEXPECTED_ERROR =>
-  e === UNEXPECTED_ERROR ||
+export const isUnexpectedError = (e: unknown): e is UnexpectedError =>
+  e instanceof UnexpectedError ||
   (typeof e === "object" &&
     e !== null &&
-    (e as UnexpectedError).type === "UNEXPECTED_ERROR");
+    "_tag" in e &&
+    (e as { _tag: string })._tag === "UnexpectedError");
 
 /**
  * Checks if an error is a PromiseRejectedError.
@@ -328,15 +297,12 @@ export const isPromiseRejectedError = (e: unknown): e is PromiseRejectedError =>
 
 /**
  * Type for exhaustive error handlers mapping string literal errors and UnexpectedError.
- * Each key in E gets a handler, plus UNEXPECTED_ERROR is required.
- * Note: "UNEXPECTED_ERROR" is excluded from E to avoid intersection conflicts when users
- * have that literal in their error union - the UNEXPECTED_ERROR handler always receives
- * the UnexpectedError object type, not the string literal.
+ * Each key in E gets a handler, plus UnexpectedError is required.
  */
 export type MatchErrorHandlers<E extends string, R> = {
-  [K in Exclude<E, "UNEXPECTED_ERROR">]: (error: K) => R;
+  [K in Exclude<E, "UnexpectedError">]: (error: K) => R;
 } & {
-  UNEXPECTED_ERROR: (error: UnexpectedError) => R;
+  UnexpectedError: (error: UnexpectedError) => R;
 };
 
 /**
@@ -344,7 +310,7 @@ export type MatchErrorHandlers<E extends string, R> = {
  * Handles both string literal errors and UnexpectedError, ensuring all cases are covered.
  *
  * @param error - The error to match (string literal or UnexpectedError)
- * @param handlers - Object with a handler for each error case plus UNEXPECTED_ERROR
+ * @param handlers - Object with a handler for each error case plus UnexpectedError
  * @returns The result of the matched handler
  *
  * @example
@@ -356,7 +322,7 @@ export type MatchErrorHandlers<E extends string, R> = {
  *   return matchError(result.error, {
  *     NOT_FOUND: () => 404,
  *     FETCH_ERROR: () => 500,
- *     UNEXPECTED_ERROR: (e) => { throw e.cause; }  // Required by types
+ *     UnexpectedError: (e) => { throw e.cause; }
  *   });
  * }
  * ```
@@ -365,22 +331,12 @@ export function matchError<E extends string, R>(
   error: E | UnexpectedError,
   handlers: MatchErrorHandlers<E, R>
 ): R {
-  // Handle the string literal "UNEXPECTED_ERROR" first - wrap it in an UnexpectedError object
-  // to maintain the typed contract that UNEXPECTED_ERROR handler receives an object.
-  // Must check before isUnexpectedError() since that also matches the string form.
-  if (error === "UNEXPECTED_ERROR") {
-    const syntheticError: UnexpectedError = {
-      type: UNEXPECTED_ERROR,
-      cause: { type: "UNCAUGHT_EXCEPTION", thrown: error },
-    };
-    return handlers.UNEXPECTED_ERROR(syntheticError);
-  }
-  // Handle UnexpectedError objects
+  // Handle UnexpectedError instances
   if (isUnexpectedError(error)) {
-    return handlers.UNEXPECTED_ERROR(error as UnexpectedError);
+    return handlers.UnexpectedError(error as UnexpectedError);
   }
-  // Cast to the excluded type since we've handled UNEXPECTED_ERROR above
-  type StringErrors = Exclude<E, "UNEXPECTED_ERROR">;
+  // Handle string literal errors
+  type StringErrors = Exclude<E, "UnexpectedError">;
   return handlers[error as StringErrors](error as StringErrors);
 }
 
@@ -2785,9 +2741,9 @@ const DEFAULT_RETRY_CONFIG = {
  *
  * `run()` returns:
  * - **`catchUnexpected`**: Maps uncaught exceptions to your type E → `Result<T, E>`
- * - **No catchUnexpected**: Step errors pass through + `"UNEXPECTED_ERROR"` for exceptions → `Result<T, E | "UNEXPECTED_ERROR">`
+ * - **No catchUnexpected**: Step errors pass through + `UnexpectedError` for exceptions → `Result<T, E | UnexpectedError>`
  *
- * When `E` is not specified, it defaults to `never`, giving `Result<T, "UNEXPECTED_ERROR">`.
+ * When `E` is not specified, it defaults to `never`, giving `Result<T, UnexpectedError>`.
  *
  * @see createWorkflow - For static dependencies with auto error inference
  */
@@ -2802,7 +2758,7 @@ export function run<T, E, C = void>(
 
 /**
  * run() without catchUnexpected.
- * Always adds typeof UNEXPECTED_ERROR to the error union so callers know
+ * Always adds UnexpectedError to the error union so callers know
  * uncaught exceptions are possible. Step errors pass through as-is.
  * When E is never (default), step is RunStep<unknown> so any operation is allowed.
  */
@@ -2811,15 +2767,15 @@ export function run<T, E = never, C = void>(
     step: [E] extends [never] ? RunStep<unknown> : RunStep<E>;
   }) => Promise<T> | T,
   options?: {
-    onError?: (error: E | typeof UNEXPECTED_ERROR, stepName?: string, ctx?: C) => void;
-    onEvent?: (event: WorkflowEvent<E | typeof UNEXPECTED_ERROR, C>, ctx: C) => void;
+    onError?: (error: E | UnexpectedError, stepName?: string, ctx?: C) => void;
+    onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
     workflowId?: string;
     workflowName?: string;
     context?: C;
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
   }
-): AsyncResult<T, E | typeof UNEXPECTED_ERROR, unknown>;
+): AsyncResult<T, E | UnexpectedError, unknown>;
 
 // Implementation
 export async function run<T, E, C = void>(
@@ -3192,7 +3148,7 @@ export async function run<T, E, C = void>(
                 });
               }
 
-              // Treat STEP_TIMEOUT as a typed error - exit directly without UNEXPECTED_ERROR wrapper
+              // Treat STEP_TIMEOUT as a typed error - exit directly without UnexpectedError wrapper
               // This provides better DX: users get STEP_TIMEOUT directly in result.error
               const totalDurationMs = performance.now() - overallStartTime;
               emitEvent({
@@ -4288,7 +4244,7 @@ export async function run<T, E, C = void>(
             throw thrown;
           }
 
-          // Primary threw — map to UNEXPECTED_ERROR
+          // Primary threw — map to UnexpectedError
           let mappedError: E | UnexpectedError;
           try {
             mappedError = effectiveCatchUnexpected(thrown) as E | UnexpectedError;

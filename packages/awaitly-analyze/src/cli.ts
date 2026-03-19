@@ -16,11 +16,18 @@ import { analyze } from "./analyze";
 import { renderStaticMermaid } from "./output/mermaid";
 import { renderMultipleStaticJSON } from "./output/json";
 import { renderWorkflowDSL } from "./output/dsl";
-import { extractNodeMetadata, generateInteractiveHTML } from "./output/html";
+import { extractNodeMetadata, extractRailwayNodeMetadata, generateInteractiveHTML } from "./output/html";
 import { writeDSLToAwaitlyDirSync, DEFAULT_DSL_OUTPUT_FOLDER } from "./awaitly-dir";
+import { diffWorkflows } from "./diff/diff-engine";
+import { renderDiffMarkdown } from "./diff/render-markdown";
+import { renderDiffJSON } from "./diff/render-json";
+import { renderDiffMermaid } from "./diff/render-mermaid";
+import { parseSourceArg, resolveGitSource, resolveGitHubPR } from "./resolve-source";
+import { renderRailwayMermaid } from "./output/railway";
+import { analyzeWorkflowSource } from "./static-analyzer";
 
-type Direction = "TB" | "LR" | "BT" | "RL";
-type Format = "mermaid" | "json";
+type Direction = "TB" | "TD" | "LR" | "BT" | "RL";
+type Format = "mermaid" | "json" | "markdown";
 
 /** "off" = don't write; ".awaitly" = write to .awaitly/dsl/; or custom path */
 type DslOutputOption = "off" | ".awaitly" | string;
@@ -37,6 +44,12 @@ interface CliOptions {
   dslOutput: DslOutputOption;
   html: boolean;
   htmlOutput: string;
+  diff: boolean;
+  diffSources: string[];
+  regressionMode: boolean;
+  formatExplicit: boolean;
+  directionExplicit: boolean;
+  railway: boolean;
 }
 
 function printHelp(): void {
@@ -54,12 +67,20 @@ Options:
   --html                Generate interactive HTML file (Mermaid CDN + click-to-inspect)
   --html-output=<path>  Output path for HTML file (default: <basename>.html)
   --keys                Show step cache keys in diagram
-  --direction=<dir>     Diagram direction: TB (default), LR, BT, RL
+  --direction=<dir>     Diagram direction: TB (default), TD, LR, BT, RL
   --output-adjacent, -o Write output file next to source file
   --suffix=<value>      Configurable suffix for output file (default: workflow)
-  --no-stdout           Suppress stdout when writing to file (requires -o)
+  --no-stdout           Suppress stdout when writing to file (requires -o or --html)
   --dsl-output=<value>  Write DSL: off (default), .awaitly, or custom path
   --write-dsl           Shorthand for --dsl-output=.awaitly
+  --diff                Compare workflows:
+                          --diff v1.ts v2.ts              (two local files)
+                          --diff src/wf.ts                (HEAD vs working copy)
+                          --diff main:src/wf.ts src/wf.ts (git ref vs local)
+                          --diff gh:#123                  (GitHub PR auto-discover)
+                          --diff gh:#123 src/wf.ts        (GitHub PR specific file)
+  --regression          Flag removed steps as regressions (use with --diff)
+  --railway             Generate railway-style flow diagram (LR or TD with ok/err branches)
   --help, -h             Show this help message
 
 Examples:
@@ -74,10 +95,13 @@ Examples:
   awaitly-analyze ./src/workflows/checkout.ts -o --no-stdout
   awaitly-analyze ./src/workflows/checkout.ts --dsl-output=.awaitly
   awaitly-analyze ./src/workflows/checkout.ts --dsl-output=dist/dsl
+  awaitly-analyze --diff v1.ts v2.ts
+  awaitly-analyze --diff v1.ts v2.ts --format=json
+  awaitly-analyze --diff v1.ts v2.ts --format=mermaid --regression
 `);
 }
 
-function parseArgs(args: string[]): CliOptions {
+export function parseArgs(args: string[]): CliOptions {
   const options: CliOptions = {
     filePath: "",
     format: "mermaid",
@@ -90,6 +114,12 @@ function parseArgs(args: string[]): CliOptions {
     dslOutput: "off",
     html: false,
     htmlOutput: "",
+    diff: false,
+    diffSources: [],
+    regressionMode: false,
+    formatExplicit: false,
+    directionExplicit: false,
+    railway: false,
   };
 
   for (const arg of args) {
@@ -123,18 +153,20 @@ function parseArgs(args: string[]): CliOptions {
       }
     } else if (arg.startsWith("--format=")) {
       const format = arg.slice("--format=".length).toLowerCase();
-      if (format === "json" || format === "mermaid") {
+      if (format === "json" || format === "mermaid" || format === "markdown") {
         options.format = format;
+        options.formatExplicit = true;
       } else {
-        console.error(`Unknown format: ${format}. Use 'mermaid' or 'json'.`);
+        console.error(`Unknown format: ${format}. Use 'mermaid', 'json', or 'markdown'.`);
         process.exit(1);
       }
     } else if (arg.startsWith("--direction=")) {
       const dir = arg.slice("--direction=".length).toUpperCase() as Direction;
-      if (["TB", "LR", "BT", "RL"].includes(dir)) {
+      if (["TB", "TD", "LR", "BT", "RL"].includes(dir)) {
         options.direction = dir;
+        options.directionExplicit = true;
       } else {
-        console.error(`Unknown direction: ${dir}. Use TB, LR, BT, or RL.`);
+        console.error(`Unknown direction: ${dir}. Use TB, TD, LR, BT, or RL.`);
         process.exit(1);
       }
     } else if (arg.startsWith("--suffix=")) {
@@ -144,8 +176,18 @@ function parseArgs(args: string[]): CliOptions {
         process.exit(1);
       }
       options.suffix = suffix;
+    } else if (arg === "--diff") {
+      options.diff = true;
+    } else if (arg === "--railway") {
+      options.railway = true;
+    } else if (arg === "--regression") {
+      options.regressionMode = true;
     } else if (!arg.startsWith("-")) {
-      options.filePath = arg;
+      if (options.diff) {
+        options.diffSources.push(arg);
+      } else if (!options.filePath) {
+        options.filePath = arg;
+      }
     } else {
       console.error(`Unknown option: ${arg}`);
       process.exit(1);
@@ -176,16 +218,165 @@ function main(): void {
     process.exit(0);
   }
 
+  // Diff mode — check before filePath validation since diff doesn't use filePath
+  if (options.diff) {
+    if (options.railway) {
+      console.error("Error: --railway is not supported with --diff.");
+      process.exit(1);
+    }
+
+    const sources = options.diffSources;
+
+    if (options.outputAdjacent && sources.some((s) => s.startsWith("gh:#"))) {
+      console.error("Error: --output-adjacent is not supported with GitHub PR sources.");
+      process.exit(1);
+    }
+
+    const diffFormat = options.formatExplicit ? options.format : "markdown";
+
+    // GitHub PR mode
+    const ghSource = sources.find((s) => s.startsWith("gh:#"));
+    if (ghSource) {
+      const parsed = parseSourceArg(ghSource);
+      if (parsed.type !== "github") {
+        console.error("Error: invalid GitHub PR syntax. Use gh:#<number>.");
+        process.exit(1);
+      }
+      const specificFile = sources.find((s) => !s.startsWith("gh:#"));
+
+      let pairs;
+      try {
+        pairs = resolveGitHubPR(parsed.prNumber, specificFile);
+      } catch (err: unknown) {
+        console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        process.exit(1);
+      }
+
+      if (pairs.length === 0) {
+        console.error(`No awaitly workflow files found in PR #${parsed.prNumber}.`);
+        process.exit(1);
+      }
+
+      const outputs: string[] = [];
+      for (const pair of pairs) {
+        const beforeResults = analyzeWorkflowSource(pair.before);
+        const afterResults = analyzeWorkflowSource(pair.after);
+        const beforeIR = beforeResults[0] ?? null;
+        const afterIR = afterResults[0] ?? null;
+        if (!beforeIR && !afterIR) continue;
+        if (!beforeIR || !afterIR) continue;
+
+        const diff = diffWorkflows(beforeIR, afterIR, {
+          regressionMode: options.regressionMode,
+        });
+        if (diffFormat === "json") {
+          outputs.push(renderDiffJSON(diff));
+        } else if (diffFormat === "mermaid") {
+          outputs.push(renderDiffMermaid(afterIR, diff, { direction: options.direction }));
+        } else {
+          outputs.push(renderDiffMarkdown(diff, { showUnchanged: true }));
+        }
+      }
+
+      if (outputs.length === 0) {
+        console.error(`No awaitly workflow files found in PR #${parsed.prNumber}.`);
+        process.exit(1);
+      }
+
+      console.log(outputs.join("\n\n---\n\n"));
+      return;
+    }
+
+    // Single file shorthand: --diff src/wf.ts → HEAD vs working copy
+    if (sources.length === 1) {
+      const parsed = parseSourceArg(sources[0]);
+      if (parsed.type === "local") {
+        sources.unshift(`HEAD:${parsed.path}`);
+      } else {
+        console.error("Error: --diff with a single argument requires a local file path.");
+        process.exit(1);
+      }
+    }
+
+    if (sources.length !== 2) {
+      console.error("Error: --diff requires one file (HEAD vs working copy), two sources, or gh:#<number>.");
+      process.exit(1);
+    }
+
+    // Resolve both sources to IR
+    function getIR(sourceStr: string) {
+      const parsed = parseSourceArg(sourceStr);
+      if (parsed.type === "local") {
+        return analyze(resolve(parsed.path)).firstOrNull();
+      } else if (parsed.type === "git") {
+        const content = resolveGitSource(parsed.ref, parsed.path);
+        const results = analyzeWorkflowSource(content);
+        return results[0] ?? null;
+      }
+      return null;
+    }
+
+    let beforeIR, afterIR;
+    try {
+      beforeIR = getIR(sources[0]);
+      afterIR = getIR(sources[1]);
+    } catch (err: unknown) {
+      console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+
+    if (!beforeIR || !afterIR) {
+      console.error("Error: Both sources must contain at least one workflow.");
+      process.exit(1);
+    }
+
+    const diff = diffWorkflows(beforeIR, afterIR, {
+      regressionMode: options.regressionMode,
+    });
+
+    let output: string;
+    if (diffFormat === "json") {
+      output = renderDiffJSON(diff);
+    } else if (diffFormat === "mermaid") {
+      output = renderDiffMermaid(afterIR, diff, { direction: options.direction });
+    } else {
+      output = renderDiffMarkdown(diff, { showUnchanged: true });
+    }
+
+    console.log(output);
+    return;
+  }
+
   if (!options.filePath) {
     console.error("Error: No file path provided.\n");
     printHelp();
     process.exit(1);
   }
 
-  // Validate: --no-stdout requires --output-adjacent
-  if (options.noStdout && !options.outputAdjacent) {
-    console.error("Error: --no-stdout requires --output-adjacent (-o).");
+  // Validate: --no-stdout requires --output-adjacent or --html
+  if (options.noStdout && !options.outputAdjacent && !options.html) {
+    console.error("Error: --no-stdout requires --output-adjacent (-o) or --html.");
     process.exit(1);
+  }
+
+  if (options.format === "markdown" && !options.diff) {
+    console.error("Error: markdown format is only supported with --diff. Use 'mermaid' or 'json'.");
+    process.exit(1);
+  }
+
+  if (options.railway && options.format === "json") {
+    console.error("Error: --railway cannot be used with --format=json. Railway output is always Mermaid.");
+    process.exit(1);
+  }
+
+  if (options.railway && options.direction !== "LR" && options.direction !== "TD") {
+    if (options.direction === "TB" && !options.directionExplicit) {
+      // No explicit --direction flag; default to LR for railway
+      options.direction = "LR";
+    } else {
+      console.error(`Error: --railway only supports LR or TD directions, got ${options.direction}.`);
+      process.exit(1);
+    }
   }
 
   const filePath = resolve(options.filePath);
@@ -205,11 +396,19 @@ function main(): void {
         process.exit(1);
       }
       for (const ir of workflows) {
-        const mermaidText = renderStaticMermaid(ir, {
-          direction: options.direction,
-          showKeys: options.showKeys,
-        });
-        const metadata = extractNodeMetadata(ir);
+        const mermaidText = options.railway
+          ? renderRailwayMermaid(ir, {
+              direction: options.direction === "LR" ? "LR" : "TD",
+              showKeys: options.showKeys,
+              useNodeIds: true,
+            })
+          : renderStaticMermaid(ir, {
+              direction: options.direction,
+              showKeys: options.showKeys,
+            });
+        const metadata = options.railway
+          ? extractRailwayNodeMetadata(ir)
+          : extractNodeMetadata(ir);
         const htmlContent = generateInteractiveHTML(mermaidText, metadata, {
           direction: options.direction,
         });
@@ -238,6 +437,23 @@ function main(): void {
       output = renderMultipleStaticJSON(workflows, filePath, {
         pretty: true,
       });
+    } else if (options.railway) {
+      // Railway diagram output
+      const railwayOpts = {
+        direction: (options.direction === "LR" ? "LR" : "TD") as "LR" | "TD",
+        showKeys: options.showKeys,
+      };
+      if (workflows.length === 1) {
+        output = renderRailwayMermaid(workflows[0], railwayOpts);
+      } else {
+        const parts: string[] = [];
+        for (const ir of workflows) {
+          parts.push(`## Workflow: ${ir.root.workflowName}\n`);
+          parts.push(renderRailwayMermaid(ir, railwayOpts));
+          parts.push("");
+        }
+        output = parts.join("\n");
+      }
     } else {
       // Mermaid output
       if (workflows.length === 1) {
@@ -301,4 +517,13 @@ function main(): void {
   }
 }
 
-main();
+// Only run main when this file is executed directly (not imported as a module)
+const isMain =
+  process.argv[1] &&
+  (process.argv[1] === __filename ||
+    process.argv[1].endsWith("/cli.js") ||
+    process.argv[1].endsWith("/cli.ts"));
+
+if (isMain) {
+  main();
+}

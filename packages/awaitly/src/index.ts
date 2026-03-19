@@ -104,7 +104,7 @@ export { Awaitly };
 // =============================================================================
 
 export {
-  UNEXPECTED_ERROR,
+  UnexpectedError,
   PROMISE_REJECTED,
   AWAITLY_UNEXPECTED,
   AWAITLY_CANCELLED,
@@ -190,9 +190,6 @@ export type {
   Err,
   Result,
   AsyncResult,
-  UnexpectedError,
-  UnexpectedCause,
-  UnexpectedStepFailureCause,
   PromiseRejectedError,
   PromiseRejectionCause,
   EmptyInputError,

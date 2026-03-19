@@ -210,6 +210,10 @@ export type {
   EnhancedMermaidOptions,
 } from "./output/mermaid";
 
+// Railway diagram
+export { renderRailwayMermaid } from "./output/railway";
+export type { RailwayOptions, RailwayStyles } from "./output/railway";
+
 // Test coverage matrix
 export {
   generateTestMatrix,
@@ -229,6 +233,7 @@ export type { JSONRenderOptions } from "./output/json";
 // Interactive HTML (Mermaid CDN + click-to-inspect)
 export {
   extractNodeMetadata,
+  extractRailwayNodeMetadata,
   generateInteractiveHTML,
 } from "./output/html";
 export type {
@@ -253,6 +258,25 @@ export type { WriteDSLToAwaitlyDirOptions } from "./awaitly-dir";
 // Documentation generator
 export { generateDocs } from "./output/docs";
 export type { DocsOptions } from "./output/docs";
+
+// =============================================================================
+// Workflow Diff
+// =============================================================================
+
+export { diffWorkflows } from "./diff/diff-engine";
+export { renderDiffMarkdown } from "./diff/render-markdown";
+export { renderDiffJSON } from "./diff/render-json";
+export { renderDiffMermaid } from "./diff/render-mermaid";
+export type {
+  WorkflowDiff,
+  StepDiffEntry,
+  StepChangeKind,
+  StructuralChange,
+  DiffSummary,
+  DiffOptions,
+  DiffMarkdownOptions,
+  DiffMermaidOptions,
+} from "./diff/types";
 
 // =============================================================================
 // Types

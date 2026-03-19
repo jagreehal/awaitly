@@ -11,6 +11,6 @@ describe("root entry bundle budget", () => {
     }
     const { size } = statSync(rootDist);
     // Guardrail: root entry should stay close to a minimal Result-focused bundle.
-    expect(size).toBeLessThan(11_000);
+    expect(size).toBeLessThan(12_000);
   });
 });

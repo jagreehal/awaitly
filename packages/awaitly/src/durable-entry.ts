@@ -23,6 +23,12 @@ export {
   isVersionMismatch,
   isConcurrentExecution,
   isPersistenceError,
+  isLeaseExpired,
+  isIdempotencyConflict,
+
+  // New error types
+  type LeaseExpiredError,
+  type IdempotencyConflictError,
 
   // Re-exports from workflow
   isWorkflowCancelled,

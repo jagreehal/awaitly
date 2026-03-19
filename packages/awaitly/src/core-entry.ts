@@ -25,9 +25,6 @@ export {
   type Err,
   type Result,
   type AsyncResult,
-  type UnexpectedError,
-  type UnexpectedCause,
-  type UnexpectedStepFailureCause,
   type PromiseRejectedError,
   type PromiseRejectionCause,
   type EmptyInputError,
@@ -51,8 +48,10 @@ export {
   type ExtractCause,
   type CauseOf,
 
+  // Error classes
+  UnexpectedError,
+
   // Error discriminants
-  UNEXPECTED_ERROR,
   PROMISE_REJECTED,
 
   // Named error constants (for static analysis)

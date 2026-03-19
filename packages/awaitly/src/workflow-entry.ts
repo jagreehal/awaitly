@@ -106,8 +106,15 @@ export {
   toResumeState,
 } from "./workflow";
 
-// Re-export UNEXPECTED_ERROR constant for convenience
-export { UNEXPECTED_ERROR } from "./core";
+// Re-export validation utilities
+export {
+  validateInput,
+  isInputValidationError,
+  type InputValidationError,
+} from "./workflow/validation";
+
+// Re-export UnexpectedError for handling unexpected errors
+export { UnexpectedError } from "./core";
 
 // =============================================================================
 // Snapshot API (re-exported from persistence for convenience)

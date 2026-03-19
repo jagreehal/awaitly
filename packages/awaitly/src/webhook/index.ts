@@ -5,9 +5,8 @@
  * Framework-agnostic handlers that work with Express, Hono, Fastify, etc.
  */
 
-import { type Result, type AsyncResult, type RunStep, ok, err, isOk, isUnexpectedError } from "../core";
+import { type Result, type AsyncResult, type RunStep, ok, err, isOk, isUnexpectedError, UnexpectedError } from "../core";
 import type { Workflow } from "../workflow/types";
-import type { UnexpectedError } from "../core";
 
 // =============================================================================
 // Request/Response Types
@@ -217,14 +216,14 @@ export function defaultValidationErrorMapper(
  * Returns 500 Internal Server Error.
  */
 export function defaultUnexpectedErrorMapper(
-  _error: unknown
+  error: unknown
 ): WebhookResponse<ErrorResponseBody> {
   return {
     status: 500,
     body: {
       error: {
         type: "INTERNAL_ERROR",
-        message: "An unexpected error occurred",
+        message: error instanceof Error ? error.message : "An unexpected error occurred",
       },
     },
   };
@@ -532,14 +531,14 @@ export function createResultMapper<TOutput, TError>(
       };
     }
 
-    // Check if it's an UnexpectedError (string "UNEXPECTED_ERROR" or object { type: "UNEXPECTED_ERROR" })
+    // Check if it's an UnexpectedError
     if (isUnexpectedError(result.error)) {
       return {
         status: 500,
         body: {
           error: {
             type: "INTERNAL_ERROR",
-            message: "An unexpected error occurred",
+            message: result.error instanceof Error ? result.error.message : "An unexpected error occurred",
           },
         },
       };
@@ -900,7 +899,7 @@ export function createEventHandler<
         success: false,
         ack: false, // Retry unexpected errors
         error: {
-          type: "UNEXPECTED_ERROR",
+          type: "UnexpectedError",
           message: error instanceof Error ? error.message : String(error),
           retryable: true,
         },

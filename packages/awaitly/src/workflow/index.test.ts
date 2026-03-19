@@ -3,7 +3,7 @@
  * Tests for workflow.ts - createWorkflow, run, step functions
  */
 import { describe, it, expect, vi } from "vitest";
-import { Awaitly, ErrorOf, type AsyncResult, type Result, type UnexpectedError } from "../index";
+import { Awaitly, ErrorOf, type AsyncResult, type Result, UnexpectedError } from "../index";
 const { err, isErr, isOk, isUnexpectedError, ok } = Awaitly;
 import {
   createWorkflow,
@@ -418,7 +418,7 @@ describe("run() - do-notation style", () => {
 
       expect(isErr(result)).toBe(true);
       if (isErr(result)) {
-        expect(result.error).toBe("UNEXPECTED_ERROR");
+        expect(isUnexpectedError(result.error)).toBe(true);
         // The thrown value is preserved in result.cause
         expect(result.cause).toBeInstanceOf(Error);
       }
@@ -499,15 +499,15 @@ describe("run() - do-notation style", () => {
     });
 
     it("returns UnexpectedError when catchUnexpected not provided", async () => {
-      // With no options, run() returns "UNEXPECTED_ERROR" string for any failures
+      // With no options, run() returns UnexpectedError instance for any failures
       const result = await run(async () => {
         throw new Error("unexpected!");
       });
 
       expect(isErr(result)).toBe(true);
       if (isErr(result)) {
-        // Error is the string "UNEXPECTED_ERROR"
-        expect(result.error).toBe("UNEXPECTED_ERROR");
+        // Error is an UnexpectedError instance
+        expect(isUnexpectedError(result.error)).toBe(true);
         // The thrown value is preserved in result.cause
         expect(result.cause).toBeInstanceOf(Error);
       }
@@ -525,11 +525,9 @@ describe("run() - do-notation style", () => {
 
       expect(isErr(result)).toBe(true);
       expect(onError).toHaveBeenCalledTimes(1);
-      expect(onError).toHaveBeenCalledWith(
-        "UNEXPECTED_ERROR",
-        "unexpected",
-        undefined
-      );
+      expect(isUnexpectedError(onError.mock.calls[0][0])).toBe(true);
+      expect(onError.mock.calls[0][1]).toBe("unexpected");
+      expect(onError.mock.calls[0][2]).toBeUndefined();
     });
   });
 });
@@ -732,7 +730,7 @@ describe("run() safe default ergonomics", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toBe("UNEXPECTED_ERROR");
+      expect(isUnexpectedError(result.error)).toBe(true);
       // The thrown value is preserved in result.cause
       expect(result.cause).toBe(boom);
     }
@@ -897,7 +895,7 @@ describe("createWorkflow step id/name resolution", () => {
     // Should fail with an error about missing step ID
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toBe("UNEXPECTED_ERROR");
+      expect(isUnexpectedError(result.error)).toBe(true);
       // The thrown error is preserved in result.cause
       expect(result.cause).toBeInstanceOf(Error);
       expect((result.cause as Error).message).toContain("step() requires a string ID");
@@ -1680,7 +1678,7 @@ describe("createWorkflow()", () => {
 
         expect(result.ok).toBe(false);
         if (!result.ok) {
-          expect(result.error).toBe("UNEXPECTED_ERROR");
+          expect(isUnexpectedError(result.error)).toBe(true);
           // The thrown hook error is preserved in result.cause
           expect(result.cause).toBe(hookError);
         }
@@ -1902,7 +1900,7 @@ describe("createWorkflow()", () => {
 
         expect(result.ok).toBe(false);
         if (!result.ok) {
-          expect(result.error).toBe("UNEXPECTED_ERROR");
+          expect(isUnexpectedError(result.error)).toBe(true);
           // The thrown hook error is preserved in result.cause
           expect(result.cause).toBe(hookError);
         }
@@ -2674,7 +2672,7 @@ describe("createWorkflow()", () => {
 
     it("safe-default mode produces UNCAUGHT_EXCEPTION cause", async () => {
       // Bug fix: Uncaught step exceptions in safe-default mode should produce
-      // "UNEXPECTED_ERROR" string with the thrown value in result.cause
+      // UnexpectedError with the thrown value in result.cause
 
       const result = await run(async ({ step }) => {
         await step('throwingStep', () => {
@@ -2684,7 +2682,7 @@ describe("createWorkflow()", () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe("UNEXPECTED_ERROR");
+        expect(isUnexpectedError(result.error)).toBe(true);
         // The thrown value is preserved in result.cause
         expect(result.cause).toBeInstanceOf(Error);
       }
@@ -3495,16 +3493,16 @@ describe("resumeState", () => {
       }, { key: "uncaught:1" });
     });
 
-    // Verify saved result has UNEXPECTED_ERROR string
+    // Verify saved result has UnexpectedError
     const savedEntry = savedSteps.get("uncaught:1");
     expect(savedEntry).toBeDefined();
     expect(savedEntry?.result.ok).toBe(false);
     const savedResult = savedEntry!.result;
     if (!savedResult.ok) {
-      expect(savedResult.error).toBe("UNEXPECTED_ERROR");
+      expect(isUnexpectedError(savedResult.error)).toBe(true);
     }
 
-    // Second run: resume - should get the same UNEXPECTED_ERROR, not double-wrapped
+    // Second run: resume - should get the same UnexpectedError, not double-wrapped
     const workflow2 = createWorkflow("workflow", {}, { resumeState: { steps: savedSteps } });
 
     const result = await workflow2.run(async ({ step }) => {
@@ -3513,8 +3511,8 @@ describe("resumeState", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      // Should be "UNEXPECTED_ERROR" string, not double-wrapped
-      expect(result.error).toBe("UNEXPECTED_ERROR");
+      // Should be UnexpectedError, not double-wrapped
+      expect(isUnexpectedError(result.error)).toBe(true);
     }
   });
 });
@@ -5169,7 +5167,7 @@ describe("createWorkflow with signal (cancellation)", () => {
 
   it("recognizes AbortError from step as workflow cancellation", async () => {
     // When a step throws an AbortError (e.g., from fetch() respecting the signal),
-    // defaultCatchUnexpected returns "UNEXPECTED_ERROR" and the AbortError is in result.cause
+    // defaultCatchUnexpected returns an UnexpectedError and the AbortError is in error.cause
     const controller = new AbortController();
     const events: WorkflowEvent<unknown>[] = [];
 
@@ -5210,10 +5208,10 @@ describe("createWorkflow with signal (cancellation)", () => {
 
     const result = await resultPromise;
 
-    // With default mapper, result.error is "UNEXPECTED_ERROR" and the AbortError is in result.cause
+    // With default mapper, result.error is UnexpectedError and the AbortError is in result.cause
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toBe("UNEXPECTED_ERROR");
+      expect(isUnexpectedError(result.error)).toBe(true);
       // The cause is the AbortError thrown by the step
       expect(result.cause).toBeDefined();
     }
@@ -5363,11 +5361,11 @@ describe("createWorkflow with signal (cancellation)", () => {
 
     const result = await resultPromise;
 
-    // With default mapper returning string, result.error is "UNEXPECTED_ERROR"
+    // With default mapper, result.error is UnexpectedError
     // and the AbortError is preserved in result.cause
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toBe("UNEXPECTED_ERROR");
+      expect(isUnexpectedError(result.error)).toBe(true);
       expect(result.cause).toBeDefined();
     }
   });
@@ -5403,13 +5401,13 @@ describe("createWorkflow with signal (cancellation)", () => {
     const result = await resultPromise;
 
     // Even though abort was signaled, the exception is NOT an AbortError,
-    // so it should be preserved as "UNEXPECTED_ERROR", not masked as cancellation.
+    // so it should be preserved as UnexpectedError, not masked as cancellation.
     expect(result.ok).toBe(false);
     if (!result.ok) {
       // Should NOT be WorkflowCancelledError - the exception is not abort-related
       expect(isWorkflowCancelled(result.cause)).toBe(false);
-      // Should be "UNEXPECTED_ERROR" string from defaultCatchUnexpected
-      expect(result.error).toBe("UNEXPECTED_ERROR");
+      // Should be UnexpectedError from defaultCatchUnexpected
+      expect(isUnexpectedError(result.error)).toBe(true);
     }
 
     // Should emit workflow_error, not workflow_cancelled
@@ -5664,8 +5662,8 @@ describe("step.sleep() method", () => {
     const result = await resultPromise;
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      // User signal abort throws AbortError which becomes "UNEXPECTED_ERROR"
-      expect(result.error).toBe("UNEXPECTED_ERROR");
+      // User signal abort throws AbortError which becomes UnexpectedError
+      expect(isUnexpectedError(result.error)).toBe(true);
       // The AbortError is preserved in result.cause
       expect(result.cause).toBeInstanceOf(Error);
       expect((result.cause as Error).name).toBe("AbortError");
@@ -5687,7 +5685,7 @@ describe("step.sleep() method", () => {
     expect(elapsed).toBeLessThan(100);
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toBe("UNEXPECTED_ERROR");
+      expect(isUnexpectedError(result.error)).toBe(true);
       // The AbortError is preserved in result.cause
       expect((result.cause as Error).name).toBe("AbortError");
     }
@@ -5708,7 +5706,7 @@ describe("step.sleep() method", () => {
     const result = await resultPromise;
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toBe("UNEXPECTED_ERROR");
+      expect(isUnexpectedError(result.error)).toBe(true);
       // The AbortError is preserved in result.cause
       expect((result.cause as Error).name).toBe("AbortError");
     }
@@ -5817,7 +5815,7 @@ describe("step.sleep() method", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toBe("UNEXPECTED_ERROR");
+      expect(isUnexpectedError(result.error)).toBe(true);
     }
   });
 
@@ -5852,7 +5850,7 @@ describe("step.sleep() method", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toBe("UNEXPECTED_ERROR");
+      expect(isUnexpectedError(result.error)).toBe(true);
     }
   });
 

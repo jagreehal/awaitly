@@ -15,6 +15,7 @@ import type {
 } from "../core";
 import type { JSONValue, WorkflowSnapshot } from "../persistence";
 import type { StreamStore } from "../streaming/types";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 // =============================================================================
 // Step Cache Types
@@ -232,16 +233,20 @@ export type RunConfig<E, U = UnexpectedError, C = void, Deps = unknown> = Execut
 
 /**
  * Workflow options. Error union is always closed: E | U.
- * When catchUnexpected is omitted, U defaults to UnexpectedError (legacy shape).
+ * When catchUnexpected is omitted, U defaults to UnexpectedError.
  */
 export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends readonly string[] = readonly string[]> = {
+  /** Standard Schema for input validation. Works with Zod, Valibot, ArkType, etc. */
+  inputSchema?: StandardSchemaV1;
+  /** Input data to validate against inputSchema and pass to workflow context. */
+  input?: unknown;
   /** Short description for labels/tooltips (static analysis) */
   description?: string;
   /** Full markdown documentation (static analysis) */
   markdown?: string;
   /**
    * Map uncaught exceptions (and cancellation) to your error type U.
-   * When omitted, U = UnexpectedError and the default mapper returns the legacy UnexpectedError object.
+   * When omitted, U = UnexpectedError and the default mapper returns an UnexpectedError instance.
    */
   catchUnexpected?: (cause: unknown) => U;
   /**

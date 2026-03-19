@@ -308,6 +308,33 @@ export class CompensationError extends TaggedError("CompensationError", {
 }) {}
 
 // =============================================================================
+// Unexpected Error
+// =============================================================================
+
+/**
+ * Default error type for uncaught exceptions and cancellation in workflows.
+ * This is the default `U` type when `catchUnexpected` is not provided.
+ *
+ * @example
+ * ```typescript
+ * // Automatically used as the default — no need to pass catchUnexpected:
+ * const workflow = createWorkflow("checkout", { chargeCard, sendEmail });
+ *
+ * // Equivalent to:
+ * const workflow = createWorkflow("checkout", { chargeCard, sendEmail }, {
+ *   catchUnexpected: (cause) => new UnexpectedError({ cause }),
+ * });
+ * ```
+ */
+export class UnexpectedError extends TaggedError("UnexpectedError", {
+  message: (p: {
+    /** The original thrown value or cancellation error */
+    cause?: unknown;
+  }) => `UnexpectedError: ${p.cause instanceof Error ? p.cause.message : String(p.cause ?? "unknown")}`,
+}) {}
+
+
+// =============================================================================
 // Union Type for Common Errors
 // =============================================================================
 

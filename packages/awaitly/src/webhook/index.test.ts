@@ -17,8 +17,8 @@ import {
   type ValidationError,
   type EventMessage,
 } from ".";
-import { Awaitly, type AsyncResult, type UnexpectedError } from "../index";
-const { ok, err } = Awaitly;
+import { Awaitly, type AsyncResult, UnexpectedError } from "../index";
+const { ok, err, isUnexpectedError } = Awaitly;
 import { createWorkflow } from "../workflow-entry";
 
 // =============================================================================
@@ -197,12 +197,12 @@ describe("Default Mappers", () => {
   });
 
   describe("defaultUnexpectedErrorMapper", () => {
-    it("returns 500 with generic message", () => {
+    it("preserves the unexpected error message for debugging", () => {
       const response = defaultUnexpectedErrorMapper(new Error("boom"));
 
       expect(response.status).toBe(500);
       expect(response.body.error.type).toBe("INTERNAL_ERROR");
-      expect(response.body.error.message).toBe("An unexpected error occurred");
+      expect(response.body.error.message).toContain("boom");
     });
   });
 });
@@ -262,21 +262,18 @@ describe("createResultMapper", () => {
     });
   });
 
-  it("maps unexpected errors to 500", () => {
+  it("maps unexpected errors to 500 with the captured error message", () => {
     type TestError = "NOT_FOUND" | UnexpectedError;
     const mapper = createResultMapper<{ id: string }, TestError>([]);
 
-    const unexpectedErr: UnexpectedError = {
-      type: "UNEXPECTED_ERROR",
-      cause: { type: "UNCAUGHT_EXCEPTION", thrown: new Error("boom") },
-    };
+    const unexpectedErr = new UnexpectedError({ cause: new Error("boom") });
     const result = mapper(err(unexpectedErr));
 
     expect(result.status).toBe(500);
     expect(result.body).toEqual({
       error: {
         type: "INTERNAL_ERROR",
-        message: "An unexpected error occurred",
+        message: unexpectedErr.message,
       },
     });
   });
@@ -450,12 +447,12 @@ describe("createWebhookHandler", () => {
       {
         validateInput: (req) => ok({ userId: req.body.userId }),
         mapResult: (result) => {
-          // The workflow catches the throw and returns it as "UNEXPECTED_ERROR" string
+          // The workflow catches the throw and returns it as UnexpectedError
           if (result.ok) {
             return { status: 200, body: {} };
           }
-          // Check for UNEXPECTED_ERROR string (defaultCatchUnexpected returns the string)
-          if ((result.error as unknown) === "UNEXPECTED_ERROR") {
+          // Check for UnexpectedError instance
+          if (isUnexpectedError(result.error)) {
             return {
               status: 500,
               body: {
@@ -691,14 +688,14 @@ describe("createEventHandler", () => {
           if (result.ok) {
             return { success: true, ack: true };
           }
-          // Check for UNEXPECTED_ERROR string (defaultCatchUnexpected returns the string)
-          const isUnexpected = (result.error as unknown) === "UNEXPECTED_ERROR";
+          // Check for UnexpectedError instance
+          const isUnexpected = isUnexpectedError(result.error);
 
           return {
             success: false,
             ack: !isUnexpected, // Don't ack unexpected errors (retry them)
             error: {
-              type: isUnexpected ? "UNEXPECTED_ERROR" : String(result.error),
+              type: isUnexpected ? "UnexpectedError" : String(result.error),
               retryable: isUnexpected,
             },
           };
@@ -716,7 +713,7 @@ describe("createEventHandler", () => {
 
     expect(result.success).toBe(false);
     expect(result.ack).toBe(false); // Retry unexpected errors
-    expect(result.error?.type).toBe("UNEXPECTED_ERROR");
+    expect(result.error?.type).toBe("UnexpectedError");
     expect(result.error?.retryable).toBe(true);
   });
 });
