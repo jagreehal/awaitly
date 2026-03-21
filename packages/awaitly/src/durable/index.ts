@@ -448,6 +448,9 @@ export interface DeleteStatesResult {
 
 // Track active workflow executions for concurrency control
 const activeWorkflows = new Set<string>();
+// Track in-flight idempotency key executions so concurrent in-process callers
+// can await the first execution's result instead of racing through the store load.
+const pendingIdempotencyRuns = new Map<string, Promise<unknown>>();
 
 /**
  * Durable workflow execution namespace.
@@ -556,8 +559,21 @@ export const durable = {
     const effectiveStore = storeOption ?? getDefaultStore();
 
     // Idempotency check — before concurrency and lock
+    // resolveIdempotencyRun is set when this caller wins the in-process race
+    // and must be resolved in the finally block so waiters get the result.
+    let resolveIdempotencyRun: ((v: unknown) => void) | undefined;
     if (idempotencyKey) {
       const idemId = `idem:${idempotencyKey}`;
+
+      // In-process dedup (synchronous check — prevents TOCTOU race between concurrent async loads)
+      const pending = pendingIdempotencyRuns.get(idemId);
+      if (pending) {
+        return (await pending) as Result<T, ErrorsOfDeps<Deps> | UnexpectedError | WorkflowCancelledError | VersionMismatchError | ConcurrentExecutionError | PersistenceError | LeaseExpiredError | IdempotencyConflictError, unknown>;
+      }
+
+      // Register ourselves synchronously before any async work
+      pendingIdempotencyRuns.set(idemId, new Promise<unknown>((r) => { resolveIdempotencyRun = r; }));
+
       try {
         const idemSnapshot = await effectiveStore.load(idemId);
         if (idemSnapshot) {
@@ -566,34 +582,65 @@ export const durable = {
             const storedInput = JSON.stringify(idemSnapshot.metadata.input);
             const currentInput = JSON.stringify(input);
             if (storedInput !== currentInput) {
-              return err({
+              const result = err({
                 type: "IDEMPOTENCY_CONFLICT" as const,
                 idempotencyKey,
                 workflowId: id,
                 message: `Idempotency key '${idempotencyKey}' already used with different input for workflow '${id}'.`,
               });
+              resolveIdempotencyRun!(result);
+              pendingIdempotencyRuns.delete(idemId);
+              resolveIdempotencyRun = undefined;
+              return result;
             }
           }
 
           // If completed with a stored result, return it
           if (idemSnapshot.execution.status === "completed" && idemSnapshot.metadata?.finalResult !== undefined) {
             // Return the stored result directly
-            return idemSnapshot.metadata.finalResult as Result<T, ErrorsOfDeps<Deps> | UnexpectedError | WorkflowCancelledError | VersionMismatchError | ConcurrentExecutionError | PersistenceError | LeaseExpiredError | IdempotencyConflictError, unknown>;
+            const result = idemSnapshot.metadata.finalResult as Result<T, ErrorsOfDeps<Deps> | UnexpectedError | WorkflowCancelledError | VersionMismatchError | ConcurrentExecutionError | PersistenceError | LeaseExpiredError | IdempotencyConflictError, unknown>;
+            resolveIdempotencyRun!(result);
+            pendingIdempotencyRuns.delete(idemId);
+            resolveIdempotencyRun = undefined;
+            return result;
           }
 
           // If still running, treat as concurrent
           if (idemSnapshot.execution.status === "running") {
-            return err({
+            const result = err({
               type: "CONCURRENT_EXECUTION" as const,
               workflowId: id,
               message: `Workflow '${id}' with idempotency key '${idempotencyKey}' is already running.`,
               reason: "cross-process" as const,
             });
+            resolveIdempotencyRun!(result);
+            pendingIdempotencyRuns.delete(idemId);
+            resolveIdempotencyRun = undefined;
+            return result;
           }
         }
       } catch {
         // If we can't check idempotency, continue with normal execution
         // (don't block on idempotency check failure)
+      }
+
+      // Save "running" marker for cross-process safety
+      try {
+        await effectiveStore.save(idemId, {
+          formatVersion: 1,
+          steps: {},
+          execution: {
+            status: "running",
+            lastUpdated: new Date().toISOString(),
+          },
+          metadata: {
+            workflowId: id,
+            idempotencyKey,
+            input: input as JSONValue,
+          },
+        } satisfies WorkflowSnapshot);
+      } catch {
+        // Non-fatal: best-effort cross-process marker
       }
     }
 
@@ -660,6 +707,8 @@ export const durable = {
     // Mark as active (in-process)
     activeWorkflows.add(id);
 
+    // Tracks the final result so the idempotency deferred can be resolved in finally.
+    let durableResult: unknown;
     try {
       // Load existing snapshot (wrap in try-catch to return Result on store errors)
       let existingSnapshot: WorkflowSnapshot | null = null;
@@ -673,7 +722,7 @@ export const durable = {
           cause: loadError,
           message: `Failed to load state for workflow '${id}': ${loadError instanceof Error ? loadError.message : String(loadError)}`,
         };
-        return err(error);
+        durableResult = err(error); return err(error);
       }
 
       // Validate snapshot format if it exists
@@ -689,7 +738,7 @@ export const durable = {
               cause: validationError,
               message: `Invalid snapshot format for workflow '${id}': ${validationError.message}`,
             };
-            return err(error);
+            durableResult = err(error); return err(error);
           }
           throw validationError;
         }
@@ -713,13 +762,13 @@ export const durable = {
             message: `Workflow '${id}' has stored state at version ${storedVersion} but this run requested version ${version}. Migrate the stored state to the new version, or clear state for this id (e.g. durable.deleteState(store, '${id}')) and re-run.`,
           };
           if (!onVersionMismatch) {
-            return err(error);
+            durableResult = err(error); return err(error);
           }
           const resolution = await Promise.resolve(
             onVersionMismatch({ id, storedVersion, requestedVersion: version })
           );
           if (resolution === "throw") {
-            return err(error);
+            durableResult = err(error); return err(error);
           }
           if (resolution === "clear") {
             try {
@@ -868,7 +917,7 @@ export const durable = {
             cause: createError,
             message: `Invalid snapshot format for workflow '${id}': ${createError.message}`,
           };
-          return err(error);
+          durableResult = err(error); return err(error);
         }
         throw createError;
       }
@@ -886,18 +935,20 @@ export const durable = {
             cause: runError,
             message: `Invalid snapshot format for workflow '${id}': ${runError.message}`,
           };
-          return err(error);
+          durableResult = err(error); return err(error);
         }
         throw runError;
       }
 
       // Check if lease was lost during execution
       if (abortOnLeaseLoss !== false && leaseAbortController?.signal.aborted) {
-        return err({
+        const leaseErr = err({
           type: "LEASE_EXPIRED" as const,
           workflowId: id,
           message: `Lease expired for workflow '${id}' during execution. The workflow may have been reclaimed by another process.`,
         });
+        durableResult = leaseErr;
+        return leaseErr;
       }
 
       // On success: clean up stored state
@@ -912,7 +963,7 @@ export const durable = {
             cause: deleteError,
             message: `Failed to delete state for workflow '${id}': ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`,
           };
-          return err(error);
+          durableResult = err(error); return err(error);
         }
 
         // Save idempotency record on success
@@ -943,10 +994,16 @@ export const durable = {
 
       // Workflow result is structurally compatible with our return type
       // (workflow returns E | UnexpectedError, we return that plus our durable-specific errors)
+      durableResult = result;
       return result;
     } finally {
       // Always remove from active set
       activeWorkflows.delete(id);
+      // Resolve in-process idempotency deferred so concurrent waiters get the result
+      if (resolveIdempotencyRun) {
+        resolveIdempotencyRun(durableResult);
+        pendingIdempotencyRuns.delete(`idem:${idempotencyKey}`);
+      }
       // Clear heartbeat timer before releasing lock
       if (heartbeatTimer) {
         clearInterval(heartbeatTimer);

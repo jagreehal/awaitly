@@ -95,6 +95,8 @@ export interface StaticStepNode extends StaticBaseNode {
   // === New API fields for static analysis ===
   /** Declared error tags from errors option */
   errors?: string[];
+  /** How errors were determined: explicit (from step options) or inferred (from Result type) */
+  errorsSource?: "explicit" | "inferred";
   /** Output key for data flow (writes to ctx[out]) */
   out?: string;
   /** Keys read via ctx.ref() inside this step */
