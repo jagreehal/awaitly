@@ -986,6 +986,7 @@ function analyzeWorkflowCall(
 
   enrichStepReadTypes(root);
   enrichStepOutputTypes(root);
+  inferErrorsFromErrorTypeInfo(root);
   enrichStepDepSource(root);
 
   if (workflowInfo.variableDeclaration) {
@@ -4576,6 +4577,35 @@ function enrichStepOutputTypes(root: StaticWorkflowNode): void {
         step.errorTypeInfo = resultLike.errorType;
         step.causeTypeInfo = resultLike.causeType;
         step.outputTypeKind = "declared";
+      }
+    }
+    for (const c of getStaticChildren(node)) visit(c);
+  }
+  for (const c of root.children) visit(c);
+}
+
+/**
+ * When step.errors is not explicitly set but errorTypeInfo has been resolved,
+ * populate step.errors from errorTypeInfo.display by splitting union types.
+ */
+function inferErrorsFromErrorTypeInfo(root: StaticWorkflowNode): void {
+  function visit(node: StaticFlowNode): void {
+    if (node.type === "step") {
+      const step = node as StaticStepNode;
+      // Don't override explicit errors declaration
+      if (step.errors && step.errors.length > 0) return;
+
+      const errorDisplay = step.errorTypeInfo?.display;
+      if (!errorDisplay || errorDisplay === "unknown" || errorDisplay === "never") return;
+
+      const errorNames = errorDisplay
+        .split("|")
+        .map((s) => s.trim())
+        .filter((s) => s && s !== "unknown" && s !== "never");
+
+      if (errorNames.length > 0) {
+        step.errors = errorNames;
+        step.errorsSource = "inferred";
       }
     }
     for (const c of getStaticChildren(node)) visit(c);
