@@ -410,7 +410,7 @@ function main(): void {
           ? extractRailwayNodeMetadata(ir)
           : extractNodeMetadata(ir);
         const htmlContent = generateInteractiveHTML(mermaidText, metadata, {
-          direction: options.direction,
+          direction: options.direction === "TD" ? "TB" : options.direction,
         });
 
         // Determine output path
