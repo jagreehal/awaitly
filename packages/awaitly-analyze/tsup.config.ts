@@ -12,7 +12,7 @@ export default defineConfig([
     splitting: false,
     sourcemap: true,
     minify: true,
-    external: ['ts-morph'],
+    external: ['ts-morph', 'typescript'],
   },
   // CLI
   {
@@ -25,7 +25,7 @@ export default defineConfig([
     splitting: false,
     sourcemap: false,
     minify: true,
-    external: ['ts-morph'],
+    external: ['ts-morph', 'typescript'],
     banner: {
       js: `#!/usr/bin/env node
 import { createRequire as __cr } from 'module'; import { fileURLToPath as __ftp } from 'url'; import { dirname as __dn } from 'path'; const require = __cr(import.meta.url); const __filename = __ftp(import.meta.url); const __dirname = __dn(__filename);`,

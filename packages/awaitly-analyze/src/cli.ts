@@ -25,6 +25,8 @@ import { renderDiffMermaid } from "./diff/render-mermaid";
 import { parseSourceArg, resolveGitSource, resolveGitHubPR } from "./resolve-source";
 import { renderRailwayMermaid } from "./output/railway";
 import { analyzeWorkflowSource } from "./static-analyzer";
+import { inferBestDiagramType } from "./auto-diagram";
+import { startWatch } from "./watch";
 
 type Direction = "TB" | "TD" | "LR" | "BT" | "RL";
 type Format = "mermaid" | "json" | "markdown";
@@ -50,6 +52,8 @@ interface CliOptions {
   formatExplicit: boolean;
   directionExplicit: boolean;
   railway: boolean;
+  auto: boolean;
+  watch: boolean;
 }
 
 function printHelp(): void {
@@ -81,7 +85,13 @@ Options:
                           --diff gh:#123 src/wf.ts        (GitHub PR specific file)
   --regression          Flag removed steps as regressions (use with --diff)
   --railway             Generate railway-style flow diagram (LR or TD with ok/err branches)
+  --watch               Watch source file and re-analyze on changes
   --help, -h             Show this help message
+
+Auto-detection:
+  When neither --railway nor --format is specified, the best diagram type is
+  inferred from workflow structure (e.g. railway for linear flows, mermaid
+  flowchart for complex branching). Use --railway or --format=mermaid to override.
 
 Examples:
   awaitly-analyze ./src/workflows/checkout.ts
@@ -120,6 +130,8 @@ export function parseArgs(args: string[]): CliOptions {
     formatExplicit: false,
     directionExplicit: false,
     railway: false,
+    auto: true,
+    watch: false,
   };
 
   for (const arg of args) {
@@ -182,6 +194,8 @@ export function parseArgs(args: string[]): CliOptions {
       options.railway = true;
     } else if (arg === "--regression") {
       options.regressionMode = true;
+    } else if (arg === "--watch") {
+      options.watch = true;
     } else if (!arg.startsWith("-")) {
       if (options.diff) {
         options.diffSources.push(arg);
@@ -193,6 +207,9 @@ export function parseArgs(args: string[]): CliOptions {
       process.exit(1);
     }
   }
+
+  // Auto-detect diagram type when user hasn't explicitly chosen
+  options.auto = !options.railway && !options.formatExplicit;
 
   return options;
 }
@@ -222,6 +239,11 @@ function main(): void {
   if (options.diff) {
     if (options.railway) {
       console.error("Error: --railway is not supported with --diff.");
+      process.exit(1);
+    }
+
+    if (options.watch) {
+      console.error("Error: --watch is not supported with --diff.");
       process.exit(1);
     }
 
@@ -381,36 +403,72 @@ function main(): void {
 
   const filePath = resolve(options.filePath);
 
+  if (options.watch) {
+    const rebuild = () => {
+      console.clear();
+      const timestamp = new Date().toLocaleTimeString();
+      console.error(`[${timestamp}] Analyzing ${options.filePath}...`);
+      runAnalysis(options, filePath);
+      console.error(`[${timestamp}] Watching for changes... (Ctrl+C to exit)`);
+    };
+
+    rebuild();
+    startWatch({
+      filePath,
+      onRebuild: rebuild,
+      onError: (err) => {
+        const timestamp = new Date().toLocaleTimeString();
+        console.error(`[${timestamp}] Error: ${err.message}`);
+        console.error(`[${timestamp}] Watching for changes...`);
+      },
+    });
+    return;
+  }
+
+  runAnalysis(options, filePath);
+}
+
+/**
+ * Determine whether to use railway for this workflow, considering auto-detection.
+ */
+function shouldUseRailway(options: CliOptions, ir: import("./types").StaticWorkflowIR): boolean {
+  if (options.railway) return true;
+  if (options.format === "json") return false;
+  if (options.auto) return inferBestDiagramType(ir) === "railway";
+  return false;
+}
+
+function runAnalysis(options: CliOptions, filePath: string): void {
   try {
     const workflows = analyze(filePath).all();
 
     if (workflows.length === 0) {
-      console.error(`No workflows found in ${options.filePath}`);
-      process.exit(1);
+      throw new Error(`No workflows found in ${options.filePath}`);
     }
 
     // Generate interactive HTML if --html
     if (options.html) {
       if (options.htmlOutput && workflows.length > 1) {
-        console.error("Error: cannot use --html-output with multiple workflows; each workflow needs its own file.");
-        process.exit(1);
+        throw new Error("cannot use --html-output with multiple workflows; each workflow needs its own file.");
       }
       for (const ir of workflows) {
-        const mermaidText = options.railway
+        const useRailway = shouldUseRailway(options, ir);
+        const direction = useRailway && !options.directionExplicit ? "LR" : options.direction;
+        const mermaidText = useRailway
           ? renderRailwayMermaid(ir, {
-              direction: options.direction === "LR" ? "LR" : "TD",
+              direction: direction === "LR" ? "LR" : "TD",
               showKeys: options.showKeys,
               useNodeIds: true,
             })
           : renderStaticMermaid(ir, {
-              direction: options.direction,
+              direction,
               showKeys: options.showKeys,
             });
-        const metadata = options.railway
+        const metadata = useRailway
           ? extractRailwayNodeMetadata(ir)
           : extractNodeMetadata(ir);
         const htmlContent = generateInteractiveHTML(mermaidText, metadata, {
-          direction: options.direction === "TD" ? "TB" : options.direction,
+          direction: direction === "TD" ? "TB" : direction,
         });
 
         // Determine output path
@@ -437,45 +495,33 @@ function main(): void {
       output = renderMultipleStaticJSON(workflows, filePath, {
         pretty: true,
       });
-    } else if (options.railway) {
-      // Railway diagram output
-      const railwayOpts = {
-        direction: (options.direction === "LR" ? "LR" : "TD") as "LR" | "TD",
-        showKeys: options.showKeys,
-      };
-      if (workflows.length === 1) {
-        output = renderRailwayMermaid(workflows[0], railwayOpts);
-      } else {
-        const parts: string[] = [];
-        for (const ir of workflows) {
-          parts.push(`## Workflow: ${ir.root.workflowName}\n`);
-          parts.push(renderRailwayMermaid(ir, railwayOpts));
-          parts.push("");
-        }
-        output = parts.join("\n");
-      }
     } else {
-      // Mermaid output
-      if (workflows.length === 1) {
-        // Single workflow - just output the diagram
-        output = renderStaticMermaid(workflows[0], {
-          direction: options.direction,
-          showKeys: options.showKeys,
-        });
-      } else {
-        // Multiple workflows - output each with a header
-        const parts: string[] = [];
-        for (const ir of workflows) {
-          parts.push(`## Workflow: ${ir.root.workflowName}\n`);
-          const mermaid = renderStaticMermaid(ir, {
-            direction: options.direction,
-            showKeys: options.showKeys,
-          });
-          parts.push(mermaid);
-          parts.push("");
+      // Render each workflow with auto-detection or explicit mode
+      const parts: string[] = [];
+      for (const ir of workflows) {
+        const useRailway = shouldUseRailway(options, ir);
+        const direction = useRailway && !options.directionExplicit ? "LR" : options.direction;
+
+        if (workflows.length > 1) {
+          const autoLabel = options.auto ? ` (auto: ${useRailway ? "railway" : "mermaid"})` : "";
+          parts.push(`## Workflow: ${ir.root.workflowName}${autoLabel}\n`);
         }
-        output = parts.join("\n");
+
+        if (useRailway) {
+          parts.push(renderRailwayMermaid(ir, {
+            direction: (direction === "LR" ? "LR" : "TD") as "LR" | "TD",
+            showKeys: options.showKeys,
+          }));
+        } else {
+          parts.push(renderStaticMermaid(ir, {
+            direction,
+            showKeys: options.showKeys,
+          }));
+        }
+
+        if (workflows.length > 1) parts.push("");
       }
+      output = parts.join("\n");
     }
 
     // Write DSL if --dsl-output is not off
@@ -513,7 +559,9 @@ function main(): void {
     } else {
       console.error("An unknown error occurred");
     }
-    process.exit(1);
+    if (!options.watch) {
+      process.exit(1);
+    }
   }
 }
 

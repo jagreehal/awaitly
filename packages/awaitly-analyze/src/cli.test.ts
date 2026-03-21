@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import { parseArgs } from "./cli";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -20,6 +20,7 @@ const outputJsonPath = join(FIXTURES_DIR, "cli-test-workflow.analysis.json");
 const customSuffixPath = join(FIXTURES_DIR, "cli-test-workflow.diagram.md");
 const htmlOutputPath = join(FIXTURES_DIR, "cli-test-workflow.html");
 const conditionalHtmlOutputPath = join(FIXTURES_DIR, "cli-test-conditional-workflow.html");
+const noWorkflowFilePath = join(FIXTURES_DIR, "cli-test-no-workflow.ts");
 
 // Helper to run CLI and capture output
 function runCli(args: string[]): { stdout: string; stderr: string; exitCode: number } {
@@ -100,12 +101,17 @@ export async function run(flag: boolean) {
 }
 `;
 
+const NO_WORKFLOW = `
+export const value = 42;
+`;
+
 describe("CLI", () => {
   beforeEach(() => {
     // Create test workflow file
     writeFileSync(testFilePath, TEST_WORKFLOW);
     writeFileSync(multiWorkflowFilePath, MULTI_WORKFLOW);
     writeFileSync(conditionalWorkflowFilePath, CONDITIONAL_WORKFLOW);
+    writeFileSync(noWorkflowFilePath, NO_WORKFLOW);
   });
 
   afterEach(() => {
@@ -114,6 +120,7 @@ describe("CLI", () => {
       testFilePath,
       multiWorkflowFilePath,
       conditionalWorkflowFilePath,
+      noWorkflowFilePath,
       outputMdPath,
       outputJsonPath,
       customSuffixPath,
@@ -341,6 +348,26 @@ describe("CLI", () => {
       expect(content).toContain("\"step_3\"");
     });
   });
+
+  describe("--watch", () => {
+    it("does not exit when the watched file temporarily contains no workflows", async () => {
+      const child = spawn("node", [CLI_PATH, noWorkflowFilePath, "--watch"], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(child.exitCode).toBe(null);
+      } finally {
+        if (child.exitCode === null) {
+          child.kill("SIGTERM");
+          await new Promise<void>((resolve) => {
+            child.once("exit", () => resolve());
+          });
+        }
+      }
+    }, 10_000);
+  });
 });
 
 describe("diff source argument parsing", () => {
@@ -402,6 +429,25 @@ describe("diff source argument parsing", () => {
       expect(exitCode).toBe(1);
       expect(stdout).toBe("");
       expect(stderr).toContain("--railway is not supported with --diff");
+    } finally {
+      if (existsSync(testFilePath)) unlinkSync(testFilePath);
+    }
+  });
+
+  it("rejects --watch in diff mode", () => {
+    writeFileSync(testFilePath, TEST_WORKFLOW);
+
+    try {
+      const { stdout, stderr, exitCode } = runCli([
+        "--diff",
+        testFilePath,
+        testFilePath,
+        "--watch",
+      ]);
+
+      expect(exitCode).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("--watch is not supported with --diff");
     } finally {
       if (existsSync(testFilePath)) unlinkSync(testFilePath);
     }
@@ -476,5 +522,47 @@ describe("--railway", () => {
     expect(exitCode).toBe(1);
     expect(stdout).toBe("");
     expect(stderr).toContain("--railway only supports LR or TD");
+  });
+});
+
+describe("auto-detection mode", () => {
+  it("defaults to auto when no explicit format or railway flag", () => {
+    const options = parseArgs(["file.ts"]);
+    expect(options.auto).toBe(true);
+    expect(options.railway).toBe(false);
+    expect(options.watch).toBe(false);
+  });
+
+  it("disables auto when --railway is explicit", () => {
+    const options = parseArgs(["file.ts", "--railway"]);
+    expect(options.auto).toBe(false);
+    expect(options.railway).toBe(true);
+  });
+
+  it("disables auto when --format=mermaid is explicit", () => {
+    const options = parseArgs(["file.ts", "--format=mermaid"]);
+    expect(options.auto).toBe(false);
+    expect(options.formatExplicit).toBe(true);
+  });
+
+  it("disables auto when --format=json is explicit", () => {
+    const options = parseArgs(["file.ts", "--format=json"]);
+    expect(options.auto).toBe(false);
+    expect(options.formatExplicit).toBe(true);
+  });
+});
+
+describe("--watch flag parsing", () => {
+  it("parses --watch flag", () => {
+    const options = parseArgs(["file.ts", "--watch"]);
+    expect(options.watch).toBe(true);
+    expect(options.filePath).toBe("file.ts");
+  });
+
+  it("combines --watch with other flags", () => {
+    const options = parseArgs(["file.ts", "--watch", "--keys", "--direction=LR"]);
+    expect(options.watch).toBe(true);
+    expect(options.showKeys).toBe(true);
+    expect(options.direction).toBe("LR");
   });
 });
