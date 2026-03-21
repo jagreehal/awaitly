@@ -42,6 +42,8 @@ export interface RailwayOptions {
   useNodeIds?: boolean;
   /** Custom styles for node types */
   styles?: RailwayStyles;
+  /** Include errors inferred from Result return types. Default: true */
+  includeInferredErrors?: boolean;
 }
 
 export interface RailwayStyles {
@@ -71,6 +73,7 @@ export function renderRailwayMermaid(
   const showKeys = options?.showKeys ?? false;
   const useNodeIds = options?.useNodeIds ?? false;
   const styles = options?.styles;
+  const includeInferred = options?.includeInferredErrors !== false;
 
   const steps = collectLinearSteps(ir.root.children);
 
@@ -91,7 +94,7 @@ export function renderRailwayMermaid(
     } else {
       nodeId = generateShortId(label, usedIds);
     }
-    const errors = getStepErrors(node);
+    const errors = getStepErrors(node, includeInferred);
     return { node, label, shortId: nodeId, errors };
   });
 
@@ -236,11 +239,13 @@ function getStepLabel(
 }
 
 /**
- * Get declared errors for a step node.
+ * Get declared errors for a step node, optionally filtering out inferred errors.
  */
-function getStepErrors(node: StepLike): string[] {
+function getStepErrors(node: StepLike, includeInferred: boolean): string[] {
   if (node.type === "step") {
-    return (node as StaticStepNode).errors ?? [];
+    const step = node as StaticStepNode;
+    if (!includeInferred && step.errorsSource === "inferred") return [];
+    return step.errors ?? [];
   }
   return [];
 }
