@@ -234,7 +234,7 @@
   },
   "license": "MIT",
   "peerDependencies": {
-    "@standard-schema/spec": "^1.0.0"
+    "@standard-schema/spec": "^1.1.0"
   },
   "peerDependenciesMeta": {
     "@standard-schema/spec": {
@@ -245,15 +245,15 @@
     "@standard-schema/spec": "^1.1.0",
     "@total-typescript/ts-reset": "^0.6.1",
     "@total-typescript/tsconfig": "^1.0.4",
-    "@types/node": "^25.3.5",
+    "@types/node": "^25.5.0",
     "@types/picomatch": "^4.0.2",
-    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/coverage-v8": "^4.1.0",
     "eslint-plugin-awaitly": "workspace:*",
     "pino": "^10.3.1",
     "tsd": "^0.33.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.0"
   },
   "publishConfig": {
     "access": "public",
