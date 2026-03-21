@@ -56,7 +56,7 @@
     "@total-typescript/ts-reset": "^0.6.1",
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/node": "^25.3.5",
-    "@types/pg": "^8.18.0",
+    "@types/pg": "^8.20.0",
     "awaitly": "workspace:^",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
