@@ -2599,7 +2599,10 @@ function analyzeStepCall(
     if (options.retry) stepNode.retry = options.retry;
     if (options.timeout) stepNode.timeout = options.timeout;
     // New API fields
-    if (options.errors) stepNode.errors = options.errors;
+    if (options.errors) {
+      stepNode.errors = options.errors;
+      stepNode.errorsSource = "explicit";
+    }
     if (options.out) stepNode.out = options.out;
     if (options.dep) stepNode.depSource = options.dep;
     // Merge explicit reads with auto-detected ctx.ref() reads (do not assign param indices for explicit-only reads)
@@ -2772,7 +2775,10 @@ function analyzeStepRetryCall(
     const options = extractStepOptions(args[2]);
     if (options.key) stepNode.key = options.key;
     if (options.dep) stepNode.depSource = options.dep;
-    if (options.errors) stepNode.errors = options.errors;
+    if (options.errors) {
+      stepNode.errors = options.errors;
+      stepNode.errorsSource = "explicit";
+    }
     if (options.out) stepNode.out = options.out;
     if (options.reads) stepNode.reads = options.reads;
     if (options.intent) stepNode.intent = options.intent;
