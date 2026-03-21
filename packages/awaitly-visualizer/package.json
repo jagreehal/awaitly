@@ -98,7 +98,7 @@
     "@types/node": "^25.3.5",
     "@types/pako": "^2.0.4",
     "awaitly": "workspace:^",
-    "jsdom": "^28.1.0",
+    "jsdom": "^29.0.1",
     "mermaid": "^11.12.3",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
