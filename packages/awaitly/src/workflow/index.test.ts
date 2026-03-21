@@ -5,6 +5,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { Awaitly, ErrorOf, type AsyncResult, type Result, UnexpectedError } from "../index";
 const { err, isErr, isOk, isUnexpectedError, ok } = Awaitly;
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   createWorkflow,
   isStepComplete,
@@ -6533,5 +6534,41 @@ describe("workflow.run() overloads", () => {
         expect(result.value.name).toBe("Overridden");
       }
     });
+  });
+});
+
+describe("createWorkflow input validation", () => {
+  it("validates undefined input when a schema is provided", async () => {
+    let validations = 0;
+    const schema: StandardSchemaV1 = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: (input: unknown) => {
+          validations++;
+          if (input === undefined) {
+            return {
+              issues: [{ message: "Input is required" }],
+            };
+          }
+          return { value: input };
+        },
+      },
+    };
+
+    const workflow = createWorkflow("validate-input", {}, {
+      inputSchema: schema,
+      input: undefined,
+    });
+
+    const result = await workflow.run(async ({ ctx }) => ctx.input);
+
+    expect(validations).toBe(1);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatchObject({
+        type: "INPUT_VALIDATION_ERROR",
+      });
+    }
   });
 });

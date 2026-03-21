@@ -110,7 +110,15 @@ function extractAsyncResultGenerics(
   type: ts.Type,
   checker: ts.TypeChecker
 ): ExtractedResultLike {
-  const typeArgs = getTypeArguments(type, checker);
+  let typeArgs = getTypeArguments(type, checker);
+
+  // AsyncResult<T, E> is an alias for Promise<Result<T, E, C>>.
+  // getTypeArguments may return the resolved Promise's args [Result<T, E, C>]
+  // instead of the alias args [T, E]. If we get a single arg that is a Result,
+  // unwrap it to extract the actual T, E, C.
+  if (typeArgs.length === 1 && typeArgs[0] && isResult(typeArgs[0], checker)) {
+    typeArgs = getTypeArguments(typeArgs[0], checker);
+  }
 
   return {
     okType: createTypeInfo(typeArgs[0], checker, "asyncResult"),

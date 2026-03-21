@@ -361,6 +361,50 @@ describe("Durable Execution", () => {
       });
       expect(executions).toBe(1);
     });
+
+    it("does not execute the same idempotency key twice when two runs start concurrently", async () => {
+      const store = createTestSnapshotStore();
+      let executions = 0;
+      let releaseBarrier: (() => void) | undefined;
+      const barrier = new Promise<void>((resolve) => {
+        releaseBarrier = resolve;
+      });
+
+      async function guardedFetch(): AsyncResult<{ value: string }, never> {
+        executions++;
+        await barrier;
+        return ok({ value: "shared-result" });
+      }
+
+      const firstRun = durable.run(
+        { guardedFetch },
+        async ({ step, deps }) => step("fetch", () => deps.guardedFetch()),
+        {
+          id: "workflow-a",
+          store,
+          idempotencyKey: "shared-concurrent-key",
+        }
+      );
+
+      const secondRun = durable.run(
+        { guardedFetch },
+        async ({ step, deps }) => step("fetch", () => deps.guardedFetch()),
+        {
+          id: "workflow-b",
+          store,
+          idempotencyKey: "shared-concurrent-key",
+        }
+      );
+
+      await delay(10);
+      releaseBarrier?.();
+
+      const [first, second] = await Promise.all([firstRun, secondRun]);
+
+      expect(first.ok).toBe(true);
+      expect(second.ok).toBe(true);
+      expect(executions).toBe(1);
+    });
   });
 
   describe("Version Checking", () => {

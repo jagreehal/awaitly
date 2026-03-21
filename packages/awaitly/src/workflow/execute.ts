@@ -530,7 +530,7 @@ export function createWorkflow<
     const inputSchema = (optionsActual as any)?.inputSchema;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const inputValue = (optionsActual as any)?.input;
-    if (inputSchema && inputValue !== undefined) {
+    if (inputSchema) {
       const validationResult = await validateInput(inputSchema, inputValue);
       if (!validationResult.ok) {
         return err(validationResult.error) as Result<T, E | ExtraE | U, unknown>;

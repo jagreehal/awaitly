@@ -248,4 +248,55 @@ describe("renderRailwayMermaid", () => {
     const errEdges = output.match(/-->\|err\|/g);
     expect(errEdges).toHaveLength(1);
   });
+
+  it("does not render inferred errors when the step explicitly declares errors: []", () => {
+    const source = `
+      import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+      type ValidationError = { tag: "ValidationError" };
+
+      const wf = createWorkflow("transfer", {
+        validate: async (): Promise<AsyncResult<string, ValidationError>> => ok("valid"),
+      });
+
+      export async function run() {
+        return wf.run(async ({ step, deps }) => {
+          await step("validate", () => deps.validate(), { errors: [] });
+          return ok(undefined);
+        });
+      }
+    `;
+    const ir = analyzeFirst(source);
+    const output = renderRailwayMermaid(ir);
+
+    expect(output).not.toContain("ValidationError");
+
+    const errEdges = output.match(/-->\|err\|/g);
+    expect(errEdges ?? []).toHaveLength(0);
+  });
+
+  it("keeps generic inferred error types intact when they contain nested unions", () => {
+    const source = `
+      import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+      type Envelope<T> = { tag: "Envelope"; reason: T };
+
+      const wf = createWorkflow("transfer", {
+        validate: async (): Promise<AsyncResult<string, Envelope<"A" | "B">>> => ok("valid"),
+      });
+
+      export async function run() {
+        return wf.run(async ({ step, deps }) => {
+          await step("validate", () => deps.validate());
+          return ok(undefined);
+        });
+      }
+    `;
+    const ir = analyzeFirst(source);
+    const output = renderRailwayMermaid(ir);
+
+    // escapeLabel converts " to ' for Mermaid compatibility
+    expect(output).toContain("Envelope<'A' | 'B'>");
+    expect(output).not.toContain("Envelope<'A' / 'B'>");
+  });
 });

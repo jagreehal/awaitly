@@ -4592,15 +4592,13 @@ function inferErrorsFromErrorTypeInfo(root: StaticWorkflowNode): void {
   function visit(node: StaticFlowNode): void {
     if (node.type === "step") {
       const step = node as StaticStepNode;
-      // Don't override explicit errors declaration
-      if (step.errors && step.errors.length > 0) return;
+      // Don't override explicit errors declaration (including explicit empty array)
+      if (step.errors !== undefined) return;
 
       const errorDisplay = step.errorTypeInfo?.display;
       if (!errorDisplay || errorDisplay === "unknown" || errorDisplay === "never") return;
 
-      const errorNames = errorDisplay
-        .split("|")
-        .map((s) => s.trim())
+      const errorNames = splitTopLevelUnion(errorDisplay)
         .filter((s) => s && s !== "unknown" && s !== "never");
 
       if (errorNames.length > 0) {
@@ -4611,6 +4609,34 @@ function inferErrorsFromErrorTypeInfo(root: StaticWorkflowNode): void {
     for (const c of getStaticChildren(node)) visit(c);
   }
   for (const c of root.children) visit(c);
+}
+
+/**
+ * Split a type string on top-level `|` only, respecting angle brackets.
+ * e.g. `Envelope<"A" | "B"> | FooError` → [`Envelope<"A" | "B">`, `FooError`]
+ */
+function splitTopLevelUnion(typeStr: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let inString: string | null = null;
+  let start = 0;
+  for (let i = 0; i < typeStr.length; i++) {
+    const ch = typeStr[i];
+    if (inString) {
+      if (ch === "\\" ) { i++; continue; }
+      if (ch === inString) inString = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") { inString = ch; continue; }
+    if (ch === "<" || ch === "(" || ch === "{" || ch === "[") depth++;
+    else if (ch === ">" || ch === ")" || ch === "}" || ch === "]") depth--;
+    else if (ch === "|" && depth === 0) {
+      parts.push(typeStr.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  parts.push(typeStr.slice(start).trim());
+  return parts;
 }
 
 /** Built-in step callees: use stepKind for display, not depSource. */
@@ -5250,55 +5276,78 @@ function inferStepIOFromInnerCall(
 /**
  * Extract Result-like ok/error/cause types from a type string (e.g. from dependency returnType.display).
  * Handles AsyncResult<T,E,C>, Promise<Result<...>>, Promise<AsyncResult<...>>, and Result<T,E,C>.
+ * Uses bracket-aware parsing to handle nested generics like Envelope<"A" | "B">.
  */
 function extractResultLikeFromTypeString(
   typeString: string
 ): { okType: TypeInfo; errorType: TypeInfo; causeType?: TypeInfo } | null {
-  const promiseAsyncResultMatch = typeString.match(
-    /Promise<\s*AsyncResult<\s*([^,]+)\s*,\s*([^,>]+)(?:\s*,\s*([^>]+))?\s*>>/
-  );
-  if (promiseAsyncResultMatch) {
-    return {
-      okType: createTypeInfoFromString(promiseAsyncResultMatch[1].trim(), "asyncResult"),
-      errorType: createTypeInfoFromString(promiseAsyncResultMatch[2].trim(), "asyncResult"),
-      causeType: promiseAsyncResultMatch[3]
-        ? createTypeInfoFromString(promiseAsyncResultMatch[3].trim(), "asyncResult")
-        : undefined,
-    };
+  // Unwrap Promise< ... > if present
+  let inner = typeString;
+  const promiseMatch = typeString.match(/^Promise<\s*([\s\S]+)\s*>$/);
+  if (promiseMatch) inner = promiseMatch[1].trim();
+
+  // Match AsyncResult< or Result< prefix
+  let kind: "asyncResult" | "result" | "promiseResult";
+  let argsStart: number;
+  const asyncResultIdx = inner.indexOf("AsyncResult<");
+  const resultIdx = inner.indexOf("Result<");
+  if (asyncResultIdx !== -1) {
+    kind = promiseMatch ? "asyncResult" : "asyncResult";
+    argsStart = asyncResultIdx + "AsyncResult<".length;
+  } else if (resultIdx !== -1) {
+    kind = promiseMatch ? "promiseResult" : "result";
+    argsStart = resultIdx + "Result<".length;
+  } else {
+    return null;
   }
 
-  const asyncResultMatch = typeString.match(/AsyncResult<\s*([^,]+)\s*,\s*([^,>]+)(?:\s*,\s*([^>]+))?\s*>/);
-  if (asyncResultMatch) {
-    return {
-      okType: createTypeInfoFromString(asyncResultMatch[1].trim(), "asyncResult"),
-      errorType: createTypeInfoFromString(asyncResultMatch[2].trim(), "asyncResult"),
-      causeType: asyncResultMatch[3]
-        ? createTypeInfoFromString(asyncResultMatch[3].trim(), "asyncResult")
-        : undefined,
-    };
+  // Extract the content between the outermost < > of the Result type
+  // by finding the matching closing >
+  let depth = 1;
+  let argsEnd = argsStart;
+  for (let i = argsStart; i < inner.length; i++) {
+    const ch = inner[i];
+    if (ch === "<" || ch === "(" || ch === "{" || ch === "[") depth++;
+    else if (ch === ">" || ch === ")" || ch === "}" || ch === "]") { depth--; if (depth === 0) { argsEnd = i; break; } }
   }
+  const argsStr = inner.slice(argsStart, argsEnd);
 
-  const promiseResultMatch = typeString.match(/Promise<Result<\s*([^,]+)\s*,\s*([^,>]+)(?:\s*,\s*([^>]+))?\s*>>/);
-  if (promiseResultMatch) {
-    return {
-      okType: createTypeInfoFromString(promiseResultMatch[1].trim(), "promiseResult"),
-      errorType: createTypeInfoFromString(promiseResultMatch[2].trim(), "promiseResult"),
-      causeType: promiseResultMatch[3]
-        ? createTypeInfoFromString(promiseResultMatch[3].trim(), "promiseResult")
-        : undefined,
-    };
+  // Split on top-level commas (respecting nested brackets)
+  const args = splitTopLevelCommas(argsStr);
+  if (args.length < 2) return null;
+
+  return {
+    okType: createTypeInfoFromString(args[0], kind),
+    errorType: createTypeInfoFromString(args[1], kind),
+    causeType: args[2] ? createTypeInfoFromString(args[2], kind) : undefined,
+  };
+}
+
+/**
+ * Split a type string on top-level commas, respecting angle brackets and parens.
+ */
+function splitTopLevelCommas(typeStr: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let inString: string | null = null;
+  let start = 0;
+  for (let i = 0; i < typeStr.length; i++) {
+    const ch = typeStr[i];
+    if (inString) {
+      if (ch === "\\") { i++; continue; }
+      if (ch === inString) inString = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") { inString = ch; continue; }
+    if (ch === "<" || ch === "(" || ch === "{" || ch === "[") depth++;
+    else if (ch === ">" || ch === ")" || ch === "}" || ch === "]") depth--;
+    else if (ch === "," && depth === 0) {
+      parts.push(typeStr.slice(start, i).trim());
+      start = i + 1;
+    }
   }
-
-  const resultMatch = typeString.match(/Result<\s*([^,]+)\s*,\s*([^,>]+)(?:\s*,\s*([^>]+))?\s*>/);
-  if (resultMatch) {
-    return {
-      okType: createTypeInfoFromString(resultMatch[1].trim(), "result"),
-      errorType: createTypeInfoFromString(resultMatch[2].trim(), "result"),
-      causeType: resultMatch[3] ? createTypeInfoFromString(resultMatch[3].trim(), "result") : undefined,
-    };
-  }
-
-  return null;
+  parts.push(typeStr.slice(start).trim());
+  return parts;
 }
 
 function createTypeInfoFromString(typeStr: string, _parentKind: "asyncResult" | "result" | "promiseResult"): TypeInfo {

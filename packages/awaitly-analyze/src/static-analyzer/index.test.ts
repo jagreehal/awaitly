@@ -6355,4 +6355,148 @@ describe("infer errors from errorTypeInfo", () => {
     expect(stepNode.errors).toEqual(["ExplicitError"]);
     expect(stepNode.errorsSource).toBe("explicit");
   });
+
+  it("does not split union syntax nested inside a generic error type", () => {
+    const source = `
+      import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+      type Envelope<T> = { tag: "Envelope"; reason: T };
+
+      const wf = createWorkflow("test", {
+        doThing: async (): Promise<AsyncResult<string, Envelope<"A" | "B">>> => ok("done"),
+      });
+
+      export async function run() {
+        return wf.run(async ({ step, deps }) => {
+          await step("action", () => deps.doThing());
+          return ok(undefined);
+        });
+      }
+    `;
+    const results = analyzeWorkflowSource(source);
+    const steps = collectStepNodes(results[0].root);
+    const stepNode = steps.find((s) => s.stepId === "action")!;
+
+    expect(stepNode.errors).toEqual(['Envelope<"A" | "B">']);
+    expect(stepNode.errorsSource).toBe("inferred");
+  });
+
+  it("does not split union syntax nested inside an object-literal error type", () => {
+    const source = `
+      import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+      const wf = createWorkflow("test", {
+        doThing: async (): Promise<AsyncResult<string, { tag: "A" | "B"; retryable: boolean }>> => ok("done"),
+      });
+
+      export async function run() {
+        return wf.run(async ({ step, deps }) => {
+          await step("action", () => deps.doThing());
+          return ok(undefined);
+        });
+      }
+    `;
+    const results = analyzeWorkflowSource(source);
+    const steps = collectStepNodes(results[0].root);
+    const stepNode = steps.find((s) => s.stepId === "action")!;
+
+    expect(stepNode.errors).toEqual(['{ tag: "A" | "B"; retryable: boolean; }']);
+    expect(stepNode.errorsSource).toBe("inferred");
+  });
+
+  it("preserves inline tuple error types when extracting AsyncResult arguments", () => {
+    const source = `
+      import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+      const wf = createWorkflow("test", {
+        doThing: async (): Promise<AsyncResult<string, ["A", "B"]>> => ok("done"),
+      });
+
+      export async function run() {
+        return wf.run(async ({ step, deps }) => {
+          await step("action", () => deps.doThing());
+          return ok(undefined);
+        });
+      }
+    `;
+    const results = analyzeWorkflowSource(source);
+    const steps = collectStepNodes(results[0].root);
+    const stepNode = steps.find((s) => s.stepId === "action")!;
+
+    expect(stepNode.errors).toEqual(['["A", "B"]']);
+    expect(stepNode.errorTypeInfo?.display).toBe('["A", "B"]');
+    expect(stepNode.errorsSource).toBe("inferred");
+  });
+
+  it("does not split a single string-literal error type that contains a pipe character", () => {
+    const source = `
+      import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+      const wf = createWorkflow("test", {
+        doThing: async (): Promise<AsyncResult<string, "A|B">> => ok("done"),
+      });
+
+      export async function run() {
+        return wf.run(async ({ step, deps }) => {
+          await step("action", () => deps.doThing());
+          return ok(undefined);
+        });
+      }
+    `;
+    const results = analyzeWorkflowSource(source);
+    const steps = collectStepNodes(results[0].root);
+    const stepNode = steps.find((s) => s.stepId === "action")!;
+
+    expect(stepNode.errors).toEqual(['"A|B"']);
+    expect(stepNode.errorTypeInfo?.display).toBe('"A|B"');
+    expect(stepNode.errorsSource).toBe("inferred");
+  });
+
+  it("preserves a string-literal error type that contains a comma", () => {
+    const source = `
+      import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+      const wf = createWorkflow("test", {
+        doThing: async (): Promise<AsyncResult<string, "A,B">> => ok("done"),
+      });
+
+      export async function run() {
+        return wf.run(async ({ step, deps }) => {
+          await step("action", () => deps.doThing());
+          return ok(undefined);
+        });
+      }
+    `;
+    const results = analyzeWorkflowSource(source);
+    const steps = collectStepNodes(results[0].root);
+    const stepNode = steps.find((s) => s.stepId === "action")!;
+
+    expect(stepNode.errors).toEqual(['"A,B"']);
+    expect(stepNode.errorTypeInfo?.display).toBe('"A,B"');
+    expect(stepNode.errorsSource).toBe("inferred");
+  });
+
+  it("does not split a string-literal error type when the delimiter appears after an escaped quote", () => {
+    const source = `
+      import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+      const wf = createWorkflow("test", {
+        doThing: async (): Promise<AsyncResult<string, "A\\\\\\"|B">> => ok("done"),
+      });
+
+      export async function run() {
+        return wf.run(async ({ step, deps }) => {
+          await step("action", () => deps.doThing());
+          return ok(undefined);
+        });
+      }
+    `;
+    const results = analyzeWorkflowSource(source);
+    const steps = collectStepNodes(results[0].root);
+    const stepNode = steps.find((s) => s.stepId === "action")!;
+
+    expect(stepNode.errors).toEqual(['"A\\\\\\"|B"']);
+    expect(stepNode.errorTypeInfo?.display).toBe('"A\\\\\\"|B"');
+    expect(stepNode.errorsSource).toBe("inferred");
+  });
 });
