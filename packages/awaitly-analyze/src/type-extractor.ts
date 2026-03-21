@@ -10,7 +10,8 @@
  * - Fallback for unresolved types
  */
 
-import * as ts from "typescript";
+import type * as ts from "typescript";
+import { loadTypescript } from "./ts-morph-loader";
 
 export interface ExtractedResultLike {
   okType: TypeInfo;
@@ -279,12 +280,13 @@ export function extractFunctionSignature(
 }
 
 function isFunctionLike(node: ts.Node, _checker: ts.TypeChecker): boolean {
+  const { SyntaxKind } = loadTypescript();
   const kind = node.kind;
   return (
-    kind === ts.SyntaxKind.FunctionDeclaration ||
-    kind === ts.SyntaxKind.ArrowFunction ||
-    kind === ts.SyntaxKind.FunctionExpression ||
-    kind === ts.SyntaxKind.MethodDeclaration
+    kind === SyntaxKind.FunctionDeclaration ||
+    kind === SyntaxKind.ArrowFunction ||
+    kind === SyntaxKind.FunctionExpression ||
+    kind === SyntaxKind.MethodDeclaration
   );
 }
 

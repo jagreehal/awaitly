@@ -214,6 +214,10 @@ export type {
 export { renderRailwayMermaid } from "./output/railway";
 export type { RailwayOptions, RailwayStyles } from "./output/railway";
 
+// Auto-detection
+export { inferBestDiagramType } from "./auto-diagram";
+export type { DiagramType } from "./auto-diagram";
+
 // Test coverage matrix
 export {
   generateTestMatrix,

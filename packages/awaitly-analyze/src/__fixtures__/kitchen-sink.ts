@@ -407,7 +407,7 @@ export async function runKitchenSink(userId: string) {
     const fallbackResult = await step.withFallback(
       "fallback-fetch",
       () => deps.fetchPosts(user.id),
-      { fallback: () => deps.fetchFromCacheA() }
+      { fallback: () => deps.fetchPosts("cached") }
     );
 
     // -----------------------------------------------------------------------
@@ -418,14 +418,13 @@ export async function runKitchenSink(userId: string) {
       () => deps.fetchUser(userId),
       {
         on: "NOT_FOUND" as const,
-        fallback: () => ok({ id: "default", name: "Default", isPremium: false, role: "user" }),
+        fallback: async () => ok({ id: "default", name: "Default", isPremium: false, role: "user" }),
       }
     );
 
     // -----------------------------------------------------------------------
     // 38. step.withResource
     // -----------------------------------------------------------------------
-    // @ts-expect-error Analyzer pattern — runtime withResource may not exist on step type in fixtures
     const resourceResult = await step.withResource("use-resource", {
       acquire: () => deps.fetchUser(userId),
       use: (resource) => deps.fetchPosts(resource.id),

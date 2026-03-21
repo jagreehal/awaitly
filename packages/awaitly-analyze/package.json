@@ -56,10 +56,14 @@
     "awaitly-visualizer": "workspace:*"
   },
   "peerDependencies": {
-    "ts-morph": ">=27.0.2"
+    "ts-morph": ">=27.0.2",
+    "typescript": ">=5.0.0"
   },
   "peerDependenciesMeta": {
     "ts-morph": {
+      "optional": false
+    },
+    "typescript": {
       "optional": false
     }
   },
