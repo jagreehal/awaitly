@@ -185,4 +185,67 @@ describe("renderRailwayMermaid", () => {
     expect(output).toContain("-->|ok|");
     expect(output).toContain("Done((Success))");
   });
+
+  it("shows error edges from inferred errors (no explicit errors option)", () => {
+    const source = `
+      import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+      type ValidationError = { tag: "ValidationError" };
+      type RateError = { tag: "RateError" };
+
+      const wf = createWorkflow("transfer", {
+        validate: async (_input: string): Promise<AsyncResult<string, ValidationError>> => ok("valid"),
+        fetchRate: async (): Promise<AsyncResult<number, RateError>> => ok(1.5),
+        execute: async (): Promise<AsyncResult<void, never>> => ok(undefined),
+      });
+
+      export async function run() {
+        return wf.run(async ({ step, deps }) => {
+          await step("validate", () => deps.validate("usd"));
+          await step("fetch-rate", () => deps.fetchRate());
+          await step("execute", () => deps.execute());
+          return ok(undefined);
+        });
+      }
+    `;
+    const ir = analyzeFirst(source);
+    const output = renderRailwayMermaid(ir);
+
+    // Should have error edges for validate and fetchRate (not execute — it's "never")
+    expect(output).toContain("ValidationError");
+    expect(output).toContain("RateError");
+
+    const errEdges = output.match(/-->\|err\|/g);
+    expect(errEdges).toHaveLength(2);
+  });
+
+  it("respects includeInferredErrors: false option", () => {
+    const source = `
+      import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+      type ValidationError = { tag: "ValidationError" };
+
+      const wf = createWorkflow("transfer", {
+        validate: async (): Promise<AsyncResult<string, ValidationError>> => ok("valid"),
+        confirm: async () => ok(undefined),
+      });
+
+      export async function run() {
+        return wf.run(async ({ step, deps }) => {
+          await step("validate", () => deps.validate());
+          await step("confirm", () => deps.confirm(), { errors: ["ConfirmError"] });
+          return ok(undefined);
+        });
+      }
+    `;
+    const ir = analyzeFirst(source);
+    const output = renderRailwayMermaid(ir, { includeInferredErrors: false });
+
+    // Only explicit errors should show
+    expect(output).toContain("ConfirmError");
+    expect(output).not.toContain("ValidationError");
+
+    const errEdges = output.match(/-->\|err\|/g);
+    expect(errEdges).toHaveLength(1);
+  });
 });
