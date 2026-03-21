@@ -37,7 +37,7 @@ import {
   err,
   type Result,
   type AsyncResult,
-  type UnexpectedError,
+  UnexpectedError,
   isEarlyExit,
   createEarlyExit,
   type EarlyExit,
@@ -460,10 +460,7 @@ export function createSagaWorkflow<
 
       // Wrap non-typed errors as UnexpectedError
       if (!isEarlyExit(thrown)) {
-        return err({
-          type: "UNEXPECTED_ERROR",
-          cause: { type: "UNCAUGHT_EXCEPTION", thrown },
-        } as UnexpectedError);
+        return err(new UnexpectedError({ cause: thrown }));
       }
 
       return err(originalError as E);
@@ -687,10 +684,7 @@ export async function runSaga<T, E>(
     options?.onError?.(originalError as E);
 
     if (!isEarlyExit(thrown)) {
-      return err({
-        type: "UNEXPECTED_ERROR",
-        cause: { type: "UNCAUGHT_EXCEPTION", thrown },
-      } as UnexpectedError);
+      return err(new UnexpectedError({ cause: thrown }));
     }
 
     return err(originalError as E);

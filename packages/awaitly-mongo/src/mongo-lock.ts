@@ -33,6 +33,7 @@ export function createMongoLock(
     opts?: { ttlMs?: number }
   ): Promise<{ ownerToken: string } | null>;
   release(id: string, ownerToken: string): Promise<void>;
+  renew(id: string, ownerToken: string, opts?: { ttlMs?: number }): Promise<boolean>;
   ensureLockCollection(): Promise<void>;
 } {
   const lockCollectionName = options.lockCollectionName ?? "workflow_lock";
@@ -93,5 +94,21 @@ export function createMongoLock(
     await collection.deleteOne({ _id: id, ownerToken });
   }
 
-  return { tryAcquire, release, ensureLockCollection };
+  async function renew(
+    id: string,
+    ownerToken: string,
+    opts?: { ttlMs?: number }
+  ): Promise<boolean> {
+    const ttlMs = opts?.ttlMs ?? 60_000;
+    const expiresAt = new Date(Date.now() + ttlMs);
+
+    const result = await collection.updateOne(
+      { _id: id, ownerToken },
+      { $set: { expiresAt } }
+    );
+
+    return result.modifiedCount > 0;
+  }
+
+  return { tryAcquire, release, renew, ensureLockCollection };
 }

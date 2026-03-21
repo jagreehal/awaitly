@@ -83,16 +83,18 @@ const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* 
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts, sendEmail });
 
 const result = await workflow.run(async ({ step, deps }) => { /* ... */ });
-// result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | 'UNEXPECTED_ERROR'
+// result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | UnexpectedError
 ```
 
 Add a new dependency? The error union updates automatically.
 
-## `"UNEXPECTED_ERROR"`
+## `UnexpectedError`
 
-If code throws an exception (not a returned error), it becomes the string `"UNEXPECTED_ERROR"`. The original thrown value is preserved in `result.cause`:
+If code throws an exception (not a returned error), it becomes an `UnexpectedError` (a `TaggedError`). The original thrown value is preserved in `error.cause`:
 
 ```typescript
+import { isUnexpectedError } from 'awaitly';
+
 const badOperation = async (): AsyncResult<string, 'KNOWN_ERROR'> => {
   throw new Error('Something broke'); // Throws instead of returning err()
 };
@@ -102,13 +104,13 @@ const result = await workflow.run(async ({ step, deps }) => {
   return await step('badOperation', () => deps.badOperation());
 });
 
-if (!result.ok && result.error === 'UNEXPECTED_ERROR') {
-  console.log(result.cause); // The original Error object
+if (!result.ok && isUnexpectedError(result.error)) {
+  console.log(result.error.cause); // The original Error object
 }
 ```
 
 <Aside type="note">
-`"UNEXPECTED_ERROR"` is a plain string in the error union — not an object. The original thrown error is in `result.cause`. Use `step.try()` to convert thrown exceptions into typed errors instead.
+`UnexpectedError` is a `TaggedError` in the error union. Use `isUnexpectedError(result.error)` to narrow it, and access the original thrown error via `result.error.cause`. Use `step.try()` to convert thrown exceptions into typed errors instead.
 </Aside>
 
 ## String Literals vs TaggedError
@@ -410,7 +412,7 @@ const user = await step('Fetch user', () => fetchUser('1'), {
 
 ## Custom unexpected errors
 
-By default, thrown exceptions become the string `"UNEXPECTED_ERROR"`. Both `run()` and `createWorkflow` include it in the error union automatically:
+By default, thrown exceptions become an `UnexpectedError`. Both `run()` and `createWorkflow` include it in the error union automatically:
 
 ```typescript
 // run() — use ErrorOf/Errors to derive E, or specify manually
@@ -423,10 +425,10 @@ const result = await run<User, RunErrors>(async ({ step }) => {
   await step('sendEmail', () => sendEmail(user.email));
   return user;
 });
-// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | 'UNEXPECTED_ERROR'
+// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
 ```
 
-To replace `"UNEXPECTED_ERROR"` with a custom type, pass `catchUnexpected`:
+To replace `UnexpectedError` with a custom type, pass `catchUnexpected`:
 
 ```typescript
 // createWorkflow

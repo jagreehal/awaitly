@@ -72,4 +72,10 @@ export {
   formatResult,
   formatEvent,
   formatEvents,
+
+  // Simple Test Runner
+  testWorkflow,
+  type TestWorkflowResult,
+  type TestWorkflowOptions,
+  type TestStepResult,
 } from "./testing";

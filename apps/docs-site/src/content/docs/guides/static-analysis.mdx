@@ -30,6 +30,25 @@ npx awaitly-analyze ./src/workflows/checkout.ts --keys
 
 # Change diagram direction (TB, LR, BT, RL)
 npx awaitly-analyze ./src/workflows/checkout.ts --direction=LR
+
+# Compare two workflow files
+npx awaitly-analyze --diff v1.ts v2.ts
+
+# Compare HEAD vs working copy (single file shorthand)
+npx awaitly-analyze --diff src/workflows/checkout.ts
+
+# Compare a git ref against a local file
+npx awaitly-analyze --diff main:src/workflows/checkout.ts src/workflows/checkout.ts
+
+# Diff all workflow files in a GitHub PR
+npx awaitly-analyze --diff gh:#123
+
+# Diff as JSON or Mermaid diagram
+npx awaitly-analyze --diff v1.ts v2.ts --format=json
+npx awaitly-analyze --diff v1.ts v2.ts --format=mermaid
+
+# Flag removed steps as regressions
+npx awaitly-analyze --diff v1.ts v2.ts --regression
 ```
 
 ### Interactive HTML
@@ -501,6 +520,208 @@ await step.parallel('Fetch all', () => allAsync([
 ```
 
 Both forms render with the custom name in Mermaid diagrams instead of generic "Parallel (all)".
+
+## Workflow Diff
+
+Compare two versions of a workflow to detect added, removed, renamed, and moved steps, plus structural changes like new parallel blocks.
+
+### CLI diff mode
+
+Pass `--diff` with one or two sources. Sources can be local files, git refs (`ref:path`), or a GitHub PR (`gh:#N`). The default output format is markdown; use `--format` to switch to JSON or Mermaid.
+
+```bash
+# Two local files
+npx awaitly-analyze --diff before.ts after.ts
+
+# Single file — compares HEAD against working copy
+npx awaitly-analyze --diff src/workflows/checkout.ts
+
+# Git ref vs local file
+npx awaitly-analyze --diff main:src/workflows/checkout.ts src/workflows/checkout.ts
+
+# GitHub PR — auto-discovers changed workflow files
+npx awaitly-analyze --diff gh:#123
+
+# GitHub PR — specific file only
+npx awaitly-analyze --diff gh:#123 src/workflows/checkout.ts
+
+# Output formats
+npx awaitly-analyze --diff before.ts after.ts --format=json
+npx awaitly-analyze --diff before.ts after.ts --format=mermaid
+
+# Flag removed steps as regressions
+npx awaitly-analyze --diff before.ts after.ts --regression
+```
+
+The git ref syntax uses `ref:path` where `ref` is any valid git ref (branch, tag, or SHA). GitHub PR mode requires the [GitHub CLI](https://cli.github.com) (`gh`) to be installed and authenticated.
+
+### Programmatic API
+
+```typescript
+import {
+  analyze,
+  diffWorkflows,
+  renderDiffMarkdown,
+  renderDiffJSON,
+  renderDiffMermaid,
+} from 'awaitly-analyze';
+
+const before = analyze('./v1.ts').single();
+const after  = analyze('./v2.ts').single();
+
+const diff = diffWorkflows(before, after, {
+  detectRenames: true,   // match renamed steps by callee + position (default: true)
+  regressionMode: false, // flag removals as regressions (default: false)
+});
+
+// Render as markdown
+const md = renderDiffMarkdown(diff, { showUnchanged: true });
+
+// Render as JSON
+const json = renderDiffJSON(diff);
+
+// Render as Mermaid (needs the "after" IR for the base diagram)
+const mermaid = renderDiffMermaid(after, diff, {
+  showRemovedSteps: true,  // add ghost nodes for removed steps (default: true)
+  direction: 'TB',         // diagram direction (default: TB)
+});
+```
+
+### What gets detected
+
+| Change | Description |
+|--------|-------------|
+| **Added** | Step exists in the after workflow but not in the before |
+| **Removed** | Step exists in the before workflow but not in the after |
+| **Renamed** | Same callee and position, different step ID |
+| **Moved** | Same step ID, different container (e.g. sequential to parallel) |
+| **Structural** | Container-level changes — added/removed parallel, race, conditional, or loop blocks |
+
+### Output formats
+
+**Markdown** — human-readable report with sections for each change kind:
+
+```text
+# Workflow Diff: checkout → checkout
+
+## Summary
+- 1 added, 1 removed, 1 renamed, 0 moved, 2 unchanged
+
+## Added Steps
+- `apply-discount` (deps.applyDiscount)
+
+## Removed Steps
+- `send-receipt` (deps.sendReceipt)
+
+## Renamed Steps
+- `validate-cart` → `verify-cart` (deps.validateCart)
+
+## Unchanged Steps
+- `fetch-cart` (deps.fetchCart)
+- `charge-payment` (deps.chargePayment)
+```
+
+The `regressionMode` option prepends a warning icon to the Removed Steps heading.
+
+**JSON** — structured `WorkflowDiff` object for CI checks, dashboards, or piping into other tools:
+
+```json
+{
+  "steps": [
+    { "kind": "unchanged", "stepId": "fetch-cart", "callee": "deps.fetchCart" },
+    { "kind": "unchanged", "stepId": "charge-payment", "callee": "deps.chargePayment" },
+    { "kind": "renamed", "stepId": "verify-cart", "previousStepId": "validate-cart", "callee": "deps.validateCart" },
+    { "kind": "removed", "stepId": "send-receipt", "callee": "deps.sendReceipt" },
+    { "kind": "added", "stepId": "apply-discount", "callee": "deps.applyDiscount" }
+  ],
+  "summary": {
+    "stepsAdded": 1,
+    "stepsRemoved": 1,
+    "stepsRenamed": 1,
+    "stepsMoved": 0,
+    "stepsUnchanged": 2,
+    "hasRegressions": false
+  }
+}
+```
+
+**Mermaid** — renders the "after" workflow diagram with diff styling overlaid. Added steps get a green fill, renamed steps orange, moved steps blue. Removed steps appear as dashed ghost nodes:
+
+```mermaid
+flowchart TB
+  start((Start))
+  step_1["fetch-cart"]
+  step_2["verify-cart"]
+  step_3["apply-discount"]
+  step_4["charge-payment"]
+  end_node((End))
+
+  step_1 --> step_2
+  step_2 --> step_3
+  step_3 --> step_4
+  start --> step_1
+  step_4 --> end_node
+
+  classDef diffAddedStyle fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+  classDef diffRemovedStyle fill:#ffcdd2,stroke:#c62828,stroke-width:2px,stroke-dasharray:5
+  classDef diffRenamedStyle fill:#fff3e0,stroke:#e65100,stroke-width:2px
+
+  classDef stepStyle fill:#e1f5fe,stroke:#01579b
+  classDef startStyle fill:#c8e6c9,stroke:#2e7d32
+  classDef endStyle fill:#ffcdd2,stroke:#c62828
+  class start startStyle
+  class end_node endStyle
+  class step_1 stepStyle
+  class step_4 stepStyle
+
+  removed_1["❌ send-receipt"]
+
+  class step_2 diffRenamedStyle
+  class step_3 diffAddedStyle
+  class removed_1 diffRemovedStyle
+```
+
+Style classes `diffAddedStyle`, `diffRemovedStyle`, `diffRenamedStyle`, and `diffMovedStyle` are injected automatically.
+
+### Diff options reference
+
+**`diffWorkflows(before, after, options?)`**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `detectRenames` | `boolean` | `true` | Match steps with the same callee and position index as renames instead of remove + add |
+| `regressionMode` | `boolean` | `false` | Flag removed steps as regressions in the summary |
+
+**`renderDiffMarkdown(diff, options?)`**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `showUnchanged` | `boolean` | `true` | Include the Unchanged Steps section |
+| `title` | `string` | auto | Override the report title |
+
+**`renderDiffMermaid(afterIR, diff, options?)`**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `showRemovedSteps` | `boolean` | `true` | Add ghost nodes for removed steps |
+| `direction` | `string` | `TB` | Mermaid flowchart direction (TB, LR, BT, RL) |
+
+### Diff types
+
+All diff types are exported from `awaitly-analyze`:
+
+```typescript
+import type {
+  WorkflowDiff,
+  StepDiffEntry,
+  StepChangeKind,
+  StructuralChange,
+  DiffSummary,
+  DiffOptions,
+  DiffMarkdownOptions,
+  DiffMermaidOptions,
+} from 'awaitly-analyze';
+```
 
 ## Limitations
 

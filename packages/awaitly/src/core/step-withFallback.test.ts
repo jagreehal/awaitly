@@ -84,7 +84,7 @@ describe("step.withFallback", () => {
     expect(fallbackFn).not.toHaveBeenCalled();
   });
 
-  it("primary throws → UNEXPECTED_ERROR, fallback runs when no `on`", async () => {
+  it("primary throws → UnexpectedError, fallback runs when no `on`", async () => {
     const result = await run(async ({ step }) => {
       const value = await step.withFallback(
         "getUser",
@@ -210,7 +210,7 @@ describe("step.withFallback", () => {
     }
   });
 
-  it("fallback throws → UNEXPECTED_ERROR propagated", async () => {
+  it("fallback throws → UnexpectedError propagated", async () => {
     const result = await run(async ({ step }) => {
       return step.withFallback(
         "getUser",
@@ -227,7 +227,7 @@ describe("step.withFallback", () => {
     expect(isErr(result)).toBe(true);
   });
 
-  it("primary throws + fallback throws → UNEXPECTED_ERROR propagated", async () => {
+  it("primary throws + fallback throws → UnexpectedError propagated", async () => {
     const result = await run(async ({ step }) => {
       return step.withFallback(
         "getUser",

@@ -312,6 +312,55 @@ describe("Durable Execution", () => {
       expect(counter).toBe(1);
       expect(run2.ok).toBe(false);
     });
+
+    it("reuses a completed result across different workflow ids when the idempotency key matches", async () => {
+      const store = createTestSnapshotStore();
+      let executions = 0;
+
+      const first = await durable.run(
+        { fetchUser },
+        async ({ step, deps: { fetchUser } }) => {
+          executions++;
+          const user = await step("fetch-user", () => fetchUser("123"));
+          return { workflow: "first", user };
+        },
+        {
+          id: "workflow-a",
+          store,
+          idempotencyKey: "shared-key",
+        }
+      );
+
+      expect(first.ok).toBe(true);
+      if (!first.ok) {
+        throw new Error("Expected first workflow to succeed");
+      }
+
+      const second = await durable.run(
+        { fetchUser },
+        async ({ step, deps: { fetchUser } }) => {
+          executions++;
+          const user = await step("fetch-user", () => fetchUser("123"));
+          return { workflow: "second", user };
+        },
+        {
+          id: "workflow-b",
+          store,
+          idempotencyKey: "shared-key",
+        }
+      );
+
+      expect(second.ok).toBe(true);
+      if (!second.ok) {
+        throw new Error("Expected second workflow to succeed");
+      }
+
+      expect(second.value).toEqual({
+        workflow: "first",
+        user: { id: "123", name: "User 123" },
+      });
+      expect(executions).toBe(1);
+    });
   });
 
   describe("Version Checking", () => {

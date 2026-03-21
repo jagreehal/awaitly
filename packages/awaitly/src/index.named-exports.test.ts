@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as root from "./index";
+import * as workflowEntry from "./workflow-entry";
 import { Awaitly, ok, err, map, pipe } from "./index";
 
 describe("root named exports", () => {
@@ -20,5 +21,9 @@ describe("root named exports", () => {
     expect(root.flatten).toBe(Awaitly.flatten);
     expect(root.deserialize).toBe(Awaitly.deserialize);
     expect(root.DESERIALIZATION_ERROR).toBe(Awaitly.DESERIALIZATION_ERROR);
+  });
+
+  it("exports UnexpectedError from the workflow entrypoint", () => {
+    expect(workflowEntry.UnexpectedError).toBe(root.UnexpectedError);
   });
 });

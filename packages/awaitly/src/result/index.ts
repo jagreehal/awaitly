@@ -39,27 +39,6 @@ export type Result<T, E = unknown, C = unknown> = Ok<T> | Err<E, C>;
  */
 export type AsyncResult<T, E = unknown, C = unknown> = Promise<Result<T, E, C>>;
 
-export type UnexpectedStepFailureCause =
-  | {
-      type: "STEP_FAILURE";
-      origin: "result";
-      error: unknown;
-      cause?: unknown;
-    }
-  | {
-      type: "STEP_FAILURE";
-      origin: "throw";
-      error: unknown;
-      thrown: unknown;
-    };
-
-export type UnexpectedCause =
-  | { type: "UNCAUGHT_EXCEPTION"; thrown: unknown }
-  | UnexpectedStepFailureCause;
-
-/** Discriminant for UnexpectedError type - use in switch statements */
-export const UNEXPECTED_ERROR = "UNEXPECTED_ERROR" as const;
-
 /** Discriminant for PromiseRejectedError type - use in switch statements */
 export const PROMISE_REJECTED = "PROMISE_REJECTED" as const;
 
@@ -111,10 +90,8 @@ export const AWAITLY_TIMEOUT = "AWAITLY_TIMEOUT" as const;
  */
 export const tags = <const T extends readonly string[]>(...t: T): T => t;
 
-export type UnexpectedError = {
-  type: typeof UNEXPECTED_ERROR;
-  cause: UnexpectedCause;
-};
+import { UnexpectedError } from "../errors";
+export { UnexpectedError };
 export type PromiseRejectedError = { type: typeof PROMISE_REJECTED; cause: unknown };
 /** Cause type for promise rejections in async batch helpers */
 export type PromiseRejectionCause = { type: "PROMISE_REJECTION"; reason: unknown };
@@ -170,10 +147,11 @@ export const isErr = <T, E, C>(r: Result<T, E, C>): r is Err<E, C> => !r.ok;
  * @remarks When to use: Distinguish unexpected failures from your typed error union.
  */
 export const isUnexpectedError = (e: unknown): e is UnexpectedError =>
-  typeof e === "object" &&
-  e !== null &&
-  "type" in e &&
-  e.type === UNEXPECTED_ERROR;
+  e instanceof UnexpectedError ||
+  (typeof e === "object" &&
+    e !== null &&
+    "_tag" in e &&
+    (e as { _tag: string })._tag === "UnexpectedError");
 
 /**
  * Checks if an error is a PromiseRejectedError.
@@ -189,7 +167,9 @@ export const isPromiseRejectedError = (e: unknown): e is PromiseRejectedError =>
 // =============================================================================
 
 export type MatchErrorHandlers<E extends string, R> = {
-  [K in E]: (error: K extends "UNEXPECTED_ERROR" ? UnexpectedError : K) => R;
+  [K in Exclude<E, "UnexpectedError">]: (error: K) => R;
+} & {
+  UnexpectedError: (error: UnexpectedError) => R;
 };
 
 /**
@@ -200,21 +180,12 @@ export function matchError<E extends string, R>(
   error: E | UnexpectedError,
   handlers: MatchErrorHandlers<E, R>
 ): R {
-  // Handle UnexpectedError objects
+  // Handle UnexpectedError instances
   if (isUnexpectedError(error)) {
-    return (handlers as MatchErrorHandlers<"UNEXPECTED_ERROR", R>).UNEXPECTED_ERROR(error);
+    return handlers.UnexpectedError(error as UnexpectedError);
   }
-  // Handle the string literal "UNEXPECTED_ERROR" - wrap it in an UnexpectedError object
-  // to maintain the typed contract that UNEXPECTED_ERROR handler receives an object
-  if (error === "UNEXPECTED_ERROR") {
-    const syntheticError: UnexpectedError = {
-      type: UNEXPECTED_ERROR,
-      cause: { type: "UNCAUGHT_EXCEPTION", thrown: error },
-    };
-    return (handlers as MatchErrorHandlers<"UNEXPECTED_ERROR", R>).UNEXPECTED_ERROR(syntheticError);
-  }
-  // Cast to the excluded type since we've handled UNEXPECTED_ERROR above
-  type StringErrors = Exclude<E, "UNEXPECTED_ERROR">;
+  // Handle string literal errors
+  type StringErrors = Exclude<E, "UnexpectedError">;
   return (handlers as unknown as Record<string, (e: string) => R>)[error as StringErrors](error as StringErrors);
 }
 
@@ -1055,7 +1026,7 @@ export function matchErrorPartial<E extends string, R>(
 ): R {
   if (isUnexpectedError(error)) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const h = (handlers as any).UNEXPECTED_ERROR as ((e: UnexpectedError) => R) | undefined;
+    const h = (handlers as any).UnexpectedError as ((e: UnexpectedError) => R) | undefined;
     return h ? h(error) : fallback(error);
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

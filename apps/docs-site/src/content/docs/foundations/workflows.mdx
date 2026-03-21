@@ -14,9 +14,9 @@ You create workflows with `createWorkflow` (reusable, with dependency inference)
 createWorkflow returns a function that produces:
 
          ┌─── Your success return type
-         │        ┌─── Union of all dependency error types + 'UNEXPECTED_ERROR'
+         │        ┌─── Union of all dependency error types + UnexpectedError
          ▼        ▼
-Result<Value, 'NOT_FOUND' | 'EMAIL_FAILED' | 'UNEXPECTED_ERROR'>
+Result<Value, 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError>
            ▲
            └─── Automatically inferred from dependencies!
 ```
@@ -44,7 +44,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 });
 /*
 result.error is automatically typed as:
-'NOT_FOUND' | 'EMAIL_FAILED' | 'UNEXPECTED_ERROR'
+'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
 */
 ```
   </TabItem>
@@ -60,7 +60,7 @@ sendEmail: AsyncResult<void, 'EMAIL_FAILED'>
                              ▲
                              │ extracted
                              ▼
-workflow error = 'NOT_FOUND' | 'EMAIL_FAILED' | 'UNEXPECTED_ERROR'
+workflow error = 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
 ```
   </TabItem>
 </Tabs>
@@ -106,7 +106,7 @@ const result = await run<User, RunErrors>(
     return user;
   }
 );
-// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | 'UNEXPECTED_ERROR'
+// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
 ```
   </TabItem>
   <TabItem label="With catchUnexpected (custom)">
@@ -133,13 +133,13 @@ const result = await run(async ({ step }) => {
   await step('sendEmail', () => sendEmail(user.email));
   return user;
 });
-// result.error is: 'UNEXPECTED_ERROR' (step error types not preserved at compile time)
+// result.error is: UnexpectedError (step error types not preserved at compile time)
 ```
   </TabItem>
 </Tabs>
 
 <Aside type="tip" title="Deriving error types for run()">
-Use `ErrorOf<typeof fn>` for a single dep or `Errors<[typeof fn1, typeof fn2]>` for multiple deps to derive the error union. Your step errors are preserved in the result as `E | 'UNEXPECTED_ERROR'`. Use `catchUnexpected` only when you want a custom unexpected type instead of the default string.
+Use `ErrorOf<typeof fn>` for a single dep or `Errors<[typeof fn1, typeof fn2]>` for multiple deps to derive the error union. Your step errors are preserved in the result as `E | UnexpectedError`. Use `catchUnexpected` only when you want a custom unexpected type instead of the default.
 </Aside>
 
 ## When to use each
@@ -277,21 +277,21 @@ Failed: Send email EMAIL_FAILED
 
 ### catchUnexpected (custom unexpected type)
 
-By default, thrown exceptions become the string `"UNEXPECTED_ERROR"`. To replace it with your own type, pass `catchUnexpected`:
+By default, thrown exceptions become an `UnexpectedError`. To replace it with your own type, pass `catchUnexpected`:
 
 <Tabs>
-  <TabItem label="Default ('UNEXPECTED_ERROR')">
+  <TabItem label="Default (UnexpectedError)">
 ```typescript
-// Default - error union includes 'UNEXPECTED_ERROR' string
+// Default - error union includes UnexpectedError
 const workflow = createWorkflow('workflow', deps);
 
 const result = await workflow.run(async ({ step, deps }) => { /* ... */ });
-// result.error: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED_ERROR'
+// result.error: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
 ```
   </TabItem>
   <TabItem label="Custom unexpected type">
 ```typescript
-// Custom unexpected - your shape replaces 'UNEXPECTED_ERROR'
+// Custom unexpected - your shape replaces UnexpectedError
 const workflow = createWorkflow('workflow', deps, {
   catchUnexpected: (cause) => ({
     type: 'UNEXPECTED' as const,
@@ -320,11 +320,11 @@ const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED'>(
 </Tabs>
 
 With `catchUnexpected`:
-- Your custom type replaces `"UNEXPECTED_ERROR"` in the error union.
+- Your custom type replaces `UnexpectedError` in the error union.
 - Use for exhaustive switch statements or when you want a single typed shape for all unexpected cases.
 
 <Aside type="tip" title="When to use catchUnexpected">
-Most users don't need `catchUnexpected`. The default `"UNEXPECTED_ERROR"` string works well — it's a simple, predictable value you can check with `result.error === 'UNEXPECTED_ERROR'`. Use `catchUnexpected` only when you need a custom shape (e.g. to include the cause in the error object itself).
+Most users don't need `catchUnexpected`. The default `UnexpectedError` works well — it's a `TaggedError` you can check with `isUnexpectedError(result.error)`, and the original thrown value is available via `result.error.cause`. Use `catchUnexpected` only when you need a custom shape.
 </Aside>
 
 ### signal (Cancellation)

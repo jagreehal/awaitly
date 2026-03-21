@@ -6,11 +6,20 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "child_process";
+import { parseArgs } from "./cli";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 
 const CLI_PATH = join(__dirname, "..", "dist", "cli.js");
 const FIXTURES_DIR = join(__dirname, "__fixtures__");
+const testFilePath = join(FIXTURES_DIR, "cli-test-workflow.ts");
+const multiWorkflowFilePath = join(FIXTURES_DIR, "cli-test-multi-workflow.ts");
+const conditionalWorkflowFilePath = join(FIXTURES_DIR, "cli-test-conditional-workflow.ts");
+const outputMdPath = join(FIXTURES_DIR, "cli-test-workflow.workflow.md");
+const outputJsonPath = join(FIXTURES_DIR, "cli-test-workflow.analysis.json");
+const customSuffixPath = join(FIXTURES_DIR, "cli-test-workflow.diagram.md");
+const htmlOutputPath = join(FIXTURES_DIR, "cli-test-workflow.html");
+const conditionalHtmlOutputPath = join(FIXTURES_DIR, "cli-test-conditional-workflow.html");
 
 // Helper to run CLI and capture output
 function runCli(args: string[]): { stdout: string; stderr: string; exitCode: number } {
@@ -66,18 +75,37 @@ export async function runB() {
 }
 `;
 
-describe("CLI", () => {
-  const testFilePath = join(FIXTURES_DIR, "cli-test-workflow.ts");
-  const multiWorkflowFilePath = join(FIXTURES_DIR, "cli-test-multi-workflow.ts");
-  const outputMdPath = join(FIXTURES_DIR, "cli-test-workflow.workflow.md");
-  const outputJsonPath = join(FIXTURES_DIR, "cli-test-workflow.analysis.json");
-  const customSuffixPath = join(FIXTURES_DIR, "cli-test-workflow.diagram.md");
-  const htmlOutputPath = join(FIXTURES_DIR, "cli-test-workflow.html");
+const CONDITIONAL_WORKFLOW = `
+import { createWorkflow } from 'awaitly';
 
+const deps = {
+  first: async () => ({ ok: true }),
+  branch: async () => ({ ok: true }),
+  last: async () => ({ ok: true }),
+};
+
+export const conditionalWorkflow = createWorkflow('conditionalWorkflow', deps);
+
+export async function run(flag: boolean) {
+  return conditionalWorkflow(async ({ step, deps: d }) => {
+    await step('first', () => d.first());
+
+    if (flag) {
+      await step('branch', () => d.branch());
+    }
+
+    await step('last', () => d.last());
+    return {};
+  });
+}
+`;
+
+describe("CLI", () => {
   beforeEach(() => {
     // Create test workflow file
     writeFileSync(testFilePath, TEST_WORKFLOW);
     writeFileSync(multiWorkflowFilePath, MULTI_WORKFLOW);
+    writeFileSync(conditionalWorkflowFilePath, CONDITIONAL_WORKFLOW);
   });
 
   afterEach(() => {
@@ -85,10 +113,12 @@ describe("CLI", () => {
     for (const file of [
       testFilePath,
       multiWorkflowFilePath,
+      conditionalWorkflowFilePath,
       outputMdPath,
       outputJsonPath,
       customSuffixPath,
       htmlOutputPath,
+      conditionalHtmlOutputPath,
     ]) {
       if (existsSync(file)) {
         unlinkSync(file);
@@ -104,6 +134,24 @@ describe("CLI", () => {
       expect(stdout).toContain("--output-adjacent");
       expect(stdout).toContain("--suffix");
       expect(stdout).toContain("--no-stdout");
+    });
+
+    it("should document TD as a supported direction", () => {
+      const { stdout, exitCode } = runCli(["--help"]);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("TB (default), TD, LR, BT, RL");
+    });
+
+    it("should document TD as a supported railway direction", () => {
+      const { stdout, exitCode } = runCli(["--help"]);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("--railway             Generate railway-style flow diagram (LR or TD");
+    });
+
+    it("should document that --no-stdout also works with --html", () => {
+      const { stdout, exitCode } = runCli(["--help"]);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("--no-stdout           Suppress stdout when writing to file (requires -o or --html)");
     });
   });
 
@@ -162,6 +210,21 @@ describe("CLI", () => {
       expect(stdout).toBe("");
     });
 
+    it("should allow --no-stdout with railway HTML output even without --output-adjacent", () => {
+      const { stdout, stderr, exitCode } = runCli([
+        testFilePath,
+        "--html",
+        "--railway",
+        "--no-stdout",
+        `--html-output=${htmlOutputPath}`,
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain("Wrote HTML");
+      expect(existsSync(htmlOutputPath)).toBe(true);
+      expect(stdout).toBe("");
+    });
+
     it("should fail when used without --output-adjacent", () => {
       const { stderr, exitCode } = runCli([testFilePath, "--no-stdout"]);
       expect(exitCode).toBe(1);
@@ -183,6 +246,16 @@ describe("CLI", () => {
     });
   });
 
+  describe("--format=markdown", () => {
+    it("should reject markdown format outside diff mode", () => {
+      const { stderr, stdout, exitCode } = runCli([testFilePath, "--format=markdown"]);
+
+      expect(exitCode).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("markdown format is only supported with --diff");
+    });
+  });
+
   describe("--html-output validation", () => {
     it("should reject empty html-output value", () => {
       const { stderr, exitCode } = runCli([testFilePath, "--html", "--html-output="]);
@@ -200,5 +273,208 @@ describe("CLI", () => {
       expect(exitCode).toBe(1);
       expect(stderr).toContain("cannot use --html-output with multiple workflows");
     });
+
+    it("should render railway Mermaid in HTML output when --html and --railway are combined", () => {
+      const { stderr, exitCode } = runCli([
+        testFilePath,
+        "--html",
+        "--railway",
+        `--html-output=${htmlOutputPath}`,
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain("Wrote HTML");
+      expect(existsSync(htmlOutputPath)).toBe(true);
+
+      const content = readFileSync(htmlOutputPath, "utf-8");
+      expect(content).toContain("flowchart LR");
+      expect(content).toContain("-->|ok|");
+    });
+
+    it("should keep railway HTML metadata IDs aligned with Mermaid node IDs", () => {
+      const { stderr, exitCode } = runCli([
+        testFilePath,
+        "--html",
+        "--railway",
+        `--html-output=${htmlOutputPath}`,
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain("Wrote HTML");
+
+      const content = readFileSync(htmlOutputPath, "utf-8");
+      expect(content).toContain("\"step_1\"");
+      expect(content).toContain("step_1[");
+    });
+
+    it("should honor --keys in railway HTML output", () => {
+      const { stderr, exitCode } = runCli([
+        testFilePath,
+        "--html",
+        "--railway",
+        "--keys",
+        `--html-output=${htmlOutputPath}`,
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain("Wrote HTML");
+
+      const content = readFileSync(htmlOutputPath, "utf-8");
+      expect(content).toContain("user");
+    });
+
+    it("should keep railway HTML metadata IDs aligned when the workflow includes structural nodes", () => {
+      const { stderr, exitCode } = runCli([
+        conditionalWorkflowFilePath,
+        "--html",
+        "--railway",
+        `--html-output=${conditionalHtmlOutputPath}`,
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain("Wrote HTML");
+
+      const content = readFileSync(conditionalHtmlOutputPath, "utf-8");
+      expect(content).toContain("step_2[");
+      expect(content).toContain("\"step_2\"");
+      expect(content).toContain("step_3[");
+      expect(content).toContain("\"step_3\"");
+    });
+  });
+});
+
+describe("diff source argument parsing", () => {
+  it("collects single file in diff mode", () => {
+    const options = parseArgs(["--diff", "src/wf.ts"]);
+    expect(options.diff).toBe(true);
+    expect(options.diffSources).toEqual(["src/wf.ts"]);
+  });
+
+  it("collects two local files in diff mode", () => {
+    const options = parseArgs(["--diff", "v1.ts", "v2.ts"]);
+    expect(options.diff).toBe(true);
+    expect(options.diffSources).toEqual(["v1.ts", "v2.ts"]);
+  });
+
+  it("collects two git ref sources", () => {
+    const options = parseArgs(["--diff", "main:src/wf.ts", "feature:src/wf.ts"]);
+    expect(options.diff).toBe(true);
+    expect(options.diffSources).toEqual(["main:src/wf.ts", "feature:src/wf.ts"]);
+  });
+
+  it("collects gh:#N source", () => {
+    const options = parseArgs(["--diff", "gh:#42"]);
+    expect(options.diff).toBe(true);
+    expect(options.diffSources).toEqual(["gh:#42"]);
+  });
+
+  it("collects gh:#N with specific file", () => {
+    const options = parseArgs(["--diff", "gh:#42", "src/wf.ts"]);
+    expect(options.diff).toBe(true);
+    expect(options.diffSources).toEqual(["gh:#42", "src/wf.ts"]);
+  });
+
+  it("collects git ref and local file mix", () => {
+    const options = parseArgs(["--diff", "HEAD~3:src/wf.ts", "src/wf.ts"]);
+    expect(options.diff).toBe(true);
+    expect(options.diffSources).toEqual(["HEAD~3:src/wf.ts", "src/wf.ts"]);
+  });
+
+  it("preserves other flags with diff sources", () => {
+    const options = parseArgs(["--diff", "v1.ts", "v2.ts", "--regression", "--format=json"]);
+    expect(options.diff).toBe(true);
+    expect(options.diffSources).toEqual(["v1.ts", "v2.ts"]);
+    expect(options.regressionMode).toBe(true);
+    expect(options.format).toBe("json");
+  });
+
+  it("rejects --railway in diff mode", () => {
+    writeFileSync(testFilePath, TEST_WORKFLOW);
+
+    try {
+      const { stdout, stderr, exitCode } = runCli([
+        "--diff",
+        testFilePath,
+        testFilePath,
+        "--railway",
+      ]);
+
+      expect(exitCode).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("--railway is not supported with --diff");
+    } finally {
+      if (existsSync(testFilePath)) unlinkSync(testFilePath);
+    }
+  });
+});
+
+describe("--railway", () => {
+  beforeEach(() => {
+    writeFileSync(testFilePath, TEST_WORKFLOW);
+  });
+
+  afterEach(() => {
+    if (existsSync(testFilePath)) unlinkSync(testFilePath);
+  });
+
+  it("accepts TD as a valid direction for railway diagrams", () => {
+    const { stdout, stderr, exitCode } = runCli([
+      testFilePath,
+      "--railway",
+      "--direction=TD",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
+    expect(stdout).toContain("flowchart TD");
+    expect(stdout).toContain("-->|ok|");
+  });
+
+  it("honors --keys in railway output", () => {
+    const { stdout, stderr, exitCode } = runCli([
+      testFilePath,
+      "--railway",
+      "--keys",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
+    expect(stdout).toContain("user");
+  });
+
+  it("rejects incompatible --railway and --format=json combination", () => {
+    const { stdout, stderr, exitCode } = runCli([
+      testFilePath,
+      "--railway",
+      "--format=json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("--railway cannot be used with --format=json");
+  });
+
+  it("rejects directions that railway mode cannot actually render", () => {
+    const { stdout, stderr, exitCode } = runCli([
+      testFilePath,
+      "--railway",
+      "--direction=BT",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("--railway only supports LR or TD");
+  });
+
+  it("rejects TB because railway mode only supports LR or TD", () => {
+    const { stdout, stderr, exitCode } = runCli([
+      testFilePath,
+      "--railway",
+      "--direction=TB",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("--railway only supports LR or TD");
   });
 });

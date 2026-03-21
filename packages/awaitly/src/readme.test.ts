@@ -5,8 +5,8 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { Awaitly, type AsyncResult } from "./index";
-const { ok, err } = Awaitly;
-import { createWorkflow, UNEXPECTED_ERROR } from "./workflow-entry";
+const { ok, err, isUnexpectedError } = Awaitly;
+import { createWorkflow } from "./workflow-entry";
 import { createApprovalStep, isPendingApproval } from "./hitl-entry";
 import { run } from "./workflow-entry";
 
@@ -81,9 +81,9 @@ describe("README Examples", () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe(UNEXPECTED_ERROR);
-        // Check that cause is defined (thrown value is on result.cause, not error.cause)
-        expect(result.cause).toBeDefined();
+        expect(isUnexpectedError(result.error)).toBe(true);
+        // The cause is on the error itself (UnexpectedError instance)
+        expect(result.error.cause).toBeDefined();
       }
     });
   });
@@ -191,7 +191,7 @@ describe("README Examples", () => {
         // TypeScript knows ALL possible errors - map them to HTTP responses
         if (result.ok) return { statusCode: 200, body: result.value };
 
-        if ((result.error as unknown) === UNEXPECTED_ERROR) {
+        if (isUnexpectedError(result.error)) {
           return { statusCode: 500, body: { message: "Internal error" } };
         }
 
@@ -235,9 +235,9 @@ describe("README Examples", () => {
       if (result.ok) {
         expect.fail("Should have failed");
       } else {
-        if ((result.error as unknown) === UNEXPECTED_ERROR) {
-          // Log the cause for debugging (it's the original thrown error)
-          expect(result.cause).toBeDefined();
+        if (isUnexpectedError(result.error)) {
+          // Log the cause for debugging (it's on the error instance)
+          expect(result.error.cause).toBeDefined();
         } else {
           switch (result.error.type) {
             case "TASK_NOT_FOUND":
@@ -530,7 +530,7 @@ describe("README Examples", () => {
     it("should work with basic imports as shown in README", async () => {
       // Most apps only need:
       // import { ok, err, type AsyncResult } from "awaitly";
-      // import { createWorkflow, UNEXPECTED_ERROR } from "awaitly/workflow";
+      // import { createWorkflow } from "awaitly/workflow";
 
       type User = { id: string };
       type UserNotFound = { type: "USER_NOT_FOUND" };
@@ -547,8 +547,8 @@ describe("README Examples", () => {
       });
 
       expect(result.ok).toBe(true);
-      // UNEXPECTED_ERROR is a constant string
-      expect(UNEXPECTED_ERROR).toBe("UNEXPECTED_ERROR");
+      // isUnexpectedError can check for UnexpectedError instances
+      expect(typeof isUnexpectedError).toBe("function");
     });
   });
 });

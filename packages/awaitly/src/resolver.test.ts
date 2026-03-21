@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { ok, err, type AsyncResult, isOk, isErr } from "./core";
+import { ok, err, type AsyncResult, isOk, isErr, isUnexpectedError } from "./core";
 import { createResolver } from "./resolver";
 
 interface User {
@@ -121,11 +121,12 @@ describe("createResolver", () => {
     if (!r2.ok) expect(r2.error).toBe("QUERY_ERROR");
   });
 
-  it("batchFn throws → maps to UNEXPECTED_ERROR", async () => {
+  it("batchFn throws → maps to UnexpectedError", async () => {
+    const thrown = new Error("database connection lost");
     const resolver = createResolver({
       name: "getUserById",
       batchFn: async (_keys: number[]): AsyncResult<User[], "QUERY_ERROR"> => {
-        throw new Error("database connection lost");
+        throw thrown;
       },
       find: (user, key) => user.id === key,
     });
@@ -133,7 +134,12 @@ describe("createResolver", () => {
     const r1 = await resolver.load(1);
 
     expect(isErr(r1)).toBe(true);
-    if (!r1.ok) expect(r1.error).toBe("UNEXPECTED_ERROR");
+    if (!r1.ok) {
+      expect(isUnexpectedError(r1.error)).toBe(true);
+      if (isUnexpectedError(r1.error)) {
+        expect(r1.error.cause).toBe(thrown);
+      }
+    }
   });
 
   it("loadMany: results array matches input order including duplicates", async () => {

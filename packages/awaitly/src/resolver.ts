@@ -1,4 +1,4 @@
-import { ok, err, type Result, type AsyncResult } from "./core";
+import { ok, err, type Result, type AsyncResult, UnexpectedError } from "./core";
 
 /**
  * Configuration for createResolver.
@@ -31,9 +31,9 @@ export type ResolverNotFoundError = "RESOLVER_NOT_FOUND";
  */
 export interface Resolver<T, K, E extends string> {
   /** Load a single item by key. Batches with other loads in the same microtask. */
-  load: (input: K) => Promise<Result<T, E | ResolverNotFoundError | "UNEXPECTED_ERROR" | "UNEXPECTED_ERROR">>;
+  load: (input: K) => Promise<Result<T, E | ResolverNotFoundError | UnexpectedError>>;
   /** Load multiple items by key. Results array matches input order. */
-  loadMany: (inputs: K[]) => Promise<Result<T, E | ResolverNotFoundError | "UNEXPECTED_ERROR" | "UNEXPECTED_ERROR">[]>;
+  loadMany: (inputs: K[]) => Promise<Result<T, E | ResolverNotFoundError | UnexpectedError>[]>;
   /** Evict a single key from the cache */
   clear: (input: K) => void;
   /** Evict all cached entries */
@@ -69,13 +69,13 @@ export function createResolver<T, K, E extends string>(
   const keyFn = config.key ?? ((input: K) => input);
 
   // In-flight promise dedup: same key in same batch → same promise
-  const inFlight = new Map<K, Promise<Result<T, E | ResolverNotFoundError | "UNEXPECTED_ERROR">>>();
+  const inFlight = new Map<K, Promise<Result<T, E | ResolverNotFoundError | UnexpectedError>>>();
 
   // Pending queue: keys waiting to be flushed
   const pendingKeys: K[] = [];
   const pendingResolvers: Array<{
     key: K;
-    resolve: (result: Result<T, E | ResolverNotFoundError | "UNEXPECTED_ERROR">) => void;
+    resolve: (result: Result<T, E | ResolverNotFoundError | UnexpectedError>) => void;
   }> = [];
 
   let scheduled = false;
@@ -105,9 +105,9 @@ export function createResolver<T, K, E extends string>(
     let batchResult: Result<T[], E>;
     try {
       batchResult = await config.batchFn(uniqueKeys);
-    } catch {
-      // batchFn threw — resolve all as UNEXPECTED_ERROR
-      const errorResult = err("UNEXPECTED_ERROR" as const);
+    } catch (thrown) {
+      // batchFn threw — resolve all as UnexpectedError
+      const errorResult = err(new UnexpectedError({ cause: thrown }));
       for (const { key, resolve } of resolvers) {
         resolve(errorResult);
         inFlight.delete(key);
@@ -142,7 +142,7 @@ export function createResolver<T, K, E extends string>(
     }
   }
 
-  function load(input: K): Promise<Result<T, E | ResolverNotFoundError | "UNEXPECTED_ERROR">> {
+  function load(input: K): Promise<Result<T, E | ResolverNotFoundError | UnexpectedError>> {
     const key = keyFn(input);
 
     // Check cache first
@@ -157,7 +157,7 @@ export function createResolver<T, K, E extends string>(
     }
 
     // Create new promise for this key
-    const promise = new Promise<Result<T, E | ResolverNotFoundError | "UNEXPECTED_ERROR">>((resolve) => {
+    const promise = new Promise<Result<T, E | ResolverNotFoundError | UnexpectedError>>((resolve) => {
       pendingKeys.push(key);
       pendingResolvers.push({ key, resolve });
     });
@@ -173,7 +173,7 @@ export function createResolver<T, K, E extends string>(
     return promise;
   }
 
-  async function loadMany(inputs: K[]): Promise<Result<T, E | ResolverNotFoundError | "UNEXPECTED_ERROR">[]> {
+  async function loadMany(inputs: K[]): Promise<Result<T, E | ResolverNotFoundError | UnexpectedError>[]> {
     const promises = inputs.map((input) => load(input));
     return Promise.all(promises);
   }

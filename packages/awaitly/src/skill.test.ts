@@ -8,7 +8,6 @@ import {
   Awaitly,
   type AsyncResult,
   type Result,
-  type UnexpectedError,
   type ErrorOf,
   type Errors,
 } from "./index";
@@ -29,7 +28,7 @@ const {
   isErr,
   tap,
   tapError,
-  UNEXPECTED_ERROR,
+  isUnexpectedError,
 } = Awaitly;
 import { run } from "./run-entry";
 import { createWorkflow } from "./workflow-entry";
@@ -159,8 +158,7 @@ describe("Skill Examples", () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        const errorType = (result.error as { type?: string }).type ?? result.error;
-        expect(errorType).toBe(UNEXPECTED_ERROR);
+        expect(isUnexpectedError(result.error)).toBe(true);
       }
     });
   });
@@ -462,6 +460,9 @@ describe("Skill Examples", () => {
         }
 
         // Boundary error handling - normalize and switch
+        if (isUnexpectedError(result.error)) {
+          return { status: 500 };
+        }
         const errorType = (result.error as { type?: string }).type ?? result.error;
         switch (errorType) {
           case "NOT_FOUND":
@@ -470,8 +471,6 @@ describe("Skill Examples", () => {
             return { status: 400 };
           case "STEP_TIMEOUT":
             return { status: 504 };
-          case UNEXPECTED_ERROR:
-            return { status: 500 };
           default:
             return { status: 500 };
         }

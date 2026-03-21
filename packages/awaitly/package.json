@@ -158,6 +158,11 @@
       "import": "./dist/durable.js",
       "require": "./dist/durable.cjs"
     },
+    "./engine": {
+      "types": "./dist/engine.d.ts",
+      "import": "./dist/engine.js",
+      "require": "./dist/engine.cjs"
+    },
     "./streaming": {
       "types": "./dist/streaming.d.ts",
       "import": "./dist/streaming.js",
@@ -228,7 +233,16 @@
     "url": "git+https://github.com/jagreehal/awaitly.git"
   },
   "license": "MIT",
+  "peerDependencies": {
+    "@standard-schema/spec": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@standard-schema/spec": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@standard-schema/spec": "^1.1.0",
     "@total-typescript/ts-reset": "^0.6.1",
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/node": "^25.3.5",

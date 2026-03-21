@@ -27,6 +27,7 @@ export function createLibSqlLock(
     opts?: { ttlMs?: number }
   ): Promise<{ ownerToken: string } | null>;
   release(id: string, ownerToken: string): Promise<void>;
+  renew(id: string, ownerToken: string, opts?: { ttlMs?: number }): Promise<boolean>;
   ensureLockTable(): Promise<void>;
 } {
   const lockTableName = options.lockTableName ?? "awaitly_workflow_lock";
@@ -92,5 +93,25 @@ export function createLibSqlLock(
     });
   }
 
-  return { tryAcquire, release, ensureLockTable };
+  async function renew(
+    id: string,
+    ownerToken: string,
+    opts?: { ttlMs?: number }
+  ): Promise<boolean> {
+    const ttlMs = opts?.ttlMs ?? 60_000;
+    const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+
+    const result = await client.execute({
+      sql: `
+        UPDATE ${lockTableName}
+        SET expires_at = ?
+        WHERE workflow_id = ? AND owner_token = ?
+      `,
+      args: [expiresAt, id, ownerToken],
+    });
+
+    return (result.rowsAffected ?? 0) > 0;
+  }
+
+  return { tryAcquire, release, renew, ensureLockTable };
 }

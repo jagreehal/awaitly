@@ -5,12 +5,11 @@
  * Use this for typed async workflows with automatic error inference.
  */
 
-// Re-export types and constants that workflow users commonly need
-export { UNEXPECTED_ERROR } from "../core";
+// Re-export types and classes that workflow users commonly need
+export { UnexpectedError } from "../core";
 export type {
   Result,
   AsyncResult,
-  UnexpectedError,
   RunStep,
   WorkflowEvent,
   StepOptions,
@@ -86,6 +85,13 @@ export {
 } from "../persistence";
 
 export { createWorkflow } from "./execute";
+
+// Validation
+export {
+  validateInput,
+  isInputValidationError,
+  type InputValidationError,
+} from "./validation";
 
 // Workflow Diagram DSL (for visualization; types shared with analyzer/visualizer)
 export type {

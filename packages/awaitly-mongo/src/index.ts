@@ -126,7 +126,7 @@ export function mongo(urlOrOptions: string | MongoOptions): MongoStore {
   let client: MongoClientImpl | undefined = opts.client;
   let db: Db | undefined;
   let connected = false;
-  let lock: { tryAcquire: WorkflowLock["tryAcquire"]; release: WorkflowLock["release"] } | null = null;
+  let lock: { tryAcquire: WorkflowLock["tryAcquire"]; release: WorkflowLock["release"]; renew: NonNullable<WorkflowLock["renew"]> } | null = null;
 
   const ensureConnected = async (): Promise<Db> => {
     if (db && connected) return db;
@@ -240,12 +240,19 @@ export function mongo(urlOrOptions: string | MongoOptions): MongoStore {
       if (!lock) return;
       return lock.release(id, ownerToken);
     },
+
+    async renew(id: string, ownerToken: string, opts?: { ttlMs?: number }): Promise<boolean> {
+      await ensureConnected();
+      if (!lock) return false;
+      return lock.renew(id, ownerToken, opts);
+    },
   };
 
   // Only include lock methods if lock is configured
   if (!opts.lock) {
     delete store.tryAcquire;
     delete store.release;
+    delete store.renew;
   }
 
   return store;

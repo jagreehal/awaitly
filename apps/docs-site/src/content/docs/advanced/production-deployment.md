@@ -133,6 +133,7 @@ const workflow = createWorkflow('workflow', deps, { onEvent: handleWorkflowEvent
 ```typescript
 import * as Sentry from '@sentry/node';
 import { createWorkflow, type WorkflowEvent } from 'awaitly/workflow';
+import { isUnexpectedError } from 'awaitly';
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
@@ -144,18 +145,16 @@ function handleWorkflowEvent(event: WorkflowEvent) {
   if (event.type === 'workflow_error') {
     const error = event.error;
 
-    if (typeof error === 'object' && error !== null && 'type' in error) {
-      if ((error as { type: string }).type === 'UNEXPECTED_ERROR') {
-        Sentry.captureException((error as { cause?: unknown }).cause, {
-          tags: {
-            workflow: event.workflowName ?? 'unknown',
-          },
-          extra: {
-            workflowId: event.workflowId,
-            durationMs: event.durationMs,
-          },
-        });
-      }
+    if (isUnexpectedError(error)) {
+      Sentry.captureException(error.cause, {
+        tags: {
+          workflow: event.workflowName ?? 'unknown',
+        },
+        extra: {
+          workflowId: event.workflowId,
+          durationMs: event.durationMs,
+        },
+      });
     }
   }
 

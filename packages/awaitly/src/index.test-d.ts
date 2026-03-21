@@ -14,11 +14,11 @@ import {
   type Err,
   type Result,
   type AsyncResult,
-  type UnexpectedError,
   type Errors,
   type ErrorOf,
   type TagOf,
   type ErrorByTag,
+  type UnexpectedError,
 } from "./index";
 const {
   ok,
@@ -28,7 +28,6 @@ const {
   isErr,
   recover,
   recoverAsync,
-  UNEXPECTED_ERROR,
   mapError,
   match,
   map,
@@ -82,8 +81,8 @@ async function _test1() {
   );
 
   if (!result.ok) {
-    // With explicit E, error type is E | "UNEXPECTED_ERROR" — caller owns the union
-    expectType<AppError | typeof UNEXPECTED_ERROR>(result.error);
+    // With explicit E, error type is E | UnexpectedError — caller owns the union
+    expectType<AppError | UnexpectedError>(result.error);
   }
 }
 
@@ -138,14 +137,6 @@ function _test1bCircuitOpenErrorTypeDiscriminant() {
 }
 
 // =============================================================================
-// TEST 1BB: UNEXPECTED_ERROR type discriminant
-// =============================================================================
-
-function _test1bbUnexpectedErrorConstType() {
-  expectType<"UNEXPECTED_ERROR">(UNEXPECTED_ERROR);
-}
-
-// =============================================================================
 // TEST 1C: matchError exported from awaitly/core
 // =============================================================================
 
@@ -154,27 +145,28 @@ function _test1cMatchErrorCoreExport() {
   const handlers: MatchErrorHandlersCore<CoreError, number> = {
     A: () => 1,
     B: () => 2,
-    UNEXPECTED_ERROR: () => 3,
+    UnexpectedError: () => 3,
   };
-  const error: CoreError | UnexpectedError = "A";
+  const error: CoreError | UnexpectedError = "A" as CoreError | UnexpectedError;
   const result = matchErrorCore(error, handlers);
   expectType<number>(result);
 }
 
 // =============================================================================
-// TEST 1D: matchError should allow literal "UNEXPECTED_ERROR" in user errors
+// TEST 1D: matchError should handle UnexpectedError in user errors
 // =============================================================================
 
 function _test1dMatchErrorLiteralConflict() {
-  type AppError = "UNEXPECTED_ERROR" | "A";
+  type AppError = "OTHER" | "A";
   const handlers: MatchErrorHandlersCore<AppError, number> = {
     A: () => 1,
-    UNEXPECTED_ERROR: (e) => {
+    OTHER: () => 2,
+    UnexpectedError: (e) => {
       expectType<UnexpectedError>(e);
-      return 2;
+      return 3;
     },
   };
-  const error: AppError | UnexpectedError = "A";
+  const error: AppError | UnexpectedError = "A" as AppError | UnexpectedError;
   const result = matchErrorCore(error, handlers);
   expectType<number>(result);
 }
@@ -479,9 +471,9 @@ async function _test7() {
     expectType<number>(result.value);
   }
   if (!result.ok) {
-    // Without explicit E, error type defaults to "UNEXPECTED_ERROR"
-    // For step errors + UNEXPECTED_ERROR, use run<T, E>(fn). For closed union, use run.strict(...)
-    expectType<typeof UNEXPECTED_ERROR>(result.error);
+    // Without explicit E, error type defaults to UnexpectedError
+    // For step errors + UnexpectedError, use run<T, E>(fn). For closed union, use run.strict(...)
+    expectType<UnexpectedError>(result.error);
   }
 }
 
@@ -501,8 +493,8 @@ async function _test7b() {
     expectType<{ user: User }>(result.value);
   }
   if (!result.ok) {
-    // With explicit E, error type is E | "UNEXPECTED_ERROR" — caller owns the union
-    expectType<LoadErrors | typeof UNEXPECTED_ERROR>(result.error);
+    // With explicit E, error type is E | UnexpectedError — caller owns the union
+    expectType<LoadErrors | UnexpectedError>(result.error);
   }
 }
 
@@ -520,14 +512,14 @@ async function _test7c() {
     },
     {
       onError: (error) => {
-        // With explicit E, error type is E | "UNEXPECTED_ERROR"
-        expectType<LoadErrors | typeof UNEXPECTED_ERROR>(error);
+        // With explicit E, error type is E | UnexpectedError
+        expectType<LoadErrors | UnexpectedError>(error);
       },
     }
   );
 
   if (!result.ok) {
-    expectType<LoadErrors | typeof UNEXPECTED_ERROR>(result.error);
+    expectType<LoadErrors | UnexpectedError>(result.error);
   }
 }
 
@@ -543,8 +535,8 @@ async function _test7d() {
   });
 
   if (!result.ok) {
-    // Without explicit E, error type is "UNEXPECTED_ERROR"
-    expectType<typeof UNEXPECTED_ERROR>(result.error);
+    // Without explicit E, error type is UnexpectedError
+    expectType<UnexpectedError>(result.error);
   }
 }
 
@@ -562,8 +554,8 @@ async function _test7e() {
   });
 
   if (!result.ok) {
-    // Same as 7d - without explicit E, error type is "UNEXPECTED_ERROR"
-    expectType<typeof UNEXPECTED_ERROR>(result.error);
+    // Same as 7d - without explicit E, error type is UnexpectedError
+    expectType<UnexpectedError>(result.error);
   }
 }
 
@@ -1412,6 +1404,8 @@ function _testWorkflowEventContextGeneric() {
     ts: number;
     durationMs: number;
     error: AppError;
+    metadata?: import("./core").StepMetadata;
+    diagnostics?: import("./core").StepErrorDiagnostics;
     context?: RequestContext;
   }>({} as StepErrorEvent);
 }
