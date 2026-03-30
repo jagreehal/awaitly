@@ -67,6 +67,7 @@ export default defineConfig({
             { label: 'State and Resumption', slug: 'foundations/state-and-resumption' },
             { label: 'Streaming', slug: 'foundations/streaming' },
             { label: 'Tagged Errors', slug: 'foundations/tagged-errors' },
+            { label: 'Error Patterns', slug: 'foundations/error-patterns' },
             { label: 'Step', slug: 'foundations/step' },
             { label: 'Workflows', slug: 'foundations/workflows' },
           ],
