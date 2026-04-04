@@ -71,7 +71,7 @@
     "@total-typescript/ts-reset": "^0.6.1",
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/node": "^25.5.0",
-    "mermaid": "^11.13.0",
+    "mermaid": "^11.14.0",
     "ts-morph": "^27.0.2",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",

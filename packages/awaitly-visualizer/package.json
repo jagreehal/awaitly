@@ -99,7 +99,7 @@
     "@types/pako": "^2.0.4",
     "awaitly": "workspace:^",
     "jsdom": "^29.0.1",
-    "mermaid": "^11.13.0",
+    "mermaid": "^11.14.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.2"
