@@ -226,24 +226,38 @@ Effect has a third type parameter for dependencies (Requirements). awaitly handl
 ### Error Type Inference
 
 <Tabs>
-  <TabItem label="awaitly">
+  <TabItem label="awaitly (run)">
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { run } from 'awaitly/run';
+import { type ErrorsOf } from 'awaitly';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
 const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
 
-// Error types automatically inferred from dependencies
-const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
+const deps = { fetchUser, sendEmail };
+type Errors = ErrorsOf<typeof deps>;
 
-const result = await workflow.run(async ({ step, deps }) => {
-  const user = await step.run('fetchUser', () => deps.fetchUser('1'));
-  await step('sendEmail', () => deps.sendEmail(user.email));
+const result = await run<User, Errors>(async ({ step }) => {
+  const user = await step('fetchUser', () => fetchUser('1'));
+  await step('sendEmail', () => sendEmail(user.email));
   return user;
 });
 
 // TypeScript knows: result.error is 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
-// step.run unwraps AsyncResult; use step('id', fn) or step.run with a getter when caching
+```
+  </TabItem>
+  <TabItem label="awaitly (workflow)">
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+
+// createWorkflow infers errors automatically — no ErrorsOf needed
+const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
+
+const result = await workflow.run(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('1'));
+  await step('sendEmail', () => deps.sendEmail(user.email));
+  return user;
+});
 ```
   </TabItem>
   <TabItem label="Effect">

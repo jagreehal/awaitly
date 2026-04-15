@@ -90,18 +90,32 @@ async function fetchUser(id: string): Promise<User> {
 ### Creating Workflows
 
 <Tabs>
-  <TabItem label="awaitly">
+  <TabItem label="awaitly (run)">
+```typescript
+import { run } from 'awaitly/run';
+import { type ErrorsOf } from 'awaitly';
+
+const deps = { fetchUser };
+type Errors = ErrorsOf<typeof deps>;
+
+export async function runWorkflow(id: string) {
+  return await run<User, Errors>(async ({ step }) => {
+    const user = await step('fetchUser', () => fetchUser(id));
+    return user;
+  });
+}
+```
+  </TabItem>
+  <TabItem label="awaitly (workflow)">
 ```typescript
 import { createWorkflow } from "awaitly/workflow";
 
-export const userWorkflow = createWorkflow('workflow', { fetchUser },
-  { description: "Fetch user workflow" }
-);
+// createWorkflow infers errors and adds caching/retry/observability
+export const userWorkflow = createWorkflow('workflow', { fetchUser });
 
 export async function runWorkflow(id: string) {
-  return await userWorkflow(async (step, { fetchUser }) => {
-    // Use function wrapper for proper caching/resume
-    const user = await step('fetchUser', () => fetchUser(id), { key: "fetch-user" });
+  return await userWorkflow.run(async ({ step, deps }) => {
+    const user = await step('fetchUser', () => deps.fetchUser(id));
     return user;
   });
 }

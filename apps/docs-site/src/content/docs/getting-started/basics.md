@@ -59,7 +59,7 @@ const result = await run(async ({ step }) => {
 
 ## Using `step()` for early exit
 
-The `step()` function unwraps Results automatically. If any step returns an error, the workflow exits immediately:
+The `step()` function unwraps Results automatically. If any step returns an error, execution exits immediately:
 
 ```typescript
 const result = await run(async ({ step }) => {
@@ -82,11 +82,19 @@ No try/catch, no manual error checking - `step()` handles it all.
 At your application boundary, check the result:
 
 ```typescript
+import { isUnexpectedError } from 'awaitly';
+
 if (result.ok) {
   // Success path
   return { status: 200, data: result.value };
 } else {
-  // Error path - TypeScript knows all possible errors
+  if (isUnexpectedError(result.error)) {
+    // Unexpected runtime failure (thrown exception)
+    console.error(result.error.cause);
+    return { status: 500 };
+  }
+
+  // Expected error path - TypeScript knows your domain errors
   switch (result.error.type ?? result.error) {
     case 'NOT_FOUND':
       return { status: 404 };

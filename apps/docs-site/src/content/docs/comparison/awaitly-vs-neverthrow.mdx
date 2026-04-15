@@ -654,11 +654,30 @@ awaitly: `Awaitly.from()` runs immediately and returns a Result; `Awaitly.fromPr
 neverthrow provides `safeTry` for generator-based composition. awaitly uses standard async/await instead.
 
 <Tabs>
-  <TabItem label="awaitly">
+  <TabItem label="awaitly (run)">
+```typescript
+import { run } from 'awaitly/run';
+import { type ErrorsOf } from 'awaitly';
+
+// awaitly uses familiar async/await — no generators needed
+const deps = { parseId, fetchUser, sendEmail };
+type Errors = ErrorsOf<typeof deps>;
+
+const result = await run<User, Errors>(async ({ step }) => {
+  const id = await step('parseId', () => parseId('42'));
+  const user = await step('fetchUser', () => fetchUser(id));
+  await step('sendEmail', () => sendEmail(user.email));
+  return user;
+});
+
+// Errors short-circuit automatically, no special syntax required
+```
+  </TabItem>
+  <TabItem label="awaitly (workflow)">
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 
-// awaitly uses familiar async/await - no generators needed
+// createWorkflow infers errors automatically — no ErrorsOf needed
 const workflow = createWorkflow('workflow', { parseId, fetchUser, sendEmail });
 
 const result = await workflow.run(async ({ step, deps }) => {
@@ -667,8 +686,6 @@ const result = await workflow.run(async ({ step, deps }) => {
   await step('sendEmail', () => deps.sendEmail(user.email));
   return user;
 });
-
-// Errors short-circuit automatically, no special syntax required
 ```
   </TabItem>
   <TabItem label="neverthrow">
@@ -702,15 +719,34 @@ neverthrow focuses purely on Result types. awaitly adds workflow orchestration a
 
 ### Automatic Error Type Inference
 
+With `run()`, group your deps and use `ErrorsOf` to derive the error union:
+
 ```typescript
-import { Awaitly, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { type AsyncResult, type ErrorsOf } from 'awaitly';
+import { run } from 'awaitly/run';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
 const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
 const chargeCard = async (amount: number): AsyncResult<Receipt, 'PAYMENT_DECLINED'> => { /* ... */ };
 
-// Error types automatically inferred from all dependencies
+const deps = { fetchUser, sendEmail, chargeCard };
+type Errors = ErrorsOf<typeof deps>;
+
+const result = await run<User, Errors>(async ({ step }) => {
+  const user = await step('fetchUser', () => fetchUser('123'));
+  await step('chargeCard', () => chargeCard(99.99));
+  await step('sendEmail', () => sendEmail(user.email));
+  return user;
+});
+
+// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | 'PAYMENT_DECLINED' | UnexpectedError
+```
+
+With `createWorkflow`, error inference is automatic — no `ErrorsOf` needed:
+
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail, chargeCard });
 
 const result = await workflow.run(async ({ step, deps }) => {
@@ -720,8 +756,7 @@ const result = await workflow.run(async ({ step, deps }) => {
   return user;
 });
 
-// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | 'PAYMENT_DECLINED' | UnexpectedError
-//                  ^^^ Automatically inferred from dependencies!
+// Same error type, automatically inferred from dependencies
 ```
 
 ### Step helpers (run, andThen, match)
