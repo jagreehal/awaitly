@@ -16,11 +16,14 @@ Analyze workflow source code to extract structure, dependencies, and generate vi
 The `awaitly-analyze` CLI analyzes TypeScript workflow files and outputs Mermaid diagrams or JSON:
 
 ```bash
-# Output Mermaid diagram (default)
+# Output Mermaid diagram + types file (default)
 npx awaitly-analyze ./src/workflows/checkout.ts
 
 # Output JSON
 npx awaitly-analyze ./src/workflows/checkout.ts --format=json
+
+# Railway diagram (linear happy path with ok/err branching)
+npx awaitly-analyze ./src/workflows/checkout.ts --railway
 
 # Pipe to file
 npx awaitly-analyze ./src/workflows/checkout.ts > workflow.md
@@ -30,6 +33,14 @@ npx awaitly-analyze ./src/workflows/checkout.ts --keys
 
 # Change diagram direction (TB, LR, BT, RL)
 npx awaitly-analyze ./src/workflows/checkout.ts --direction=LR
+
+# Control generated output files
+npx awaitly-analyze ./src/workflows/checkout.ts --no-types    # Skip types file generation
+npx awaitly-analyze ./src/workflows/checkout.ts --test        # Generate test stubs
+npx awaitly-analyze ./src/workflows/checkout.ts --test --test-runner=jest
+
+# Control error display in diagrams
+npx awaitly-analyze ./src/workflows/checkout.ts --no-errors   # Hide error nodes
 
 # Compare two workflow files
 npx awaitly-analyze --diff v1.ts v2.ts
@@ -112,6 +123,29 @@ When a file contains multiple workflows, each gets its own section with a markdo
 
 (mermaid diagram for payment workflow)
 ```
+
+### CLI flags reference
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--format=<fmt>` | `mermaid` | Output format: `mermaid`, `json`, or `markdown` |
+| `--railway` | off | Railway-style diagram (linear happy path with ok/err branches) |
+| `--direction=<dir>` | `TB` | Diagram direction: `TB`, `TD`, `LR`, `BT`, `RL` |
+| `--keys` | off | Show step cache keys in labels |
+| `--errors` / `--no-errors` | on | Show error nodes in diagrams |
+| `--types` / `--no-types` | on | Generate a `.types.ts` file with workflow input/output/error types |
+| `--test` / `--no-test` | off | Generate a `.test.ts` file with test stubs |
+| `--test-runner=<runner>` | `vitest` | Test runner for generated stubs: `vitest`, `jest`, or `mocha` |
+| `--html` | off | Generate interactive HTML file |
+| `--html-output=<path>` | auto | Custom output path for HTML |
+| `-o`, `--output-adjacent` | off | Write output file next to source |
+| `--suffix=<value>` | `workflow` | Suffix for adjacent output file |
+| `--no-stdout` | off | Suppress stdout when writing to file |
+| `--dsl-output=<value>` | `off` | Write DSL: `off`, `.awaitly`, or custom path |
+| `--write-dsl` | off | Shorthand for `--dsl-output=.awaitly` |
+| `--diff` | off | Compare workflows (see [Workflow Diff](#workflow-diff)) |
+| `--regression` | off | Flag removed steps as regressions (with `--diff`) |
+| `--watch` | off | Watch source file and re-analyze on changes |
 
 ## Basic usage
 
@@ -443,6 +477,36 @@ console.log(mermaid);
 //   start(("▶"))
 //   step_1["Fetch cart"]
 //   ...
+```
+
+### Railway renderer
+
+Generate a linear happy-path diagram with ok/err branching per step. Error types are inferred from `AsyncResult` return types on dependency functions.
+
+```typescript
+import { analyze, renderRailwayMermaid } from 'awaitly-analyze';
+
+const ir = analyze('./checkout.ts').single();
+const railway = renderRailwayMermaid(ir, {
+  direction: 'LR',              // 'LR' or 'TD' (default: 'LR')
+  showKeys: true,                // Show step cache keys
+  showRetry: true,               // Show retry info on labels
+  showTimeout: true,             // Show timeout info on labels
+  includeInferredErrors: true,   // Show errors inferred from return types (default: true)
+});
+
+console.log(railway);
+// flowchart LR
+//   VE["validateEmail"] -->|ok| FU["findUser"]
+//   FU -->|ok| Done((Success))
+//   VE -->|err| VEE["'INVALID_EMAIL'"]
+//   FU -->|err| FUE["'DB_ERROR'"]
+```
+
+Set `includeInferredErrors: false` to show only explicitly declared errors (from step `errors` option):
+
+```typescript
+const explicitOnly = renderRailwayMermaid(ir, { includeInferredErrors: false });
 ```
 
 ### JSON renderer
