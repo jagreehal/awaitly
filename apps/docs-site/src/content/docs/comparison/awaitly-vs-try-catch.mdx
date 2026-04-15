@@ -205,27 +205,45 @@ awaitly does not magically prevent all runtime errors, eliminate unexpected fail
 ### Sequential operations with early exit
 
 <Tabs>
-  <TabItem label="awaitly">
+  <TabItem label="awaitly (run)">
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { run } from 'awaitly/run';
+import { type ErrorsOf } from 'awaitly';
 
-const workflow = createWorkflow('workflow', { fetchUser, validateAge, createAccount });
+const deps = { fetchUser, validateAge, createAccount };
+type Errors = ErrorsOf<typeof deps>;
 
-const result = await workflow.run(async ({ step, deps }) => {
-  const user = await step('fetchUser', () => deps.fetchUser('123'));
+const result = await run<Account, Errors>(async ({ step }) => {
+  const user = await step('fetchUser', () => fetchUser('123'));
   // If fetchUser fails, we stop here and return the error
 
-  const validated = await step('validateAge', () => deps.validateAge(user));
+  const validated = await step('validateAge', () => validateAge(user));
   // If validateAge fails, we stop here
 
-  const account = await step('createAccount', () => deps.createAccount(validated));
+  const account = await step('createAccount', () => createAccount(validated));
   // If createAccount fails, we stop here
 
   return account;
 });
 
 // Error is: 'NOT_FOUND' | 'UNDERAGE' | 'DUPLICATE_EMAIL' | UnexpectedError
-// TypeScript inferred this automatically!
+```
+  </TabItem>
+  <TabItem label="awaitly (workflow)">
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+
+// createWorkflow infers errors automatically — no ErrorsOf needed
+const workflow = createWorkflow('workflow', { fetchUser, validateAge, createAccount });
+
+const result = await workflow.run(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('123'));
+  const validated = await step('validateAge', () => deps.validateAge(user));
+  const account = await step('createAccount', () => deps.createAccount(validated));
+  return account;
+});
+
+// Same error type, plus retry/caching/observability when you need it
 ```
   </TabItem>
   <TabItem label="try/catch">

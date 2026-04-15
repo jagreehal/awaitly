@@ -148,10 +148,32 @@ try {
 ### Sequential Operations
 
 <Tabs>
-  <TabItem label="awaitly">
+  <TabItem label="awaitly (run)">
+```typescript
+import { run } from 'awaitly/run';
+import { type ErrorsOf } from 'awaitly';
+
+const deps = { fetchUser, validateOrder, chargeCard };
+type OrderErrors = ErrorsOf<typeof deps>;
+
+const result = await run<{ user: User; order: Order; receipt: Receipt }, OrderErrors>(
+  async ({ step }) => {
+    const user = await step('fetchUser', () => fetchUser('123'));
+    const order = await step('validateOrder', () => validateOrder(orderData));
+    const receipt = await step('chargeCard', () => chargeCard(user.id, order.total));
+    return { user, order, receipt };
+  }
+);
+
+// Error type is automatically:
+// 'NOT_FOUND' | 'INVALID_ORDER' | 'PAYMENT_FAILED' | UnexpectedError
+```
+  </TabItem>
+  <TabItem label="awaitly (workflow)">
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
 
+// createWorkflow infers errors automatically — no ErrorsOf needed
 const workflow = createWorkflow('workflow', { fetchUser, validateOrder, chargeCard });
 
 const result = await workflow.run(async ({ step, deps }) => {
@@ -161,11 +183,7 @@ const result = await workflow.run(async ({ step, deps }) => {
   return { user, order, receipt };
 });
 
-// Error type is automatically:
-// 'NOT_FOUND' | 'INVALID_ORDER' | 'PAYMENT_FAILED' | UnexpectedError
-if (!result.ok) {
-  // Handle specific error
-}
+// Same error type, plus retry/caching/observability when you need it
 ```
   </TabItem>
   <TabItem label="Promise">

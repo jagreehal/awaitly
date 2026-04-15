@@ -93,12 +93,14 @@ The value returned by `createWorkflow` is a workflow object with a single **`.ru
 For one-off workflows where you specify error types manually:
 
 <Tabs>
-  <TabItem label="With ErrorOf (best DX)">
+  <TabItem label="With ErrorsOf (best DX)">
 ```typescript
 import { run } from 'awaitly/run';
-import { type Errors } from 'awaitly';
+import { type ErrorsOf } from 'awaitly';
 
-type RunErrors = Errors<[typeof fetchUser, typeof sendEmail]>;
+const deps = { fetchUser, sendEmail };
+type RunErrors = ErrorsOf<typeof deps>;
+
 const result = await run<User, RunErrors>(
   async ({ step }) => {
     const user = await step('fetchUser', () => fetchUser('1'));

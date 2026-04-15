@@ -415,11 +415,13 @@ const user = await step('Fetch user', () => fetchUser('1'), {
 By default, thrown exceptions become an `UnexpectedError`. Both `run()` and `createWorkflow` include it in the error union automatically:
 
 ```typescript
-// run() — use ErrorOf/Errors to derive E, or specify manually
-import { type ErrorOf, type Errors } from 'awaitly';
+// run() — use ErrorsOf to derive E from your deps, or specify manually
+import { type ErrorsOf } from 'awaitly';
 
 // Best DX: derive errors from deps
-type RunErrors = Errors<[typeof fetchUser, typeof sendEmail]>;
+const deps = { fetchUser, sendEmail };
+type RunErrors = ErrorsOf<typeof deps>;
+
 const result = await run<User, RunErrors>(async ({ step }) => {
   const user = await step('fetchUser', () => fetchUser('1'));
   await step('sendEmail', () => sendEmail(user.email));

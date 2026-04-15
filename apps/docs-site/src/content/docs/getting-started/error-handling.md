@@ -114,12 +114,14 @@ TypeScript ensures you handle all known error cases.
 
 ## Custom unexpected errors
 
-By default, thrown exceptions become an `UnexpectedError`. With `run()`, use `ErrorOf`/`Errors` to derive error types from your deps:
+By default, thrown exceptions become an `UnexpectedError`. With `run()`, use `ErrorsOf` to derive error types from your deps:
 
 ```typescript
-import { type Errors } from 'awaitly';
+import { type ErrorsOf } from 'awaitly';
 
-type RunErrors = Errors<[typeof fetchUser, typeof fetchPosts]>;
+const deps = { fetchUser, fetchPosts };
+type RunErrors = ErrorsOf<typeof deps>;
+
 const result = await run<User, RunErrors>(async ({ step }) => {
   const user = await step('fetchUser', () => fetchUser('1'));
   const posts = await step('fetchPosts', () => fetchPosts(user.id));
