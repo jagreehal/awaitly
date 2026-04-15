@@ -1,5 +1,13 @@
 # awaitly-analyze
 
+## 0.23.3
+
+### Patch Changes
+
+- 8fbe845: Added error utlity functions
+- Updated dependencies [8fbe845]
+  - awaitly@1.32.2
+
 ## 0.23.2
 
 ### Patch Changes

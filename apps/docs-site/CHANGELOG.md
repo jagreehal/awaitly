@@ -1,5 +1,11 @@
 # awaitly-docs
 
+## 1.30.2
+
+### Patch Changes
+
+- 8fbe845: Added error utlity functions
+
 ## 1.30.1
 
 ### Patch Changes
