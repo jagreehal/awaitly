@@ -360,11 +360,25 @@ type ErrorOfReturn<R> = Extract<Awaited<R>, { ok: false }> extends { error: infe
 export type ErrorOf<T extends AnyFunction> = ErrorOfReturn<ReturnType<T>>;
 
 /**
- * Extract union of error types from multiple functions
+ * Extract union of error types from multiple functions (tuple form)
  */
 export type Errors<T extends AnyFunction[]> = {
   [K in keyof T]: ErrorOf<T[K]>;
 }[number];
+
+/**
+ * Extract union of error types from a deps object.
+ *
+ * @example
+ * ```typescript
+ * const deps = { getUser, createOrder, sendEmail };
+ * type E = ErrorsOf<typeof deps>;
+ * // = "NOT_FOUND" | "ORDER_FAILED" | "EMAIL_ERROR"
+ * ```
+ */
+export type ErrorsOf<Deps extends Record<string, AnyFunction>> = {
+  [K in keyof Deps]: ErrorOf<Deps[K]>;
+}[keyof Deps];
 
 /**
  * Extract value type from Result

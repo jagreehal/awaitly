@@ -196,6 +196,7 @@ export type {
   MaybeAsyncResult,
   ErrorOf,
   Errors,
+  ErrorsOf,
   ExtractValue,
   ExtractError,
   ExtractCause,

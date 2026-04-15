@@ -285,7 +285,7 @@ When you see these patterns, apply the rewrite:
 | Execute | `run(fn)` or `run(fn, options)` | `workflow.run(fn)` or `workflow.run(fn, config)` or `workflow.run(name, fn)` or `workflow.run(name, fn, config)` — **no callable** |
 | Step syntax | `step('id', promiseOrResult)` or `step('id', () => promiseOrResult)` | `step('id', deps.fn(args))` or `step('id', () => deps.fn(args))` |
 | Deps | Closures | Injected at creation; override per run with `workflow.run(fn, { deps: partialOverride })` |
-| Error types | **Recommended:** `run<T, ErrorOf<typeof dep>>(fn)` or `run<T, Errors<[typeof d1, typeof d2]>>(fn)` so `result.error` is typed. Or manual `E`; or `catchUnexpected` for custom unexpected. `UnexpectedError` always included. | Auto-inferred from deps (includes `UnexpectedError`) |
+| Error types | **Recommended:** `run<T, ErrorOf<typeof dep>>(fn)` (single dep), `run<T, Errors<[typeof d1, typeof d2]>>(fn)` (tuple deps), or `run<T, ErrorsOf<typeof deps>>(fn)` (deps object) so `result.error` is typed. Or manual `E`; or `catchUnexpected` for custom unexpected. `UnexpectedError` always included. | Auto-inferred from deps (includes `UnexpectedError`) |
 | Features | Basic step execution | Retries, timeout, state persistence, caching |
 | Bundle | Smaller | Larger |
 | Best for | Single-use, wrapping throwing APIs | Shared deps, DI, testing (deps override), typed errors (best DX) |
@@ -377,7 +377,7 @@ async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
 
 For single-use workflows where deps are available via closures.
 
-**Recommended pattern for `run()`:** Derive the error type with `ErrorOf<typeof dep>` and pass it as the second type parameter to `run<T, RunErrors>()`. This gives typed `result.error` (your errors plus `UnexpectedError`) without manual unions.
+**Recommended pattern for `run()`:** Derive the error type with `ErrorOf<typeof dep>` (single dep), `Errors<[...]>` (tuple deps), or `ErrorsOf<typeof deps>` (deps object), and pass it as the second type parameter to `run<T, RunErrors>()`. This gives typed `result.error` (your errors plus `UnexpectedError`) without manual unions.
 
 ```typescript
 import { run } from 'awaitly/run';
@@ -398,11 +398,11 @@ const result = await run<User, RunErrors>(async ({ step }) => {
 // result.error is: 'NOT_FOUND' | UnexpectedError
 ```
 
-**Multiple deps:** Use `Errors<[typeof dep1, typeof dep2, ...]>` for the union of all dep error types:
+**Multiple deps:** Use `Errors<[typeof dep1, typeof dep2, ...]>` for tuple-style deps, or `ErrorsOf<typeof deps>` when deps are already in an object:
 
 ```typescript
 import { run } from 'awaitly/run';
-import { type ErrorOf, type Errors } from 'awaitly';
+import { type ErrorOf, type Errors, type ErrorsOf } from 'awaitly';
 
 // Single dep: ErrorOf<typeof fn>
 type RunErrors = ErrorOf<typeof getUser>;
@@ -420,6 +420,16 @@ const result2 = await run<Order, AllErrors>(async ({ step }) => {
   return order;
 });
 // result2.error is: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
+
+// Object deps: ErrorsOf<typeof deps> (union of all dep errors in an object)
+const deps = { getUser, createOrder };
+type ObjectErrors = ErrorsOf<typeof deps>;
+const result3 = await run<Order, ObjectErrors>(async ({ step }) => {
+  const user = await step('getUser', deps.getUser(userId));
+  const order = await step('createOrder', deps.createOrder(user));
+  return order;
+});
+// result3.error is: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
 ```
 
 **With explicit E** (manual type params):
@@ -753,10 +763,10 @@ Start with strings. Migrate to objects when you need context.
 
 ### Simple: run() with closures
 
-**Recommended:** Use `ErrorOf<typeof dep>` (single dep) or `Errors<[typeof d1, typeof d2, ...]>` (multiple deps) to derive the error type and pass it to `run<T, RunErrors>()`. `UnexpectedError` is always included automatically.
+**Recommended:** Use `ErrorOf<typeof dep>` (single dep), `Errors<[typeof d1, typeof d2, ...]>` (tuple deps), or `ErrorsOf<typeof deps>` (deps object) to derive the error type and pass it to `run<T, RunErrors>()`. `UnexpectedError` is always included automatically.
 
 ```typescript
-import { Awaitly, isUnexpectedError, type AsyncResult, type Errors } from 'awaitly';
+import { Awaitly, isUnexpectedError, type AsyncResult, type ErrorsOf } from 'awaitly';
 import { run } from 'awaitly/run';
 
 // deps return Results, never throw
@@ -770,7 +780,8 @@ async function createOrder(user: User): AsyncResult<Order, 'ORDER_FAILED'> {
 }
 
 // Recommended: derive errors from deps
-type RunErrors = Errors<[typeof getUser, typeof createOrder]>;
+const deps = { getUser, createOrder };
+type RunErrors = ErrorsOf<typeof deps>;
 
 // Execute workflow with typed errors
 export async function handleRequest(userId: string) {
@@ -1086,7 +1097,7 @@ import { Awaitly, type AsyncResult, type Result } from 'awaitly';
 Awaitly.ok(value)
 Awaitly.err(error)
 Awaitly.map(result, fn)
-Awaitly.allAsync([...])
+Awaitly.allAsync([])
 Awaitly.isUnexpectedError(e)
 
 // Simple workflow (closures, no DI)
@@ -1109,6 +1120,7 @@ import { unwrapOk, unwrapErr } from 'awaitly/testing';
 import {
   ok, err,                           // constructors
   type AsyncResult, type Result,     // types
+  type ErrorOf, type Errors, type ErrorsOf, // type helpers
   UnexpectedError, isUnexpectedError, matchError,  // error handling
   unwrapOr, unwrapOrElse,           // defaults
   map, mapError,                     // transform

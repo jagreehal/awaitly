@@ -43,6 +43,7 @@ export {
   // Type utilities
   type ErrorOf,
   type Errors,
+  type ErrorsOf,
   type ExtractValue,
   type ExtractError,
   type ExtractCause,

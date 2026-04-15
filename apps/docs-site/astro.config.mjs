@@ -168,6 +168,7 @@ export default defineConfig({
             { label: 'vs neverthrow', slug: 'comparison/awaitly-vs-neverthrow' },
             { label: 'vs Effect', slug: 'comparison/awaitly-vs-effect' },
             { label: 'vs Vercel Workflow', slug: 'comparison/awaitly-vs-workflow' },
+            { label: 'Algebraic Thinking', slug: 'comparison/algebraic-thinking' },
           ],
         },
       ],
