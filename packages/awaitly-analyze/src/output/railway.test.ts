@@ -299,4 +299,97 @@ describe("renderRailwayMermaid", () => {
     expect(output).toContain("Envelope<'A' | 'B'>");
     expect(output).not.toContain("Envelope<'A' / 'B'>");
   });
+
+  it("renders signup workflow with all inferred string-literal errors", () => {
+    const source = `
+      import { ok, err, type AsyncResult } from "awaitly";
+      import { createWorkflow } from "awaitly/workflow";
+
+      type User = { id: string; email: string };
+      type CreateUserInput = { email: string; passwordHash: string };
+
+      const validateEmail = async (email: string): AsyncResult<string, "INVALID_EMAIL"> =>
+        email.includes("@") ? ok(email) : err("INVALID_EMAIL");
+
+      const findUser = async (email: string): AsyncResult<User | null, "DB_ERROR"> =>
+        ok(null);
+
+      const checkNotTaken = async (user: User | null): AsyncResult<void, "EMAIL_TAKEN"> =>
+        user ? err("EMAIL_TAKEN") : ok();
+
+      const createUser = async (input: CreateUserInput): AsyncResult<User, "DB_ERROR"> =>
+        ok({ id: "new-user", email: input.email });
+
+      const sendWelcome = async (email: string): AsyncResult<void, "EMAIL_SERVICE_DOWN"> =>
+        ok();
+
+      export const signup = createWorkflow("signup", {
+        validateEmail,
+        findUser,
+        checkNotTaken,
+        createUser,
+        sendWelcome,
+      });
+
+      export async function run(rawEmail: string, password: string) {
+        return signup.run(async ({ step, deps }) => {
+          const email = await step("validate", () => deps.validateEmail(rawEmail));
+          const existing = await step("find", () => deps.findUser(email));
+          await step("checkNotTaken", () => deps.checkNotTaken(existing));
+          const user = await step("create", () => deps.createUser({ email, passwordHash: "hashed" }));
+          await step("welcome", () => deps.sendWelcome(email));
+          return user;
+        });
+      }
+    `;
+    const ir = analyzeFirst(source);
+    const output = renderRailwayMermaid(ir);
+
+    // All 5 steps should be connected with ok edges
+    const okEdges = output.match(/-->\|ok\|/g);
+    expect(okEdges).toHaveLength(5);
+
+    // Each step's inferred error should appear
+    expect(output).toContain("INVALID_EMAIL");
+    expect(output).toContain("DB_ERROR");
+    expect(output).toContain("EMAIL_TAKEN");
+    expect(output).toContain("EMAIL_SERVICE_DOWN");
+
+    // 5 steps with errors → 5 err edges
+    const errEdges = output.match(/-->\|err\|/g);
+    expect(errEdges).toHaveLength(5);
+
+    expect(output).toContain("Done((Success))");
+  });
+
+  it("signup workflow respects includeInferredErrors: false", () => {
+    const source = `
+      import { ok, err, type AsyncResult } from "awaitly";
+      import { createWorkflow } from "awaitly/workflow";
+
+      const validateEmail = async (email: string): AsyncResult<string, "INVALID_EMAIL"> =>
+        email.includes("@") ? ok(email) : err("INVALID_EMAIL");
+
+      const sendWelcome = async (email: string): AsyncResult<void, "EMAIL_SERVICE_DOWN"> =>
+        ok();
+
+      export const signup = createWorkflow("signup", { validateEmail, sendWelcome });
+
+      export async function run(email: string) {
+        return signup.run(async ({ step, deps }) => {
+          const e = await step("validate", () => deps.validateEmail(email));
+          await step("welcome", () => deps.sendWelcome(e));
+          return e;
+        });
+      }
+    `;
+    const ir = analyzeFirst(source);
+    const output = renderRailwayMermaid(ir, { includeInferredErrors: false });
+
+    // No error edges since all errors are inferred (none explicit)
+    expect(output).not.toContain("INVALID_EMAIL");
+    expect(output).not.toContain("EMAIL_SERVICE_DOWN");
+    const errEdges = output.match(/-->\|err\|/g);
+    expect(errEdges ?? []).toHaveLength(0);
+  });
 });

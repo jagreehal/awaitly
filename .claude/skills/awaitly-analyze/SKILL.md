@@ -137,7 +137,8 @@ For options (e.g. TS config, globs), consult package types (`AnalyzeResult`, `an
 | Mermaid diagram | `renderStaticMermaid(ir)` or `renderEnhancedMermaid(ir, options)` | First arg is IR. |
 | Railway diagram | `renderRailwayMermaid(ir, options?)` | Linear happy path with ok/err branching. First arg is IR. |
 | JSON | `renderStaticJSON(ir, { pretty: true })` | For machine consumption. |
-| Test matrix | `generateTestMatrix(paths)` then `formatTestMatrixMarkdown(matrix)` | Paths from `generatePaths(ir)`. |
+| Test matrix (markdown) | `generateTestMatrix(paths)` then `formatTestMatrixMarkdown(matrix)` | Paths from `generatePaths(ir)`. |
+| Test matrix (code) | `generateTestMatrix(paths)` then `formatTestMatrixAsCode(matrix, { testRunner, workflowName })` | Generates vitest/jest/mocha test stubs. |
 | Path stats | `calculatePathStatistics(paths)` | Paths from `generatePaths(ir)`. |
 | Diff (markdown) | `renderDiffMarkdown(diff, options?)` | First arg is `WorkflowDiff`. |
 | Diff (JSON) | `renderDiffJSON(diff, { pretty: true })` | First arg is `WorkflowDiff`. |
@@ -199,10 +200,14 @@ const detailed = renderRailwayMermaid(ir, {
   showRetry: true,
   showTimeout: true,
   showKeys: true,
+  includeInferredErrors: true, // default: true — show errors inferred from AsyncResult return types
 });
+
+// Hide inferred errors, only show explicitly declared ones
+const explicitOnly = renderRailwayMermaid(ir, { includeInferredErrors: false });
 ```
 
-**First arg is IR** (not file path). Options: `direction` (`'LR'` | `'TD'`), `stepLabel`, `showRetry`, `showTimeout`, `showKeys`, `useNodeIds`, `styles`.
+**First arg is IR** (not file path). Options: `direction` (`'LR'` | `'TD'`), `stepLabel`, `showRetry`, `showTimeout`, `showKeys`, `useNodeIds`, `includeInferredErrors` (default: `true`), `styles`.
 
 ---
 
@@ -252,11 +257,30 @@ renderDiffMermaid(after, diff, { showRemovedSteps: true, direction: 'TD' });
 ## CLI (deterministic)
 
 ```bash
-# Static analysis
+# Static analysis (default: generates mermaid diagram + types file)
 npx awaitly-analyze ./workflow.ts
-npx awaitly-analyze ./workflow.ts --format json
-npx awaitly-analyze ./workflow.ts --format railway
-npx awaitly-analyze ./workflow.ts -o
+
+# Output formats
+npx awaitly-analyze ./workflow.ts --format=json
+npx awaitly-analyze ./workflow.ts --format=markdown
+
+# Control outputs
+npx awaitly-analyze ./workflow.ts --types              # Generate types file (default: on)
+npx awaitly-analyze ./workflow.ts --no-types           # Skip types file generation
+npx awaitly-analyze ./workflow.ts --test               # Generate test stubs (default: off)
+npx awaitly-analyze ./workflow.ts --test --test-runner=jest  # Test runner: vitest (default), jest, mocha
+npx awaitly-analyze ./workflow.ts --errors             # Show error nodes in diagrams (default: on)
+npx awaitly-analyze ./workflow.ts --no-errors          # Hide error nodes
+
+# Diagram options
+npx awaitly-analyze ./workflow.ts --direction LR
+npx awaitly-analyze ./workflow.ts --keys
+npx awaitly-analyze ./workflow.ts --railway
+
+# Output files
+npx awaitly-analyze ./workflow.ts -o              # Write adjacent .workflow.md
+npx awaitly-analyze ./workflow.ts --html          # Generate interactive HTML
+npx awaitly-analyze ./workflow.ts --write-dsl    # Write .awaitly/dsl/ folder
 
 # Diff: two local files
 npx awaitly-analyze --diff v1.ts v2.ts
@@ -271,7 +295,7 @@ npx awaitly-analyze --diff main:src/workflow.ts src/workflow.ts
 npx awaitly-analyze --diff gh:#123
 
 # Diff: GitHub PR scoped to one file
-npx awaitly-analyze --diff gh:#123 src/workflow.ts
+npx awaitly-analyze --diff gh:#123 src/wf.ts
 
 # Diff with regression detection (removed steps flagged)
 npx awaitly-analyze --diff v1.ts v2.ts --regression

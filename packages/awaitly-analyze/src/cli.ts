@@ -14,6 +14,8 @@ import { resolve, dirname, basename, extname, join } from "path";
 import { writeFileSync } from "fs";
 import { analyze } from "./analyze";
 import { renderStaticMermaid } from "./output/mermaid";
+import { generateTestMatrix, formatTestMatrixAsCode } from "./output/test-matrix";
+import { generatePaths } from "./path-generator";
 import { renderMultipleStaticJSON } from "./output/json";
 import { renderWorkflowDSL } from "./output/dsl";
 import { extractNodeMetadata, extractRailwayNodeMetadata, generateInteractiveHTML } from "./output/html";
@@ -30,6 +32,7 @@ import { startWatch } from "./watch";
 
 type Direction = "TB" | "TD" | "LR" | "BT" | "RL";
 type Format = "mermaid" | "json" | "markdown";
+type TestRunner = "vitest" | "jest" | "mocha";
 
 /** "off" = don't write; ".awaitly" = write to .awaitly/dsl/; or custom path */
 type DslOutputOption = "off" | ".awaitly" | string;
@@ -54,6 +57,10 @@ interface CliOptions {
   railway: boolean;
   auto: boolean;
   watch: boolean;
+  types: boolean;
+  test: boolean;
+  testRunner: TestRunner;
+  errors: boolean;
 }
 
 function printHelp(): void {
@@ -86,6 +93,10 @@ Options:
   --regression          Flag removed steps as regressions (use with --diff)
   --railway             Generate railway-style flow diagram (LR or TD with ok/err branches)
   --watch               Watch source file and re-analyze on changes
+  --types / --no-types   Generate TypeScript types file (default: on)
+  --test / --no-test     Generate test stubs (default: off)
+  --test-runner=<runner> Test runner: vitest (default), jest, or mocha
+  --errors / --no-errors Show error nodes in diagrams (default: on)
   --help, -h             Show this help message
 
 Auto-detection:
@@ -132,6 +143,10 @@ export function parseArgs(args: string[]): CliOptions {
     railway: false,
     auto: true,
     watch: false,
+    types: true,
+    test: false,
+    testRunner: "vitest",
+    errors: true,
   };
 
   for (const arg of args) {
@@ -196,6 +211,20 @@ export function parseArgs(args: string[]): CliOptions {
       options.regressionMode = true;
     } else if (arg === "--watch") {
       options.watch = true;
+    } else if (arg === "--types" || arg === "--no-types") {
+      options.types = arg === "--types";
+    } else if (arg === "--test" || arg === "--no-test") {
+      options.test = arg === "--test";
+    } else if (arg.startsWith("--test-runner=")) {
+      const runner = arg.slice("--test-runner=".length).trim();
+      if (runner === "vitest" || runner === "jest" || runner === "mocha") {
+        options.testRunner = runner;
+      } else {
+        console.error(`Unknown test runner: ${runner}. Use vitest, jest, or mocha.`);
+        process.exit(1);
+      }
+    } else if (arg === "--errors" || arg === "--no-errors") {
+      options.errors = arg === "--errors";
     } else if (!arg.startsWith("-")) {
       if (options.diff) {
         options.diffSources.push(arg);
@@ -459,10 +488,12 @@ function runAnalysis(options: CliOptions, filePath: string): void {
               direction: direction === "LR" ? "LR" : "TD",
               showKeys: options.showKeys,
               useNodeIds: true,
+              includeInferredErrors: options.errors,
             })
           : renderStaticMermaid(ir, {
               direction,
               showKeys: options.showKeys,
+              showInlineErrors: options.errors,
             });
         const metadata = useRailway
           ? extractRailwayNodeMetadata(ir)
@@ -508,15 +539,21 @@ function runAnalysis(options: CliOptions, filePath: string): void {
         }
 
         if (useRailway) {
-          parts.push(renderRailwayMermaid(ir, {
-            direction: (direction === "LR" ? "LR" : "TD") as "LR" | "TD",
-            showKeys: options.showKeys,
-          }));
+          parts.push(
+            renderRailwayMermaid(ir, {
+              direction: direction === "LR" ? "LR" : "TD",
+              showKeys: options.showKeys,
+              includeInferredErrors: options.errors,
+            })
+          );
         } else {
-          parts.push(renderStaticMermaid(ir, {
-            direction,
-            showKeys: options.showKeys,
-          }));
+          parts.push(
+            renderStaticMermaid(ir, {
+              direction,
+              showKeys: options.showKeys,
+              showInlineErrors: options.errors,
+            })
+          );
         }
 
         if (workflows.length > 1) parts.push("");
@@ -535,6 +572,31 @@ function runAnalysis(options: CliOptions, filePath: string): void {
         const dsl = renderWorkflowDSL(ir);
         const written = writeDSLToAwaitlyDirSync(dsl, writeOpts);
         console.error(`Wrote DSL: ${written}`);
+      }
+    }
+
+    if (options.test) {
+      for (const ir of workflows) {
+        const paths = generatePaths(ir);
+        const matrix = generateTestMatrix(paths);
+        const testCode = formatTestMatrixAsCode(matrix, {
+          testRunner: options.testRunner,
+          workflowName: ir.root.workflowName,
+        });
+        const testDir = dirname(filePath);
+        const testFilePath = join(testDir, `${ir.root.workflowName}.test.ts`);
+        writeFileSync(testFilePath, testCode, "utf-8");
+        console.error(`Wrote test: ${testFilePath}`);
+      }
+    }
+
+    if (options.types) {
+      for (const ir of workflows) {
+        const typesCode = generateTypesFile(ir);
+        const typesDir = dirname(filePath);
+        const typesFilePath = join(typesDir, `${ir.root.workflowName}.types.ts`);
+        writeFileSync(typesFilePath, typesCode, "utf-8");
+        console.error(`Wrote types: ${typesFilePath}`);
       }
     }
 
@@ -563,6 +625,54 @@ function runAnalysis(options: CliOptions, filePath: string): void {
       process.exit(1);
     }
   }
+}
+
+import type { StaticWorkflowIR } from "./types";
+
+function generateTypesFile(ir: StaticWorkflowIR): string {
+  const lines: string[] = [];
+  const name = ir.root.workflowName;
+  const deps = ir.root.dependencies;
+  const errorTypes = ir.root.errorTypes;
+  const workflowErrors = ir.root.declaredErrors;
+
+  lines.push(`/**
+ * Types for ${name} workflow
+ * Generated by awaitly-analyze
+ */`);
+  lines.push("");
+  lines.push(`import type { AsyncResult } from "awaitly";`);
+  lines.push("");
+
+  // Input type from deps (extract from signature)
+  const inputParams = deps.flatMap((d) => d.signature?.params ?? []).filter(Boolean);
+  if (inputParams.length > 0) {
+    lines.push(`export type ${name}Input = {`);
+    for (const p of inputParams) {
+      lines.push(`  ${p.name}: ${p.type ?? "unknown"},`);
+    }
+    lines.push(`};`);
+    lines.push("");
+  }
+
+  // Output type
+  const returnType = ir.root.workflowReturnType ?? "unknown";
+  lines.push(`export type ${name}Output = ${returnType};`);
+  lines.push("");
+
+  // Errors union
+  const allErrors = [...new Set([...(workflowErrors ?? []), ...errorTypes])];
+  if (allErrors.length > 0) {
+    lines.push(`export type ${name}Error = ${allErrors.map((e) => `'${e}'`).join(" | ")};`);
+    lines.push("");
+    lines.push(`export type ${name}Result = AsyncResult<${name}Output, ${name}Error>;`);
+  } else {
+    lines.push(`export type ${name}Error = never;`);
+    lines.push("");
+    lines.push(`export type ${name}Result = AsyncResult<${name}Output, never>;`);
+  }
+
+  return lines.join("\n");
 }
 
 // Only run main when this file is executed directly (not imported as a module)

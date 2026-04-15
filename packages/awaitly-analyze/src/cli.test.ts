@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawn, spawnSync } from "child_process";
 import { parseArgs } from "./cli";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 
 const CLI_PATH = join(__dirname, "..", "dist", "cli.js");
@@ -129,6 +129,14 @@ describe("CLI", () => {
     ]) {
       if (existsSync(file)) {
         unlinkSync(file);
+      }
+    }
+    // Clean up generated .types.ts and .test.ts files from --types/--test flags
+    if (existsSync(FIXTURES_DIR)) {
+      for (const file of readdirSync(FIXTURES_DIR)) {
+        if (file.endsWith(".types.ts") || file.endsWith(".test.ts")) {
+          unlinkSync(join(FIXTURES_DIR, file));
+        }
       }
     }
   });
@@ -468,6 +476,8 @@ describe("--railway", () => {
       testFilePath,
       "--railway",
       "--direction=TD",
+      "--no-test",
+      "--no-types",
     ]);
 
     expect(exitCode).toBe(0);
@@ -481,6 +491,8 @@ describe("--railway", () => {
       testFilePath,
       "--railway",
       "--keys",
+      "--no-test",
+      "--no-types",
     ]);
 
     expect(exitCode).toBe(0);
