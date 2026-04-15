@@ -1,5 +1,11 @@
 # awaitly
 
+## 1.32.2
+
+### Patch Changes
+
+- 8fbe845: Added error utlity functions
+
 ## 1.32.1
 
 ### Patch Changes
