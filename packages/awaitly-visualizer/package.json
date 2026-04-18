@@ -95,7 +95,7 @@
   "devDependencies": {
     "@total-typescript/ts-reset": "^0.6.1",
     "@total-typescript/tsconfig": "^1.0.4",
-    "@types/node": "^25.5.2",
+    "@types/node": "^25.6.0",
     "@types/pako": "^2.0.4",
     "awaitly": "workspace:^",
     "jsdom": "^29.0.1",
