@@ -247,7 +247,7 @@
     "@total-typescript/tsconfig": "^1.0.4",
     "@types/node": "^25.6.0",
     "@types/picomatch": "^4.0.3",
-    "@vitest/coverage-v8": "^4.1.2",
+    "@vitest/coverage-v8": "^4.1.5",
     "eslint-plugin-awaitly": "workspace:*",
     "pino": "^10.3.1",
     "tsd": "^0.33.0",
