@@ -1,87 +1,11 @@
 ---
-title: "awaitly"
+title: awaitly
 description: Typed async workflows with Result types and automatic error inference
 template: splash
-hero:
-  image:
-    file: ../../../public/logo-animated.svg
-    alt: awaitly logo - clock face with checkmark smile
-  tagline: Typed async workflows with Result types and automatic error inference
-  actions:
-    - text: Get Started
-      link: getting-started/installation/
-      icon: right-arrow
-    - text: View on GitHub
-      link: https://github.com/jagreehal/awaitly
-      icon: external
-      variant: minimal
+pagefind: false
+tableOfContents: false
 ---
 
-import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import Landing from '../../components/landing/Landing.astro';
 
-> *Good things come to those who a-wait-ly*
-
-## What it does
-
-- Wraps async operations in `Result<T, E>` instead of try/catch
-- Infers error types from your dependencies automatically
-- Provides step caching, retries, and timeouts when you need them
-- Supports pause/resume for long-running workflows
-
-## Install
-
-```bash
-npm install awaitly
-```
-
-## Basic example
-
-```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
-
-// Define operations that return Results (or use Awaitly.ok / Awaitly.err)
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
-  id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND');
-
-// Create workflow - error types are inferred
-const workflow = createWorkflow('workflow', { fetchUser });
-
-// Run it
-const result = await workflow.run(async ({ step, deps }) => {
-  const user = await step('fetchUser', () => deps.fetchUser('1'));
-  return user;
-});
-
-if (result.ok) {
-  console.log(result.value.name);
-} else {
-  // TypeScript knows: result.error is 'NOT_FOUND' | UnexpectedError
-}
-```
-
-## When to use this
-
-<CardGrid>
-  <Card title="Typed errors with async/await" icon="pencil">
-    You want compile-time error checking without giving up familiar syntax
-  </Card>
-  <Card title="Reliability primitives" icon="setting">
-    You need retries, timeouts, circuit breakers built into your workflow
-  </Card>
-  <Card title="Long-running workflows" icon="document">
-    You're building workflows that pause for approval or persist across restarts
-  </Card>
-  <Card title="Automatic error inference" icon="approve-check">
-    You want error types computed from dependencies, not maintained manually
-  </Card>
-</CardGrid>
-
-## Next steps
-
-<CardGrid>
-  <LinkCard title="Installation" description="Install the package and set up your first project" href="getting-started/installation/" />
-  <LinkCard title="Your First Workflow" description="Build a simple workflow in 5 minutes" href="getting-started/first-workflow/" />
-  <LinkCard title="Core Concepts" description="Understand Results, Steps, and Workflows" href="foundations/result-types/" />
-  <LinkCard title="API Reference" description="Full API documentation" href="reference/api/" />
-</CardGrid>
+<Landing />

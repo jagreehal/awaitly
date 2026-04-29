@@ -1,0 +1,280 @@
+---
+// The diff is the centerpiece. Real working code, hand-marked syntax highlighting
+// via classed spans so we control the exact color story (amber for ok, rust for err,
+// cream-3 for keywords/comments, cream for identifiers).
+---
+
+<section class="landing-section diff" aria-labelledby="diff-heading">
+  <div class="landing-inner">
+    <header class="diff__header">
+      <span class="landing-eyebrow">01 · The diff</span>
+      <h2 class="landing-h2" id="diff-heading">
+        Same handler. <em>One returns <code>unknown</code>.</em>
+      </h2>
+      <p class="landing-lead">
+        Both versions handle a money transfer that can fail four different ways.
+        On the left, every error funnels to <code>error: unknown</code> — TypeScript can't help.
+        On the right, every error is named, typed, and unionised by inference.
+      </p>
+    </header>
+
+    <div class="diff__grid">
+      <article class="diff__panel diff__panel--before">
+        <header class="diff__panel-head">
+          <span class="diff__tag diff__tag--rust">today</span>
+          <span class="diff__title">try / catch</span>
+        </header>
+        <pre class="diff__code" is:raw><code><span class="kw">async function</span> <span class="fn">transfer</span>(<span class="id">id</span>: <span class="ty">string</span>, <span class="id">amt</span>: <span class="ty">number</span>) {
+  <span class="kw">try</span> {
+    <span class="kw">const</span> <span class="id">user</span> = <span class="kw">await</span> <span class="fn">getUser</span>(<span class="id">id</span>);
+    <span class="kw">if</span> (!<span class="id">user</span>) <span class="kw">return</span> { <span class="id">error</span>: <span class="str">'not found'</span> };
+
+    <span class="kw">if</span> (<span class="id">user</span>.<span class="id">balance</span> &lt; <span class="id">amt</span>)
+      <span class="kw">return</span> { <span class="id">error</span>: <span class="str">'insufficient'</span> };
+
+    <span class="kw">return</span> <span class="kw">await</span> <span class="fn">charge</span>(<span class="id">user</span>, <span class="id">amt</span>);
+  } <span class="kw">catch</span> (<span class="id err">e</span>) {
+    <span class="cm">// e: unknown — network? db? sdk crash?</span>
+    <span class="kw">return</span> { <span class="id">error</span>: <span class="fn">String</span>(<span class="id err">e</span>) };
+  }
+}</code></pre>
+        <footer class="diff__foot">
+          <span class="diff__inferred diff__inferred--rust">
+            <span class="diff__inferred-label">TypeScript sees</span>
+            <span class="diff__inferred-type">{'{ error: string } | Charge'}</span>
+          </span>
+          <p class="diff__note">
+            Three different failures collapse into one
+            <code>string</code>. The boundary can't tell <em>not found</em>
+            from <em>declined</em>.
+          </p>
+        </footer>
+      </article>
+
+      <article class="diff__panel diff__panel--after">
+        <header class="diff__panel-head">
+          <span class="diff__tag diff__tag--amber">with awaitly</span>
+          <span class="diff__title">step() + Result</span>
+        </header>
+        <pre class="diff__code" is:raw><code><span class="kw">const</span> <span class="id">transfer</span> = <span class="fn">createWorkflow</span>({ <span class="id">getUser</span>, <span class="id">charge</span>, <span class="id">checkFunds</span> });
+
+<span class="kw">const</span> <span class="id">result</span> = <span class="kw">await</span> <span class="fn">transfer</span>(<span class="kw">async</span> ({ <span class="id">step</span>, <span class="id">deps</span> }) =&gt; {
+  <span class="kw">const</span> <span class="id">user</span>  = <span class="kw">await</span> <span class="fn">step</span>(<span class="str">'getUser'</span>,    () =&gt; <span class="id">deps</span>.<span class="fn">getUser</span>(<span class="id">id</span>));
+  <span class="kw">await</span>             <span class="fn">step</span>(<span class="str">'checkFunds'</span>, () =&gt; <span class="id">deps</span>.<span class="fn">checkFunds</span>(<span class="id">user</span>, <span class="id">amt</span>));
+  <span class="kw">return</span> <span class="kw">await</span>     <span class="fn">step</span>(<span class="str">'charge'</span>,     () =&gt; <span class="id">deps</span>.<span class="fn">charge</span>(<span class="id">user</span>, <span class="id">amt</span>));
+});
+
+<span class="kw">if</span> (!<span class="id">result</span>.<span class="id">ok</span>) {
+  <span class="kw">switch</span> (<span class="id">result</span>.<span class="id">error</span>.<span class="id">type</span>) {
+    <span class="kw">case</span> <span class="str ok">'USER_NOT_FOUND'</span>:    <span class="kw">return</span> <span class="num">404</span>;
+    <span class="kw">case</span> <span class="str ok">'INSUFFICIENT_FUNDS'</span>: <span class="kw">return</span> <span class="num">400</span>;
+    <span class="kw">case</span> <span class="str ok">'CHARGE_DECLINED'</span>:   <span class="kw">return</span> <span class="num">402</span>;
+  } <span class="cm">// exhaustive — TS errors if you miss one</span>
+}</code></pre>
+        <footer class="diff__foot">
+          <span class="diff__inferred diff__inferred--amber">
+            <span class="diff__inferred-label">TypeScript infers</span>
+            <span class="diff__inferred-type">{'Result<Charge, USER_NOT_FOUND | INSUFFICIENT_FUNDS | CHARGE_DECLINED | UnexpectedError>'}</span>
+          </span>
+          <p class="diff__note">
+            Add a step? The error union widens automatically.
+            Remove one? It narrows. The compiler keeps it honest.
+          </p>
+        </footer>
+      </article>
+    </div>
+  </div>
+</section>
+
+<style>
+  .diff {
+    padding-block: clamp(4rem, 8vw, 7rem);
+    background:
+      linear-gradient(180deg, transparent 0, var(--ink-2) 32%, var(--ink-2) 68%, transparent 100%);
+  }
+
+  .diff__header {
+    max-width: 64ch;
+    margin-bottom: clamp(2.5rem, 5vw, 4rem);
+  }
+  .diff__header .landing-h2 code {
+    font-family: var(--mono);
+    font-size: 0.78em;
+    font-weight: 600;
+    background: oklch(from var(--rust) l c h / 0.18);
+    color: var(--rust);
+    padding: 0.05em 0.32em;
+    border-radius: 4px;
+    border: 1px solid oklch(from var(--rust) l c h / 0.35);
+    letter-spacing: -0.005em;
+    vertical-align: 0.04em;
+  }
+  .diff__header .landing-lead code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    color: var(--cream);
+    background: var(--ink-3);
+    padding: 0.05em 0.35em;
+    border-radius: 3px;
+  }
+
+  .diff__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+  }
+  @media (min-width: 64rem) {
+    .diff__grid {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+      gap: clamp(1.25rem, 2.5vw, 2rem);
+      align-items: stretch;
+    }
+  }
+
+  .diff__panel {
+    background: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 40px -20px oklch(0 0 0 / 0.5);
+  }
+  .diff__panel--before {
+    opacity: 0.92;
+  }
+
+  .diff__panel-head {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.875rem 1.125rem;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .diff__tag {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+  }
+  .diff__tag--rust {
+    color: var(--rust);
+    background: oklch(from var(--rust) l c h / 0.12);
+    border: 1px solid oklch(from var(--rust) l c h / 0.30);
+  }
+  .diff__tag--amber {
+    color: var(--amber);
+    background: oklch(from var(--amber) l c h / 0.12);
+    border: 1px solid oklch(from var(--amber) l c h / 0.30);
+  }
+  .diff__title {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    color: var(--cream-2);
+    letter-spacing: -0.01em;
+  }
+
+  .diff__code {
+    margin: 0;
+    padding: 1.25rem 1.25rem 1.5rem;
+    font-family: var(--mono);
+    font-size: clamp(0.78rem, 0.95vw, 0.85rem);
+    line-height: 1.7;
+    color: var(--cream-2);
+    overflow-x: auto;
+    flex: 1;
+    background: transparent;
+    tab-size: 2;
+  }
+  .diff__code code {
+    font-family: inherit;
+    font-size: inherit;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    border: 0;
+    white-space: pre;
+  }
+
+  /* Hand-styled syntax tokens */
+  .diff__code .kw  { color: var(--cream-3); font-weight: 500; }
+  .diff__code .fn  { color: var(--cream); }
+  .diff__code .id  { color: var(--cream-2); }
+  .diff__code .ty  { color: var(--cream-3); font-style: italic; }
+  .diff__code .str { color: oklch(0.78 0.10 100); }
+  .diff__code .num { color: oklch(0.78 0.10 100); }
+  .diff__code .cm  { color: var(--cream-3); font-style: italic; opacity: 0.7; }
+
+  .diff__code .err {
+    color: var(--rust);
+    background: oklch(from var(--rust) l c h / 0.12);
+    padding: 0 0.18em;
+    border-radius: 3px;
+  }
+  .diff__code .ok {
+    color: var(--amber);
+  }
+
+  .diff__foot {
+    border-top: 1px solid var(--line-soft);
+    padding: 1rem 1.125rem 1.125rem;
+    background: oklch(from var(--ink) l c h / 0.6);
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+
+  .diff__inferred {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+  }
+  .diff__inferred--rust {
+    background: oklch(from var(--rust) l c h / 0.08);
+    border: 1px solid oklch(from var(--rust) l c h / 0.22);
+  }
+  .diff__inferred--amber {
+    background: oklch(from var(--amber) l c h / 0.08);
+    border: 1px solid oklch(from var(--amber) l c h / 0.22);
+  }
+  .diff__inferred-label {
+    font-size: 0.625rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--cream-3);
+    font-weight: 600;
+  }
+  .diff__inferred--rust .diff__inferred-type { color: var(--rust); }
+  .diff__inferred--amber .diff__inferred-type { color: var(--amber); }
+  .diff__inferred-type {
+    font-size: 0.75rem;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  .diff__note {
+    margin: 0.25rem 0 0;
+    font-family: var(--display);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--cream-3);
+  }
+  .diff__note em {
+    font-style: italic;
+    color: var(--cream-2);
+  }
+  .diff__note code {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    color: var(--cream-2);
+  }
+</style>
