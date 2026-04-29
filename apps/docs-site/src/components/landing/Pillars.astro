@@ -1,0 +1,144 @@
+---
+const pillars = [
+  {
+    n: '01',
+    title: 'Errors as data.',
+    body: 'Functions that fail return Result types — never thrown exceptions for expected failures. The compiler tracks every variant.',
+    code: [
+      { kind: 'cm',  text: '// expected failures become typed values' },
+      { kind: 'kw',  text: 'return ' }, { kind: 'fn', text: 'ok' }, { kind: 'pun', text: '({ id, name });' }, { kind: 'br' },
+      { kind: 'kw',  text: 'return ' }, { kind: 'fn', text: 'err' }, { kind: 'pun', text: '({ ' }, { kind: 'id', text: 'type' }, { kind: 'pun', text: ': ' }, { kind: 'str ok', text: "'USER_NOT_FOUND'" }, { kind: 'pun', text: ', userId });' },
+    ],
+  },
+  {
+    n: '02',
+    title: 'Composes with await.',
+    body: 'No method chains, no generator runners. step() unwraps Results inside a normal async function — the happy path reads top-to-bottom.',
+    code: [
+      { kind: 'kw',  text: 'const ' }, { kind: 'id', text: 'user' }, { kind: 'pun', text: '  = ' }, { kind: 'kw', text: 'await ' }, { kind: 'fn', text: 'step' }, { kind: 'pun', text: "(" }, { kind: 'str', text: "'getUser'" }, { kind: 'pun', text: ', () => deps.' }, { kind: 'fn', text: 'getUser' }, { kind: 'pun', text: '(id));' }, { kind: 'br' },
+      { kind: 'kw',  text: 'const ' }, { kind: 'id', text: 'order' }, { kind: 'pun', text: ' = ' }, { kind: 'kw', text: 'await ' }, { kind: 'fn', text: 'step' }, { kind: 'pun', text: "(" }, { kind: 'str', text: "'getOrder'" }, { kind: 'pun', text: ', () => deps.' }, { kind: 'fn', text: 'getOrder' }, { kind: 'pun', text: '(user.id));' }, { kind: 'br' },
+      { kind: 'kw',  text: 'return ' }, { kind: 'fn', text: 'fulfil' }, { kind: 'pun', text: '(order);' },
+    ],
+  },
+  {
+    n: '03',
+    title: 'Reliability built in.',
+    body: 'Retries, timeouts, idempotency keys, save & resume — primitives, not afterthoughts. Add them where you need them, leave the rest untouched.',
+    code: [
+      { kind: 'kw',  text: 'await ' }, { kind: 'fn', text: 'step.retry' }, { kind: 'pun', text: '(' }, { kind: 'str', text: "'charge'" }, { kind: 'pun', text: ', () => deps.' }, { kind: 'fn', text: 'charge' }, { kind: 'pun', text: '(amt), {' }, { kind: 'br' },
+      { kind: 'pun', text: '  ' }, { kind: 'id', text: 'attempts' }, { kind: 'pun', text: ': ' }, { kind: 'str ok', text: '3' }, { kind: 'pun', text: ',' }, { kind: 'br' },
+      { kind: 'pun', text: '  ' }, { kind: 'id', text: 'backoff' }, { kind: 'pun', text: ': ' }, { kind: 'str', text: "'exponential'" }, { kind: 'pun', text: ',' }, { kind: 'br' },
+      { kind: 'pun', text: '  ' }, { kind: 'id', text: 'key' }, { kind: 'pun', text: ': ' }, { kind: 'str', text: '`charge:${order.idempotencyKey}`' }, { kind: 'br' },
+      { kind: 'pun', text: '});' },
+    ],
+  },
+];
+---
+
+<section class="landing-section pillars" aria-labelledby="pillars-heading">
+  <div class="landing-inner">
+    <header class="pillars__header">
+      <span class="landing-eyebrow">03 · Why awaitly</span>
+      <h2 class="landing-h2" id="pillars-heading">
+        Three ideas. <em>That's the whole library.</em>
+      </h2>
+    </header>
+
+    <div class="pillars__grid">
+      {pillars.map((p) => (
+        <article class="pillar">
+          <div class="pillar__num" aria-hidden="true">{p.n}</div>
+          <h3 class="pillar__title">{p.title}</h3>
+          <p class="pillar__body">{p.body}</p>
+          <pre class="pillar__code"><code>{p.code.map((t) => t.kind === 'br' ? <br /> : <span class={t.kind}>{t.text}</span>)}</code></pre>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .pillars {
+    padding-block: clamp(4.5rem, 9vw, 7.5rem);
+    background: var(--ink-2);
+  }
+
+  .pillars__header {
+    max-width: 60ch;
+    margin-bottom: clamp(2.5rem, 5vw, 4rem);
+  }
+
+  .pillars__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: clamp(1.25rem, 2.5vw, 1.75rem);
+  }
+  @media (min-width: 52rem) {
+    .pillars__grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .pillar {
+    background: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: clamp(1.25rem, 2.5vw, 1.75rem);
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    transition: border-color 200ms ease, transform 200ms ease;
+  }
+  .pillar:hover {
+    border-color: var(--amber-dim);
+    transform: translateY(-2px);
+  }
+
+  .pillar__num {
+    font-family: var(--display);
+    font-weight: 300;
+    font-size: clamp(2rem, 4vw, 2.5rem);
+    line-height: 1;
+    letter-spacing: -0.04em;
+    color: var(--amber);
+    font-feature-settings: 'tnum';
+  }
+
+  .pillar__title {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: clamp(1.25rem, 1.8vw, 1.5rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--cream);
+    margin: 0.25rem 0 0;
+  }
+
+  .pillar__body {
+    font-family: var(--display);
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    color: var(--cream-2);
+    margin: 0;
+  }
+
+  .pillar__code {
+    margin: 0.5rem 0 0;
+    padding: 0.875rem 1rem;
+    background: var(--ink-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 0.78125rem;
+    line-height: 1.6;
+    color: var(--cream-2);
+    overflow-x: auto;
+  }
+  .pillar__code .kw  { color: var(--cream-3); }
+  .pillar__code .fn  { color: var(--cream); }
+  .pillar__code .id  { color: var(--cream-2); }
+  .pillar__code .str { color: oklch(0.78 0.10 100); }
+  .pillar__code .ok  { color: var(--amber); }
+  .pillar__code .pun { color: var(--cream-3); }
+  .pillar__code .cm  { color: var(--cream-3); font-style: italic; opacity: 0.75; }
+</style>

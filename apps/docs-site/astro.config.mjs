@@ -31,6 +31,25 @@ export default defineConfig({
             href: (process.env.BASE || '/awaitly').replace(/\/?$/, '/'),
           },
         },
+        {
+          tag: 'link',
+          attrs: { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+        },
+        {
+          tag: 'link',
+          attrs: {
+            rel: 'preconnect',
+            href: 'https://fonts.gstatic.com',
+            crossorigin: '',
+          },
+        },
+        {
+          tag: 'link',
+          attrs: {
+            rel: 'stylesheet',
+            href: 'https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:ital,wght@0,400..900;1,400..900&display=swap',
+          },
+        },
       ],
       favicon: '/favicon.svg',
       logo: {
@@ -179,6 +198,7 @@ export default defineConfig({
         "~/components": fileURLToPath(new URL("./src/components", import.meta.url)),
         tslib: require.resolve("tslib"),
       },
+      tsconfigPaths: false,
     },
     // @ts-expect-error Tailwind Vite plugin types target Vite 7; Astro uses Vite 6. Runtime compatible.
     plugins: [tailwindcss()],
