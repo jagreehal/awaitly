@@ -1,7 +1,7 @@
-@import "tailwindcss";
-@import "tw-animate-css";
+@import 'tailwindcss';
+@import 'tw-animate-css';
 /* Starlight/shadcn theme: Starlight Theme Next tokens → shadcn vars (data-theme="light" | "dark") */
-@import "../jag.css";
+@import '../jag.css';
 
 /* Starlight uses data-theme="dark" on :root for dark mode */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
@@ -68,7 +68,7 @@ details summary::-webkit-details-marker {
 }
 summary::marker,
 details summary::marker {
-  content: "" !important;
+  content: '' !important;
   display: none !important;
   font-size: 0 !important;
 }
@@ -91,4 +91,10 @@ details summary::marker {
   height: 2.25rem;
   min-height: 2.25rem;
   box-sizing: border-box;
+}
+
+.sl-markdown-no-margin
+  :not(a, strong, em, del, span, input, code, br)
+  + :not(a, strong, em, del, span, input, code, br, :where(.not-content *)) {
+  margin-top: 0;
 }

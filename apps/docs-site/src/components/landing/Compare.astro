@@ -1,9 +1,9 @@
 ---
 const cols = [
-  { key: 'awaitly',    label: 'awaitly',    sub: 'this library', highlight: true },
-  { key: 'trycatch',   label: 'try / catch', sub: 'JavaScript' },
+  { key: 'awaitly', label: 'awaitly', sub: 'this library', highlight: true },
+  { key: 'trycatch', label: 'try / catch', sub: 'JavaScript' },
   { key: 'neverthrow', label: 'neverthrow', sub: 'Result types' },
-  { key: 'effect',     label: 'Effect',     sub: 'fp ecosystem' },
+  { key: 'effect', label: 'Effect', sub: 'fp ecosystem' },
 ];
 
 type Cell = { kind: 'yes' | 'no' | 'partial' | 'note'; text?: string };
@@ -12,46 +12,46 @@ const rows: { label: string; cells: Record<string, Cell> }[] = [
   {
     label: 'async / await syntax',
     cells: {
-      awaitly:    { kind: 'yes' },
-      trycatch:   { kind: 'yes' },
+      awaitly: { kind: 'yes' },
+      trycatch: { kind: 'yes' },
       neverthrow: { kind: 'partial', text: 'methods' },
-      effect:     { kind: 'partial', text: 'gens / pipe' },
+      effect: { kind: 'partial', text: 'gens / pipe' },
     },
   },
   {
     label: 'errors typed automatically',
     cells: {
-      awaitly:    { kind: 'yes' },
-      trycatch:   { kind: 'no', text: 'unknown' },
+      awaitly: { kind: 'yes' },
+      trycatch: { kind: 'no', text: 'unknown' },
       neverthrow: { kind: 'partial', text: 'manual unions' },
-      effect:     { kind: 'yes' },
+      effect: { kind: 'yes' },
     },
   },
   {
     label: 'retries / timeouts built in',
     cells: {
-      awaitly:    { kind: 'yes' },
-      trycatch:   { kind: 'no' },
+      awaitly: { kind: 'yes' },
+      trycatch: { kind: 'no' },
       neverthrow: { kind: 'no' },
-      effect:     { kind: 'yes' },
+      effect: { kind: 'yes' },
     },
   },
   {
     label: 'pause / resume workflows',
     cells: {
-      awaitly:    { kind: 'yes' },
-      trycatch:   { kind: 'no' },
+      awaitly: { kind: 'yes' },
+      trycatch: { kind: 'no' },
       neverthrow: { kind: 'no' },
-      effect:     { kind: 'partial', text: 'via fibers' },
+      effect: { kind: 'partial', text: 'via fibers' },
     },
   },
   {
     label: 'learning curve',
     cells: {
-      awaitly:    { kind: 'note', text: 'one new fn' },
-      trycatch:   { kind: 'note', text: 'none' },
+      awaitly: { kind: 'note', text: 'one new fn' },
+      trycatch: { kind: 'note', text: 'none' },
       neverthrow: { kind: 'note', text: 'low' },
-      effect:     { kind: 'note', text: 'runtime + DSL' },
+      effect: { kind: 'note', text: 'runtime + DSL' },
     },
   },
 ];
@@ -65,8 +65,8 @@ const rows: { label: string; cells: Record<string, Cell> }[] = [
         Honest <em>about the trade-offs.</em>
       </h2>
       <p class="landing-lead">
-        Effect is excellent. neverthrow is excellent. <code>try/catch</code> works fine
-        when types don't matter. awaitly sits in the middle: typed errors, async/await,
+        Effect is excellent. neverthrow is excellent. <code>try/catch</code> works
+        fine when types don't matter. awaitly sits in the middle: typed errors, async/await,
         no DSL to learn.
       </p>
     </header>
@@ -76,31 +76,65 @@ const rows: { label: string; cells: Record<string, Cell> }[] = [
         <thead>
           <tr>
             <th scope="col" class="compare__th-label"></th>
-            {cols.map((c) => (
-              <th scope="col" class={`compare__th${c.highlight ? ' compare__th--mine' : ''}`}>
-                <span class="compare__col-label">{c.label}</span>
-                <span class="compare__col-sub">{c.sub}</span>
-              </th>
-            ))}
+            {
+              cols.map((c) => (
+                <th
+                  scope="col"
+                  class={`compare__th${c.highlight ? ' compare__th--mine' : ''}`}
+                >
+                  <span class="compare__col-label">{c.label}</span>
+                  <span class="compare__col-sub">{c.sub}</span>
+                </th>
+              ))
+            }
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr>
-              <th scope="row" class="compare__row-label">{row.label}</th>
-              {cols.map((c) => {
-                const cell = row.cells[c.key];
-                return (
-                  <td class={`compare__cell compare__cell--${cell.kind}${c.highlight ? ' compare__cell--mine' : ''}`}>
-                    {cell.kind === 'yes' && <span class="compare__mark compare__mark--yes" aria-label="yes">●</span>}
-                    {cell.kind === 'no' && <span class="compare__mark compare__mark--no" aria-label="no">○</span>}
-                    {cell.kind === 'partial' && <span class="compare__mark compare__mark--partial" aria-label="partial">◐</span>}
-                    {cell.text && <span class="compare__cell-text">{cell.text}</span>}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
+          {
+            rows.map((row) => (
+              <tr>
+                <th scope="row" class="compare__row-label">
+                  {row.label}
+                </th>
+                {cols.map((c) => {
+                  const cell = row.cells[c.key];
+                  return (
+                    <td
+                      class={`compare__cell compare__cell--${cell.kind}${c.highlight ? ' compare__cell--mine' : ''}`}
+                    >
+                      {cell.kind === 'yes' && (
+                        <span
+                          class="compare__mark compare__mark--yes"
+                          aria-label="yes"
+                        >
+                          ●
+                        </span>
+                      )}
+                      {cell.kind === 'no' && (
+                        <span
+                          class="compare__mark compare__mark--no"
+                          aria-label="no"
+                        >
+                          ○
+                        </span>
+                      )}
+                      {cell.kind === 'partial' && (
+                        <span
+                          class="compare__mark compare__mark--partial"
+                          aria-label="partial"
+                        >
+                          ◐
+                        </span>
+                      )}
+                      {cell.text && (
+                        <span class="compare__cell-text">{cell.text}</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))
+          }
         </tbody>
       </table>
     </div>
@@ -134,6 +168,7 @@ const rows: { label: string; cells: Record<string, Cell> }[] = [
   }
 
   .compare__table {
+    display: table;
     width: 100%;
     border-collapse: collapse;
     font-family: var(--display);
@@ -160,13 +195,18 @@ const rows: { label: string; cells: Record<string, Cell> }[] = [
     border-bottom: 1px solid var(--line);
     width: 18%;
   }
-  .compare__th-label { width: 28%; background: var(--ink); }
+  .compare__th-label {
+    width: 28%;
+    background: var(--ink);
+  }
 
   .compare__th--mine {
-    background: oklch(from var(--amber) l c h / 0.10);
+    background: oklch(from var(--amber) l c h / 0.1);
     border-bottom-color: var(--amber-dim);
   }
-  .compare__th--mine .compare__col-label { color: var(--amber); }
+  .compare__th--mine .compare__col-label {
+    color: var(--amber);
+  }
 
   .compare__col-label {
     display: block;
@@ -212,9 +252,15 @@ const rows: { label: string; cells: Record<string, Cell> }[] = [
     display: inline-block;
     vertical-align: -1px;
   }
-  .compare__mark--yes { color: var(--amber); }
-  .compare__mark--no  { color: oklch(from var(--rust) l c h / 0.7); }
-  .compare__mark--partial { color: var(--cream-3); }
+  .compare__mark--yes {
+    color: var(--amber);
+  }
+  .compare__mark--no {
+    color: oklch(from var(--rust) l c h / 0.7);
+  }
+  .compare__mark--partial {
+    color: var(--cream-3);
+  }
 
   .compare__cell-text {
     font-family: var(--mono);

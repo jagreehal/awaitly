@@ -13,18 +13,20 @@
       </h2>
       <p class="landing-lead">
         Both versions handle a money transfer that can fail four different ways.
-        On the left, every error funnels to <code>error: unknown</code> — TypeScript can't help.
-        On the right, every error is named, typed, and unionised by inference.
+        On the left, every error funnels to <code>error: unknown</code> — TypeScript
+        can't help. On the right, every error is named, typed, and unionised by inference.
       </p>
     </header>
 
-    <div class="diff__grid">
+    <div class="diff__grid sl-markdown-no-margin">
       <article class="diff__panel diff__panel--before">
         <header class="diff__panel-head">
           <span class="diff__tag diff__tag--rust">today</span>
           <span class="diff__title">try / catch</span>
         </header>
-        <pre class="diff__code" is:raw><code><span class="kw">async function</span> <span class="fn">transfer</span>(<span class="id">id</span>: <span class="ty">string</span>, <span class="id">amt</span>: <span class="ty">number</span>) {
+        <pre
+          class="diff__code"
+          is:raw><code><span class="kw">async function</span> <span class="fn">transfer</span>(<span class="id">id</span>: <span class="ty">string</span>, <span class="id">amt</span>: <span class="ty">number</span>) {
   <span class="kw">try</span> {
     <span class="kw">const</span> <span class="id">user</span> = <span class="kw">await</span> <span class="fn">getUser</span>(<span class="id">id</span>);
     <span class="kw">if</span> (!<span class="id">user</span>) <span class="kw">return</span> { <span class="id">error</span>: <span class="str">'not found'</span> };
@@ -41,7 +43,9 @@
         <footer class="diff__foot">
           <span class="diff__inferred diff__inferred--rust">
             <span class="diff__inferred-label">TypeScript sees</span>
-            <span class="diff__inferred-type">{'{ error: string } | Charge'}</span>
+            <span class="diff__inferred-type"
+              >{'{ error: string } | Charge'}</span
+            >
           </span>
           <p class="diff__note">
             Three different failures collapse into one
@@ -56,7 +60,9 @@
           <span class="diff__tag diff__tag--amber">with awaitly</span>
           <span class="diff__title">step() + Result</span>
         </header>
-        <pre class="diff__code" is:raw><code><span class="kw">const</span> <span class="id">transfer</span> = <span class="fn">createWorkflow</span>({ <span class="id">getUser</span>, <span class="id">charge</span>, <span class="id">checkFunds</span> });
+        <pre
+          class="diff__code"
+          is:raw><code><span class="kw">const</span> <span class="id">transfer</span> = <span class="fn">createWorkflow</span>({ <span class="id">getUser</span>, <span class="id">charge</span>, <span class="id">checkFunds</span> });
 
 <span class="kw">const</span> <span class="id">result</span> = <span class="kw">await</span> <span class="fn">transfer</span>(<span class="kw">async</span> ({ <span class="id">step</span>, <span class="id">deps</span> }) =&gt; {
   <span class="kw">const</span> <span class="id">user</span>  = <span class="kw">await</span> <span class="fn">step</span>(<span class="str">'getUser'</span>,    () =&gt; <span class="id">deps</span>.<span class="fn">getUser</span>(<span class="id">id</span>));
@@ -74,11 +80,15 @@
         <footer class="diff__foot">
           <span class="diff__inferred diff__inferred--amber">
             <span class="diff__inferred-label">TypeScript infers</span>
-            <span class="diff__inferred-type">{'Result<Charge, USER_NOT_FOUND | INSUFFICIENT_FUNDS | CHARGE_DECLINED | UnexpectedError>'}</span>
+            <span class="diff__inferred-type"
+              >{
+                'Result<Charge, USER_NOT_FOUND | INSUFFICIENT_FUNDS | CHARGE_DECLINED | UnexpectedError>'
+              }</span
+            >
           </span>
           <p class="diff__note">
-            Add a step? The error union widens automatically.
-            Remove one? It narrows. The compiler keeps it honest.
+            Add a step? The error union widens automatically. Remove one? It
+            narrows. The compiler keeps it honest.
           </p>
         </footer>
       </article>
@@ -89,8 +99,13 @@
 <style>
   .diff {
     padding-block: clamp(4rem, 8vw, 7rem);
-    background:
-      linear-gradient(180deg, transparent 0, var(--ink-2) 32%, var(--ink-2) 68%, transparent 100%);
+    background: linear-gradient(
+      180deg,
+      transparent 0,
+      var(--ink-2) 32%,
+      var(--ink-2) 68%,
+      transparent 100%
+    );
   }
 
   .diff__header {
@@ -165,12 +180,12 @@
   .diff__tag--rust {
     color: var(--rust);
     background: oklch(from var(--rust) l c h / 0.12);
-    border: 1px solid oklch(from var(--rust) l c h / 0.30);
+    border: 1px solid oklch(from var(--rust) l c h / 0.3);
   }
   .diff__tag--amber {
     color: var(--amber);
     background: oklch(from var(--amber) l c h / 0.12);
-    border: 1px solid oklch(from var(--amber) l c h / 0.30);
+    border: 1px solid oklch(from var(--amber) l c h / 0.3);
   }
   .diff__title {
     font-family: var(--mono);
@@ -202,13 +217,31 @@
   }
 
   /* Hand-styled syntax tokens */
-  .diff__code .kw  { color: var(--cream-3); font-weight: 500; }
-  .diff__code .fn  { color: var(--cream); }
-  .diff__code .id  { color: var(--cream-2); }
-  .diff__code .ty  { color: var(--cream-3); font-style: italic; }
-  .diff__code .str { color: oklch(0.78 0.10 100); }
-  .diff__code .num { color: oklch(0.78 0.10 100); }
-  .diff__code .cm  { color: var(--cream-3); font-style: italic; opacity: 0.7; }
+  .diff__code .kw {
+    color: var(--cream-3);
+    font-weight: 500;
+  }
+  .diff__code .fn {
+    color: var(--cream);
+  }
+  .diff__code .id {
+    color: var(--cream-2);
+  }
+  .diff__code .ty {
+    color: var(--cream-3);
+    font-style: italic;
+  }
+  .diff__code .str {
+    color: oklch(0.78 0.1 100);
+  }
+  .diff__code .num {
+    color: oklch(0.78 0.1 100);
+  }
+  .diff__code .cm {
+    color: var(--cream-3);
+    font-style: italic;
+    opacity: 0.7;
+  }
 
   .diff__code .err {
     color: var(--rust);
@@ -253,8 +286,12 @@
     color: var(--cream-3);
     font-weight: 600;
   }
-  .diff__inferred--rust .diff__inferred-type { color: var(--rust); }
-  .diff__inferred--amber .diff__inferred-type { color: var(--amber); }
+  .diff__inferred--rust .diff__inferred-type {
+    color: var(--rust);
+  }
+  .diff__inferred--amber .diff__inferred-type {
+    color: var(--amber);
+  }
   .diff__inferred-type {
     font-size: 0.75rem;
     line-height: 1.5;
