@@ -37,6 +37,49 @@ Effect                              awaitly
 Both libraries give you typed errors, retries, resource cleanup, and composition. Effect does it through a functional runtime with fibers and generators. awaitly does it through async/await with a step engine. The trade-off is learning curve and bundle size vs. Effect's richer concurrency model.
 </Aside>
 
+## First impressions: the same code you'd write today
+
+If you can write `async/await`, you already know awaitly. There is no `Effect.gen`, no `yield*`, no runtime. You write code that looks like the code you wrote yesterday — and you get typed errors, retries, and observability for free.
+
+<Tabs>
+  <TabItem label="awaitly">
+```typescript
+import { ok, err, type AsyncResult } from 'awaitly';
+import { run } from 'awaitly/run';
+
+const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
+  id === '1' ? ok({ id, name: 'Ada' }) : err('NOT_FOUND');
+
+const result = await run(async ({ step }) => {
+  const user = await step('fetchUser', () => fetchUser(id));
+  return user.name;
+});
+
+// result.ok ? result.value : result.error  — error is "NOT_FOUND" | UnexpectedError
+```
+  </TabItem>
+  <TabItem label="Effect">
+```typescript
+import { Effect, Data } from 'effect';
+
+class NotFound extends Data.TaggedError('NotFound')<{}> {}
+
+const fetchUser = (id: string) =>
+  id === '1' ? Effect.succeed({ id, name: 'Ada' }) : Effect.fail(new NotFound());
+
+const program = Effect.gen(function* () {
+  const user = yield* fetchUser(id);
+  return user.name;
+});
+
+const result = await Effect.runPromise(Effect.either(program));
+// result._tag === 'Right' ? result.right : result.left
+```
+  </TabItem>
+</Tabs>
+
+awaitly stays in `async/await`. Errors are inferred from your dependencies — no manual annotations, no `Effect<A, E, R>` to thread through. When you're ready for more (retries, sagas, durable execution, dependency injection), you opt in module-by-module.
+
 ## Quick Comparison
 
 This table compares Effect core/stdlib with awaitly core plus optional awaitly modules (ratelimit, durable, saga, etc.). Effect can implement many of these patterns via primitives or ecosystem packages; awaitly provides some as ready-made modules.
@@ -60,63 +103,20 @@ This table compares Effect core/stdlib with awaitly core plus optional awaitly m
 | Observability | Event-to-OTel adapter at step boundaries | Runtime-integrated spans/tracing APIs (OTel export requires SDK setup) |
 | Tagged errors | `TaggedError` with `_tag` + matching | `Data.TaggedEnum` / `_tag` |
 
-## Effect-style step helpers
+## Step helpers
 
-awaitly's step helpers are aligned with Effect's API so the surface feels familiar to Effect users: as close as we can get while still using async/await and not generators. They run through the full step engine (events, retry, timeout, and in createWorkflow: cache and `onAfterStep`).
+awaitly's step helpers are deliberately small. The canonical six cover the 80% — every other concern lives as an option on `step` itself.
 
-### Unwrap (run)
-
-<Tabs>
-  <TabItem label="awaitly">
-```typescript
-// step.run(id, result, opts?): unwraps AsyncResult, exits on error
-const user = await step.run('fetchUser', () => fetchUser('1'), { key: 'user:1' });
-```
-  </TabItem>
-  <TabItem label="Effect">
-```typescript
-const user = yield* fetchUser('1');
-```
-  </TabItem>
-</Tabs>
-
-### Chain (flatMap / andThen)
-
-<Tabs>
-  <TabItem label="awaitly">
-```typescript
-// step.andThen(id, value, fn, opts?)
-const enriched = await step.andThen('enrich', user, (u) => enrichUser(u));
-```
-  </TabItem>
-  <TabItem label="Effect">
-```typescript
-const enriched = yield* enrichUser(user);
-```
-  </TabItem>
-</Tabs>
-
-### Pattern match (match)
-
-<Tabs>
-  <TabItem label="awaitly">
-```typescript
-// step.match(id, result, { ok, err }, opts?): step-tracked
-const msg = await step.match('handleUser', userResult, {
-  ok: (user) => `Hello ${user.name}`,
-  err: () => 'Failed',
-});
-```
-  </TabItem>
-  <TabItem label="Effect">
-```typescript
-const msg = yield* Effect.match(userResult, {
-  onSuccess: (user) => `Hello ${user.name}`,
-  onFailure: () => 'Failed',
-});
-```
-  </TabItem>
-</Tabs>
+| awaitly | Effect equivalent |
+|---|---|
+| `step('id', () => fetchUser(id))` | `yield* fetchUser(id)` (unwrap + chain) |
+| `step('id', () => fn(value))` | `yield* fn(value)` (chain) |
+| `if (r.ok) ... else ...` after `step` | `Effect.match(r, { onSuccess, onFailure })` |
+| `step.try('id', fn, { onError })` | `Effect.tryPromise({ try, catch })` |
+| `step.all('name', { a, b })` | `Effect.all({ a, b })` |
+| `step.map('id', items, mapper)` | `Effect.forEach(items, mapper)` |
+| `step.race('name', op)` | `Effect.race(op)` |
+| `step.sleep('id', ms)` | `Effect.sleep(ms)` |
 
 ### Parallel named (all)
 
@@ -344,7 +344,7 @@ const result = await workflow.run(async ({ step, deps }) => {
     {
       attempts: 3,
       backoff: 'exponential',
-      delayMs: 100,
+      initialDelay: 100,
     }
   );
   return data;
@@ -377,7 +377,7 @@ Effect.runPromise(program);
 ### Backoff Visualization
 
 ```text
-awaitly Exponential Backoff (delayMs: 100)
+awaitly Exponential Backoff (initialDelay: 100)
 ────────────────────────────────────────────
 #1: 100ms   ████
 #2: 200ms   ████████
@@ -398,7 +398,7 @@ const result = await workflow.run(async ({ step, deps }) => {
       () => deps.fetchData(),
       { ms: 5000 }
     ),
-    { attempts: 3, backoff: 'exponential', delayMs: 100 }
+    { attempts: 3, backoff: 'exponential', initialDelay: 100 }
   );
   return data;
 });
@@ -431,7 +431,7 @@ const result = await step.retry(
   {
     attempts: 5,
     backoff: 'exponential',
-    delayMs: 100,
+    initialDelay: 100,
     jitter: true, // Adds random variation
   }
 );
@@ -995,25 +995,25 @@ When a multi-step operation fails partway through, you need to undo the steps th
 import { createSagaWorkflow } from 'awaitly/saga';
 
 const checkout = createSagaWorkflow('checkout', {
-  reserveInventory,
-  chargeCard,
+  reserveInventory, releaseInventory,
+  chargeCard, refundPayment,
   sendEmail,
 });
 
-const result = await checkout(async ({ saga }) => {
-  const reservation = await saga.step(
+const result = await checkout.run(async ({ step, deps }) => {
+  const reservation = await step(
     'reserve',
-    () => reserveInventory(items),
-    { compensate: (res) => releaseInventory(res.id) }
+    () => deps.reserveInventory(items),
+    { compensate: (res) => deps.releaseInventory(res.id) }
   );
 
-  const payment = await saga.step(
+  const payment = await step(
     'charge',
-    () => chargeCard(amount),
-    { compensate: (p) => refundPayment(p.txId) }
+    () => deps.chargeCard(amount),
+    { compensate: (p) => deps.refundPayment(p.txId) }
   );
 
-  await saga.step('notify', () => sendEmail(userId));
+  await step('notify', () => deps.sendEmail(userId));
   return { reservation, payment };
 });
 

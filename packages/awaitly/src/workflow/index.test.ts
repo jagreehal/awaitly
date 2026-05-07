@@ -233,6 +233,86 @@ describe("run() - do-notation style", () => {
         expect(result.cause).toBeInstanceOf(Error);
       }
     });
+
+    it("step.try maps thrown errors", async () => {
+      const result = await run(
+        async ({ step }) => {
+          await step.try(
+            "edge-op",
+            async () => {
+              throw new Error("edge failed");
+            },
+            { onError: () => "EDGE_ERROR" as const }
+          );
+          return 0;
+        },
+        { onError: () => {} }
+      );
+
+      expect(isErr(result)).toBe(true);
+      if (isErr(result)) {
+        expect(result.error).toBe("EDGE_ERROR");
+        expect(result.cause).toBeInstanceOf(Error);
+      }
+    });
+
+    it("step.try forwards timeout when retry is omitted", async () => {
+      const result = await run(
+        async ({ step }) => {
+          await step.try(
+            "edge-timeout",
+            async () =>
+              new Promise((resolve) => setTimeout(() => resolve(1), 25)),
+            {
+              onError: () => "EDGE_ERROR" as const,
+              timeout: { ms: 5 },
+            }
+          );
+          return 0;
+        },
+        { onError: () => {} }
+      );
+
+      expect(isErr(result)).toBe(true);
+      if (isErr(result)) {
+        expect(isStepTimeoutError(result.error)).toBe(true);
+      }
+    });
+
+    it("step.try supports retry semantics", async () => {
+      const attempts: string[] = [];
+
+      const result = await run(
+        async ({ step }) => {
+          return step.try(
+            "edge-retry",
+            async () => {
+              attempts.push("attempt");
+              if (attempts.length < 3) {
+                throw new Error("transient");
+              }
+              return 42;
+            },
+            {
+              onError: (cause) =>
+                cause instanceof Error && cause.message === "transient"
+                  ? ("TRANSIENT" as const)
+                  : ("FATAL" as const),
+              retry: {
+                attempts: 3,
+                initialDelay: 1,
+                backoff: "fixed",
+                shouldRetry: (e) => e === "TRANSIENT",
+              },
+            }
+          );
+        },
+        { onError: () => {} }
+      );
+
+      expect(result).toEqual({ ok: true, value: 42 });
+      expect(attempts).toHaveLength(3);
+    });
   });
 
   describe("step.fromResult() with Result-returning functions", () => {
@@ -3779,7 +3859,7 @@ describe("Step Retry with Backoff", () => {
       expect(attempts).toBe(3);
     });
 
-    it("respects retryOn predicate", async () => {
+    it("respects shouldRetry predicate", async () => {
       let attempts = 0;
 
       const result = await run(async ({ step }) => {
@@ -3796,7 +3876,7 @@ describe("Step Retry with Backoff", () => {
               backoff: "fixed",
               initialDelay: 10,
               jitter: false,
-              retryOn: (error) => error === "RETRYABLE",
+              shouldRetry: (error) => error === "RETRYABLE",
             },
           }
         );
@@ -4410,7 +4490,7 @@ describe("Retry + Timeout Combined", () => {
               backoff: "fixed",
               initialDelay: 10,
               jitter: false,
-              retryOn: (error) => isStepTimeoutError(error),
+              shouldRetry: (error) => isStepTimeoutError(error),
             },
           }
         );
@@ -4662,7 +4742,7 @@ describe("step timeout behavior variants", () => {
 // Named Object Parallel Tests
 // =============================================================================
 
-describe("step.parallel() named object form", () => {
+describe("step.all() named object form", () => {
   const fetchUser = (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> =>
     Promise.resolve(id === "missing" ? err("NOT_FOUND") : ok({ id, name: `User ${id}` }));
 
@@ -4677,7 +4757,7 @@ describe("step.parallel() named object form", () => {
 
     const result = await run(
       async ({ step }) => {
-        const { user, posts } = await step.parallel("Fetch user and posts", {
+        const { user, posts } = await step.all("Fetch user and posts", {
           user: () => fetchUser("1"),
           posts: () => fetchPosts("1"),
         });
@@ -4702,12 +4782,12 @@ describe("step.parallel() named object form", () => {
     expect(scopeEnd).toBeDefined();
   });
 
-  it("should support name-first form step.parallel(name, operations)", async () => {
+  it("should support name-first form step.all(name, operations)", async () => {
     const events: WorkflowEvent<unknown>[] = [];
 
     const result = await run(
       async ({ step }) => {
-        const { user, posts } = await step.parallel("Fetch user data", {
+        const { user, posts } = await step.all("Fetch user data", {
           user: () => fetchUser("1"),
           posts: () => fetchPosts("1"),
         });
@@ -4740,7 +4820,7 @@ describe("step.parallel() named object form", () => {
     );
 
     const result = await workflow.run(async ({ step, deps: { fetchUser, fetchPosts } }) => {
-      const { user, posts } = await step.parallel("Fetch user and posts", {
+      const { user, posts } = await step.all("Fetch user and posts", {
         user: () => fetchUser("missing"), // This will fail
         posts: () => fetchPosts("1"),
       });
@@ -4767,7 +4847,7 @@ describe("step.parallel() named object form", () => {
 
     const result = await workflow.run(async ({ step, deps: { slowOp, fastFailOp } }) => {
       // slowOp is first but takes 100ms, fastFailOp is second but fails immediately
-      const { slow, fast } = await step.parallel("Fetch slow and fast", {
+      const { slow, fast } = await step.all("Fetch slow and fast", {
         slow: () => slowOp(),
         fast: () => fastFailOp(),
       });
@@ -4782,7 +4862,7 @@ describe("step.parallel() named object form", () => {
 
   it("should support three or more operations", async () => {
     const result = await run(async ({ step }) => {
-      const { user, posts, comments } = await step.parallel("Fetch user posts comments", {
+      const { user, posts, comments } = await step.all("Fetch user posts comments", {
         user: () => fetchUser("1"),
         posts: () => fetchPosts("1"),
         comments: () => fetchComments("p1"),
@@ -4801,7 +4881,7 @@ describe("step.parallel() named object form", () => {
 
   it("should handle empty operations object", async () => {
     const result = await run(async ({ step }) => {
-      const data = await step.parallel("Empty parallel", {});
+      const data = await step.all("Empty parallel", {});
       return data;
     });
 
@@ -4815,7 +4895,7 @@ describe("step.parallel() named object form", () => {
     const workflow = createWorkflow("getPosts", { fetchUser, fetchPosts });
 
     const result = await workflow.run(async ({ step, deps }) => {
-      const { user, posts } = await step.parallel("Fetch user and posts", {
+      const { user, posts } = await step.all("Fetch user and posts", {
         user: () => deps.fetchUser("1"),
         posts: () => deps.fetchPosts("1"),
       });
@@ -6011,7 +6091,7 @@ describe("Effect-style ergonomics", () => {
 
       const result = await run(async ({ step }) => {
         const userResult = fetchUser("1");
-        const user = await step.run('fetchUser', userResult);
+        const user = await step('fetchUser', () => userResult);
         return user.name;
       });
 
@@ -6025,7 +6105,7 @@ describe("Effect-style ergonomics", () => {
 
       const result = await run(async ({ step }) => {
         const userResult = fetchUser("1");
-        const user = await step.run('fetchUser', userResult);
+        const user = await step('fetchUser', () => userResult);
         return user.name;
       }, { onError: () => {} }); // Add error handler to avoid UnexpectedError wrapping
 
@@ -6040,7 +6120,7 @@ describe("Effect-style ergonomics", () => {
       const workflow = createWorkflow("test", { fetchUser });
 
       const result = await workflow.run(async ({ step, deps: { fetchUser } }) => {
-        const user = await step.run('fetchUser', fetchUser("1"));
+        const user = await step('fetchUser', () => fetchUser("1"));
         return user.name;
       });
 
@@ -6058,17 +6138,14 @@ describe("Effect-style ergonomics", () => {
       const workflow = createWorkflow("test", { fetchUser }, { cache });
 
       const result = await workflow.run(async ({ step, deps: { fetchUser } }) => {
-        // step.run() takes an already-started promise, so both calls execute eagerly.
-        // Caching returns the first stored result for the second step.
-        const first = await step.run("fetchUser1", fetchUser("1"), { key: "user:1" });
-        const second = await step.run("fetchUser2", fetchUser("1"), { key: "user:1" });
+        // Both steps share key "user:1" — second call is a cache hit and does not invoke fetchUser.
+        const first = await step("fetchUser1", () => fetchUser("1"), { key: "user:1" });
+        const second = await step("fetchUser2", () => fetchUser("1"), { key: "user:1" });
         return `${first.name}-${second.name}`;
       });
 
       expect(result).toEqual({ ok: true, value: "Bob-Bob" });
-      // Both fetchUser calls execute eagerly (step.run takes a promise, not a lazy fn).
-      // Use step() with a callback for lazy caching.
-      expect(calls).toBe(2);
+      expect(calls).toBe(1);
       expect(cache.has("user:1")).toBe(true);
     });
   });
@@ -6084,7 +6161,7 @@ describe("Effect-style ergonomics", () => {
 
       const result = await run(async ({ step }) => {
         const user = { id: "1", name: "Alice" };
-        const enriched = await step.andThen('enrich', user, enrichUser);
+        const enriched = await step('enrich', () => enrichUser(user));
         return enriched.premium;
       });
 
@@ -6101,7 +6178,7 @@ describe("Effect-style ergonomics", () => {
 
       const result = await run(async ({ step }) => {
         const user = { id: "1", name: "Alice" };
-        const enriched = await step.andThen('enrich', user, enrichUser);
+        const enriched = await step('enrich', () => enrichUser(user));
         return enriched.premium;
       }, { onError: () => {} }); // Add error handler to avoid UnexpectedError wrapping
 
@@ -6109,90 +6186,6 @@ describe("Effect-style ergonomics", () => {
     });
   });
 
-  describe("step.match() - pattern matching", () => {
-    it("executes ok branch for success", async () => {
-      const userResult = ok({ id: "1", name: "Alice" });
-
-      const result = await run(async ({ step }) => {
-        const message = await step.match('handleUser', userResult, {
-          ok: async (user) => `Hello, ${user.name}`,
-          err: async () => "User not found",
-        });
-        return message;
-      });
-
-      expect(result).toEqual({ ok: true, value: "Hello, Alice" });
-    });
-
-    it("executes err branch for error", async () => {
-      const userResult = err("NOT_FOUND");
-
-      const result = await run(async ({ step }) => {
-        const message = await step.match('handleUser', userResult, {
-          ok: async (user: { name: string }) => `Hello, ${user.name}`,
-          err: async (error) => `Error: ${error}`,
-        });
-        return message;
-      });
-
-      expect(result).toEqual({ ok: true, value: "Error: NOT_FOUND" });
-    });
-
-    it("can execute steps in both branches", async () => {
-      const events: string[] = [];
-
-      const result = await run(async ({ step }) => {
-        const userResult = ok({ id: "1", name: "Alice" });
-
-        const message = await step.match('handleUser', userResult, {
-          ok: async (user) => {
-            events.push('ok-branch');
-            await step('sendWelcome', () => {
-              events.push('sent-welcome');
-              return ok(true);
-            });
-            return `Sent welcome to ${user.name}`;
-          },
-          err: async () => {
-            events.push('err-branch');
-            await step('logError', () => {
-              events.push('logged-error');
-              return ok(true);
-            });
-            return "Failed";
-          },
-        });
-        return message;
-      });
-
-      expect(result).toEqual({ ok: true, value: "Sent welcome to Alice" });
-      expect(events).toEqual(['ok-branch', 'sent-welcome']);
-    });
-
-    it("emits step events for the match step id", async () => {
-      const workflowEvents: string[] = [];
-
-      await run(
-        async ({ step }) => {
-          const result = ok({ id: "1", name: "Alice" });
-          return step.match("handleUser", result, {
-            ok: async (user) => `Hello ${user.name}`,
-            err: async () => "nope",
-          });
-        },
-        {
-          onEvent: (event) => {
-            if (event.type === "step_start" || event.type === "step_success") {
-              workflowEvents.push(`${event.type}:${event.name}`);
-            }
-          },
-        }
-      );
-
-      expect(workflowEvents).toContain("step_start:handleUser");
-      expect(workflowEvents).toContain("step_success:handleUser");
-    });
-  });
 
   describe("step.all() - Effect.all-style parallel", () => {
     it("is an alias for step.parallel", async () => {
@@ -6362,13 +6355,10 @@ describe("Effect-style ergonomics", () => {
 
       const result = await workflow.run(async ({ step, deps }) => {
         // Use step.run() to unwrap AsyncResults directly
-        const user = await step.run('fetchUser', deps.fetchUser("1"));
+        const user = await step('fetchUser', () => deps.fetchUser("1"));
 
-        // Use step.andThen() for chaining
-        const order = await step.andThen(
-          'validateOrder',
-          { userId: user.id, total: 100 },
-          deps.validateOrder
+        const order = await step('validateOrder', () =>
+          deps.validateOrder({ userId: user.id, total: 100 })
         );
 
         // Use step.all() for parallel operations
@@ -6376,19 +6366,13 @@ describe("Effect-style ergonomics", () => {
           receipt: () => deps.chargeCard(order.total),
         });
 
-        // Use step.match() for pattern matching
-        const emailSent = await step.match(
-          'handleEmail',
-          await deps.sendEmail(user.email, receipt),
-          {
-            ok: async (sent) => sent,
-            err: async (error) => {
-              // Log error but don't fail the workflow
-              await step('logEmailFailure', () => ok({ error }));
-              return false;
-            },
-          }
-        );
+        // Pattern match on a Result inside a step
+        const emailResult = await deps.sendEmail(user.email, receipt);
+        const emailSent = await step('handleEmail', async () => {
+          if (emailResult.ok) return ok(emailResult.value);
+          await step('logEmailFailure', () => ok({ error: emailResult.error }));
+          return ok(false);
+        });
 
         return { user, order, receipt, emailSent };
       });
@@ -6534,6 +6518,82 @@ describe("workflow.run() overloads", () => {
         expect(result.value.name).toBe("Overridden");
       }
     });
+  });
+});
+
+describe("createWorkflow saga compensation via step({ compensate })", () => {
+  it("runs compensations in reverse on workflow failure", async () => {
+    const order: string[] = [];
+
+    const reserve = async (): AsyncResult<{ id: string }, "RESERVE_ERROR"> =>
+      ok({ id: "r1" });
+    const charge = async (): AsyncResult<{ txId: string }, "CHARGE_ERROR"> =>
+      ok({ txId: "tx1" });
+    const ship = async (): AsyncResult<void, "SHIP_ERROR"> => err("SHIP_ERROR");
+
+    const wf = createWorkflow("checkout", { reserve, charge, ship });
+
+    const result = await wf.run(async ({ step, deps }) => {
+      const r = await step("reserve", () => deps.reserve(), {
+        compensate: () => { order.push("release"); },
+      });
+      const p = await step("charge", () => deps.charge(), {
+        compensate: () => { order.push("refund"); },
+      });
+      await step("ship", () => deps.ship());
+      return { r, p };
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("SHIP_ERROR");
+    // LIFO order
+    expect(order).toEqual(["refund", "release"]);
+  });
+
+  it("returns SagaCompensationError when a compensation fails", async () => {
+    const reserve = async (): AsyncResult<{ id: string }, "RESERVE_ERROR"> =>
+      ok({ id: "r1" });
+    const charge = async (): AsyncResult<{ txId: string }, "CHARGE_ERROR"> =>
+      err("CHARGE_ERROR");
+
+    const wf = createWorkflow("checkout", { reserve, charge });
+
+    const result = await wf.run(async ({ step, deps }) => {
+      await step("reserve", () => deps.reserve(), {
+        compensate: () => {
+          throw new Error("release failed");
+        },
+      });
+      await step("charge", () => deps.charge());
+      return null;
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const e = result.error as {
+        type?: string;
+        originalError?: unknown;
+        compensationErrors?: Array<{ stepName?: string; error: unknown }>;
+      };
+      expect(e.type).toBe("SAGA_COMPENSATION_ERROR");
+      expect(e.originalError).toBe("CHARGE_ERROR");
+      expect(e.compensationErrors).toHaveLength(1);
+      expect(e.compensationErrors?.[0]?.stepName).toBe("reserve");
+    }
+  });
+
+  it("does not run compensations on success", async () => {
+    const compensate = vi.fn();
+    const reserve = async (): AsyncResult<{ id: string }, "RESERVE_ERROR"> =>
+      ok({ id: "r1" });
+
+    const wf = createWorkflow("checkout", { reserve });
+    const result = await wf.run(async ({ step, deps }) =>
+      step("reserve", () => deps.reserve(), { compensate })
+    );
+
+    expect(result.ok).toBe(true);
+    expect(compensate).not.toHaveBeenCalled();
   });
 });
 

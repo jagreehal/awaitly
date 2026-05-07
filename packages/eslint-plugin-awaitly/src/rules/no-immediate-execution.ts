@@ -14,13 +14,11 @@ import type { CallExpression, MemberExpression } from 'estree';
  * GOOD: step('fetchUser', () => fetchUser('1')) - thunk, step controls execution
  */
 
-const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'run', 'andThen', 'match', 'map', 'withFallback', 'withResource', 'workflow']);
+const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'map', 'withFallback', 'withResource', 'workflow']);
 
 // Methods where the executor/function argument is at index 2 (3rd arg) instead of index 1 (2nd arg)
-// step.andThen('id', value, fn, options?) - fn is 3rd arg
-// step.match('id', result, handlers, options?) - handlers is 3rd arg (object, won't trigger)
 // step.map('id', items, mapper, options?) - mapper is 3rd arg
-const EXECUTOR_AT_INDEX_2 = new Set(['andThen', 'match', 'map']);
+const EXECUTOR_AT_INDEX_2 = new Set(['map']);
 
 function isDirectStepCall(node: CallExpression): boolean {
   const { callee } = node;
@@ -125,8 +123,8 @@ const rule: Rule.RuleModule = {
           // For step.method calls, determine executor position based on method
           const methodName = getStepMethodName(node);
           if (args.length > 0 && isStringLiteral(args[0])) {
-            // step.andThen('id', value, fn, opts) / step.map('id', items, mapper, opts) - executor at index 2
-            // step.retry('id', fn, opts) / step.run('id', resultOrGetter, opts) - executor at index 1
+            // step.map('id', items, mapper, opts) - executor at index 2
+            // step.retry('id', fn, opts) / step.try('id', fn, opts) - executor at index 1
             executorArg = methodName && EXECUTOR_AT_INDEX_2.has(methodName) ? args[2] : args[1];
           } else {
             executorArg = args[0];

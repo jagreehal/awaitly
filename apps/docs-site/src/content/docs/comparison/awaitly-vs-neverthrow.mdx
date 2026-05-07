@@ -759,22 +759,17 @@ const result = await workflow.run(async ({ step, deps }) => {
 // Same error type, automatically inferred from dependencies
 ```
 
-### Step helpers (run, andThen, match)
+### Step helpers
 
-Inside workflows you can use a neverthrow-style API: `step.run` (unwrap), `step.andThen` (chain), `step.match` (pattern match). They run through the full step engine (events, retry, cache).
+Inside workflows, `step` is the workhorse. Chaining is just calling `step` again with the success value. Pattern matching is plain JS branching after the step returns.
 
 ```typescript
 const result = await workflow.run(async ({ step, deps }) => {
-  const user = await step.run('fetchUser', () => deps.fetchUser('123'));
-  const enriched = await step.andThen('enrich', user, (u) => deps.enrichUser(u));
-  return step.match('format', enriched, {
-    ok: (e) => e.displayName,
-    err: () => 'Unknown',
-  });
+  const user = await step('fetchUser', () => deps.fetchUser('123'));
+  const enriched = await step('enrich', () => deps.enrichUser(user));
+  return enriched.displayName;
 });
 ```
-
-See [Steps — Effect-style ergonomics](/foundations/step/#effect-style-ergonomics).
 
 ### Built-in Retry and Timeout
 
@@ -784,7 +779,7 @@ const result = await workflow.run(async ({ step, deps }) => {
   const user = await step.retry(
     'fetchUser',
     () => deps.fetchUser('123'),
-    { attempts: 3, backoff: 'exponential', delayMs: 100 }
+    { attempts: 3, backoff: 'exponential', initialDelay: 100 }
   );
 
   // Timeout protection

@@ -3,37 +3,34 @@ title: Saga / Compensation
 description: Define compensating actions for rollback on failures
 ---
 
-Define compensating actions for steps that need rollback on downstream failures. When a step fails, compensations run in reverse order.
+Define compensating actions for steps that need rollback on downstream failures. When a step fails, compensations run in reverse order — automatically.
 
-## Basic usage
+## The whole API
+
+`saga.run(fn)` runs your callback. Each `step(id, op, { compensate })` records its compensation on success. If anything later fails, compensations run in reverse. That's it.
 
 ```typescript
 import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/saga';
 
-// Create saga with deps (error types inferred automatically)
-const checkoutSaga = createSagaWorkflow('saga', { reserveInventory, chargeCard, sendConfirmation },
-  { onEvent: (event) => console.log(event) }
-);
+const checkout = createSagaWorkflow('checkout', {
+  reserveInventory, releaseInventory,
+  chargeCard, refundPayment,
+  sendConfirmation,
+});
 
-const result = await checkoutSaga(async (saga, deps) => {
-  // Reserve inventory with compensation
-  const reservation = await saga.step(
-    'reserve-inventory',
-    () => deps.reserveInventory(items),
-    { compensate: (res) => releaseInventory(res.reservationId) }
-  );
+const result = await checkout.run(async ({ step, deps }) => {
+  const reservation = await step('reserve', () => deps.reserveInventory(items), {
+    compensate: (r) => deps.releaseInventory(r.reservationId),
+  });
 
-  // Charge card with compensation
-  const payment = await saga.step(
-    'charge-card',
-    () => deps.chargeCard(amount),
-    { compensate: (p) => refundPayment(p.transactionId) }
-  );
+  const payment = await step('charge', () => deps.chargeCard(amount), {
+    compensate: (p) => deps.refundPayment(p.transactionId),
+  });
 
-  // If sendConfirmation fails, compensations run in reverse order:
-  // 1. refundPayment(payment.transactionId)
-  // 2. releaseInventory(reservation.reservationId)
-  await saga.step('send-confirmation', () => deps.sendConfirmation(email));
+  // If this fails, compensations run automatically:
+  //   1. refundPayment(payment.transactionId)
+  //   2. releaseInventory(reservation.reservationId)
+  await step('confirm', () => deps.sendConfirmation(email));
 
   return { reservation, payment };
 });
@@ -68,40 +65,40 @@ if (!result.ok && isSagaCompensationError(result.error)) {
 Not every step needs compensation:
 
 ```typescript
-const result = await checkoutSaga(async (saga, deps) => {
+const result = await checkoutSaga.run(async ({ step, deps }) => {
   // No compensation needed for reads
-  const user = await saga.step('fetch-user', () => deps.fetchUser(userId));
+  const user = await step('fetch-user', () => deps.fetchUser(userId));
 
   // Needs compensation
-  const payment = await saga.step(
+  const payment = await step(
     'charge-card',
     () => deps.chargeCard(amount),
     { compensate: (p) => deps.refundPayment(p.transactionId) }
   );
 
   // Idempotent operation - no compensation
-  await saga.step('send-email', () => deps.sendEmail(user.email));
+  await step('send-email', () => deps.sendEmail(user.email));
 
   return { payment };
 });
 ```
 
-## tryStep for throwing code
+## step.try for throwing code
 
-Use `tryStep` to catch exceptions from external libraries:
+Use `step.try` to catch exceptions from external libraries:
 
 ```typescript
 import { runSaga } from 'awaitly/saga';
 
-const result = await runSaga<OrderResult, OrderError>(async (saga) => {
-  const reservation = await saga.step(
+const result = await runSaga<OrderResult, OrderError>(async ({ step }) => {
+  const reservation = await step(
     'reserve-inventory',
     () => reserveInventory(items),
     { compensate: (res) => releaseInventory(res.id) }
   );
 
-  // tryStep catches throws and converts to error
-  const payment = await saga.tryStep(
+  // step.try catches throws and converts to error
+  const payment = await step.try(
     'charge-payment',
     () => externalPaymentApi.charge(amount), // May throw
     {
@@ -124,20 +121,20 @@ import { runSaga } from 'awaitly/saga';
 type CheckoutResult = { orderId: string; chargeId: string };
 type CheckoutError = 'INVENTORY_UNAVAILABLE' | 'PAYMENT_FAILED' | 'SEND_FAILED';
 
-const result = await runSaga<CheckoutResult, CheckoutError>(async (saga) => {
-  const reservation = await saga.step(
+const result = await runSaga<CheckoutResult, CheckoutError>(async ({ step }) => {
+  const reservation = await step(
     'reserve-inventory',
     () => reserveInventory(items),
     { compensate: (res) => releaseInventory(res.id) }
   );
 
-  const charge = await saga.step(
+  const charge = await step(
     'charge-card',
     () => chargeCard(amount),
     { compensate: (c) => refundCharge(c.id) }
   );
 
-  await saga.step('send-confirmation', () => sendConfirmation(email));
+  await step('send-confirmation', () => sendConfirmation(email));
 
   return { orderId: reservation.id, chargeId: charge.id };
 });
@@ -153,36 +150,36 @@ const fulfillOrder = createSagaWorkflow('saga', { reserveStock,
   notifyCustomer,
 });
 
-const result = await fulfillOrder(async (saga, deps) => {
+const result = await fulfillOrder.run(async ({ step, deps }) => {
   // Reserve inventory
-  const stock = await saga.step(
+  const stock = await step(
     'reserve-stock',
     () => deps.reserveStock(order.items),
     { compensate: (s) => deps.releaseStock(s.reservationId) }
   );
 
   // Create shipment record
-  const shipment = await saga.step(
+  const shipment = await step(
     'create-shipment',
     () => deps.createShipment(order.address, stock),
     { compensate: (s) => deps.cancelShipment(s.trackingId) }
   );
 
   // Charge customer
-  const payment = await saga.step(
+  const payment = await step(
     'charge-payment',
     () => deps.chargePayment(order.total, order.paymentMethod),
     { compensate: (p) => deps.refundPayment(p.transactionId) }
   );
 
   // Update order status (idempotent, no compensation)
-  await saga.step(
+  await step(
     'update-order',
     () => deps.updateOrder(order.id, { status: 'FULFILLED', shipment, payment })
   );
 
   // Notify customer (can't really undo this)
-  await saga.step(
+  await step(
     'notify-customer',
     () => deps.notifyCustomer(order.customerId, { shipment, payment })
   );
@@ -207,21 +204,21 @@ Compensations can fail for many reasons: network issues, service unavailable, bu
 ```typescript
 import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/saga';
 
-const result = await orderSaga(async (saga, deps) => {
-  const reservation = await saga.step(
+const result = await orderSaga.run(async ({ step, deps }) => {
+  const reservation = await step(
     'reserve',
     () => deps.reserveStock(items),
     { compensate: (r) => deps.releaseStock(r.id) }
   );
 
-  const payment = await saga.step(
+  const payment = await step(
     'charge',
     () => deps.chargeCard(amount),
     { compensate: (p) => deps.refundPayment(p.id) }
   );
 
   // This fails
-  await saga.step('ship-order', () => deps.shipOrder(reservation));
+  await step('ship-order', () => deps.shipOrder(reservation));
 
   return { reservation, payment };
 });
@@ -386,8 +383,8 @@ Compensations may run multiple times. Design them to be safe.
 ```typescript
 const orderSaga = createSagaWorkflow('saga', deps);
 
-const result = await orderSaga(async (saga, deps) => {
-  const payment = await saga.step(
+const result = await orderSaga.run(async ({ step, deps }) => {
+  const payment = await step(
     'charge',
     () => deps.chargeCard(amount),
     {
@@ -400,7 +397,7 @@ const result = await orderSaga(async (saga, deps) => {
     }
   );
 
-  const reservation = await saga.step(
+  const reservation = await step(
     'reserve',
     () => deps.reserveStock(items),
     {
@@ -455,7 +452,7 @@ async function createIdempotentCompensation<T>(
 }
 
 // Usage
-const payment = await saga.step(
+const payment = await step(
   'charge',
   () => deps.chargeCard(amount),
   {

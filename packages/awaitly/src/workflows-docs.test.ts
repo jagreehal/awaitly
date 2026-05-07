@@ -211,23 +211,23 @@ describe("Workflows Documentation - Saga Pattern", () => {
 
     const cartItems: CartItem[] = [{ productId: "prod_1", quantity: 1 }];
 
-    const result = await sagaCheckout(async ({ saga, deps }) => {
+    const result = await sagaCheckout.run(async ({ step, deps }) => {
       // Step 1: Charge with compensation
-      await saga.step(
+      await step(
         "charge-payment",
         () => deps.chargePayment({ amount: 99, method: "card_xxx" }),
         { compensate: (payment) => deps.refundPayment({ paymentId: payment.id }) }
       );
 
       // Step 2: Reserve inventory with compensation
-      await saga.step(
+      await step(
         "reserve-inventory",
         () => deps.reserveInventory({ items: cartItems }),
         { compensate: (reservation) => deps.releaseInventory({ reservationId: reservation.id }) }
       );
 
       // Step 3: Create order with compensation (this will fail)
-      const order = await saga.step(
+      const order = await step(
         "create-order",
         () => deps.createOrder(),
         { compensate: (order) => deps.cancelOrder({ orderId: order.id }) }
@@ -258,8 +258,8 @@ describe("Workflows Documentation - Saga Pattern", () => {
 
     const saga = createSagaWorkflow("checkout", { chargePayment, reserveInventory });
 
-    const result = await saga(async ({ saga: ctx, deps }) => {
-      const payment = await ctx.step(
+    const result = await saga.run(async ({ step, deps }) => {
+      const payment = await step(
         "charge-payment",
         () => deps.chargePayment(),
         {
@@ -269,7 +269,7 @@ describe("Workflows Documentation - Saga Pattern", () => {
         }
       );
 
-      await ctx.step('reserveInventory', () => deps.reserveInventory());
+      await step('reserveInventory', () => deps.reserveInventory());
 
       return payment;
     });
@@ -296,15 +296,15 @@ describe("Workflows Documentation - Saga Pattern", () => {
 
     const saga = createSagaWorkflow("checkout", { fetchUser, chargePayment, refundPayment });
 
-    const result = await saga(async ({ saga: ctx, deps }) => {
+    const result = await saga.run(async ({ step, deps }) => {
       // No compensation needed for reads
-      const user = await ctx.step(
+      const user = await step(
         "fetch-user",
         () => deps.fetchUser({ userId: "user_1" })
       );
 
       // Needs compensation - creates state
-      const payment = await ctx.step(
+      const payment = await step(
         "charge-payment",
         () => deps.chargePayment(),
         { compensate: (p) => deps.refundPayment({ paymentId: p.id }) }
@@ -775,36 +775,36 @@ describe("Workflows Documentation - Combining Patterns", () => {
       notifyCustomer,
     });
 
-    const result = await orderFulfillment(async ({ saga, deps }) => {
+    const result = await orderFulfillment.run(async ({ step, deps }) => {
       // Validation (no compensation needed)
-      const order = await saga.step(
+      const order = await step(
         "validate-order",
         () => deps.validateOrder({ orderId: "order_1" })
       );
 
       // Reserve inventory with compensation
-      await saga.step(
+      await step(
         "reserve-inventory",
         () => deps.reserveInventory({ items: order.items }),
         { compensate: (r) => deps.releaseInventory({ reservationId: r.id }) }
       );
 
       // Charge payment with compensation
-      const payment = await saga.step(
+      const payment = await step(
         "charge-payment",
         () => deps.chargePayment({ amount: order.total }),
         { compensate: (p) => deps.refundPayment({ paymentId: p.id }) }
       );
 
       // Create shipment with compensation (this will fail)
-      const shipment = await saga.step(
+      const shipment = await step(
         "create-shipment",
         () => deps.createShipment(),
         { compensate: (s) => deps.cancelShipment({ shipmentId: s.id }) }
       );
 
       // Notify customer (no compensation - can't un-send)
-      await saga.step(
+      await step(
         "notify-customer",
         () => deps.notifyCustomer({ email: "customer@example.com", shipment })
       );
@@ -852,20 +852,20 @@ describe("Workflows Documentation - API Verification", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("verifies createSagaWorkflow callback receives (saga, deps)", async () => {
+  it("verifies createSagaWorkflow callback receives (step, deps)", async () => {
     const fetchData = async (): AsyncResult<number, "ERROR"> => ok(42);
 
     const saga = createSagaWorkflow("saga", { fetchData });
 
     // Verify the callback signature
-    const result = await saga(async ({ saga: ctx, deps }) => {
-      // ctx has step method
-      expect(typeof ctx.step).toBe("function");
+    const result = await saga.run(async ({ step, deps }) => {
+      // step is callable
+      expect(typeof step).toBe("function");
 
       // deps contains the passed functions
       expect(deps.fetchData).toBe(fetchData);
 
-      return await ctx.step('fetchData', () => deps.fetchData());
+      return await step('fetchData', () => deps.fetchData());
     });
 
     expect(result.ok).toBe(true);

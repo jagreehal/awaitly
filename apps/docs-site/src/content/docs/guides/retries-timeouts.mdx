@@ -171,11 +171,11 @@ awaitly supports three backoff strategies. Each has different characteristics fo
 Same delay every time. Good for rate-limiting scenarios where you need consistent spacing.
 
 ```typescript
-{ attempts: 5, backoff: 'fixed', delayMs: 100 }
+{ attempts: 5, backoff: 'fixed', initialDelay: 100 }
 ```
 
 ```text
-Fixed Backoff (delayMs: 100)
+Fixed Backoff (initialDelay: 100)
 ────────────────────────────
 Attempt │ Delay  │ Visual
 ────────┼────────┼─────────────────────
@@ -193,11 +193,11 @@ Total max wait: 400ms
 Delay increases linearly. Balances retry speed with backoff pressure.
 
 ```typescript
-{ attempts: 5, backoff: 'linear', delayMs: 100 }
+{ attempts: 5, backoff: 'linear', initialDelay: 100 }
 ```
 
 ```text
-Linear Backoff (delayMs: 100)
+Linear Backoff (initialDelay: 100)
 ─────────────────────────────
 Attempt │ Delay  │ Visual
 ────────┼────────┼─────────────────────
@@ -215,11 +215,11 @@ Total max wait: 1400ms
 Delay doubles each time. The standard for network calls. Reduces load on struggling services.
 
 ```typescript
-{ attempts: 5, backoff: 'exponential', delayMs: 100 }
+{ attempts: 5, backoff: 'exponential', initialDelay: 100 }
 ```
 
 ```text
-Exponential Backoff (delayMs: 100)
+Exponential Backoff (initialDelay: 100)
 ──────────────────────────────────
 Attempt │ Delay  │ Visual
 ────────┼────────┼─────────────────────────────────
@@ -227,7 +227,7 @@ Attempt │ Delay  │ Visual
    2    │ 200ms  │ ████████
    3    │ 400ms  │ ████████████████
    4    │ 800ms  │ ████████████████████████████████
-   5    │ 1600ms │ (capped by maxDelayMs if set)
+   5    │ 1600ms │ (capped by maxDelay if set)
 
 Total max wait: 3000ms (without cap)
 ```
@@ -247,22 +247,22 @@ Here's how each strategy calculates delays:
 const calculateDelay = (
   strategy: 'fixed' | 'linear' | 'exponential',
   attempt: number,
-  delayMs: number,
-  maxDelayMs?: number
+  initialDelay: number,
+  maxDelay?: number
 ): number => {
   let delay: number;
   switch (strategy) {
     case 'fixed':
-      delay = delayMs;
+      delay = initialDelay;
       break;
     case 'linear':
-      delay = delayMs * attempt;
+      delay = initialDelay * attempt;
       break;
     case 'exponential':
-      delay = delayMs * Math.pow(2, attempt - 1);
+      delay = initialDelay * Math.pow(2, attempt - 1);
       break;
   }
-  return maxDelayMs ? Math.min(delay, maxDelayMs) : delay;
+  return maxDelay ? Math.min(delay, maxDelay) : delay;
 };
 
 // Example usage
@@ -272,19 +272,19 @@ console.log(calculateDelay('exponential', 5, 100, 1000)); // 1000 (capped)
 
 ## Capping Delays
 
-Use `maxDelayMs` to prevent delays from growing too large:
+Use `maxDelay` to prevent delays from growing too large:
 
 ```typescript
 {
   attempts: 10,
   backoff: 'exponential',
-  delayMs: 100,
-  maxDelayMs: 5000, // Never wait more than 5 seconds
+  initialDelay: 100,
+  maxDelay: 5000, // Never wait more than 5 seconds
 }
 ```
 
 ```text
-Exponential with Cap (delayMs: 100, maxDelayMs: 5000)
+Exponential with Cap (initialDelay: 100, maxDelay: 5000)
 ─────────────────────────────────────────────────────
 Attempt │ Calculated │ Actual  │ Visual
 ────────┼────────────┼─────────┼──────────────────────
@@ -306,7 +306,7 @@ Randomize delays to avoid the "thundering herd" problem, when many clients retry
 {
   attempts: 3,
   backoff: 'exponential',
-  delayMs: 100,
+  initialDelay: 100,
   jitter: true, // Adds random variation ±50%
 }
 ```
@@ -335,7 +335,7 @@ Without jitter, if 1000 clients all fail at the same time, they all retry at the
 With `jitter: true`, the actual delay is randomized within ±50% of the base delay:
 
 ```typescript
-// With delayMs: 200 and jitter: true
+// With initialDelay: 200 and jitter: true
 // Possible delays: 100ms to 300ms (200 ± 50%)
 
 // Internal calculation:
@@ -356,7 +356,7 @@ const user = await step.retry(
   {
     attempts: 3,
     backoff: 'exponential',
-    retryOn: (error) => {
+    shouldRetry: (error) => {
       // Don't retry NOT_FOUND - the user doesn't exist
       if (error === 'NOT_FOUND') return false;
       // Don't retry INVALID_ID - it will never work
@@ -376,16 +376,16 @@ Retrying `NOT_FOUND` or `UNAUTHORIZED` wastes time and resources. Only retry err
 
 ```typescript
 // Retry only network/server errors
-retryOn: (error) => {
+shouldRetry: (error) => {
   const noRetry = ['NOT_FOUND', 'UNAUTHORIZED', 'INVALID_INPUT', 'DUPLICATE'];
   return !noRetry.includes(error);
 }
 
 // Retry only rate limits
-retryOn: (error) => error === 'RATE_LIMITED'
+shouldRetry: (error) => error === 'RATE_LIMITED'
 
 // Retry HTTP 5xx only
-retryOn: (error) => error.status >= 500
+shouldRetry: (error) => error.status >= 500
 ```
 
 ## Combining Retry and Timeout
@@ -396,7 +396,7 @@ Each attempt has its own timeout:
 const data = await step.retry(
   'fetchData',
   () => step.withTimeout('fetchData', () => fetchData(), { ms: 2000 }),
-  { attempts: 3, backoff: 'exponential', delayMs: 100 }
+  { attempts: 3, backoff: 'exponential', initialDelay: 100 }
 );
 ```
 
@@ -429,8 +429,8 @@ const data = await step.retry(
   {
     attempts: 5,
     backoff: 'exponential',
-    delayMs: 100,
-    maxDelayMs: 5000,
+    initialDelay: 100,
+    maxDelay: 5000,
     jitter: true,
   }
 );
@@ -449,10 +449,10 @@ const user = await step.retry(
   {
     attempts: 3,
     backoff: 'exponential',
-    delayMs: 200,
-    maxDelayMs: 2000,
+    initialDelay: 200,
+    maxDelay: 2000,
     jitter: true,
-    retryOn: (error) => {
+    shouldRetry: (error) => {
       // Don't retry NOT_FOUND or validation errors
       if (error === 'NOT_FOUND' || error === 'INVALID_ID') return false;
       return true;
@@ -472,7 +472,7 @@ const user = await step('Fetch user', () => fetchUser('1'), {
   retry: {
     attempts: 3,
     backoff: 'exponential',
-    delayMs: 100,
+    initialDelay: 100,
     jitter: true,
   },
   timeout: {
@@ -504,10 +504,10 @@ const result = await workflow.run(async ({ step, deps }) => {
     {
       attempts: 3,
       backoff: 'exponential',
-      delayMs: 200,
-      maxDelayMs: 2000,
+      initialDelay: 200,
+      maxDelay: 2000,
       jitter: true,
-      retryOn: (error) => error !== 'NOT_FOUND',
+      shouldRetry: (error) => error !== 'NOT_FOUND',
     }
   );
 
@@ -538,10 +538,10 @@ Output (immediate failure, no retries):
 |--------|------|---------|-------------|
 | `attempts` | `number` | required | Max retry attempts |
 | `backoff` | `'fixed' \| 'linear' \| 'exponential'` | `'fixed'` | Delay growth strategy |
-| `delayMs` | `number` | `0` | Base delay in milliseconds |
-| `maxDelayMs` | `number` | `undefined` | Maximum delay cap |
+| `initialDelay` | `number` | `0` | Base delay in milliseconds |
+| `maxDelay` | `number` | `undefined` | Maximum delay cap |
 | `jitter` | `boolean` | `false` | Add random variation |
-| `retryOn` | `(error) => boolean` | `() => true` | Condition for retry |
+| `shouldRetry` | `(error) => boolean` | `() => true` | Condition for retry |
 
 ## Next
 

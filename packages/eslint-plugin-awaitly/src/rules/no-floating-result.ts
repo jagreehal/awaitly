@@ -13,7 +13,7 @@ import type { CallExpression, MemberExpression, Node } from 'estree';
  * GOOD: return step(() => fetchUser());
  */
 
-const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'parallel', 'race', 'allSettled', 'run', 'andThen', 'match', 'all', 'map', 'withFallback', 'withResource', 'workflow']);
+const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'race', 'all', 'map', 'withFallback', 'withResource', 'workflow']);
 
 function isStepCall(node: CallExpression): boolean {
   const { callee } = node;
@@ -23,7 +23,7 @@ function isStepCall(node: CallExpression): boolean {
     return true;
   }
 
-  // step.try(), step.retry(), step.withTimeout(), step.fromResult(), step.parallel(), step.race()
+  // step.try(), step.retry(), step.withTimeout(), step.fromResult(), step.all(), step.race()
   if (callee.type === 'MemberExpression') {
     const { object, property } = callee as MemberExpression;
     if (

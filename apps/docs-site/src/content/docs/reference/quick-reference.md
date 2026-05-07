@@ -61,22 +61,19 @@ const result = await allSettledAsync([op1(), op2(), op3()]);
 if (!result.ok) console.log('Errors:', result.error.map(e => e.error));
 ```
 
-### Use Effect-style step helpers (run, andThen, match)
+### Compose steps inside a workflow
 
-Inside a workflow callback use `({ step, deps }) => { ... }` when the workflow has deps, e.g. `run(async ({ step, deps }) => { ... })`:
+Inside a workflow callback use `({ step, deps }) => { ... }` when the workflow has deps:
 
 ```typescript
-// Unwrap AsyncResult (use getter when caching: () => fetchUser('1'))
-const user = await step.run('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+// Unwrap an AsyncResult (cache by passing { key })
+const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 
-// Chain from success value
-const enriched = await step.andThen('enrich', user, (u) => enrichUser(u));
+// Chain — just call step again with the success value
+const enriched = await step('enrich', () => enrichUser(user));
 
-// Pattern match with step tracking
-const msg = await step.match('handleUser', userResult, {
-  ok: (user) => `Hello ${user.name}`,
-  err: () => 'Failed',
-});
+// Pattern match — branch on the unwrapped value
+const msg = user.name ? `Hello ${user.name}` : 'Failed';
 ```
 
 ### Combine two Results into a tuple
@@ -104,19 +101,17 @@ const dashboard = andThen(
 ### Undo completed steps when one fails
 
 ```typescript
-import { createSagaWorkflow } from 'awaitly/workflow';
+import { createSagaWorkflow } from 'awaitly/saga';
 
-const saga = createSagaWorkflow('saga', { charge, refund, reserve, release });
-const result = await saga(async ({ saga }) => {
-  const payment = await saga.step(
-    () => charge({ amount: 100 }),
-    { name: 'charge', compensate: (p) => refund({ id: p.id }) }
-  );
-  // If next step fails, charge is automatically refunded (LIFO order)
-  const reservation = await saga.step(
-    () => reserve({ items }),
-    { name: 'reserve', compensate: (r) => release({ id: r.id }) }
-  );
+const saga = createSagaWorkflow('checkout', { charge, refund, reserve, release });
+const result = await saga.run(async ({ step, deps }) => {
+  const payment = await step('charge', () => deps.charge({ amount: 100 }), {
+    compensate: (p) => deps.refund({ id: p.id }),
+  });
+  // If a later step fails, charge is automatically refunded (LIFO order)
+  const reservation = await step('reserve', () => deps.reserve({ items }), {
+    compensate: (r) => deps.release({ id: r.id }),
+  });
   return { payment, reservation };
 });
 ```
@@ -180,7 +175,7 @@ const result = await workflow.run(async ({ step, deps }) => {
   const data = await step.retry(
     'fetchApi',
     () => fetchUnreliableAPI(),
-    { attempts: 3, backoff: 'exponential', delayMs: 100 }
+    { attempts: 3, backoff: 'exponential', initialDelay: 100 }
   );
   return data;
 });
@@ -313,7 +308,7 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 | Need | Import from |
 |------|-------------|
 | Result types only (minimal bundle) | `awaitly/result` |
-| Standalone retry for async/Result (no workflow) | `awaitly/result/retry` (`tryAsyncRetry`, `RetryConfig`) |
+| Standalone retry for async/Result (no workflow) | `awaitly/result/retry` (`tryAsyncRetry`, `tryAsyncBoundary`) |
 | Result types + composition (`ok`, `err`, `isOk`, `isErr`, `map`, `mapError`, `andThen`, `tap`, `from`, `fromPromise`, `all`, `allAsync`, `partition`, `match`, `TaggedError`) | `awaitly` |
 | run() for step composition | `awaitly/run` |
 | Workflow engine (`createWorkflow`, `Duration`, `isStepComplete`, `createResumeStateCollector`, `isWorkflowCancelled`, step types, `ResumeState`) | `awaitly/workflow` |
@@ -343,7 +338,7 @@ For optimal bundle size, import from specific entry points:
 | Entry Point | Use Case |
 |-------------|----------|
 | `awaitly/result` | Result types only (smallest bundle; sizes in docs are gzipped when given) |
-| `awaitly/result/retry` | Result retry: `tryAsyncRetry`, `RetryConfig` (no workflow engine) |
+| `awaitly/result/retry` | Result retry: `tryAsyncRetry`, `tryAsyncBoundary` (no workflow engine) |
 | `awaitly` | Result types, transforms for composition |
 | `awaitly/run` | run() for step composition |
 | `awaitly/workflow` | Workflow engine (`createWorkflow`, `Duration`, etc.) |

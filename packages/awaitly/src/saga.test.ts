@@ -3,21 +3,46 @@ import {
   createSagaWorkflow,
   runSaga,
   isSagaCompensationError,
-  type SagaEvent,
 } from "./saga";
 import { ok, err, type AsyncResult } from "./core";
 
 describe("Saga / Compensation Pattern", () => {
   describe("createSagaWorkflow", () => {
+    it("supports provide-style dep overrides", async () => {
+      const getMessage = vi.fn().mockResolvedValue(ok("base"));
+      const saga = createSagaWorkflow("provided-saga", { getMessage });
+
+      const result = await saga
+        .provide({ getMessage: vi.fn().mockResolvedValue(ok("provided")) })
+        .run(async ({ step, deps }) =>
+          step("getMessage", () => deps.getMessage())
+        );
+
+      expect(result).toEqual({ ok: true, value: "provided" });
+    });
+
+    it("chains provide() with right-most precedence", async () => {
+      const getMessage = vi.fn().mockResolvedValue(ok("base"));
+      const saga = createSagaWorkflow("provided-saga-chain", { getMessage })
+        .provide({ getMessage: vi.fn().mockResolvedValue(ok("first")) })
+        .provide({ getMessage: vi.fn().mockResolvedValue(ok("second")) });
+
+      const result = await saga.run(async ({ step, deps }) =>
+        step("getMessage", () => deps.getMessage())
+      );
+
+      expect(result).toEqual({ ok: true, value: "second" });
+    });
+
     it("should execute steps successfully without compensation", async () => {
       const step1 = vi.fn().mockResolvedValue(ok({ id: "1" }));
       const step2 = vi.fn().mockResolvedValue(ok({ id: "2" }));
 
       const saga = createSagaWorkflow("saga", { step1, step2 });
 
-      const result = await saga(async ({ saga: ctx }) => {
-        const r1 = await ctx.step('step1', () => step1());
-        const r2 = await ctx.step('step2', () => step2());
+      const result = await saga.run(async ({ step, deps }) => {
+        const r1 = await step("step1", () => deps.step1());
+        const r2 = await step("step2", () => deps.step2());
         return { r1, r2 };
       });
 
@@ -49,16 +74,16 @@ describe("Saga / Compensation Pattern", () => {
 
       const saga = createSagaWorkflow("checkout", { reserveInventory, chargeCard, sendEmail });
 
-      const result = await saga(async ({ saga: ctx }) => {
-        const reservation = await ctx.step('reserveInventory', () => reserveInventory(), {
+      const result = await saga.run(async ({ step, deps }) => {
+        const reservation = await step("reserveInventory", () => deps.reserveInventory(), {
           compensate: compensate1,
         });
 
-        const payment = await ctx.step('chargeCard', () => chargeCard(), {
+        const payment = await step("chargeCard", () => deps.chargeCard(), {
           compensate: compensate2,
         });
 
-        await ctx.step('sendEmail', () => sendEmail());
+        await step("sendEmail", () => deps.sendEmail());
 
         return { reservation, payment };
       });
@@ -68,7 +93,6 @@ describe("Saga / Compensation Pattern", () => {
         expect(result.error).toBe("EMAIL_ERROR");
       }
 
-      // Compensations should run in reverse order
       expect(compensate2).toHaveBeenCalledWith({ txId: "tx-1" });
       expect(compensate1).toHaveBeenCalledWith({ id: "reservation-1" });
       expect(compensationOrder).toEqual(["refund-payment", "release-inventory"]);
@@ -85,12 +109,12 @@ describe("Saga / Compensation Pattern", () => {
 
       const saga = createSagaWorkflow("checkout", { reserveInventory, chargeCard });
 
-      const result = await saga(async ({ saga: ctx }) => {
-        const reservation = await ctx.step("reserve", () => reserveInventory(), {
+      const result = await saga.run(async ({ step, deps }) => {
+        const reservation = await step("reserve", () => deps.reserveInventory(), {
           compensate: compensate1,
         });
 
-        await ctx.step("charge", () => chargeCard());
+        await step("charge", () => deps.chargeCard());
 
         return { reservation };
       });
@@ -106,54 +130,27 @@ describe("Saga / Compensation Pattern", () => {
       }
     });
 
-    it("should track compensations via getCompensations", async () => {
-      const step1 = vi.fn().mockResolvedValue(ok({ id: "1" }));
-      const step2 = vi.fn().mockResolvedValue(ok({ id: "2" }));
-
-      const saga = createSagaWorkflow("saga", { step1, step2 });
-
-      let recordedCompensations: Array<{ name?: string; hasValue: boolean }> = [];
-
-      await saga(async ({ saga: ctx }) => {
-        await ctx.step("step1", () => step1(), {
-          compensate: () => {},
-        });
-
-        await ctx.step("step2", () => step2(), {
-          compensate: () => {},
-        });
-
-        recordedCompensations = ctx.getCompensations();
-        return {};
-      });
-
-      expect(recordedCompensations).toEqual([
-        { name: "step1", hasValue: true },
-        { name: "step2", hasValue: true },
-      ]);
-    });
-
-    it("should emit saga events", async () => {
-      const events: SagaEvent[] = [];
+    it("emits workflow events", async () => {
+      const events: Array<{ type: string }> = [];
       const step1 = vi.fn().mockResolvedValue(ok({ id: "1" }));
 
       const saga = createSagaWorkflow(
         "saga",
         { step1 },
-        { onEvent: (e) => events.push(e as SagaEvent) }
+        { onEvent: (e) => events.push(e) }
       );
 
-      await saga(async ({ saga: ctx }) => {
-        await ctx.step("step1", () => step1());
+      await saga.run(async ({ step, deps }) => {
+        await step("step1", () => deps.step1());
         return {};
       });
 
-      expect(events.some((e) => e.type === "saga_start")).toBe(true);
-      expect(events.some((e) => e.type === "saga_success")).toBe(true);
+      expect(events.some((e) => e.type === "workflow_start")).toBe(true);
+      expect(events.some((e) => e.type === "workflow_success")).toBe(true);
     });
 
-    it("should emit compensation events on failure", async () => {
-      const events: SagaEvent[] = [];
+    it("emits workflow_error on failure with compensation", async () => {
+      const events: Array<{ type: string }> = [];
       const step1 = vi.fn().mockResolvedValue(ok({ id: "1" }));
       const step2 = vi.fn().mockResolvedValue(err("FAIL"));
       const compensate = vi.fn();
@@ -161,41 +158,34 @@ describe("Saga / Compensation Pattern", () => {
       const saga = createSagaWorkflow(
         "saga",
         { step1, step2 },
-        { onEvent: (e) => events.push(e as SagaEvent) }
+        { onEvent: (e) => events.push(e) }
       );
 
-      await saga(async ({ saga: ctx }) => {
-        await ctx.step("step1", () => step1(), {
-          compensate,
-        });
-        await ctx.step("step2", () => step2());
+      await saga.run(async ({ step, deps }) => {
+        await step("step1", () => deps.step1(), { compensate });
+        await step("step2", () => deps.step2());
         return {};
       });
 
-      expect(events.some((e) => e.type === "saga_error")).toBe(true);
-      expect(events.some((e) => e.type === "saga_compensation_start")).toBe(true);
-      expect(events.some((e) => e.type === "saga_compensation_step")).toBe(true);
-      expect(events.some((e) => e.type === "saga_compensation_end")).toBe(true);
+      expect(events.some((e) => e.type === "workflow_error")).toBe(true);
+      expect(compensate).toHaveBeenCalled();
     });
   });
 
-  describe("tryStep", () => {
+  describe("step.try", () => {
     it("should catch thrown errors and run compensations", async () => {
       const compensate = vi.fn();
 
       type MyError = "STEP_ERROR" | "STEP2_ERROR";
 
-      const result = await runSaga<string, MyError>(async ({ saga: ctx }) => {
-        const value = await ctx.tryStep(
+      const result = await runSaga<string, MyError>(async ({ step }) => {
+        const value = await step.try(
           "step1",
           () => Promise.resolve("success"),
-          {
-            error: "STEP_ERROR",
-            compensate,
-          }
+          { error: "STEP_ERROR", compensate }
         );
 
-        await ctx.tryStep(
+        await step.try(
           "step2",
           () => {
             throw new Error("Boom!");
@@ -216,8 +206,8 @@ describe("Saga / Compensation Pattern", () => {
     it("should use onError mapper for thrown errors", async () => {
       type MappedError = { type: "MAPPED_ERROR"; message: string };
 
-      const result = await runSaga<Record<string, never>, MappedError>(async ({ saga: ctx }) => {
-        await ctx.tryStep(
+      const result = await runSaga<Record<string, never>, MappedError>(async ({ step }) => {
+        await step.try(
           "mapped-step",
           () => {
             throw new Error("Custom error message");
@@ -243,15 +233,9 @@ describe("Saga / Compensation Pattern", () => {
     it("should work without deps object", async () => {
       type MyError = "STEP1_ERROR" | "STEP2_ERROR";
 
-      const result = await runSaga<{ value: string }, MyError>(async ({ saga: ctx }) => {
-        const v1 = await ctx.step("step1", () => ok("hello"), {
-          compensate: () => {},
-        });
-
-        const v2 = await ctx.step("step2", () => ok("world"), {
-          compensate: () => {},
-        });
-
+      const result = await runSaga<{ value: string }, MyError>(async ({ step }) => {
+        const v1 = await step("step1", () => ok("hello"), { compensate: () => {} });
+        const v2 = await step("step2", () => ok("world"), { compensate: () => {} });
         return { value: `${v1} ${v2}` };
       });
 
@@ -264,20 +248,16 @@ describe("Saga / Compensation Pattern", () => {
     it("should run compensations on failure", async () => {
       const compensationOrder: string[] = [];
 
-      const result = await runSaga<{ value: string }, "FAIL">(async ({ saga: ctx }) => {
-        await ctx.step("step1", () => ok("a"), {
-          compensate: () => {
-            compensationOrder.push("comp1");
-          },
+      const result = await runSaga<{ value: string }, "FAIL">(async ({ step }) => {
+        await step("step1", () => ok("a"), {
+          compensate: () => { compensationOrder.push("comp1"); },
         });
 
-        await ctx.step("step2", () => ok("b"), {
-          compensate: () => {
-            compensationOrder.push("comp2");
-          },
+        await step("step2", () => ok("b"), {
+          compensate: () => { compensationOrder.push("comp2"); },
         });
 
-        await ctx.step("step3", () => err("FAIL" as const));
+        await step("step3", () => err("FAIL" as const));
 
         return { value: "never" };
       });

@@ -315,7 +315,7 @@ const result = await workflow.run(async ({ step, deps }) => {
     {
       attempts: 3,
       backoff: 'exponential',
-      delayMs: 100,
+      initialDelay: 100,
     }
   );
 

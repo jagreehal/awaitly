@@ -178,7 +178,7 @@ export async function runProcessOrder(
     const cart = await step("fetchCart", () => deps.fetchCart(cartId));
 
     // Step 2: validateOrder (parallel: checkInventory + checkFraud)
-    await step.parallel("validateOrder", {
+    await step.all("validateOrder", {
       inventory: () => deps.checkInventory(cart.items),
       fraud: () => deps.checkFraud(cart.id),
     });
@@ -251,7 +251,7 @@ export async function runProcessOrder(
     );
 
     // Step 9: sendNotifications (parallel: email + push)
-    await step.parallel("sendNotifications", {
+    await step.all("sendNotifications", {
       email: () => deps.sendEmail("user@example.com"),
       push: () => deps.sendPush("user-1"),
     });

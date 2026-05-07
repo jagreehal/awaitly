@@ -157,8 +157,8 @@ const result = await checkout.run(async ({ step, deps }) => {
     {
       attempts: 3,
       backoff: 'exponential',
-      delayMs: 500,
-      retryOn: (error) => error === 'PAYMENT_ERROR', // Don't retry declined
+      initialDelay: 500,
+      shouldRetry: (error) => error === 'PAYMENT_ERROR', // Don't retry declined
     }
   );
 

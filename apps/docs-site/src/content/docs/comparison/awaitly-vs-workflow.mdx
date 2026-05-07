@@ -35,7 +35,7 @@ Choose awaitly when you want typed error handling, platform flexibility, and exp
 | Workflow Definition | `"use workflow"` directive | `createWorkflow()` factory |
 | Error Handling | `throw Error` / `RetryableError` | `return err(error)` with `TaggedError` |
 | Type Safety | Basic TypeScript | Enhanced with Result types |
-| Parallel Execution | `Promise.all()` | `step.all()` / `step.parallel()` with named steps; `step.map()` for arrays |
+| Parallel Execution | `Promise.all()` | `step.all()` / `step.all()` with named steps; `step.map()` for arrays |
 | Race Conditions | `Promise.race()` | `step.race()` with `anyAsync()` |
 | Retry Logic | `RetryableError` class | Retry options in step config |
 | Saga Pattern | Manual try/catch rollback | `createSagaWorkflow` with auto-compensation |
@@ -201,7 +201,7 @@ export const parallelWorkflow = createWorkflow('workflow', { fetchUser, fetchPos
 export async function runParallelWorkflow(id: string) {
   return await parallelWorkflow(async (step) => {
     // Named object form (recommended - better type inference)
-    const { user, posts, comments } = await step.parallel("Fetch all data", {
+    const { user, posts, comments } = await step.all("Fetch all data", {
       user: () => deps.fetchUser(id),
       posts: () => deps.fetchPosts(id),
       comments: () => deps.fetchComments(id),
@@ -227,7 +227,7 @@ export async function parallelWorkflow() {
   </TabItem>
 </Tabs>
 
-**Key difference**: awaitly's `step.parallel()` provides named steps for better observability and type inference.
+**Key difference**: awaitly's `step.all()` provides named steps for better observability and type inference.
 
 ## Race Conditions
 
@@ -335,24 +335,17 @@ This is where awaitly shines. Compare manual rollback with automatic compensatio
 ```typescript
 import { createSagaWorkflow } from "awaitly/saga";
 
-export const orderProcessingSaga = createSagaWorkflow('saga', { reserveInventory,
-    releaseInventory,
-    processPayment,
-    refundPayment,
-    createShippingLabel,
-  },
-  {
-    onEvent: (event) => {
-      if (event.type === "saga_compensation_start") {
-        console.log(`Rolling back ${event.stepCount} steps...`);
-      }
-    },
-  }
-);
+export const orderProcessingSaga = createSagaWorkflow('saga', {
+  reserveInventory,
+  releaseInventory,
+  processPayment,
+  refundPayment,
+  createShippingLabel,
+});
 
 export async function processOrder(request: OrderRequest) {
-  return await orderProcessingSaga(async ({ saga, deps }) => {
-    await saga.step(
+  return await orderProcessingSaga.run(async ({ step, deps }) => {
+    await step(
       "reserve-inventory",
       () => deps.reserveInventory(request.items),
       {
@@ -362,7 +355,7 @@ export async function processOrder(request: OrderRequest) {
       }
     );
 
-    const payment = await saga.step(
+    const payment = await step(
       "process-payment",
       () => deps.processPayment(request.paymentMethod),
       {
@@ -372,7 +365,7 @@ export async function processOrder(request: OrderRequest) {
       }
     );
 
-    const label = await saga.step(
+    const label = await step(
       "create-shipping-label",
       () => deps.createShippingLabel(request.address),
       {

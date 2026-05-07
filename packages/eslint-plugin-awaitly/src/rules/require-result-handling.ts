@@ -34,7 +34,7 @@ import type {
 const RESULT_FUNCTIONS = new Set(['run', 'step', 'ok', 'err', 'fromPromise', 'fromThrowable']);
 
 // Step methods that return Result types
-const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'parallel', 'race', 'allSettled', 'all']);
+const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'race', 'all']);
 
 interface ResultVariable {
   name: string;

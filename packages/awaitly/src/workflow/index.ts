@@ -85,6 +85,7 @@ export {
 } from "../persistence";
 
 export { createWorkflow } from "./execute";
+export { provide } from "../di";
 
 // Validation
 export {

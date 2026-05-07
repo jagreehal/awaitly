@@ -781,7 +781,7 @@ describe("fetch helpers", () => {
       }
     });
 
-    it("should evaluate retryOn against FetchHttpError before mapError (parity with other fetch helpers)", async () => {
+    it("should evaluate shouldRetry against FetchHttpError before mapError (parity with other fetch helpers)", async () => {
       global.fetch = vi
         .fn()
         .mockResolvedValueOnce(
@@ -810,7 +810,7 @@ describe("fetch helpers", () => {
         mapError,
         retry: {
           attempts: 2,
-          retryOn: (error) =>
+          shouldRetry: (error) =>
             typeof error === "object" &&
             error !== null &&
             "_tag" in error &&

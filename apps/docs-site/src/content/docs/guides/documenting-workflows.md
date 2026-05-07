@@ -51,7 +51,7 @@ await step.sleep('wait', '5s', {
 });
 
 // Saga step
-await saga.step('createOrder', () => deps.createOrder(args), {
+await step('createOrder', () => deps.createOrder(args), {
   description: 'Creates the order record',
   markdown: 'Persists order to the database.',
   compensate: () => deps.cancelOrder(),

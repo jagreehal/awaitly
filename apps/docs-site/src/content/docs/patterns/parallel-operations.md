@@ -106,10 +106,10 @@ const [successes, failures] = partition(results);
 
 ## Named parallel operations
 
-Give parallel groups a name for visualization using `step.all` (Effect-style, named results) or `step.parallel`:
+Give parallel groups a name for visualization using `step.all`:
 
 ```typescript
-// step.all — named results
+// Object form — named results
 const result = await workflow.run(async ({ step }) => {
   const { user, posts } = await step.all('Fetch user data', {
     user: () => fetchUser('1'),
@@ -118,9 +118,9 @@ const result = await workflow.run(async ({ step }) => {
   return { user, posts };
 });
 
-// step.parallel + allAsync
+// Array form — pass a callback that returns an allAsync Result
 const result = await workflow.run(async ({ step }) => {
-  const [user, posts] = await step.parallel('Fetch user data', () =>
+  const [user, posts] = await step.all('Fetch user data', () =>
     allAsync([fetchUser('1'), fetchPosts('1')])
   );
   return { user, posts };

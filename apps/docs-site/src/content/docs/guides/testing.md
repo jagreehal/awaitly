@@ -154,6 +154,54 @@ const harness = createWorkflowHarness({
 
 **WHY**: Test complex scenarios like retries, call tracking, and conditional responses.
 
+### Prefer `provide()` for reusable test deps
+
+If multiple tests share the same overrides, pre-bind them once with `provide()` (or `workflow.provide()`), then run the same workflow logic with less setup noise.
+
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+
+const workflow = createWorkflow('checkout', {
+  fetchUser: realFetchUser,
+  chargeCard: realChargeCard,
+  sendEmail: realSendEmail,
+});
+
+// Fluent form: pre-bind common test deps once
+const testWorkflow = workflow.provide({
+  fetchUser: async () => ok({ id: 'u-1', email: 'test@example.com' }),
+  sendEmail: async () => ok(undefined),
+});
+
+const result = await testWorkflow.run(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => deps.fetchUser('u-1'));
+  await step('chargeCard', () => deps.chargeCard(100));
+  await step('sendEmail', () => deps.sendEmail(user.email));
+  return user;
+});
+```
+
+You can still override per test run:
+
+```typescript
+const result = await testWorkflow.run(
+  async ({ step, deps }) => step('chargeCard', () => deps.chargeCard(100)),
+  {
+    deps: {
+      chargeCard: async () => err('DECLINED' as const),
+    },
+  }
+);
+```
+
+Precedence is:
+
+- `createWorkflow(...)` deps
+- then `provide(...)` deps
+- then `run(..., { deps })` deps (highest precedence)
+
+Use `provide()` for shared baseline mocks, and use per-run `deps` overrides for one-off test scenarios.
+
 ### Mock functions
 
 Track calls and change behavior:
@@ -338,16 +386,16 @@ describe('payment saga', () => {
       refundPayment: () => okOutcome(undefined),
     });
 
-    const result = await harness.runSaga(async (saga, deps) => {
+    const result = await harness.runSaga(async ({ step, deps }) => {
       // Charge payment - add compensation to refund if later steps fail
-      const payment = await saga.step(
+      const payment = await step(
         'charge-payment',
         () => deps.chargePayment({ amount: 100 }),
         { compensate: (p) => deps.refundPayment({ id: p.id }) }
       );
 
       // This fails - triggers compensation
-      const reservation = await saga.step(
+      const reservation = await step(
         'reserve-inventory',
         () => deps.reserveInventory({ items: [] })
       );

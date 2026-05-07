@@ -552,14 +552,12 @@ describe("Skill Examples", () => {
       }
     });
 
-    it("step.match(id, result, { ok, err }) pattern match on Result", async () => {
+    it("pattern matching on Result inside a step", async () => {
       const result = await run(async ({ step }) => {
         const userResult = ok({ id: "1", name: "Alice" });
-        const message = await step.match("handleUser", userResult, {
-          ok: (u) => u.name,
-          err: () => "n/a",
-        });
-        return message;
+        return step("handleUser", () =>
+          ok(userResult.ok ? userResult.value.name : "n/a")
+        );
       });
 
       expect(unwrapOk(result)).toBe("Alice");
@@ -573,7 +571,7 @@ describe("Skill Examples", () => {
       const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow.run(async ({ step, deps }) => {
-        const user = await step.run("getUser", deps.getUser("1"), { key: "user:1" });
+        const user = await step("getUser", () => deps.getUser("1"), { key: "user:1" });
         return user;
       });
 
@@ -602,7 +600,7 @@ describe("Skill Examples", () => {
       expect(value.posts[0].title).toBe("First");
     });
 
-    it("step.parallel(name, () => allAsync([...])) array form", async () => {
+    it("step.all(name, () => allAsync([...])) array form", async () => {
       const deps = {
         getUser: async (id: string): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> =>
           ok({ id, name: "Alice" }),
@@ -610,7 +608,7 @@ describe("Skill Examples", () => {
       const workflow = createWorkflow("workflow", deps);
 
       const result = await workflow.run(async ({ step, deps }) => {
-        const [user1, user2] = await step.parallel("Fetch users", () =>
+        const [user1, user2] = await step.all("Fetch users", () =>
           allAsync([deps.getUser("1"), deps.getUser("2")]) as AsyncResult<
             { id: string; name: string }[],
             "NOT_FOUND"

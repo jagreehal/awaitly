@@ -120,6 +120,8 @@ IDs should be unique per workflow instance; don't run the same id concurrently u
 
 Durable uses a **SnapshotStore** (`save`, `load`, `delete`, `list`, `close`). When you omit `store`, an in-memory store is used (per process).
 
+**Note:** Snapshot stores hold workflow checkpoints. For streaming output inside a step (AI tokens, etc.), see [Streaming](/foundations/streaming/).
+
 ### In-memory (default)
 
 Omit `store` for testing or single-process usage. State is lost on restart.

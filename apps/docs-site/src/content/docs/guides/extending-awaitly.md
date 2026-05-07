@@ -238,7 +238,7 @@ So reading the success body (e.g. `response.text()`) never escapes as a thrown p
 
 **Resilience**
 
-- You can pass **`retry`** in options to get retries without using a step: same backoff and `retryOn` semantics as `step.retry`. Use a number for attempts only (`retry: 3`) or a full `RetryOptions` object (`retry: { attempts: 3, retryOn: (err) => ... }`). Default: no retry. So `import { fetchJson } from 'awaitly/fetch'` gives you a super-powered fetch (no throw, typed errors, timeout, signal, optional retry) in one place.
+- You can pass **`retry`** in options to get retries without using a step: same backoff and `shouldRetry` semantics as `step.retry`. Use a number for attempts only (`retry: 3`) or a full `RetryOptions` object (`retry: { attempts: 3, shouldRetry: (err) => ... }`). Default: no retry. So `import { fetchJson } from 'awaitly/fetch'` gives you a super-powered fetch (no throw, typed errors, timeout, signal, optional retry) in one place.
 - If you use workflows, you can still combine with `step.retry` when you want step-level retry; the fetch `retry` option is for when you’re not in a step.
 
 ### Step 6: Add to Build (Library Authors)

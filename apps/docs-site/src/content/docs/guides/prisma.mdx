@@ -229,23 +229,23 @@ const transferFunds = createSagaWorkflow('saga', { debitAccount: async (accountI
   },
 });
 
-const result = await transferFunds(async (ctx, deps) => {
+const result = await transferFunds.run(async ({ step, deps }) => {
   // Debit source account
-  await ctx.step(
+  await step(
     'debit',
     () => deps.debitAccount(sourceId, amount),
     { compensate: () => deps.creditAccount(sourceId, amount) } // Rollback on failure
   );
 
   // Credit destination account
-  await ctx.step(
+  await step(
     'credit',
     () => deps.creditAccount(destId, amount),
     { compensate: () => deps.debitAccount(destId, amount) }
   );
 
   // Record transaction
-  await ctx.step('createTransaction', () => deps.createTransaction({
+  await step('createTransaction', () => deps.createTransaction({
     sourceId,
     destId,
     amount,

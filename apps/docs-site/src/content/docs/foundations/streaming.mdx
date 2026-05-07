@@ -7,6 +7,10 @@ import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 Stream data in real-time within workflows. Perfect for AI token streaming, live updates, and processing large datasets incrementally.
 
+<Aside type="note" title="Different from workflow checkpoints">
+Streaming stores **ordered items inside a step** (tokens, chunks). For **workflow-level resume** after restart, see [Persistence](/guides/persistence/) and [Durable Execution](/guides/durable-execution/).
+</Aside>
+
 <Aside type="caution" title="Options go to createWorkflow">
 The `streamStore` option must be passed to `createWorkflow('workflow', deps, { streamStore })`, not when calling the workflow.
 </Aside>
@@ -45,7 +49,7 @@ import { createMemoryStreamStore } from 'awaitly/streaming';
 const streamStore = createMemoryStreamStore();
 ```
   </TabItem>
-  <TabItem label="File (Persistence)">
+  <TabItem label="File (On-disk JSONL)">
 ```typescript
 import { createFileStreamStore } from 'awaitly/streaming';
 import * as fs from 'node:fs/promises';

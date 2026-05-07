@@ -15,8 +15,8 @@
  * }
  *
  * const result = await run(async ({ step }) => {
- *   const user = await step.run('getUser', getUser(id));
- *   const posts = await step.run('getPosts', getPosts(user.id));
+ *   const user = await step('getUser', () => getUser(id));
+ *   const posts = await step('getPosts', () => getPosts(user.id));
  *   return { user, posts };
  * });
  * ```

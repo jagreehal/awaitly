@@ -231,7 +231,7 @@ The analyzer extracts:
 | Steps | `step()`, `step.retry()`, `step.withTimeout()` |
 | Conditionals | `if/else`, `when()`, `unless()`, `whenOr()`, `unlessOr()` |
 | Loops | `for`, `while`, `for-of`, `for-in` |
-| Parallel | `step.parallel()`, `allAsync()`, `allSettledAsync()` |
+| Parallel | `step.all()`, `allAsync()`, `allSettledAsync()` |
 | Race | `step.race()`, `anyAsync()` |
 | Retry/Timeout | Options in step config, `step.retry()`, `step.withTimeout()` |
 | Workflow refs | Calls to other workflows |
@@ -571,13 +571,13 @@ Parallel and race nodes support custom names that appear in diagrams:
 
 ```typescript
 // Object form with name option
-await step.parallel('Fetch user data', {
+await step.all('Fetch user data', {
   user: () => deps.fetchUser(),
   posts: () => deps.fetchPosts(),
 });
 
 // Array form with name
-await step.parallel('Fetch all', () => allAsync([
+await step.all('Fetch all', () => allAsync([
   deps.fetchUser(),
   deps.fetchPosts(),
 ]));

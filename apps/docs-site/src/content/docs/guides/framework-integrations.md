@@ -342,16 +342,16 @@ const transferWorkflow = createSagaWorkflow('saga', { debitAccount: async (accou
 router.post('/transfer', async (req, res) => {
   const { fromAccount, toAccount, amount } = req.body;
 
-  const result = await transferWorkflow(async ({ saga, deps }) => {
+  const result = await transferWorkflow.run(async ({ step, deps }) => {
     // Debit source account - compensate by crediting back
-    await saga.step(
+    await step(
       'debit',
       () => debitAccount(fromAccount, amount),
       { compensate: () => creditAccount(fromAccount, amount) } // Undo on failure
     );
 
     // Credit destination - no compensation needed (it's the last step)
-    await saga.step('credit', () => creditAccount(toAccount, amount));
+    await step('credit', () => creditAccount(toAccount, amount));
 
     return { success: true };
   });

@@ -82,61 +82,9 @@ describe('require-step-id', () => {
     });
   });
 
-  describe('valid cases - step.parallel()', () => {
-    it('allows step.parallel with name and object', () => {
-      const code = `step.parallel('Fetch data', { a: () => fetchA(), b: () => fetchB() });`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(0);
-    });
-
-    it('allows step.parallel with name and callback (array form)', () => {
-      const code = `step.parallel('Fetch all', () => allAsync([fetchUser(), fetchPosts()]));`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(0);
-    });
-  });
-
   describe('valid cases - step.race()', () => {
     it('allows step.race with name and callback', () => {
       const code = `step.race('Fastest API', () => anyAsync([primary(), fallback()]));`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(0);
-    });
-  });
-
-  describe('valid cases - step.allSettled()', () => {
-    it('allows step.allSettled with name and callback', () => {
-      const code = `step.allSettled('Fetch all', () => allSettledAsync([fetchA(), fetchB()]));`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(0);
-    });
-  });
-
-  describe('valid cases - step.run()', () => {
-    it('allows step.run with string literal id', () => {
-      const code = `step.run('fetchUser', () => fetchUser('1'));`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(0);
-    });
-
-    it('allows step.run with id and key option', () => {
-      const code = `step.run('fetchUser', () => fetchUser('1'), { key: 'user:1' });`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(0);
-    });
-  });
-
-  describe('valid cases - step.andThen()', () => {
-    it('allows step.andThen with string literal id', () => {
-      const code = `step.andThen('enrich', user, (u) => enrichUser(u));`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(0);
-    });
-  });
-
-  describe('valid cases - step.match()', () => {
-    it('allows step.match with string literal id', () => {
-      const code = `step.match('handleUser', result, { ok: (v) => v.name, err: () => 'nope' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
@@ -478,30 +426,6 @@ describe('require-step-id', () => {
     });
   });
 
-  describe('invalid cases - step.parallel()', () => {
-    it('reports when step.parallel first argument is object (legacy form)', () => {
-      const code = `step.parallel({ a: () => fetchA(), b: () => fetchB() });`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
-      expect(messages[0].message).toContain('step.parallel()');
-    });
-
-    it('reports when step.parallel has no arguments', () => {
-      const code = `step.parallel();`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
-    });
-
-    it('reports when step.parallel first argument is identifier', () => {
-      const code = `step.parallel(myName, { a: () => fetchA() });`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
-    });
-  });
-
   describe('invalid cases - step.race()', () => {
     it('reports when step.race first argument is function', () => {
       const code = `step.race(() => anyAsync([a(), b()]));`;
@@ -509,40 +433,6 @@ describe('require-step-id', () => {
       expect(messages).toHaveLength(1);
       expect(messages[0].ruleId).toBe('awaitly/require-step-id');
       expect(messages[0].message).toContain('step.race()');
-    });
-  });
-
-  describe('invalid cases - step.run()', () => {
-    it('reports when step.run has no arguments', () => {
-      const code = `step.run();`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(1);
-      expect(messages[0].message).toContain('step.run()');
-    });
-
-    it('reports when step.run first argument is identifier', () => {
-      const code = `step.run(myId, () => fetchUser('1'));`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(1);
-      expect(messages[0].message).toContain('step.run()');
-    });
-  });
-
-  describe('invalid cases - step.andThen()', () => {
-    it('reports when step.andThen first argument is identifier', () => {
-      const code = `step.andThen(myId, user, (u) => enrichUser(u));`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(1);
-      expect(messages[0].message).toContain('step.andThen()');
-    });
-  });
-
-  describe('invalid cases - step.match()', () => {
-    it('reports when step.match first argument is identifier', () => {
-      const code = `step.match(myId, result, { ok: (v) => v, err: () => null });`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(1);
-      expect(messages[0].message).toContain('step.match()');
     });
   });
 

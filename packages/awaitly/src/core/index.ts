@@ -328,9 +328,21 @@ export type MatchErrorHandlers<E extends string, R> = {
  * ```
  */
 export function matchError<E extends string, R>(
+  handlers: MatchErrorHandlers<E, R>
+): (error: E | UnexpectedError) => R;
+export function matchError<E extends string, R>(
   error: E | UnexpectedError,
   handlers: MatchErrorHandlers<E, R>
-): R {
+): R;
+export function matchError<E extends string, R>(
+  errorOrHandlers: E | UnexpectedError | MatchErrorHandlers<E, R>,
+  handlers?: MatchErrorHandlers<E, R>
+): R | ((error: E | UnexpectedError) => R) {
+  if (handlers === undefined) {
+    const h = errorOrHandlers as MatchErrorHandlers<E, R>;
+    return (e: E | UnexpectedError) => matchError(e, h);
+  }
+  const error = errorOrHandlers as E | UnexpectedError;
   // Handle UnexpectedError instances
   if (isUnexpectedError(error)) {
     return handlers.UnexpectedError(error as UnexpectedError);
@@ -645,7 +657,7 @@ export type StepOptions<
    * Keys should match entries in the `errors` array.
    *
    * Note: `retryable` classifies the error's nature (whether it CAN be retried),
-   * separate from whether this step actually retries it (that's `retry.retryOn`).
+   * separate from whether this step actually retries it (that's `retry.shouldRetry`).
    * Both dimensions are useful — "this error IS retryable" vs "this step DOES retry it".
    * Defaults to `undefined` (unknown), not `true`.
    *
@@ -669,6 +681,27 @@ export type StepOptions<
    * ```
    */
   errorMeta?: Record<string, ErrorClassification>;
+
+  /**
+   * Compensation action to run if a later step fails.
+   *
+   * When set, the step's return value is captured. If the workflow later fails
+   * (any step error, or the user callback throws), every step that recorded a
+   * compensation runs its `compensate` callback in reverse order.
+   *
+   * If a compensation throws, errors are collected. When at least one fails,
+   * the workflow result becomes a `SagaCompensationError` containing the
+   * original error and all compensation failures.
+   *
+   * @example
+   * ```typescript
+   * const reservation = await step('reserve', () => deps.reserve(items), {
+   *   compensate: (r) => deps.release(r.id),
+   * });
+   * ```
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  compensate?: (value: any) => void | Promise<void>;
 };
 
 /** Shared error classification — used in StepOptions.errorMeta, diagnostics, and wide events. */
@@ -790,7 +823,7 @@ export type BackoffStrategy = "fixed" | "linear" | "exponential";
 /**
  * Configuration for step retry behavior.
  */
-export type RetryOptions = {
+export type RetryOptions<E = unknown> = {
   /**
    * Total number of attempts (1 = no retry, 3 = initial + 2 retries).
    * Must be >= 1.
@@ -832,13 +865,13 @@ export type RetryOptions = {
    * Return true to retry, false to fail immediately.
    * @default Always retry on any error
    */
-  retryOn?: (error: unknown, attempt: number) => boolean;
+  shouldRetry?: (error: E, attempt: number) => boolean;
 
   /**
    * Callback invoked before each retry attempt.
    * Useful for logging, metrics, or side effects.
    */
-  onRetry?: (error: unknown, attempt: number, delayMs: number) => void;
+  onRetry?: (error: E, attempt: number, delayMs: number) => void;
 };
 
 /**
@@ -1026,31 +1059,52 @@ export interface RunStep<E = unknown> {
 
   /**
    * Execute a standard throwing operation safely.
-   * Catches exceptions and maps them to a typed error, or wraps them if no mapper is provided.
+   * Catches exceptions and maps them to a typed error.
    *
    * Use this when integrating with libraries that throw exceptions.
+   * Supports retry, timeout, and compensate options inline.
    *
    * @param id - Unique identifier for this step (required for analysis and caching)
    * @param operation - A function that returns a value or Promise (may throw)
-   * @param options - Configuration including error mapping
+   * @param options - Configuration including error mapping, retry, timeout, compensate
    * @returns The success value
    * @throws {EarlyExit} If the operation throws (stops execution safely)
    *
    * @example
    * ```typescript
-   * const data = await step.try(
-   *   "db-query",
-   *   () => db.query(),
-   *   { onError: (e) => ({ type: "DB_ERROR", cause: e }) }
-   * );
+   * // Basic
+   * const data = await step.try("db-query", () => db.query(), {
+   *   onError: (e) => ({ type: "DB_ERROR", cause: e }),
+   * });
+   *
+   * // With retry + timeout
+   * const data = await step.try("api-call", () => callApi(), {
+   *   onError: (e) => "API_ERROR" as const,
+   *   retry: { attempts: 3, initialDelay: 100 },
+   *   timeout: { ms: 5000 },
+   * });
    * ```
    */
   try: <T, const Err extends E>(
     id: string,
     operation: () => T | Promise<T>,
     options:
-      | { error: Err; key?: string; ttl?: number }
-      | { onError: (cause: unknown) => Err; key?: string; ttl?: number }
+      | {
+          error: Err;
+          key?: string;
+          ttl?: number;
+          retry?: RetryOptions<Err>;
+          timeout?: TimeoutOptions;
+          compensate?: (value: T) => void | Promise<void>;
+        }
+      | {
+          onError: (cause: unknown) => Err;
+          key?: string;
+          ttl?: number;
+          retry?: RetryOptions<Err>;
+          timeout?: TimeoutOptions;
+          compensate?: (value: T) => void | Promise<void>;
+        }
   ) => Promise<T>;
 
   /**
@@ -1121,12 +1175,12 @@ export interface RunStep<E = unknown> {
    * This wraps the operations with scope_start and scope_end events, enabling
    * visualization of parallel execution branches.
    *
-   * @overload Object form - step.parallel(name, { key: () => ... })
-   * @overload Array form - step.parallel(name, () => allAsync([...]))
+   * @overload Object form - step.all(name, { key: () => ... })
+   * @overload Array form - step.all(name, () => allAsync([...]))
    *
    * @example Object form
    * ```typescript
-   * const { user, posts } = await step.parallel('Fetch user data', {
+   * const { user, posts } = await step.all('Fetch user data', {
    *   user: () => fetchUser(id),
    *   posts: () => fetchPosts(id),
    * });
@@ -1134,7 +1188,7 @@ export interface RunStep<E = unknown> {
    *
    * @example Canonical form (strict mode)
    * ```typescript
-   * const { user, posts } = await step.parallel('Fetch user data', {
+   * const { user, posts } = await step.all('Fetch user data', {
    *   user: { fn: () => fetchUser(id), errors: ['NOT_FOUND'] },
    *   posts: { fn: () => fetchPosts(id), errors: ['FETCH_ERROR'] },
    * });
@@ -1142,13 +1196,13 @@ export interface RunStep<E = unknown> {
    *
    * @example Array form
    * ```typescript
-   * const [user, posts] = await step.parallel('Fetch all data', () =>
+   * const [user, posts] = await step.all('Fetch all data', () =>
    *   allAsync([fetchUser(id), fetchPosts(id)])
    * );
    * ```
    */
-  parallel: {
-    // Object form: step.parallel(name, { key: () => ... })
+  all: {
+    // Object form: step.all(name, { key: () => ... })
     <
       TOperations extends Record<
         string,
@@ -1167,7 +1221,7 @@ export interface RunStep<E = unknown> {
         : never;
     }>;
 
-    // Object form canonical: step.parallel(name, { key: { fn, errors } })
+    // Object form canonical: step.all(name, { key: { fn, errors } })
     <
       TOperations extends Record<
         string,
@@ -1185,7 +1239,7 @@ export interface RunStep<E = unknown> {
         : never;
     }>;
 
-    // Array form: step.parallel(name, () => allAsync([...]))
+    // Array form: step.all(name, () => allAsync([...]))
     <T, StepE extends E, StepC = unknown>(
       name: string,
       operation: () => Result<T[], StepE, StepC> | AsyncResult<T[], StepE, StepC>
@@ -1213,29 +1267,6 @@ export interface RunStep<E = unknown> {
     name: string,
     operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>
   ) => Promise<T>;
-
-  /**
-   * Execute an allSettled operation with scope events for visualization.
-   *
-   * This wraps the operation with scope_start and scope_end events, enabling
-   * visualization of allSettled execution branches. Unlike step.parallel,
-   * allSettled collects all results even if some fail.
-   *
-   * @param name - Name for this allSettled block (used in visualization)
-   * @param operation - A function that returns a Result from allSettledAsync
-   * @returns The success value (unwrapped array)
-   *
-   * @example
-   * ```typescript
-   * const [user, posts] = await step.allSettled('Fetch all data', () =>
-   *   allSettledAsync([fetchUser(id), fetchPosts(id)])
-   * );
-   * ```
-   */
-  allSettled: <T, StepE extends E, StepC = unknown>(
-    name: string,
-    operation: () => Result<T[], StepE, StepC> | AsyncResult<T[], StepE, StepC>
-  ) => Promise<T[]>;
 
   /**
    * Execute a primary operation with a fallback if the primary fails.
@@ -1339,7 +1370,7 @@ export interface RunStep<E = unknown> {
    *     attempts: 3,
    *     backoff: 'exponential',
    *     initialDelay: 200,
-   *     retryOn: (error) => error === 'RATE_LIMITED' || error === 'TRANSIENT',
+   *     shouldRetry: (error) => error === 'RATE_LIMITED' || error === 'TRANSIENT',
    *     onRetry: (error, attempt, delay) => {
    *       console.log(`Retry ${attempt} after ${delay}ms`);
    *     },
@@ -1350,7 +1381,7 @@ export interface RunStep<E = unknown> {
   retry: <T, StepE extends E, StepC = unknown>(
     id: string,
     operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
-    options: RetryOptions & { key?: string; timeout?: TimeoutOptions }
+    options: RetryOptions<StepE> & { key?: string; timeout?: TimeoutOptions }
   ) => Promise<T>;
 
   /**
@@ -1701,30 +1732,6 @@ export interface RunStep<E = unknown> {
   // ===========================================================================
 
   /**
-   * Unwrap an AsyncResult directly within a workflow step.
-   *
-   * Use this when you already have an AsyncResult and want to unwrap it
-   * without wrapping it in a function. Automatically exits on error.
-   *
-   * @param id - Unique step identifier
-   * @param result - The AsyncResult to unwrap
-   * @param options - Step options
-   * @returns The success value (unwrapped)
-   * @throws {EarlyExit} If the result is an error
-   *
-   * @example
-   * ```typescript
-   * const userResult = fetchUser(userId); // AsyncResult<User, 'NOT_FOUND'>
-   * const user = await step.run('fetchUser', userResult);
-   * // Automatically unwraps and exits on error
-   * ```
-   */
-  run: <T, StepE extends E, StepC = unknown>(
-    id: string,
-    result: AsyncResult<T, StepE, StepC>,
-    options?: StepOptions
-  ) => Promise<T>;
-
   /**
    * Run a sub-workflow (or any AsyncResult-returning operation) as a step.
    * Use for workflow composition; the getter's error type (SubE) flows into the parent's error union.
@@ -1745,93 +1752,6 @@ export interface RunStep<E = unknown> {
     getter: () => AsyncResult<T, SubE, StepC>,
     options?: StepOptions
   ) => Promise<T>;
-
-  /**
-   * Chain AsyncResult operations with step tracking.
-   *
-   * Use this for composing AsyncResult operations where each step
-   * depends on the previous one's success value.
-   *
-   * @param id - Unique step identifier
-   * @param value - The value to pass to the function
-   * @param fn - Function that takes the value and returns an AsyncResult
-   * @param options - Step options
-   * @returns The final success value (unwrapped)
-   * @throws {EarlyExit} If the result is an error
-   *
-   * @example
-   * ```typescript
-   * const user = await step.run('fetchUser', fetchUser(id));
-   * const enriched = await step.andThen('enrich', user, (user) =>
-   *   enrichUser(user) // Returns AsyncResult<EnrichedUser, E>
-   * );
-   * ```
-   */
-  andThen: <T, U, StepE extends E, StepC = unknown>(
-    id: string,
-    value: T,
-    fn: (value: T) => AsyncResult<U, StepE, StepC>,
-    options?: StepOptions
-  ) => Promise<U>;
-
-  /**
-   * Pattern match on a Result with step tracking for both branches.
-   *
-   * Use this for handling Result values where both success and error
-   * paths need to be tracked as separate steps.
-   *
-   * @param id - Unique step identifier
-   * @param result - The Result to match on
-   * @param handlers - Object with ok and err handler functions
-   * @param options - Step options
-   * @returns The value returned by the matched handler
-   *
-   * @example
-   * ```typescript
-   * const user = await step.run('fetchUser', fetchUser(id));
-   *
-   * const message = await step.match('handleUser', user, {
-   *   ok: async (user) => {
-   *     await step('sendWelcome', () => sendEmail(user.email));
-   *     return 'Sent welcome email';
-   *   },
-   *   err: async (error) => {
-   *     await step('logError', () => logError(error));
-   *     return 'Failed to fetch user';
-   *   }
-   * });
-   * ```
-   */
-  match: <T, StepE extends E, U, StepC = unknown>(
-    id: string,
-    result: Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
-    handlers: {
-      ok: (value: T) => U | Promise<U>;
-      err: (error: StepE, cause?: StepC) => U | Promise<U>;
-    },
-    options?: StepOptions
-  ) => Promise<U>;
-
-  /**
-   * Alias for step.parallel - Effect.all-style API for parallel execution.
-   *
-   * Executes multiple operations in parallel and returns named results.
-   * Identical to step.parallel but with a name more familiar to Effect users.
-   *
-   * @param name - Name for this parallel block
-   * @param operations - Object mapping keys to operations
-   * @returns Object with results mapped to the same keys
-   *
-   * @example
-   * ```typescript
-   * const { user, posts, comments } = await step.all('fetchAll', {
-   *   user: () => fetchUser('1'),
-   *   posts: () => fetchPosts('1'),
-   *   comments: () => fetchComments('1')
-   * });
-   * ```
-   */
-  all: RunStep<E>["parallel"];
 
   /**
    * Map over an array with parallel execution and error tracking.
@@ -2491,17 +2411,17 @@ const DEFAULT_RETRY_ASYNC_CONFIG = {
   initialDelay: 100,
   maxDelay: 30000,
   jitter: true,
-  retryOn: (_error: unknown, _attempt: number) => true,
+  shouldRetry: (_error: unknown, _attempt: number) => true,
   onRetry: (_error: unknown, _attempt: number, _delayMs: number) => {},
 } as const;
 
 /**
- * Run an async function with retry. Reuses the same backoff and retryOn semantics as step.retry.
+ * Run an async function with retry. Reuses the same backoff and shouldRetry semantics as step.retry.
  * Use this when you want retries without the workflow/step machinery (e.g. in fetch).
  *
  * @param fn - Function that returns a Promise<Result<T, E>>
- * @param options - Retry configuration (attempts, backoff, retryOn, etc.)
- * @returns Promise that resolves to the last Result (ok or err). Rejects only if fn throws and retryOn returns false.
+ * @param options - Retry configuration (attempts, backoff, shouldRetry, etc.)
+ * @returns Promise that resolves to the last Result (ok or err). Rejects only if fn throws and shouldRetry returns false.
  */
 export async function retryAsync<T, E>(
   fn: () => Promise<Result<T, E>>,
@@ -2513,7 +2433,7 @@ export async function retryAsync<T, E>(
     initialDelay: options.initialDelay ?? DEFAULT_RETRY_ASYNC_CONFIG.initialDelay,
     maxDelay: options.maxDelay ?? DEFAULT_RETRY_ASYNC_CONFIG.maxDelay,
     jitter: options.jitter ?? DEFAULT_RETRY_ASYNC_CONFIG.jitter,
-    retryOn: options.retryOn ?? DEFAULT_RETRY_ASYNC_CONFIG.retryOn,
+    shouldRetry: options.shouldRetry ?? DEFAULT_RETRY_ASYNC_CONFIG.shouldRetry,
     onRetry: options.onRetry ?? DEFAULT_RETRY_ASYNC_CONFIG.onRetry,
   };
 
@@ -2523,7 +2443,7 @@ export async function retryAsync<T, E>(
       const result = await fn();
       if (result.ok) return result;
       lastResult = result;
-      if (attempt < attempts && effective.retryOn(result.error, attempt)) {
+      if (attempt < attempts && effective.shouldRetry(result.error, attempt)) {
         const delay = calculateRetryDelay(attempt, effective);
         effective.onRetry(result.error, attempt, delay);
         await sleep(delay);
@@ -2531,7 +2451,7 @@ export async function retryAsync<T, E>(
       }
       return result;
     } catch (thrown) {
-      if (attempt < attempts && effective.retryOn(thrown, attempt)) {
+      if (attempt < attempts && effective.shouldRetry(thrown, attempt)) {
         const delay = calculateRetryDelay(attempt, effective);
         effective.onRetry(thrown, attempt, delay);
         await sleep(delay);
@@ -2730,7 +2650,7 @@ const DEFAULT_RETRY_CONFIG = {
   initialDelay: 100,
   maxDelay: 30000,
   jitter: true,
-  retryOn: () => true,
+  shouldRetry: () => true,
   onRetry: () => {},
 } as const;
 
@@ -2925,7 +2845,7 @@ export async function run<T, E, C = void>(
           initialDelay: retryConfig?.initialDelay ?? DEFAULT_RETRY_CONFIG.initialDelay,
           maxDelay: retryConfig?.maxDelay ?? DEFAULT_RETRY_CONFIG.maxDelay,
           jitter: retryConfig?.jitter ?? DEFAULT_RETRY_CONFIG.jitter,
-          retryOn: retryConfig?.retryOn ?? DEFAULT_RETRY_CONFIG.retryOn,
+          shouldRetry: retryConfig?.shouldRetry ?? DEFAULT_RETRY_CONFIG.shouldRetry,
           onRetry: retryConfig?.onRetry ?? DEFAULT_RETRY_CONFIG.onRetry,
         };
 
@@ -2997,7 +2917,7 @@ export async function run<T, E, C = void>(
             // Result error case - check if we should retry
             lastResult = result;
 
-            if (attempt < effectiveRetry.attempts && effectiveRetry.retryOn(result.error, attempt)) {
+            if (attempt < effectiveRetry.attempts && effectiveRetry.shouldRetry(result.error, attempt)) {
               const delay = calculateRetryDelay(attempt, effectiveRetry);
 
               // Emit retry event
@@ -3021,7 +2941,7 @@ export async function run<T, E, C = void>(
               continue;
             }
 
-            // No more retries or retryOn returned false - emit exhausted event if we retried
+            // No more retries or shouldRetry returned false - emit exhausted event if we retried
             if (effectiveRetry.attempts > 1) {
               emitEvent({
                 type: "step_retries_exhausted",
@@ -3122,7 +3042,7 @@ export async function run<T, E, C = void>(
               });
 
               // Check if we should retry after timeout
-              if (attempt < effectiveRetry.attempts && effectiveRetry.retryOn(thrown, attempt)) {
+              if (attempt < effectiveRetry.attempts && effectiveRetry.shouldRetry(thrown, attempt)) {
                 const delay = calculateRetryDelay(attempt, effectiveRetry);
 
                 emitEvent({
@@ -3199,7 +3119,7 @@ export async function run<T, E, C = void>(
             // Handle other thrown errors (continue to error handling below)
 
             // Check if we should retry thrown errors
-            if (attempt < effectiveRetry.attempts && effectiveRetry.retryOn(thrown, attempt)) {
+            if (attempt < effectiveRetry.attempts && effectiveRetry.shouldRetry(thrown, attempt)) {
               const delay = calculateRetryDelay(attempt, effectiveRetry);
 
               emitEvent({
@@ -3327,8 +3247,22 @@ export async function run<T, E, C = void>(
       id: string,
       operation: () => T | Promise<T>,
       opts:
-        | { error: Err; key?: string }
-        | { onError: (cause: unknown) => Err; key?: string }
+        | {
+            error: Err;
+            key?: string;
+            ttl?: number;
+            retry?: RetryOptions<Err>;
+            timeout?: TimeoutOptions;
+            compensate?: (value: T) => void | Promise<void>;
+          }
+        | {
+            onError: (cause: unknown) => Err;
+            key?: string;
+            ttl?: number;
+            retry?: RetryOptions<Err>;
+            timeout?: TimeoutOptions;
+            compensate?: (value: T) => void | Promise<void>;
+          }
     ): Promise<T> => {
       // Validate required string ID
       if (typeof id !== 'string' || id.length === 0) {
@@ -3338,10 +3272,31 @@ export async function run<T, E, C = void>(
         );
       }
 
+      const mapToError = "error" in opts ? () => opts.error : opts.onError;
+
+      // If retry or timeout is requested, delegate to step.retry (which handles both).
+      if (opts.retry || opts.timeout) {
+        return stepFn.retry(
+          id,
+          async () => {
+            try {
+              return ok(await operation());
+            } catch (cause) {
+              return err(mapToError(cause), { cause });
+            }
+          },
+          {
+            attempts: opts.retry?.attempts ?? 1,
+            ...(opts.retry ?? {}),
+            key: opts.key,
+            timeout: opts.timeout,
+          }
+        );
+      }
+
       const stepKey = opts.key ?? id; // Use id as key if not provided
       const stepName = id; // Name is always the id
       const stepId = id;
-      const mapToError = "error" in opts ? () => opts.error : opts.onError;
       const hasEventListeners = onEvent;
 
       return (async () => {
@@ -3547,7 +3502,7 @@ export async function run<T, E, C = void>(
     stepFn.retry = <T, StepE, StepC = unknown>(
       id: string,
       operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
-      options: RetryOptions & { key?: string; timeout?: TimeoutOptions }
+      options: RetryOptions<StepE> & { key?: string; timeout?: TimeoutOptions }
     ): Promise<T> => {
       // Validate required string ID
       if (typeof id !== 'string' || id.length === 0) {
@@ -3567,8 +3522,8 @@ export async function run<T, E, C = void>(
           initialDelay: options.initialDelay,
           maxDelay: options.maxDelay,
           jitter: options.jitter,
-          retryOn: options.retryOn,
-          onRetry: options.onRetry,
+          shouldRetry: options.shouldRetry as RetryOptions["shouldRetry"],
+          onRetry: options.onRetry as RetryOptions["onRetry"],
         },
         timeout: options.timeout,
       });
@@ -3666,13 +3621,13 @@ export async function run<T, E, C = void>(
       );
     };
 
-    // step.parallel: Execute parallel operations with scope events
-    // 1. Object form: step.parallel(name, { key: fn | { fn, errors } })
-    // 2. Array form: step.parallel(name, () => allAsync([...]))
-    stepFn.parallel = ((...args: unknown[]): Promise<unknown> => {
+    // step.all: Execute parallel operations with scope events
+    // 1. Object form: step.all(name, { key: fn | { fn, errors } })
+    // 2. Array form: step.all(name, () => allAsync([...]))
+    stepFn.all = ((...args: unknown[]): Promise<unknown> => {
       if (typeof args[0] !== "string") {
         throw new TypeError(
-          "step.parallel(name, ...): first argument must be a string (step name). Example: step.parallel('Fetch data', { user: () => fetchUser(), posts: () => fetchPosts() })"
+          "step.all(name, ...): first argument must be a string (step name). Example: step.all('Fetch data', { user: () => fetchUser(), posts: () => fetchPosts() })"
         );
       }
       const name = args[0] as string;
@@ -3686,9 +3641,9 @@ export async function run<T, E, C = void>(
         return executeParallelNamed(normalizedOperations, { name });
       }
       throw new TypeError(
-        "step.parallel(name, ...): second argument must be a function (array form) or an object of operations (object form)."
+        "step.all(name, ...): second argument must be a function (array form) or an object of operations (object form)."
       );
-    }) as RunStep<E>["parallel"];
+    }) as RunStep<E>["all"];
 
     function normalizeParallelOperations(
       rawOperations: Record<string, (() => MaybeAsyncResult<unknown, unknown, unknown>) | ParallelOperationDescriptor<unknown, readonly string[]>>
@@ -3700,7 +3655,7 @@ export async function run<T, E, C = void>(
         } else if (value && typeof value === "object" && "fn" in value) {
           out[key] = value.fn;
         } else {
-          throw new TypeError(`step.parallel: operation "${key}" must be a function or { fn, errors? } object`);
+          throw new TypeError(`step.all: operation "${key}" must be a function or { fn, errors? } object`);
         }
       }
       return out;
@@ -3941,69 +3896,6 @@ export async function run<T, E, C = void>(
       })();
     };
 
-    // step.allSettled: Execute an allSettled operation with scope events
-    stepFn.allSettled = <T, StepE, StepC>(
-      name: string,
-      operation: () => Result<T[], StepE, StepC> | AsyncResult<T[], StepE, StepC>
-    ): Promise<T[]> => {
-      const scopeId = `scope_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-      return (async () => {
-        const startTime = performance.now();
-        let scopeEnded = false;
-
-        // Push this scope onto the stack for proper nesting tracking
-        activeScopeStack.push({ scopeId, type: "allSettled" });
-
-        // Helper to emit scope_end exactly once
-        const emitScopeEnd = () => {
-          if (scopeEnded) return;
-          scopeEnded = true;
-          // Pop this scope from the stack
-          const idx = activeScopeStack.findIndex(s => s.scopeId === scopeId);
-          if (idx !== -1) activeScopeStack.splice(idx, 1);
-          emitEvent({
-            type: "scope_end",
-            workflowId,
-            scopeId,
-            ts: Date.now(),
-            durationMs: performance.now() - startTime,
-          });
-        };
-
-        // Emit scope_start event
-        emitEvent({
-          type: "scope_start",
-          workflowId,
-          scopeId,
-          scopeType: "allSettled",
-          name,
-          ts: Date.now(),
-        });
-
-        try {
-          const result = await operation();
-
-          // Emit scope_end before processing result
-          emitScopeEnd();
-
-          if (!result.ok) {
-            onError?.(result.error as unknown as E, name, context);
-            throw earlyExit(result.error as unknown as E, {
-              origin: "result",
-              resultCause: result.cause,
-            });
-          }
-
-          return result.value;
-        } catch (error) {
-          // Always emit scope_end in finally-like fashion
-          emitScopeEnd();
-          throw error;
-        }
-      })();
-    };
-
     // step.if: Mark a conditional for static analysis
     // Runtime: just executes the condition and returns the result
     // Analyzer: extracts the id and conditionLabel for DecisionNode
@@ -4117,15 +4009,6 @@ export async function run<T, E, C = void>(
     // Effect-Style Ergonomics
     // ===========================================================================
 
-    // step.run: Unwrap an AsyncResult directly
-    stepFn.run = <T, StepE, StepC = unknown>(
-      id: string,
-      result: AsyncResult<T, StepE, StepC>,
-      options?: StepOptions
-    ): Promise<T> => {
-      return stepFn(id, () => result, options);
-    };
-
     // step.workflow: Run sub-workflow (or any AsyncResult getter) as a step; same engine as step(id, getter, opts)
     stepFn.workflow = <T, SubE, StepC = unknown>(
       id: string,
@@ -4134,39 +4017,6 @@ export async function run<T, E, C = void>(
     ): Promise<T> => {
       return stepFn(id, getter as () => AsyncResult<T, E, StepC>, options);
     };
-
-    // step.andThen: Chain AsyncResult operations
-    stepFn.andThen = <T, U, StepE, StepC = unknown>(
-      id: string,
-      value: T,
-      fn: (value: T) => AsyncResult<U, StepE, StepC>,
-      options?: StepOptions
-    ): Promise<U> => {
-      return stepFn(id, () => fn(value), options);
-    };
-
-    // step.match: Pattern match on Result with step tracking (runs through step engine for lifecycle events)
-    stepFn.match = async <T, StepE, U, StepC = unknown>(
-      id: string,
-      result: Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
-      handlers: {
-        ok: (value: T) => U | Promise<U>;
-        err: (error: StepE, cause?: StepC) => U | Promise<U>;
-      },
-      options?: StepOptions
-    ): Promise<U> => {
-      return stepFn(id, async () => {
-        const resolved = await result;
-        if (resolved.ok) {
-          return ok(await handlers.ok(resolved.value));
-        } else {
-          return ok(await handlers.err(resolved.error, resolved.cause));
-        }
-      }, options);
-    };
-
-    // step.all: Alias for step.parallel (Effect.all-style API)
-    stepFn.all = stepFn.parallel;
 
     // step.map: Map over array with parallel execution
     stepFn.map = async <T, U, StepE, StepC = unknown>(
@@ -4838,7 +4688,7 @@ export async function run<T, E, C = void>(
       })();
     };
 
-    const step = stepFn as RunStep<E | UnexpectedError>;
+    const step = stepFn as unknown as RunStep<E | UnexpectedError>;
     const value = await fn({ step });
 
     // Dev-only warning: Detect common mistake of returning ok() or err() from executor
@@ -5524,11 +5374,16 @@ export function mapError<T, E, F, C>(
  * });
  * ```
  */
+export function match<T, E, C, R>(handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): (r: Result<T, E, C>) => R;
 export function match<T, E, C, R>(r: Ok<T>, handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): R;
 export function match<T, E, C, R>(r: Err<E, C>, handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): R;
 export function match<T, E, C, R>(r: Result<T, E, C>, handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): R;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function match(r: any, handlers: any): any {
+export function match(r: any, handlers?: any): any {
+  if (handlers === undefined) {
+    const h = r;
+    return (result: Result<unknown, unknown, unknown>) => match(result, h);
+  }
   return r.ok ? handlers.ok(r.value) : handlers.err(r.error, r.cause);
 }
 

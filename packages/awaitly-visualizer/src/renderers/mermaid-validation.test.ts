@@ -124,7 +124,7 @@ describe("Mermaid Validation - Special Characters", () => {
     });
 
     await workflow.run(async ({ step, deps }) => {
-      await step.parallel("Parallel (with parens)", async () => {
+      await step.all("Parallel (with parens)", async () => {
         const user = await deps.fetchUserWithSpecialChars("1");
         return ok([user]);
       });
@@ -180,7 +180,7 @@ describe("Mermaid Validation - Special Characters", () => {
       );
 
       // Parallel with special chars
-      await step.parallel('Parallel "test" [brackets]', async () => {
+      await step.all('Parallel "test" [brackets]', async () => {
         return ok([user]);
       });
 

@@ -68,18 +68,18 @@ step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 
 **Severity**: error | **Autofix**: No
 
-Requires a string literal as the first argument to `step()` and step helpers (`step.sleep`, `step.retry`, `step.parallel`, `step.race`, `step.withFallback`, `step.withResource`, `step.workflow`, etc.). Ensures stable step IDs for visualization and static analysis.
+Requires a string literal as the first argument to `step()` and step helpers (`step.sleep`, `step.retry`, `step.all`, `step.race`, `step.withFallback`, `step.withResource`, `step.workflow`, etc.). Ensures stable step IDs for visualization and static analysis.
 
 ```typescript
 // Bad - missing step ID
 step(() => fetchUser('1'));
-step.parallel({ a: () => fetchA(), b: () => fetchB() });
-saga.step(() => deps.createOrder(), { compensate: () => {} });
+step.all({ a: () => fetchA(), b: () => fetchB() });
+step(() => deps.createOrder(), { compensate: () => {} });
 
 // Good - string ID as first argument
 step('fetchUser', () => fetchUser('1'));
-step.parallel('Fetch data', () => allAsync([fetchA(), fetchB()]));
-saga.step('createOrder', () => deps.createOrder(), { compensate: () => {} });
+step.all('Fetch data', () => allAsync([fetchA(), fetchB()]));
+step('createOrder', () => deps.createOrder(), { compensate: () => {} });
 ```
 
 ### `awaitly/require-thunk-for-key`

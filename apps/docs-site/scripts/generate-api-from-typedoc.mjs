@@ -340,13 +340,13 @@ function generateMarkdown(project) {
   lines.push("| `timeout` | `object?` | Timeout config (step.withTimeout) |");
   lines.push("| `signal` | `AbortSignal?` | Step cancellation (e.g. step.sleep) |");
   lines.push("");
-  lines.push("**Saga step (saga.step / saga.tryStep)** — first argument is the step name (string). Optional third argument is an options object:");
+  lines.push("**Compensation (`step` / `step.try` inside any workflow)** — pass `{ compensate }` on any step. If a later step or the user callback fails, every step that recorded a `compensate` runs in reverse:");
   lines.push("");
   lines.push("| Option | Type | Purpose |");
   lines.push("|--------|------|---------|");
-  lines.push("| `description` | `string?` | Short description for docs and static analysis |");
-  lines.push("| `markdown` | `string?` | Full markdown for step documentation |");
-  lines.push("| `compensate` | `function?` | Compensation function on rollback |");
+  lines.push("| `compensate` | `(value: T) => void \\| Promise<void>` | Rollback action; receives the value the step returned |");
+  lines.push("");
+  lines.push("When at least one compensation throws, the workflow result is a `SagaCompensationError` carrying the original error and per-step compensation failures.");
   lines.push("");
 
   return lines.join("\n");

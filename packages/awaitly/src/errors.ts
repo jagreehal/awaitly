@@ -6,7 +6,7 @@
  *
  * @example
  * ```typescript
- * import { TimeoutError, RetryExhaustedError, RateLimitError, CircuitOpenError } from 'awaitly/errors';
+ * import { TimeoutError, RetryExhaustedError, RateLimitError, CircuitBreakerOpenError } from 'awaitly/errors';
  *
  * // Create errors
  * const timeout = new TimeoutError({ operation: 'fetchUser', ms: 5000 });
@@ -17,7 +17,7 @@
  *   TimeoutError: (e) => `${e.operation} timed out after ${e.ms}ms`,
  *   RetryExhaustedError: (e) => `${e.operation} failed after ${e.attempts} attempts`,
  *   RateLimitError: (e) => `Rate limit exceeded, retry after ${e.retryAfterMs}ms`,
- *   CircuitOpenError: (e) => `Circuit ${e.circuitName} is open`,
+ *   CircuitBreakerOpenError: (e) => `Circuit ${e.circuitName} is open`,
  * });
  * ```
  */
@@ -36,16 +36,12 @@ import { TaggedError } from "./tagged-error";
  *
  * @example
  * ```typescript
- * // Define custom error with defaults
  * const NetworkError = makeError('NetworkError', {
  *   defaults: { retryable: true },
  *   message: (p) => `Network error: ${p.reason}`,
  * });
  *
  * class MyNetworkError extends NetworkError<{ reason: string; code?: number }> {}
- *
- * const error = new MyNetworkError({ reason: 'Connection refused' });
- * // error.retryable === true (from defaults)
  * ```
  */
 export function makeError<Tag extends string>(
@@ -58,17 +54,14 @@ export function makeError<Tag extends string>(
   const messageGenerator = options?.message ?? (() => tag);
   const defaults = options?.defaults ?? {};
 
-  // Create base class using TaggedError
   const BaseClass = TaggedError(tag, {
     message: (props: Record<string, unknown>) =>
       messageGenerator({ ...defaults, ...props }),
   });
 
-  // Return a factory that applies defaults
   return class extends BaseClass {
     constructor(props?: Record<string, unknown>) {
       super({ ...defaults, ...props } as Record<string, unknown>);
-      // Apply defaults to instance
       Object.assign(this, { ...defaults, ...props });
     }
   };
@@ -333,7 +326,6 @@ export class UnexpectedError extends TaggedError("UnexpectedError", {
   }) => `UnexpectedError: ${p.cause instanceof Error ? p.cause.message : String(p.cause ?? "unknown")}`,
 }) {}
 
-
 // =============================================================================
 // Union Type for Common Errors
 // =============================================================================
@@ -355,6 +347,7 @@ export class UnexpectedError extends TaggedError("UnexpectedError", {
  *     UnauthorizedError: (e) => `Unauthorized`,
  *     NetworkError: (e) => `Network: ${e.reason}`,
  *     CompensationError: (e) => `Compensation failed: ${e.step}`,
+ *     UnexpectedError: (e) => e.message,
  *   });
  * }
  * ```
@@ -368,7 +361,8 @@ export type AwaitlyError =
   | NotFoundError
   | UnauthorizedError
   | NetworkError
-  | CompensationError;
+  | CompensationError
+  | UnexpectedError;
 
 // =============================================================================
 // Type Guards
@@ -465,5 +459,6 @@ export function isAwaitlyError(error: unknown): error is AwaitlyError {
     "UnauthorizedError",
     "NetworkError",
     "CompensationError",
+    "UnexpectedError",
   ].includes(tag);
 }
