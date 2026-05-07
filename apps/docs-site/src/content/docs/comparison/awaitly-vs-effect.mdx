@@ -91,7 +91,7 @@ This table compares Effect core/stdlib with awaitly core plus optional awaitly m
 | Result type | `Result<T, E>` | `Effect<A, E, R>` |
 | Error typing | Inferred from workflow deps + usage | Tracked in `E`; generally inferred through composition (flatMap, gen, etc.) |
 | Async model | Native Promises | Effect runtime with fibers |
-| Dependency injection | `createWorkflow('name', deps)`; override per run via `workflow.run(fn, { deps })` | Layers (Context-based DI) |
+| Dependency injection | `createWorkflow('name', deps)`, `provide(workflow, overrides)`, and override per run via `workflow.run(fn, { deps })` | Layers (Context-based DI) |
 | Retry / scheduling | Config objects | Schedule combinators |
 | Concurrency | `Promise.all` / `step.all` | Fibers |
 | Rate limiting | `awaitly/ratelimit` | `RateLimiter` |
@@ -218,7 +218,7 @@ Effect<number, 'DIVIDE_BY_ZERO', never>
 ```
 
 <Aside type="note">
-Effect has a third type parameter for dependencies (Requirements). awaitly handles dependencies through `createWorkflow`; you can override deps per run with `run(fn, { deps })`. Effect provides different Layers at runtime.
+Effect has a third type parameter for dependencies (Requirements). awaitly handles dependencies through `createWorkflow`, `provide(workflow, overrides)`, and `run(fn, { deps })` overrides. Effect provides different Layers at runtime.
 </Aside>
 
 ## Error Handling

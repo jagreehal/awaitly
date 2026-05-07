@@ -2,9 +2,9 @@
 // "How it works" — a single visual that shows step() unwrapping Results and short-circuiting.
 // Built with semantic HTML + CSS; no images, no chart libs.
 const steps = [
-  { id: 'getOrder',  errors: ['ORDER_NOT_FOUND'] },
-  { id: 'getUser',   errors: ['USER_NOT_FOUND'] },
-  { id: 'charge',    errors: ['CHARGE_DECLINED', 'INSUFFICIENT_FUNDS'] },
+  { id: 'getOrder', errors: ['ORDER_NOT_FOUND'] },
+  { id: 'getUser', errors: ['USER_NOT_FOUND'] },
+  { id: 'charge', errors: ['CHARGE_DECLINED', 'INSUFFICIENT_FUNDS'] },
 ];
 ---
 
@@ -16,33 +16,56 @@ const steps = [
         Steps <em>unwrap</em>. Errors <em>short-circuit</em>.
       </h2>
       <p class="landing-lead">
-        Every dependency that can fail returns a <code>Result</code>. <code>step()</code>
+        Every dependency that can fail returns a <code>Result</code>. <code
+          >step()</code
+        >
         either hands you the value and continues, or exits the workflow with the error.
-        Your happy path stays linear. The error union grows, automatically, with each step you add.
+        Your happy path stays linear. The error union grows, automatically, with each
+        step you add.
       </p>
     </header>
 
-    <div class="concept__diagram" role="img" aria-label="Workflow steps unwrap on success and short-circuit on error">
+    <div
+      class="concept__diagram sl-markdown-no-margin"
+      role="img"
+      aria-label="Workflow steps unwrap on success and short-circuit on error"
+    >
       <div class="concept__track">
         <div class="concept__rail" aria-hidden="true"></div>
 
-        {steps.map((s, i) => (
-          <div class="concept__node" style={`--i:${i}`}>
-            <div class="concept__node-frame">
-              <span class="concept__node-id">step {String(i + 1).padStart(2, '0')}</span>
-              <code class="concept__node-name">{s.id}</code>
-              <ul class="concept__node-errs">
-                {s.errors.map((e) => (
-                  <li><span class="concept__err-dot" aria-hidden="true"></span>{e}</li>
-                ))}
-              </ul>
+        {
+          steps.map((s, i) => (
+            <div class="concept__node" style={`--i:${i}`}>
+              <div class="concept__node-frame">
+                <span class="concept__node-id">
+                  step {String(i + 1).padStart(2, '0')}
+                </span>
+                <code class="concept__node-name">{s.id}</code>
+                <ul class="concept__node-errs">
+                  {s.errors.map((e) => (
+                    <li>
+                      <span class="concept__err-dot" aria-hidden="true" />
+                      {e}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div class="concept__edge concept__edge--ok" aria-hidden="true">
+                <span class="concept__edge-label">ok</span>
+                <svg viewBox="0 0 24 12" preserveAspectRatio="none">
+                  <path
+                    d="M0 6 H22 M16 1 L22 6 L16 11"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </div>
             </div>
-            <div class="concept__edge concept__edge--ok" aria-hidden="true">
-              <span class="concept__edge-label">ok</span>
-              <svg viewBox="0 0 24 12" preserveAspectRatio="none"><path d="M0 6 H22 M16 1 L22 6 L16 11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </div>
-          </div>
-        ))}
+          ))
+        }
 
         <div class="concept__terminal" aria-hidden="true">
           <span class="concept__terminal-mark">✓</span>
@@ -51,19 +74,30 @@ const steps = [
       </div>
 
       <div class="concept__exit" aria-hidden="true">
-        {steps.map((_, i) => (
-          <div class="concept__exit-line" style={`--i:${i}; --total:${steps.length}`}></div>
-        ))}
+        {
+          steps.map((_, i) => (
+            <div
+              class="concept__exit-line"
+              style={`--i:${i}; --total:${steps.length}`}
+            />
+          ))
+        }
         <div class="concept__exit-target">
           <span class="concept__exit-label">err</span>
-          <code class="concept__exit-type">Result&lt;Charge, ORDER_NOT_FOUND | USER_NOT_FOUND | CHARGE_DECLINED | …&gt;</code>
+          <code class="concept__exit-type"
+            >Result&lt;Charge, ORDER_NOT_FOUND | USER_NOT_FOUND |
+            CHARGE_DECLINED | …&gt;</code
+          >
         </div>
       </div>
     </div>
 
     <p class="concept__caption">
-      Add <code>step.retry()</code>, <code>step.withTimeout()</code>, or <code>{`step('id', fn, { key })`}</code>
-      and the same shape carries — TypeScript still tracks every error your dependencies can produce.
+      Add <code>step.retry()</code>, <code>step.withTimeout()</code>, or <code
+        >{`step('id', fn, { key })`}</code
+      >
+      and the same shape carries — TypeScript still tracks every error your dependencies
+      can produce.
     </p>
   </div>
 </section>
@@ -91,9 +125,13 @@ const steps = [
     position: relative;
     border: 1px solid var(--line);
     border-radius: 16px;
-    background:
-      linear-gradient(180deg, var(--ink-2) 0%, oklch(from var(--ink-2) l c h / 0.6) 100%);
-    padding: clamp(1.5rem, 4vw, 2.5rem) clamp(1.5rem, 4vw, 2.5rem) clamp(2rem, 5vw, 3.5rem);
+    background: linear-gradient(
+      180deg,
+      var(--ink-2) 0%,
+      oklch(from var(--ink-2) l c h / 0.6) 100%
+    );
+    padding: clamp(1.5rem, 4vw, 2.5rem) clamp(1.5rem, 4vw, 2.5rem)
+      clamp(2rem, 5vw, 3.5rem);
     overflow: hidden;
   }
 
@@ -119,11 +157,19 @@ const steps = [
     left: 0;
     right: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, var(--line) 8%, var(--line) 92%, transparent);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--line) 8%,
+      var(--line) 92%,
+      transparent
+    );
     transform: translateY(-50%);
   }
   @media (min-width: 56rem) {
-    .concept__rail { display: block; }
+    .concept__rail {
+      display: block;
+    }
   }
 
   .concept__node {
@@ -143,7 +189,9 @@ const steps = [
     flex-direction: column;
     gap: 0.5rem;
     z-index: 1;
-    transition: border-color 200ms ease, transform 200ms ease;
+    transition:
+      border-color 200ms ease,
+      transform 200ms ease;
   }
   .concept__node-frame:hover {
     border-color: var(--amber-dim);
@@ -210,10 +258,16 @@ const steps = [
     color: var(--amber);
   }
   /* hide the trailing arrow on the last node — terminal handles it */
-  .concept__node:last-of-type .concept__edge { display: none; }
+  .concept__node:last-of-type .concept__edge {
+    display: none;
+  }
   @media (max-width: 55.99rem) {
-    .concept__edge { display: none; }
-    .concept__node { display: block; }
+    .concept__edge {
+      display: none;
+    }
+    .concept__node {
+      display: block;
+    }
   }
 
   .concept__terminal {

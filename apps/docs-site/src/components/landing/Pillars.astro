@@ -5,9 +5,18 @@ const pillars = [
     title: 'Errors as data.',
     body: 'Functions that fail return Result types — never thrown exceptions for expected failures. The compiler tracks every variant.',
     code: [
-      { kind: 'cm',  text: '// expected failures become typed values' },
-      { kind: 'kw',  text: 'return ' }, { kind: 'fn', text: 'ok' }, { kind: 'pun', text: '({ id, name });' }, { kind: 'br' },
-      { kind: 'kw',  text: 'return ' }, { kind: 'fn', text: 'err' }, { kind: 'pun', text: '({ ' }, { kind: 'id', text: 'type' }, { kind: 'pun', text: ': ' }, { kind: 'str ok', text: "'USER_NOT_FOUND'" }, { kind: 'pun', text: ', userId });' },
+      { kind: 'cm', text: '// expected failures become typed values' },
+      { kind: 'kw', text: 'return ' },
+      { kind: 'fn', text: 'ok' },
+      { kind: 'pun', text: '({ id, name });' },
+      { kind: 'br' },
+      { kind: 'kw', text: 'return ' },
+      { kind: 'fn', text: 'err' },
+      { kind: 'pun', text: '({ ' },
+      { kind: 'id', text: 'type' },
+      { kind: 'pun', text: ': ' },
+      { kind: 'str ok', text: "'USER_NOT_FOUND'" },
+      { kind: 'pun', text: ', userId });' },
     ],
   },
   {
@@ -15,9 +24,31 @@ const pillars = [
     title: 'Composes with await.',
     body: 'step() unwraps Results inside a normal async function. The happy path reads top-to-bottom, errors short-circuit the rest.',
     code: [
-      { kind: 'kw',  text: 'const ' }, { kind: 'id', text: 'user' }, { kind: 'pun', text: '  = ' }, { kind: 'kw', text: 'await ' }, { kind: 'fn', text: 'step' }, { kind: 'pun', text: "(" }, { kind: 'str', text: "'getUser'" }, { kind: 'pun', text: ', () => deps.' }, { kind: 'fn', text: 'getUser' }, { kind: 'pun', text: '(id));' }, { kind: 'br' },
-      { kind: 'kw',  text: 'const ' }, { kind: 'id', text: 'order' }, { kind: 'pun', text: ' = ' }, { kind: 'kw', text: 'await ' }, { kind: 'fn', text: 'step' }, { kind: 'pun', text: "(" }, { kind: 'str', text: "'getOrder'" }, { kind: 'pun', text: ', () => deps.' }, { kind: 'fn', text: 'getOrder' }, { kind: 'pun', text: '(user.id));' }, { kind: 'br' },
-      { kind: 'kw',  text: 'return ' }, { kind: 'fn', text: 'fulfil' }, { kind: 'pun', text: '(order);' },
+      { kind: 'kw', text: 'const ' },
+      { kind: 'id', text: 'user' },
+      { kind: 'pun', text: '  = ' },
+      { kind: 'kw', text: 'await ' },
+      { kind: 'fn', text: 'step' },
+      { kind: 'pun', text: '(' },
+      { kind: 'str', text: "'getUser'" },
+      { kind: 'pun', text: ', () => deps.' },
+      { kind: 'fn', text: 'getUser' },
+      { kind: 'pun', text: '(id));' },
+      { kind: 'br' },
+      { kind: 'kw', text: 'const ' },
+      { kind: 'id', text: 'order' },
+      { kind: 'pun', text: ' = ' },
+      { kind: 'kw', text: 'await ' },
+      { kind: 'fn', text: 'step' },
+      { kind: 'pun', text: '(' },
+      { kind: 'str', text: "'getOrder'" },
+      { kind: 'pun', text: ', () => deps.' },
+      { kind: 'fn', text: 'getOrder' },
+      { kind: 'pun', text: '(user.id));' },
+      { kind: 'br' },
+      { kind: 'kw', text: 'return ' },
+      { kind: 'fn', text: 'fulfil' },
+      { kind: 'pun', text: '(order);' },
     ],
   },
   {
@@ -25,17 +56,41 @@ const pillars = [
     title: 'Reliability built in.',
     body: 'Retries, timeouts, idempotency keys, save & resume — primitives, not afterthoughts. Add them where you need them, leave the rest untouched.',
     code: [
-      { kind: 'kw',  text: 'await ' }, { kind: 'fn', text: 'step.retry' }, { kind: 'pun', text: '(' }, { kind: 'str', text: "'charge'" }, { kind: 'pun', text: ', () => deps.' }, { kind: 'fn', text: 'charge' }, { kind: 'pun', text: '(amt), {' }, { kind: 'br' },
-      { kind: 'pun', text: '  ' }, { kind: 'id', text: 'attempts' }, { kind: 'pun', text: ': ' }, { kind: 'str ok', text: '3' }, { kind: 'pun', text: ',' }, { kind: 'br' },
-      { kind: 'pun', text: '  ' }, { kind: 'id', text: 'backoff' }, { kind: 'pun', text: ': ' }, { kind: 'str', text: "'exponential'" }, { kind: 'pun', text: ',' }, { kind: 'br' },
-      { kind: 'pun', text: '  ' }, { kind: 'id', text: 'key' }, { kind: 'pun', text: ': ' }, { kind: 'str', text: '`charge:${order.idempotencyKey}`' }, { kind: 'br' },
+      { kind: 'kw', text: 'await ' },
+      { kind: 'fn', text: 'step.retry' },
+      { kind: 'pun', text: '(' },
+      { kind: 'str', text: "'charge'" },
+      { kind: 'pun', text: ', () => deps.' },
+      { kind: 'fn', text: 'charge' },
+      { kind: 'pun', text: '(amt), {' },
+      { kind: 'br' },
+      { kind: 'pun', text: '  ' },
+      { kind: 'id', text: 'attempts' },
+      { kind: 'pun', text: ': ' },
+      { kind: 'str ok', text: '3' },
+      { kind: 'pun', text: ',' },
+      { kind: 'br' },
+      { kind: 'pun', text: '  ' },
+      { kind: 'id', text: 'backoff' },
+      { kind: 'pun', text: ': ' },
+      { kind: 'str', text: "'exponential'" },
+      { kind: 'pun', text: ',' },
+      { kind: 'br' },
+      { kind: 'pun', text: '  ' },
+      { kind: 'id', text: 'key' },
+      { kind: 'pun', text: ': ' },
+      { kind: 'str', text: '`charge:${order.idempotencyKey}`' },
+      { kind: 'br' },
       { kind: 'pun', text: '});' },
     ],
   },
 ];
 ---
 
-<section class="landing-section pillars" aria-labelledby="pillars-heading">
+<section
+  class="landing-section pillars sl-markdown-no-margin"
+  aria-labelledby="pillars-heading"
+>
   <div class="landing-inner">
     <header class="pillars__header">
       <span class="landing-eyebrow">03 · Why awaitly</span>
@@ -45,14 +100,28 @@ const pillars = [
     </header>
 
     <div class="pillars__grid">
-      {pillars.map((p) => (
-        <article class="pillar">
-          <div class="pillar__num" aria-hidden="true">{p.n}</div>
-          <h3 class="pillar__title">{p.title}</h3>
-          <p class="pillar__body">{p.body}</p>
-          <pre class="pillar__code"><code>{p.code.map((t) => t.kind === 'br' ? <br /> : <span class={t.kind}>{t.text}</span>)}</code></pre>
-        </article>
-      ))}
+      {
+        pillars.map((p) => (
+          <article class="pillar">
+            <div class="pillar__num" aria-hidden="true">
+              {p.n}
+            </div>
+            <h3 class="pillar__title">{p.title}</h3>
+            <p class="pillar__body">{p.body}</p>
+            <pre class="pillar__code">
+              <code>
+                {p.code.map((t) =>
+                  t.kind === 'br' ? (
+                    <br />
+                  ) : (
+                    <span class={t.kind}>{t.text}</span>
+                  ),
+                )}
+              </code>
+            </pre>
+          </article>
+        ))
+      }
     </div>
   </div>
 </section>
@@ -87,7 +156,9 @@ const pillars = [
     display: flex;
     flex-direction: column;
     gap: 0.875rem;
-    transition: border-color 200ms ease, transform 200ms ease;
+    transition:
+      border-color 200ms ease,
+      transform 200ms ease;
   }
   .pillar:hover {
     border-color: var(--amber-dim);
@@ -134,11 +205,27 @@ const pillars = [
     color: var(--cream-2);
     overflow-x: auto;
   }
-  .pillar__code .kw  { color: var(--cream-3); }
-  .pillar__code .fn  { color: var(--cream); }
-  .pillar__code .id  { color: var(--cream-2); }
-  .pillar__code .str { color: oklch(0.78 0.10 100); }
-  .pillar__code .ok  { color: var(--amber); }
-  .pillar__code .pun { color: var(--cream-3); }
-  .pillar__code .cm  { color: var(--cream-3); font-style: italic; opacity: 0.75; }
+  .pillar__code .kw {
+    color: var(--cream-3);
+  }
+  .pillar__code .fn {
+    color: var(--cream);
+  }
+  .pillar__code .id {
+    color: var(--cream-2);
+  }
+  .pillar__code .str {
+    color: oklch(0.78 0.1 100);
+  }
+  .pillar__code .ok {
+    color: var(--amber);
+  }
+  .pillar__code .pun {
+    color: var(--cream-3);
+  }
+  .pillar__code .cm {
+    color: var(--cream-3);
+    font-style: italic;
+    opacity: 0.75;
+  }
 </style>

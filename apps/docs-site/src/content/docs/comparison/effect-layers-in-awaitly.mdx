@@ -1,6 +1,6 @@
 ---
 title: Effect-style Layers in awaitly
-description: How to get Effect-style dependency injection and composition with awaitly, without Tags or Layers
+description: How to get Effect-style dependency injection and composition with awaitly, using explicit deps and provide()
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
@@ -9,7 +9,7 @@ import { Aside } from '@astrojs/starlight/components';
 **Short answer: no.** Layers are an abstraction over something simpler: passing a typed object as a parameter. awaitly uses that primitive directly — this page shows how.
 
 <Aside type="tip" title="One rule">
-Pass whatever object matches the shape your workflow expects, whenever you want: at construction time, at execution time, per request, or from a composition root. You can **override deps at run time** with `workflow.run(fn, { deps: { ... } })` — same workflow instance, different deps for that run (great for tests). TypeScript enforces the shape.
+Pass whatever object matches the shape your workflow expects, whenever you want: at construction time, via `provide(...)`, at execution time, per request, or from a composition root. You can **override deps at run time** with `workflow.run(fn, { deps: { ... } })` — same workflow instance, different deps for that run (great for tests). TypeScript enforces the shape.
 </Aside>
 
 [Effect](https://effect.website/) gives you **Layer-based dependency injection**: services are declared as requirements in the type (`Effect<A, E, R>`), provided via Layers at the top level, and accessed from context inside the program. You might wonder: does awaitly need something similar (Tags, Layers, a Runtime)? The sections below spell out what Effect's model does and how awaitly matches those outcomes with the one rule above.
@@ -32,7 +32,7 @@ In awaitly there are no Tags, Layers, or Runtime. You have:
 - **`createWorkflow(name, deps, options)`**: You pass an object of functions that return `AsyncResult` (your "services").
 - **The workflow callback** receives `{ step, deps, ctx }`; `deps` is exactly that object.
 
-So: **pass the typed object you want the workflow to use** (at creation and/or at run time). TypeScript enforces that it matches the interface the workflow expects. You can **override deps per run** via `workflow.run(fn, { deps: partialDeps })` — run-time merges over creation-time. Same outcomes as Effect's layers:
+So: **pass the typed object you want the workflow to use** (at creation, via `provide(...)`, and/or at run time). TypeScript enforces that it matches the interface the workflow expects. You can **override deps per run** via `workflow.run(fn, { deps: partialDeps })` — run-time merges over creation-time. Same outcomes as Effect's layers:
 
 - **Different implementations**: Pass real deps in prod, mock deps in tests. No need for a workflow factory in tests: use **one workflow instance** and pass mocks in `run(fn, { deps: { fetchUser: mockFetchUser } })`.
 - **Composition root**: Build one big deps object (or a factory) and pass it when you create the workflow.
@@ -40,6 +40,30 @@ So: **pass the typed object you want the workflow to use** (at creation and/or a
 - **Automatic error inference**: awaitly infers the workflow's error union from the deps type you pass.
 
 awaitly keeps DI explicit and object-based: "deps in the hand" (a parameter) instead of context (implicit in the type).
+
+## `provide(...)`: Effect-Like DI Ergonomics
+
+If you want Layer-like ergonomics, awaitly now supports `provide(...)`:
+
+- `provide(workflow, overrides)` returns a workflow with pre-bound dep overrides.
+- You can chain `.provide(...)`.
+- Precedence is explicit:
+  `createWorkflow deps < provide deps < run config deps`.
+
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+import { provide } from 'awaitly/di';
+
+const checkout = createWorkflow('checkout', liveDeps, {});
+const checkoutWithSandboxPayments = provide(checkout, {
+  chargeCard: sandboxChargeCard,
+});
+
+// still can override per run; run config wins
+await checkoutWithSandboxPayments.run(checkoutHandler, {
+  deps: { chargeCard: testDoubleChargeCard },
+});
+```
 
 ## Example 1: Composition Root
 
