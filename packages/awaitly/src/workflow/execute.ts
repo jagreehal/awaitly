@@ -76,6 +76,8 @@ import {
 
 import { isWorkflowCancelled } from "./guards";
 import { validateInput } from "./validation";
+import { provide as provideWorkflow } from "../di";
+import type { SagaCompensationError } from "../saga";
 
 import type {
   JSONValue,
@@ -318,6 +320,14 @@ export function createWorkflow<
 
     // Merge deps: config.deps partially overrides creation-time deps
     const effectiveDeps = config?.deps ? { ...depsActual, ...config.deps } as Deps : depsActual;
+
+    // Compensation tracker: each step that succeeds with `compensate` set pushes here.
+    // Run in reverse on workflow failure.
+    const compensations: Array<{
+      stepName: string;
+      value: unknown;
+      compensate: (value: unknown) => void | Promise<void>;
+    }> = [];
 
     // ===========================================================================
     // Resolve hooks: config?.x ?? options?.x (run-time overrides creation-time)
@@ -812,6 +822,14 @@ export function createWorkflow<
           if (out) {
             workflowData[out] = value;
           }
+          // Record compensation if declared (saga semantics — runs in reverse on failure)
+          if (opts.compensate) {
+            compensations.push({
+              stepName: name,
+              value,
+              compensate: opts.compensate as (v: unknown) => void | Promise<void>,
+            });
+          }
           // Cache successful result if key provided
           if (key) {
             // Update lastStepKey on successful completion (for cancellation reporting)
@@ -850,8 +868,8 @@ export function createWorkflow<
         id: string,
         operation: () => StepT | Promise<StepT>,
         opts:
-          | { error: Err; key?: string; ttl?: number }
-          | { onError: (cause: unknown) => Err; key?: string; ttl?: number }
+          | { error: Err; key?: string; ttl?: number; compensate?: (value: StepT) => void | Promise<void> }
+          | { onError: (cause: unknown) => Err; key?: string; ttl?: number; compensate?: (value: StepT) => void | Promise<void> }
       ): Promise<StepT> => {
         const { ttl } = opts;
         const key = opts.key ?? id; // step.try caches by id when key omitted (for resume)
@@ -886,6 +904,13 @@ export function createWorkflow<
 
         try {
           const value = await realStep.try(id, operation, { ...opts, key });
+          if (opts.compensate) {
+            compensations.push({
+              stepName: name,
+              value,
+              compensate: opts.compensate as (v: unknown) => void | Promise<void>,
+            });
+          }
           if (cache) {
             cache.set(key, ok(value), ttl ? { ttl } : undefined);
           }
@@ -975,14 +1000,8 @@ export function createWorkflow<
         }
       };
 
-      // Wrap step.parallel - delegate to real step (no caching for scope wrappers)
-      cachedStepFn.parallel = realStep.parallel;
-
       // Wrap step.race - delegate to real step (no caching for scope wrappers)
       cachedStepFn.race = realStep.race;
-
-      // Wrap step.allSettled - delegate to real step (no caching for scope wrappers)
-      cachedStepFn.allSettled = realStep.allSettled;
 
       // Wrap step.withFallback - preserve fallback semantics while adding workflow cache hooks.
       // Accept any operation/fallback error types (E1, E2) so users never need to cast; cast internally for core.
@@ -1095,7 +1114,7 @@ export function createWorkflow<
             initialDelay: options.initialDelay,
             maxDelay: options.maxDelay,
             jitter: options.jitter,
-            retryOn: options.retryOn,
+            shouldRetry: options.shouldRetry,
             onRetry: options.onRetry,
           },
           timeout: options.timeout,
@@ -1760,51 +1779,12 @@ export function createWorkflow<
       // step.dep: Delegate to real step (no caching needed - just returns function unchanged)
       cachedStepFn.dep = realStep.dep;
 
-      // Effect-style ergonomics: Route through cached step so cache/onAfterStep apply.
-      // Accept either AsyncResult or () => AsyncResult (getter) so cache hits never run the getter.
-      cachedStepFn.run = (
-        id: string,
-        resultOrGetter: AsyncResult<unknown, E, unknown> | (() => AsyncResult<unknown, E, unknown>),
-        options?: StepOptions
-      ) => {
-        const op =
-          typeof resultOrGetter === "function"
-            ? (resultOrGetter as () => AsyncResult<unknown, E, unknown>)
-            : () => resultOrGetter as AsyncResult<unknown, E, unknown>;
-        return cachedStepFn(id, op, options) as Promise<unknown>;
-      };
       // step.workflow: run sub-workflow (or any AsyncResult getter) as a step; cache + onAfterStep apply
       cachedStepFn.workflow = (
         id: string,
         getter: () => AsyncResult<unknown, E, unknown>,
         options?: StepOptions
       ) => cachedStepFn(id, getter, options) as Promise<unknown>;
-      cachedStepFn.andThen = (
-        id: string,
-        value: unknown,
-        fn: (value: unknown) => AsyncResult<unknown, E, unknown>,
-        options?: StepOptions
-      ) => cachedStepFn(id, () => fn(value) as AsyncResult<unknown, E, unknown>, options) as Promise<unknown>;
-      cachedStepFn.match = (
-        id: string,
-        result: Result<unknown, E, unknown> | AsyncResult<unknown, E, unknown>,
-        handlers: {
-          ok: (value: unknown) => unknown | Promise<unknown>;
-          err: (error: E, cause?: unknown) => unknown | Promise<unknown>;
-        },
-        options?: StepOptions
-      ) =>
-        cachedStepFn(
-          id,
-          async () => {
-            const resolved = await result;
-            if (resolved.ok) {
-              return ok(await handlers.ok(resolved.value));
-            }
-            return ok(await handlers.err(resolved.error, resolved.cause));
-          },
-          options
-        ) as Promise<unknown>;
       // Match core: all() with no key = no cache (core parallel doesn't pass key, so no cache by id)
       cachedStepFn.all = (id: string, shape: Parameters<RunStep<E>["all"]>[1], options?: StepOptions) => {
         const opts =
@@ -1856,6 +1836,29 @@ export function createWorkflow<
       // Clean up abort listener
       if (workflowSignal) {
         workflowSignal.removeEventListener("abort", abortHandler);
+      }
+    }
+
+    // Saga compensation: if the workflow failed and any step recorded a `compensate`,
+    // run them in reverse order. Compensation failures are collected and surfaced
+    // via SagaCompensationError; the original error is preserved as `originalError`.
+    if (!result.ok && compensations.length > 0) {
+      const compensationErrors: Array<{ stepName?: string; error: unknown }> = [];
+      for (let i = compensations.length - 1; i >= 0; i--) {
+        const comp = compensations[i];
+        try {
+          await comp.compensate(comp.value);
+        } catch (compErr) {
+          compensationErrors.push({ stepName: comp.stepName, error: compErr });
+        }
+      }
+      if (compensationErrors.length > 0) {
+        const sagaError: SagaCompensationError = {
+          type: "SAGA_COMPENSATION_ERROR",
+          originalError: result.error,
+          compensationErrors,
+        };
+        result = err(sagaError as unknown as E | ExtraE | U, { cause: result.cause }) as typeof result;
       }
     }
 
@@ -2053,6 +2056,7 @@ export function createWorkflow<
   }
 
   const workflow: Workflow<E, U, Deps, C> = {
+    provide: (overrides) => provideWorkflow(workflow, overrides),
     run: runMethod as Workflow<E, U, Deps, C>["run"],
     runWithState: runWithStateMethod as Workflow<E, U, Deps, C>["runWithState"],
   };

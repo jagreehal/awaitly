@@ -5,29 +5,36 @@
  *
  * @example
  * ```typescript
- * import { createSagaWorkflow, runSaga } from 'awaitly/saga';
+ * import { createSagaWorkflow } from 'awaitly/saga';
  *
- * const bookingWorkflow = createSagaWorkflow('booking', {
- *   reserveFlight: { execute: reserveFlight, compensate: cancelFlight },
- *   reserveHotel: { execute: reserveHotel, compensate: cancelHotel },
- *   chargeCard: { execute: chargeCard, compensate: refundCard },
+ * const booking = createSagaWorkflow('booking', {
+ *   reserveFlight, cancelFlight,
+ *   reserveHotel, cancelHotel,
+ *   chargeCard, refundCard,
  * });
  *
- * const result = await runSaga(bookingWorkflow, async ({ step }) => {
- *   const flight = await step('reserveFlight', () => reserveFlight(flightDetails));
- *   const hotel = await step('reserveHotel', () => reserveHotel(hotelDetails));
- *   const payment = await step('chargeCard', () => chargeCard(paymentDetails));
+ * const result = await booking.run(async ({ step, deps }) => {
+ *   const flight = await step('reserveFlight', () => deps.reserveFlight(details), {
+ *     compensate: (f) => deps.cancelFlight(f.id),
+ *   });
+ *   const hotel = await step('reserveHotel', () => deps.reserveHotel(details), {
+ *     compensate: (h) => deps.cancelHotel(h.id),
+ *   });
+ *   const payment = await step('chargeCard', () => deps.chargeCard(details), {
+ *     compensate: (p) => deps.refundCard(p.id),
+ *   });
  *   return { flight, hotel, payment };
  * });
- * // If chargeCard fails, reserveHotel and reserveFlight are automatically compensated
+ * // If chargeCard fails, hotel + flight reservations are compensated automatically.
  * ```
  */
 
 export {
   type CompensationAction,
+  type SagaWorkflow,
+  type SagaStep,
   type SagaStepOptions,
   type SagaCompensationError,
-  type SagaContext,
   type SagaEvent,
   type SagaWorkflowOptions,
   type SagaResult,

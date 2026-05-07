@@ -30,8 +30,8 @@ const result = await workflow.run(async ({ step, deps }) => {
     {
       attempts: 3,
       backoff: 'exponential',
-      delayMs: 100,
-      retryOn: (error) => error === 'TIMEOUT' || error === 'CONNECTION_ERROR',
+      initialDelay: 100,
+      shouldRetry: (error) => error === 'TIMEOUT' || error === 'CONNECTION_ERROR',
     }
   );
   return data;
@@ -90,23 +90,23 @@ if (!result.ok && isCircuitOpenError(result.error)) {
 **Use when:** A multi-step operation fails partway through and you need to undo completed steps.
 
 ```typescript
-import { createSagaWorkflow } from 'awaitly/workflow';
+import { createSagaWorkflow } from 'awaitly/saga';
 
 const checkout = createSagaWorkflow('saga', deps);
-const result = await checkout(async ({ saga, deps }) => {
-  const payment = await saga.step(
+const result = await checkout.run(async ({ step, deps }) => {
+  const payment = await step(
     'charge',
     () => deps.chargeCard(amount),
     { compensate: (p) => deps.refundCard(p.id) }
   );
 
-  const reservation = await saga.step(
+  const reservation = await step(
     'reserve',
     () => deps.reserveInventory(items),
     { compensate: (r) => deps.releaseInventory(r.id) }
   );
 
-  const order = await saga.step(
+  const order = await step(
     'order',
     () => deps.createOrder({ payment, reservation }),
     { compensate: (o) => deps.cancelOrder(o.id) }
@@ -137,7 +137,7 @@ Patterns compose. The key is ordering them correctly:
 
 ```typescript
 // Good: Retry is scoped to one step
-const payment = await saga.step(
+const payment = await step(
   'charge',
   () => retry(() => chargeCard(amount), { maxAttempts: 3 }),
   { compensate: (p) => refundCard(p.id) }
@@ -243,16 +243,16 @@ Before choosing a pattern, ask:
 ```typescript
 import { createCircuitBreaker } from 'awaitly/circuit-breaker';
 import { createRateLimiter } from 'awaitly/ratelimit';
-import { createSagaWorkflow } from 'awaitly/workflow';
+import { createSagaWorkflow } from 'awaitly/saga';
 
 const paymentBreaker = createCircuitBreaker('payment-api', { failureThreshold: 5 });
 const paymentLimiter = createRateLimiter('payment-api', { maxRequests: 100, windowMs: 60000 });
 
 const checkout = createSagaWorkflow('saga', deps);
 
-const result = await checkout(async ({ saga, deps }) => {
+const result = await checkout.run(async ({ step, deps }) => {
   // Step 1: Charge with retry + circuit breaker + rate limiting
-  const payment = await saga.step(
+  const payment = await step(
     'charge',
     async () => {
       return paymentLimiter.call(() =>
@@ -268,7 +268,7 @@ const result = await checkout(async ({ saga, deps }) => {
   );
 
   // Step 2: Reserve (simpler, internal service)
-  const reservation = await saga.step(
+  const reservation = await step(
     'reserve',
     () => deps.reserveInventory(items),
     { compensate: (r) => deps.releaseInventory(r.id) }

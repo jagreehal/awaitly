@@ -7,6 +7,8 @@ import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 A `Result<T, E>` represents either success (`ok`) or failure (`err`). It replaces try/catch with explicit typing, giving you compile-time guarantees about error handling.
 
+For async SDK/vendor boundaries, the canonical awaitly pattern is `tryAsyncBoundary` from `awaitly/result/retry`.
+
 ## Why Results?
 
 <Tabs>
@@ -169,11 +171,10 @@ Handle both cases in one expression:
 import { match } from 'awaitly';
 
 const result = divide(10, 2);
-const message = match(
-  result,
-  (value) => `Success: ${value}`,
-  (error) => `Error: ${error}`
-);
+const message = match(result, {
+  ok: (value) => `Success: ${value}`,
+  err: (error) => `Error: ${error}`,
+});
 // "Success: 5"
 ```
 
@@ -289,33 +290,37 @@ const failed = all(withError);
 
 ### allSettled - Collect All Outcomes
 
-Always succeeds, returning every outcome:
+Returns `Ok` with every value when all succeed, or `Err` with an array of `{ error, cause? }` entries when any fail:
 
 ```typescript
 import { allSettled } from 'awaitly';
 
-const results = [ok(1), err('A'), ok(3), err('B')];
-const settled = allSettled(results);
+const allOk = [ok(1), ok(2), ok(3)];
+const settled = allSettled(allOk);
+// { ok: true, value: [1, 2, 3] }
+
+const mixed = [ok(1), err('A'), ok(3), err('B')];
+const failed = allSettled(mixed);
 // {
-//   ok: true,
-//   value: [
-//     { status: 'ok', value: 1 },
-//     { status: 'err', error: 'A' },
-//     { status: 'ok', value: 3 },
-//     { status: 'err', error: 'B' },
+//   ok: false,
+//   error: [
+//     { error: 'A' },
+//     { error: 'B' },
 //   ]
 // }
 ```
 
 ### partition - Separate Successes and Failures
 
+Returns a `{ values, errors }` object — never fails:
+
 ```typescript
 import { partition } from 'awaitly';
 
 const results = [ok(1), err('A'), ok(3)];
-const [successes, failures] = partition(results);
-// successes: [1, 3]
-// failures: ['A']
+const { values, errors } = partition(results);
+// values: [1, 3]
+// errors: ['A']
 ```
 
 <Aside type="tip" title="When to use each">
@@ -376,6 +381,52 @@ if (!invalid.ok && invalid.error.type === DESERIALIZATION_ERROR) {
 }
 ```
 
+## Edge Wrapping with tryAsyncBoundary
+
+Use object-style config when wrapping SDK/vendor edges so classification and retry policy stay together:
+
+```typescript
+import { tryAsyncBoundary } from 'awaitly/result/retry';
+
+const result = await tryAsyncBoundary({
+  try: () => paymentProvider.authorize(card, total),
+  catch: (cause) =>
+    isTimeoutAfterCapture(cause)
+      ? new PaymentLimbo({ attemptId, cause })
+      : new TransientVendorError({ vendor: 'stripe', cause }),
+  retry: {
+    attempts: 4,
+    initialDelay: 100,
+    shouldRetry: (e) => e instanceof TransientVendorError,
+  },
+});
+```
+
+### Boundary Cookbook (Copy/Paste)
+
+```typescript
+// 1) Timeout-after-capture: classify as do-not-retry
+const payment = await tryAsyncBoundary({
+  try: () => gateway.authorize(card, total),
+  catch: (cause) =>
+    isTimeoutAfterCapture(cause)
+      ? new PaymentLimbo({ attemptId, cause })
+      : new TransientVendorError({ vendor: 'stripe', cause }),
+  retry: {
+    attempts: 3,
+    initialDelay: 100,
+    backoff: 'fixed',
+    shouldRetry: (e) => e instanceof TransientVendorError,
+  },
+});
+
+// 2) Validation boundary mapping
+const parsed = await tryAsyncBoundary({
+  try: () => Promise.resolve(schema.parse(input)),
+  catch: (cause) => new ValidationError({ field: 'input', reason: String(cause) }),
+});
+```
+
 ## Retry with tryAsyncRetry
 
 Retry async operations without the full workflow engine:
@@ -388,8 +439,8 @@ const result = await tryAsyncRetry(
   (cause) => ({ type: 'FETCH_FAILED' as const, cause }),
   {
     retry: {
-      times: 3,
-      delayMs: 100,
+      attempts: 4,
+      initialDelay: 100,
       backoff: 'exponential',
       shouldRetry: (e) => e.type === 'FETCH_FAILED',
     },
@@ -406,12 +457,13 @@ const result = await tryAsyncRetry(
 | `map(result, fn)` | Transform success value |
 | `mapError(result, fn)` | Transform error |
 | `andThen(result, fn)` | Chain operations |
-| `match(result, onOk, onErr)` | Pattern match |
+| `match(result, { ok, err })` | Pattern match |
 | `unwrap(result)` | Get value or throw |
 | `unwrapOr(result, default)` | Get value or default |
 | `from(fn)` | Wrap sync throwing code |
 | `fromPromise(promise)` | Wrap async throwing code |
 | `tryAsync(fn, mapError)` | Wrap with custom error |
+| `tryAsyncBoundary({ try, catch, retry? })` | Edge-first async wrapper with optional retry policy |
 | `tryAsyncRetry(fn, config)` | Wrap with retry support |
 | `all(results)` | Combine, fail on first error |
 | `partition(results)` | Separate successes/failures |

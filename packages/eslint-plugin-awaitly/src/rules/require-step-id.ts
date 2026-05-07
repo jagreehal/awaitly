@@ -13,29 +13,19 @@ import type { CallExpression, MemberExpression } from 'estree';
  * - step.withTimeout('id', fn, options)
  * - step.try('id', fn, options)
  * - step.fromResult('id', fn, options)
- * - step.parallel('name', operations | callback)
  * - step.race('name', callback)
- * - step.allSettled('name', callback)
- * - step.run('id', result | getter, options?)
- * - step.andThen('id', value, fn, options?)
- * - step.match('id', result, handlers, options?)
- * - step.all('name', shape, options?) — alias for parallel
+ * - step.all('name', shape, options?)
  * - step.map('id', items, mapper, options?)
- * - saga.step('name', operation, options?)
- * - saga.tryStep('name', operation, options)
- * - tryStep('name', ...) when destructured from saga context
  *
  * BAD:  step(() => fetchUser('1'))           - missing step ID
- * BAD:  tryStep(() => deps.riskyOp(), { error: 'FAILED' })  - missing step name (destructured)
- * BAD:  saga.step(() => deps.createOrder(), { compensate: ... })  - missing step name
- * BAD:  step.parallel({ a: () => ... })      - missing name (legacy form removed)
- * GOOD: saga.step('createOrder', () => deps.createOrder(), { compensate: ... })
- * GOOD: step.parallel('Fetch data', { a: () => fetchA(), b: () => fetchB() })
+ * BAD:  step.all({ a: () => ... })           - missing name
+ * GOOD: step('fetchUser', () => fetchUser('1'))
+ * GOOD: step.all('Fetch data', { a: () => fetchA(), b: () => fetchB() })
  * GOOD: step.race('Fastest API', () => anyAsync([...]))
  */
 
 // Step helper methods that require string (id/name) as first argument
-const STEP_HELPER_METHODS = ['sleep', 'retry', 'withTimeout', 'try', 'fromResult', 'parallel', 'race', 'allSettled', 'run', 'andThen', 'match', 'all', 'map', 'withFallback', 'withResource', 'workflow'];
+const STEP_HELPER_METHODS = ['sleep', 'retry', 'withTimeout', 'try', 'fromResult', 'race', 'all', 'map', 'withFallback', 'withResource', 'workflow'];
 
 /** Saga context param names that may receive step/tryStep (common in createSagaWorkflow / runSaga callbacks). */
 const SAGA_CONTEXT_NAMES = ['saga', 'ctx', 'sagaContext', 's'];

@@ -275,7 +275,7 @@ const data = await step.retry(
   {
     attempts: 3,
     backoff: 'exponential',
-    delayMs: 100,
+    initialDelay: 100,
   }
 );
 ```
@@ -283,7 +283,7 @@ const data = await step.retry(
 ### Backoff Strategies
 
 ```text
-Fixed Backoff (delayMs: 100)
+Fixed Backoff (initialDelay: 100)
 ────────────────────────────
 Attempt │ Delay
 ────────┼────────
@@ -291,7 +291,7 @@ Attempt │ Delay
    2    │ 100ms
    3    │ 100ms
 
-Linear Backoff (delayMs: 100)
+Linear Backoff (initialDelay: 100)
 ─────────────────────────────
 Attempt │ Delay
 ────────┼────────
@@ -299,7 +299,7 @@ Attempt │ Delay
    2    │ 200ms
    3    │ 300ms
 
-Exponential Backoff (delayMs: 100)
+Exponential Backoff (initialDelay: 100)
 ──────────────────────────────────
 Attempt │ Delay
 ────────┼────────
@@ -323,8 +323,8 @@ Prevent delays from growing too large:
 {
   attempts: 10,
   backoff: 'exponential',
-  delayMs: 100,
-  maxDelayMs: 5000, // Never wait more than 5 seconds
+  initialDelay: 100,
+  maxDelay: 5000, // Never wait more than 5 seconds
 }
 ```
 
@@ -336,7 +336,7 @@ Randomize delays to avoid thundering herd:
 {
   attempts: 3,
   backoff: 'exponential',
-  delayMs: 100,
+  initialDelay: 100,
   jitter: true, // Adds ±50% random variation
 }
 ```
@@ -356,7 +356,7 @@ const user = await step.retry(
   {
     attempts: 3,
     backoff: 'exponential',
-    retryOn: (error) => {
+    shouldRetry: (error) => {
       // Don't retry permanent failures
       if (error === 'NOT_FOUND') return false;
       if (error === 'INVALID_ID') return false;
@@ -379,7 +379,7 @@ Each attempt has its own timeout:
 const data = await step.retry(
   'fetchData',
   () => step.withTimeout('fetchData', () => fetchData(), { ms: 2000 }),
-  { attempts: 3, backoff: 'exponential', delayMs: 100 }
+  { attempts: 3, backoff: 'exponential', initialDelay: 100 }
 );
 ```
 
@@ -401,7 +401,7 @@ const user = await step('Fetch user', () => fetchUser('1'), {
   retry: {
     attempts: 3,
     backoff: 'exponential',
-    delayMs: 100,
+    initialDelay: 100,
     jitter: true,
   },
   timeout: {
@@ -458,10 +458,10 @@ const result = await run<User, 'NOT_FOUND'>(
 |--------|------|---------|-------------|
 | `attempts` | `number` | required | Max retry attempts |
 | `backoff` | `'fixed' \| 'linear' \| 'exponential'` | `'fixed'` | Delay growth strategy |
-| `delayMs` | `number` | `0` | Base delay in milliseconds |
-| `maxDelayMs` | `number` | `undefined` | Maximum delay cap |
+| `initialDelay` | `number` | `0` | Base delay in milliseconds |
+| `maxDelay` | `number` | `undefined` | Maximum delay cap |
 | `jitter` | `boolean` | `false` | Add random variation |
-| `retryOn` | `(error) => boolean` | `() => true` | Condition for retry |
+| `shouldRetry` | `(error) => boolean` | `() => true` | Condition for retry |
 
 ## Complete Example
 
@@ -496,9 +496,9 @@ const result = await workflow.run(async ({ step, deps }) => {
     {
       attempts: 3,
       backoff: 'exponential',
-      delayMs: 200,
+      initialDelay: 200,
       jitter: true,
-      retryOn: (error) => {
+      shouldRetry: (error) => {
         // Don't retry NOT_FOUND - user doesn't exist
         if (error instanceof NotFoundError) return false;
         // Retry network errors

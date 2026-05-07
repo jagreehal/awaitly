@@ -6,7 +6,8 @@ import {
   deserialize,
   DESERIALIZATION_ERROR,
 } from "./index";
-import { tryAsyncRetry } from "./retry";
+import { tryAsyncRetry, tryAsyncBoundary } from "./retry";
+import { UnexpectedError } from "../errors";
 
 describe("flatten", () => {
   it("flattens nested Ok", () => {
@@ -103,7 +104,7 @@ describe("tryAsyncRetry", () => {
   it("succeeds on first attempt", async () => {
     const fn = vi.fn().mockResolvedValue(42);
     const result = await tryAsyncRetry(fn, {
-      retry: { times: 3, delayMs: 10 },
+      retry: { attempts: 4, initialDelay: 10 },
     });
     expect(result).toEqual({ ok: true, value: 42 });
     expect(fn).toHaveBeenCalledTimes(1);
@@ -117,7 +118,7 @@ describe("tryAsyncRetry", () => {
       .mockResolvedValue(42);
 
     const result = await tryAsyncRetry(fn, {
-      retry: { times: 3, delayMs: 1 },
+      retry: { attempts: 4, initialDelay: 1 },
     });
     expect(result).toEqual({ ok: true, value: 42 });
     expect(fn).toHaveBeenCalledTimes(3);
@@ -126,10 +127,10 @@ describe("tryAsyncRetry", () => {
   it("returns error after all retries exhausted", async () => {
     const fn = vi.fn().mockRejectedValue(new Error("always fails"));
     const result = await tryAsyncRetry(fn, {
-      retry: { times: 2, delayMs: 1 },
+      retry: { attempts: 3, initialDelay: 1 },
     });
     expect(result.ok).toBe(false);
-    expect(fn).toHaveBeenCalledTimes(3); // 1 initial + 2 retries
+    expect(fn).toHaveBeenCalledTimes(3);
   });
 
   it("uses custom error mapper", async () => {
@@ -140,7 +141,7 @@ describe("tryAsyncRetry", () => {
         type: "FETCH_ERROR" as const,
         message: cause instanceof Error ? cause.message : "unknown",
       }),
-      { retry: { times: 1, delayMs: 1 } }
+      { retry: { attempts: 2, initialDelay: 1 } }
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -163,15 +164,14 @@ describe("tryAsyncRetry", () => {
       (cause) => (cause instanceof Error ? cause.message : "unknown"),
       {
         retry: {
-          times: 3,
-          delayMs: 1,
+          attempts: 4,
+          initialDelay: 1,
           shouldRetry: (e) => e === "retryable",
         },
       }
     );
 
     expect(result.ok).toBe(false);
-    // Should stop after 2nd attempt because "fatal" doesn't pass shouldRetry
     expect(fn).toHaveBeenCalledTimes(2);
   });
 
@@ -184,10 +184,88 @@ describe("tryAsyncRetry", () => {
 
     const start = Date.now();
     await tryAsyncRetry(fn, {
-      retry: { times: 3, delayMs: 20, backoff: "exponential" },
+      retry: { attempts: 4, initialDelay: 20, backoff: "exponential" },
     });
     const elapsed = Date.now() - start;
-    // exponential: 20ms (attempt 0) + 40ms (attempt 1) = 60ms minimum
+    // exponential: 20ms (after attempt 1) + 40ms (after attempt 2) = 60ms minimum
     expect(elapsed).toBeGreaterThanOrEqual(50);
+  });
+});
+
+describe("tryAsyncBoundary", () => {
+  it("maps thrown errors with object-style API", async () => {
+    const result = await tryAsyncBoundary({
+      try: async () => {
+        throw new Error("vendor boom");
+      },
+      catch: (cause) => ({
+        type: "VENDOR_ERROR" as const,
+        message: cause instanceof Error ? cause.message : "unknown",
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toEqual({
+        type: "VENDOR_ERROR",
+        message: "vendor boom",
+      });
+    }
+  });
+
+  it("defaults to UnexpectedError when catch mapper is omitted", async () => {
+    const result = await tryAsyncBoundary({
+      try: async () => {
+        throw new Error("boom");
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBeInstanceOf(UnexpectedError);
+      expect(result.error._tag).toBe("UnexpectedError");
+    }
+  });
+
+  it("retries only when retry predicate allows it", async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("retryable"))
+      .mockRejectedValueOnce(new Error("retryable"))
+      .mockResolvedValue(42);
+
+    const result = await tryAsyncBoundary({
+      try: fn,
+      catch: (cause) => (cause instanceof Error ? cause.message : "unknown"),
+      retry: {
+        attempts: 4,
+        initialDelay: 1,
+        shouldRetry: (e) => e === "retryable",
+      },
+    });
+
+    expect(result).toEqual({ ok: true, value: 42 });
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+
+  it("supports backoff: 'fixed'", async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("retryable"))
+      .mockResolvedValue(7);
+
+    const result = await tryAsyncBoundary({
+      try: fn,
+      catch: (cause) => (cause instanceof Error ? cause.message : "unknown"),
+      retry: {
+        attempts: 2,
+        initialDelay: 1,
+        backoff: "fixed",
+        shouldRetry: (e) => e === "retryable",
+      },
+    });
+
+    expect(result).toEqual({ ok: true, value: 7 });
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 });

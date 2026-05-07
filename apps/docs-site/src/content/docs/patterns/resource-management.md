@@ -292,7 +292,7 @@ const acquireWithRetry = async <T>(
       const resource = await acquire();
       return ok(resource);
     },
-    { attempts: retries, backoff: 'exponential', delayMs: 100 }
+    { attempts: retries, backoff: 'exponential', initialDelay: 100 }
   );
 
   if (!result.ok) {

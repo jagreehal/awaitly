@@ -345,7 +345,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 | `Effect.gen(function* () { ... })` | `run(async ({ step }) => { ... })` | Familiar async/await |
 | `yield* someEffect` | `await step('id', fn)` | Unwrap in workflow |
 | `Effect.tryPromise({ try, catch })` | `step.try('id', () => ..., { onError })` | Similar; id first |
-| `Effect.all([...])` | `step.all('name', { ... })` or `step.parallel('name', { ... })` or `allAsync([...])` | Similar; `step.all` is Effect-style alias |
+| `Effect.all([...])` | `step.all('name', { ... })` or `step.all('name', { ... })` or `allAsync([...])` | Similar; `step.all` is Effect-style alias |
 | `Schedule.exponential()` | `step.retry('id', fn, { backoff: 'exponential' })` | Built-in options; id first |
 | `Effect.timeout(duration)` | `step.withTimeout('id', fn, { ms: 5000 })` | Timeout is its own helper |
 | `Layer.provide()` | Pass deps to workflow | Direct injection |
@@ -426,7 +426,7 @@ import { createWorkflow } from 'awaitly/workflow';
 
 // Option 1: Inline conversion
 const result = await workflow.run(async ({ step, deps }) => {
-  const user = await step('getUser', fromEffect(legacyEffectService.getUser('1')));
+  const user = await step('getUser', () => fromEffect(legacyEffectService.getUser('1')));
   return user;
 });
 

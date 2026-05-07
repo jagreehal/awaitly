@@ -252,10 +252,10 @@ const user = await step.retry(
   {
     attempts: 3,
     backoff: 'exponential',  // 'fixed' | 'linear' | 'exponential'
-    delayMs: 100,            // Base delay
-    maxDelayMs: 5000,        // Cap for exponential
+    initialDelay: 100,            // Base delay
+    maxDelay: 5000,        // Cap for exponential
     jitter: true,            // Add randomness
-    retryOn: (error) => error !== 'NOT_FOUND', // Don't retry NOT_FOUND
+    shouldRetry: (error) => error !== 'NOT_FOUND', // Don't retry NOT_FOUND
   }
 );
 ```
@@ -263,17 +263,17 @@ const user = await step.retry(
 ### Backoff strategies visualized
 
 ```text
-Fixed (delayMs: 100):
+Fixed (initialDelay: 100):
 #1: 100ms   ████
 #2: 100ms   ████
 #3: 100ms   ████
 
-Linear (delayMs: 100):
+Linear (initialDelay: 100):
 #1: 100ms   ████
 #2: 200ms   ████████
 #3: 300ms   ████████████
 
-Exponential (delayMs: 100):
+Exponential (initialDelay: 100):
 #1: 100ms   ████
 #2: 200ms   ████████
 #3: 400ms   ████████████████

@@ -13,7 +13,7 @@ const pillars = [
   {
     n: '02',
     title: 'Composes with await.',
-    body: 'No method chains, no generator runners. step() unwraps Results inside a normal async function — the happy path reads top-to-bottom.',
+    body: 'step() unwraps Results inside a normal async function. The happy path reads top-to-bottom, errors short-circuit the rest.',
     code: [
       { kind: 'kw',  text: 'const ' }, { kind: 'id', text: 'user' }, { kind: 'pun', text: '  = ' }, { kind: 'kw', text: 'await ' }, { kind: 'fn', text: 'step' }, { kind: 'pun', text: "(" }, { kind: 'str', text: "'getUser'" }, { kind: 'pun', text: ', () => deps.' }, { kind: 'fn', text: 'getUser' }, { kind: 'pun', text: '(id));' }, { kind: 'br' },
       { kind: 'kw',  text: 'const ' }, { kind: 'id', text: 'order' }, { kind: 'pun', text: ' = ' }, { kind: 'kw', text: 'await ' }, { kind: 'fn', text: 'step' }, { kind: 'pun', text: "(" }, { kind: 'str', text: "'getOrder'" }, { kind: 'pun', text: ', () => deps.' }, { kind: 'fn', text: 'getOrder' }, { kind: 'pun', text: '(user.id));' }, { kind: 'br' },

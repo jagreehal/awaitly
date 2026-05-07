@@ -177,9 +177,21 @@ export type MatchErrorHandlers<E extends string, R> = {
  * Takes an error value (not a Result) and handlers for each error type.
  */
 export function matchError<E extends string, R>(
+  handlers: MatchErrorHandlers<E, R>
+): (error: E | UnexpectedError) => R;
+export function matchError<E extends string, R>(
   error: E | UnexpectedError,
   handlers: MatchErrorHandlers<E, R>
-): R {
+): R;
+export function matchError<E extends string, R>(
+  errorOrHandlers: E | UnexpectedError | MatchErrorHandlers<E, R>,
+  handlers?: MatchErrorHandlers<E, R>
+): R | ((error: E | UnexpectedError) => R) {
+  if (handlers === undefined) {
+    const h = errorOrHandlers as MatchErrorHandlers<E, R>;
+    return (e: E | UnexpectedError) => matchError(e, h);
+  }
+  const error = errorOrHandlers as E | UnexpectedError;
   // Handle UnexpectedError instances
   if (isUnexpectedError(error)) {
     return handlers.UnexpectedError(error as UnexpectedError);
@@ -463,11 +475,16 @@ export function mapError<T, E, F, C>(
  *
  * @remarks When to use: Handle both Ok and Err in a single expression that returns a value.
  */
+export function match<T, E, C, R>(handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): (r: Result<T, E, C>) => R;
 export function match<T, E, C, R>(r: Ok<T>, handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): R;
 export function match<T, E, C, R>(r: Err<E, C>, handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): R;
 export function match<T, E, C, R>(r: Result<T, E, C>, handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): R;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function match(r: any, handlers: any): any {
+export function match(r: any, handlers?: any): any {
+  if (handlers === undefined) {
+    const h = r;
+    return (result: Result<unknown, unknown, unknown>) => match(result, h);
+  }
   return r.ok ? handlers.ok(r.value) : handlers.err(r.error, r.cause);
 }
 

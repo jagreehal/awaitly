@@ -406,7 +406,7 @@ describe("visualization", () => {
       await workflow.run(
         async ({ step, deps: { fetchUser, fetchOrders, fetchSettings } }) => {
           // Use name-first object form
-          const { user, orders, settings } = await step.parallel("Fetch all data", {
+          const { user, orders, settings } = await step.all("Fetch all data", {
             user: () => fetchUser("123"),
             orders: () => fetchOrders("123"),
             settings: () => fetchSettings("123"),

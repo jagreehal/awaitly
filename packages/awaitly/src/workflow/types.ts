@@ -429,6 +429,13 @@ export type RunWithStateResult<T, E, U> = {
  */
 export interface Workflow<E, U = UnexpectedError, Deps = unknown, C = void> {
   /**
+   * Pre-bind dependency overrides and return another `Workflow`.
+   * Chain `.provide()` and call `.run()` / `.runWithState()` as normal.
+   * Precedence: createWorkflow deps < provide deps < run config deps.
+   */
+  provide(overrides: Partial<Deps>): Workflow<E, U, Deps, C>;
+
+  /**
    * Execute workflow (anonymous run).
    * ExtraE is inferred from the callback (e.g. from step.workflow / step.withFallback); result is Result<T, E | ExtraE | U>.
    * T is inferred from the callback return type. For nested workflows (calling another workflow.run() inside the callback),

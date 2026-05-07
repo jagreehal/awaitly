@@ -489,7 +489,7 @@ describe("scope events", () => {
     );
 
     await workflow.run(async ({ step }) => {
-      const results = await step.parallel("Fetch all", () =>
+      const results = await step.all("Fetch all", () =>
         allAsync([fetchUser("1"), fetchPosts("1")])
       );
       return results;
@@ -538,7 +538,7 @@ describe("scope events", () => {
     );
 
     const result = await workflow.run(async ({ step }) => {
-      return await step.parallel("Fetch with error", () =>
+      return await step.all("Fetch with error", () =>
         allAsync([fetchUser("1"), fetchUser("missing")])
       );
     });

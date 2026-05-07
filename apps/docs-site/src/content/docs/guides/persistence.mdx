@@ -3,9 +3,16 @@ title: Persistence
 description: Save and resume workflows across restarts
 ---
 
+import { Aside } from '@astrojs/starlight/components';
 import { AnimatedWorkflowDiagram } from '~/components';
 
 Save workflow state and resume later. Completed steps return their cached results without re-executing.
+
+<Aside type="note" title="Different from streaming">
+This page covers **workflow checkpoints** (`SnapshotStore`) so you can resume after restarts.
+
+For **streaming items inside a step** (AI tokens, progressive output), use a separate **StreamStore** via [`createWorkflow` with `streamStore`](/foundations/streaming/). You can use both in the same workflow.
+</Aside>
 
 <AnimatedWorkflowDiagram
   steps={[

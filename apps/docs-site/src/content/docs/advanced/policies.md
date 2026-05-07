@@ -162,8 +162,8 @@ const myApiPolicy = {
   retry: {
     attempts: 4,
     backoff: 'exponential',
-    delayMs: 200,
-    maxDelayMs: 5000,
+    initialDelay: 200,
+    maxDelay: 5000,
   },
 };
 
@@ -172,7 +172,7 @@ const myDbPolicy = {
   retry: {
     attempts: 2,
     backoff: 'fixed',
-    delayMs: 1000,
+    initialDelay: 1000,
   },
 };
 
@@ -280,7 +280,7 @@ const ecommercePolicies = {
   // Payment processing - high reliability needed
   payment: mergePolicies(servicePolicies.httpApi, {
     timeout: { ms: 30000 },
-    retry: { attempts: 3, backoff: 'exponential', delayMs: 1000 },
+    retry: { attempts: 3, backoff: 'exponential', initialDelay: 1000 },
   }),
 
   // Inventory check - can fail fast
@@ -316,19 +316,19 @@ const microservicesPolicies = {
   // Internal services - trusted, fast
   internal: {
     timeout: { ms: 2000 },
-    retry: { attempts: 2, backoff: 'fixed', delayMs: 100 },
+    retry: { attempts: 2, backoff: 'fixed', initialDelay: 100 },
   },
 
   // External APIs - less trusted, slower
   external: {
     timeout: { ms: 10000 },
-    retry: { attempts: 3, backoff: 'exponential', delayMs: 500 },
+    retry: { attempts: 3, backoff: 'exponential', initialDelay: 500 },
   },
 
   // Event publishing - fire and forget with retry
   events: {
     timeout: { ms: 5000 },
-    retry: { attempts: 5, backoff: 'linear', delayMs: 200 },
+    retry: { attempts: 5, backoff: 'linear', initialDelay: 200 },
   },
 
   // Cache operations - fail fast

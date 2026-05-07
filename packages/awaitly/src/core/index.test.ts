@@ -576,6 +576,15 @@ describe("match() - exhaustive pattern matching", () => {
 
     expect(httpStatus).toBe(401);
   });
+
+  it("supports curried (pipeable) usage", () => {
+    const matcher = match<number, "NOPE", unknown, string>({
+      ok: (value) => `value:${value}`,
+      err: (error) => `error:${error}`,
+    });
+    expect(matcher(ok(1))).toBe("value:1");
+    expect(matcher(err("NOPE"))).toBe("error:NOPE");
+  });
 });
 
 describe("all() - like Promise.all (sync)", () => {
@@ -2294,6 +2303,17 @@ describe("matchError() - exhaustive error matching", () => {
     });
 
     expect(result).toBe("single");
+  });
+
+  it("supports curried (pipeable) usage", () => {
+    type FetchError = "NOT_FOUND" | "FETCH_ERROR";
+    const handle = matchError<FetchError, number>({
+      NOT_FOUND: () => 404,
+      FETCH_ERROR: () => 500,
+      UnexpectedError: () => 503,
+    });
+
+    expect(handle("NOT_FOUND")).toBe(404);
   });
 
   it("returns different types from handlers", () => {

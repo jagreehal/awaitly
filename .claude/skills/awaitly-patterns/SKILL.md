@@ -6,9 +6,9 @@ user-invocable: true
 
 # Awaitly Core Patterns
 
-**This document defines the supported patterns for using awaitly. Avoid inventing alternatives.** Effect-style helpers (run, andThen, match, all, map) keep the API as close to Effect as we can get while still using async/await and not generators.
+**This document defines the supported patterns for using awaitly. Avoid inventing alternatives.** awaitly stays in `async/await` — no generators, no method chains, no DSL.
 
-Workflows are sequential unless explicitly composed using step concurrency helpers like `step.all`, `step.parallel`, or `step.map`. `Awaitly.allAsync()` is the underlying Result combinator and should typically be executed inside a step.
+Workflows are sequential unless explicitly composed using step concurrency helpers (`step.all`, `step.map`, `step.race`). `Awaitly.allAsync()` is the underlying Result combinator and should typically be executed inside a step.
 
 **Execution is only via `workflow.run()`.** There is no callable form (`workflow(fn)` or `workflow(args, fn)`). Use closures for workflow input (e.g. `userId` in scope).
 
@@ -48,7 +48,7 @@ Use this as a checklist when generating or editing awaitly code. Satisfy every i
 - **MUST** normalize other errors with `result.error.type ?? result.error` (handles string and object errors, including `STEP_TIMEOUT`).
 
 ### Concurrency inside workflows
-- **MUST NOT** use `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows. Replace with `step.all`, `step.map`, `step.parallel`, or `step.race` (consult types).
+- **MUST NOT** use `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows. Replace with `step.all`, `step.map`, or `step.race` (consult types).
 
 ### Workflow callback invariants
 Inside a workflow callback:
@@ -69,36 +69,27 @@ Inside a workflow callback:
 
 ## Rules
 
-### R1: step() requires an explicit string ID and accepts both direct and thunk forms
+### R1: step() requires an explicit string ID and a thunk
 
-`step()` **requires a string ID as the first argument** in both `run()` and `createWorkflow()` workflows:
+`step()` **requires a string ID as the first argument and a thunk as the second** in both `run()` and `createWorkflow()` workflows:
 
-**Signature:** `step('id', fnOrResult, opts?)` or `step('id', result, opts?)`
+**Signature:** `step('id', () => fn(args), opts?)`
 
-**Thunk form** (deferred execution; use for retries, caching, or expensive work):
 ```typescript
-await step('getUser', () => deps.getUser(id));  // Operation starts when step runs
-```
-
-**Direct form** (Promise/Result passed immediately; cannot be retried/cached-before-run):
-```typescript
-// createWorkflow('name', deps)
-await step('getUser', deps.getUser(id));
+// canonical form — operation starts when step runs
+await step('getUser', () => deps.getUser(id));
 
 // run(): deps via closures
-await step('getUser', getUser(id));
+await step('getUser', () => getUser(id));
 ```
 
-**Prefer thunk form** (`() => deps.fn()`) unless you have a specific reason not to. **Direct form is allowed only when:** no retries, no caching, and no conditional execution. When in doubt, use the thunk form.
+The thunk form is required so that retries, caching, conditional execution, and resume can re-evaluate or skip the operation. Passing an already-started promise/Result defeats those mechanisms.
 
-**When thunk form is required:**
-- Retries (`step.retry`) — needs to re-execute.
+**The thunk is non-negotiable when:**
+
+- Retries (`step.retry`, `step.try` with `retry`) — needs to re-execute.
 - Caching with keys — checks cache before executing.
 - Expensive operations — defer until needed.
-
-**When direct form is allowed (all must hold):**
-- No retries, no caching, no conditional execution.
-- You already have a Result/Promise to unwrap and do not need step to re-invoke.
 
 **Step APIs:** Every step type takes a string as the first argument (ID or name). There is no `name` in options—the first argument is the step name/id. Use optional `key` in options for per-iteration identity (e.g. in loops). See the **Step Helpers** table below and package types for full signatures.
 
@@ -120,7 +111,7 @@ await step('getUser', getUser(id));
 
 When a step resolves to `Err`, `step()` short-circuits the workflow and `workflow.run()` resolves to that `Err`. **Inside workflows, `step()` returns the unwrapped Ok value; on Err the workflow callback is not continued.** Do not return Result objects from the callback—return raw values.
 
-**MUST NOT** call deps directly and then manually branch on `.ok`—it bypasses step tracking and breaks retries/caching. **MUST** use `step()` (or a step helper) for any async dep call. Using `step.match(id, result, { ok, err })` or `step.fromResult(id, fn, opts)` is allowed; they keep control flow inside the step engine.
+**MUST NOT** call deps directly and then manually branch on `.ok`—it bypasses step tracking and breaks retries/caching. **MUST** use `step()` (or a step helper) for any async dep call. `step.fromResult(id, fn, opts)` is the right helper when you need to remap a typed Result error.
 
 ```typescript
 // step handles early exit automatically
@@ -247,10 +238,9 @@ If you need per-item error handling in a loop, use `step.forEach()` with error c
 | `step(...)` without string ID as first argument | `step('id', fn, opts)` or `step('id', result, opts)`. First argument MUST be a literal string. |
 | Template literal as step ID (e.g. `` step(`step-${i}`, ...) ``) | Literal ID + `key`: `step('fetchUser', () => fetchUser(i), { key: \`user:${i}\` })`. |
 | `step(promise)` when using retries/caching | Thunk form: `step('id', () => deps.fn(args))`. |
-| `step.run(id, promise, { key })` in createWorkflow when you need lazy execution | `step.run` takes a result directly: `step.run(id, deps.fn(), { key })`. If you need lazy execution (cache check before running), use `step(id, () => deps.fn(), { key })`. |
 | Bare `await deps.fn()` (or any async without step) | `await step('id', () => deps.fn())`. |
 | Manual `if (!result.ok)` after calling deps directly | Call through step; step() short-circuits on Err. |
-| `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows | `step.all`, `step.map`, `step.parallel`, or `step.race`. See Concurrency section. |
+| `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows | `step.all`, `step.map`, or `step.race`. See Concurrency section. |
 | `throw` in deps | Return `err()` instead, or wrap with `step.try(id, fn, { error: 'TYPED_ERROR' })`. |
 | `try/catch` around step() | Remove try/catch; errors propagate to workflow result. Use `step.try()` only for converting throws to typed errors. |
 
@@ -265,7 +255,7 @@ When you see these patterns, apply the rewrite:
 | See | Rewrite to |
 |-----|------------|
 | `workflow(async ...)` or `workflow(args, async ...)` | `workflow.run(async ...)`. Use closures for args. |
-| `Promise.all([...])` inside a workflow callback | `step.all('name', { a: () => opA(), b: () => opB() })` or `step.parallel('name', () => Awaitly.allAsync([...]))`. |
+| `Promise.all([...])` inside a workflow callback | `step.all('name', { a: () => opA(), b: () => opB() })` or array form `step.all('name', () => Awaitly.allAsync([...]))`. |
 | `try { await step(...) } catch (e) { ... }` | Remove try/catch; handle errors at boundary. If converting throws: `step.try('id', fn, { error: 'ERR' })`. |
 | `const x = await deps.fn()` (no step) | `const x = await step('id', () => deps.fn())`. |
 | Options object as first argument to `workflow.run(...)` | Move options to second argument: `workflow.run(fn, options)`. |
@@ -407,7 +397,7 @@ import { type ErrorOf, type Errors, type ErrorsOf } from 'awaitly';
 // Single dep: ErrorOf<typeof fn>
 type RunErrors = ErrorOf<typeof getUser>;
 const result = await run<Order, RunErrors>(async ({ step }) => {
-  const user = await step('getUser', getUser(userId));
+  const user = await step('getUser', () => getUser(userId));
   return user;
 });
 // result.error is: 'NOT_FOUND' | UnexpectedError
@@ -415,8 +405,8 @@ const result = await run<Order, RunErrors>(async ({ step }) => {
 // Multiple deps: Errors<[...]> (union of all dep errors)
 type AllErrors = Errors<[typeof getUser, typeof createOrder]>;
 const result2 = await run<Order, AllErrors>(async ({ step }) => {
-  const user = await step('getUser', getUser(userId));
-  const order = await step('createOrder', createOrder(user));
+  const user = await step('getUser', () => getUser(userId));
+  const order = await step('createOrder', () => createOrder(user));
   return order;
 });
 // result2.error is: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
@@ -425,8 +415,8 @@ const result2 = await run<Order, AllErrors>(async ({ step }) => {
 const deps = { getUser, createOrder };
 type ObjectErrors = ErrorsOf<typeof deps>;
 const result3 = await run<Order, ObjectErrors>(async ({ step }) => {
-  const user = await step('getUser', deps.getUser(userId));
-  const order = await step('createOrder', deps.createOrder(user));
+  const user = await step('getUser', () => deps.getUser(userId));
+  const order = await step('createOrder', () => deps.createOrder(user));
   return order;
 });
 // result3.error is: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
@@ -436,8 +426,8 @@ const result3 = await run<Order, ObjectErrors>(async ({ step }) => {
 ```typescript
 const result = await run<Order, 'NOT_FOUND' | 'ORDER_FAILED'>(
   async ({ step }) => {
-    const user = await step('getUser', getUser(userId));
-    const order = await step('createOrder', createOrder(user));
+    const user = await step('getUser', () => getUser(userId));
+    const order = await step('createOrder', () => createOrder(user));
     return order;
   }
 );
@@ -450,8 +440,8 @@ type MyErrors = 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED';
 
 const result = await run<Order, MyErrors>(
   async ({ step }) => {
-    const user = await step('getUser', getUser(userId));
-    const order = await step('createOrder', createOrder(user));
+    const user = await step('getUser', () => getUser(userId));
+    const order = await step('createOrder', () => createOrder(user));
     return order;
   },
   { catchUnexpected: () => 'UNEXPECTED' as const }
@@ -462,7 +452,7 @@ const result = await run<Order, MyErrors>(
 **Without type params** (error is `UnexpectedError` only):
 ```typescript
 const result = await run(async ({ step }) => {
-  const user = await step('getUser', getUser(userId));
+  const user = await step('getUser', () => getUser(userId));
   return user;
 });
 // result.error is: UnexpectedError (step error types not preserved at compile time)
@@ -497,27 +487,33 @@ const result = await processOrder.run(async ({ step, deps }) => {
 
 **Invariant:** Every step helper takes a **string as the first argument** (ID or name). There is no `name` in options. Use optional `key` in options for per-iteration identity (e.g. in loops). **For full signatures and any helpers not listed here, consult package types.**
 
+**The canonical six** — these cover ~90% of usage:
+
 | Need | Use (first arg = string ID) | Example |
 |------|------------------------------|---------|
-| Result-returning fn | `step(id, fn, opts)` | `step('getUser', () => deps.getUser(id))` |
-| Unwrap AsyncResult | `step.run(id, result, opts?)` | `step.run('getUser', deps.getUser(id), { key: 'user:1' })` |
-| Chain from value | `step.andThen(id, value, fn, opts?)` | `step.andThen('enrich', user, (u) => deps.enrichUser(u))` |
-| Pattern match on Result | `step.match(id, result, { ok, err }, opts?)` | `step.match('handleUser', result, { ok: (u) => u.name, err: () => 'n/a' })` |
-| Throwing fn → typed error | `step.try(id, fn, opts)` | `step.try('parse', () => JSON.parse(s), { error: 'PARSE_ERROR' })` |
-| Result with error map | `step.fromResult(id, fn, opts)` | `step.fromResult('callApi', () => callApi(), { onError: ... })` |
-| Retries | `step.retry(id, fn, opts)` | `step.retry('fetch', () => deps.fn(), { attempts: 3 })` |
-| Timeout | `step.withTimeout(id, fn, opts)` | `step.withTimeout('slowOp', () => deps.fn(), { ms: 5000 })` |
-| Sleep/delay | `step.sleep(id, duration, opts?)` | `step.sleep('rate-limit', '1s')` — id and duration required. |
-| Parallel (object) | `step.all(name, shape)` or `step.parallel(name, operations)` | `step.all('fetchAll', { user: () => deps.getUser(id), posts: () => deps.getPosts(id) })` |
-| Parallel (array) | `step.parallel(name, callback)` | `step.parallel('Fetch users', () => Awaitly.allAsync([deps.getUser('1'), deps.getUser('2')]))` |
+| Result-returning fn | `step(id, fn, opts?)` | `step('getUser', () => deps.getUser(id))` |
+| Throwing fn → typed error | `step.try(id, fn, opts)` | `step.try('parse', () => JSON.parse(s), { error: 'PARSE_ERROR' })` — also accepts `retry`, `timeout`, `compensate` |
+| Parallel (named results) | `step.all(name, shape, opts?)` | `step.all('fetchAll', { user: () => deps.getUser(id), posts: () => deps.getPosts(id) })` |
 | Parallel over array | `step.map(id, items, mapper, opts?)` | `step.map('fetchUsers', ids, (id) => deps.getUser(id))` |
+| First-to-succeed | `step.race(name, callback)` | `step.race('fastest', () => Awaitly.anyAsync([primary(), fallback()]))` |
+| Sleep/delay | `step.sleep(id, duration, opts?)` | `step.sleep('rate-limit', '1s')` |
+
+**Specialized** — when you need them:
+
+| Need | Use | Example |
+|------|-----|---------|
+| Result error remapping | `step.fromResult(id, fn, opts)` | `step.fromResult('callApi', () => callApi(), { onError: (e) => ... })` |
+| Null/undefined → typed error | `step.fromNullable(id, fn, onNull)` | `step.fromNullable('lookup', () => map.get(id), () => 'NOT_FOUND')` |
+| Retries (as primary verb) | `step.retry(id, fn, opts)` | `step.retry('fetch', () => deps.fn(), { attempts: 3 })` |
+| Timeout (as primary verb) | `step.withTimeout(id, fn, opts)` | `step.withTimeout('slowOp', () => deps.fn(), { ms: 5000 })` |
 | Fallback on primary error | `step.withFallback(id, primaryGetter, opts?)` | `step.withFallback('getUser', () => deps.getUser(id), { fallback: () => deps.getUserFromCache(id) })` |
 | Resource (acquire/use/release) | `step.withResource(id, { acquire, use, release }, opts?)` | `step.withResource('useDb', { acquire: () => connect(), use: (db) => query(db), release: (db) => db.close() })` |
 | Child workflow as step | `step.workflow(id, getter, opts?)` | `step.workflow('child', () => childWorkflow.run(async ({ step }) => { ... }))` |
+| Saga compensation | `step(id, fn, { compensate })` | `step('reserve', () => deps.reserve(items), { compensate: (r) => deps.release(r.id) })` |
 
-Other helpers (e.g. `step.race`, `step.allSettled`) may exist; consult package types before use.
+All step helpers run through the full step engine: they emit step events, support retry/timeout options where relevant, and in `createWorkflow` use the cache and `onAfterStep` when you pass a `key`. For `step.all` and `step.map`, caching applies only when you pass an explicit `key`; without a key they do not cache by step id (matches core `run()` semantics).
 
-**Effect-style helpers (`step.run`, `step.andThen`, `step.match`, `step.all`, `step.map`, `step.withFallback`, `step.withResource`, `step.workflow`)** run through the full step engine: they emit step events, support retry/timeout options, and in `createWorkflow` use the cache and `onAfterStep` when you pass a key. `step.run` takes an already-created `AsyncResult` (no getter overload): `step.run('getUser', deps.getUser(id), { key: 'user:1' })`. If you need lazy execution with cache short-circuit, use base `step`: `step('getUser', () => deps.getUser(id), { key: 'user:1' })`. For `step.all` and `step.map`, caching applies only when you pass an explicit `key`; without a key they do not cache by step id (matches core `run()` semantics).
+**`step.try` is the swiss-army edge wrapper.** It accepts `{ error | onError, retry?, timeout?, compensate?, key?, ttl? }` so you can wrap a throwing op with retry, timeout, error mapping, and rollback in one call.
 
 **`step.try()` handles both sync and async**: It catches exceptions from sync code (like `JSON.parse`) and rejections from async code (like `fetch`).
 
@@ -590,42 +586,40 @@ Manual `for` loops with dynamic keys like `${item.id}`:
 ## Concurrency (Agent Rules)
 
 **Preferred order (use first that fits):**
+
 1. **`step.all(name, { key: () => op(), ... })`** — object form, named keys.
 2. **`step.map(id, items, mapper)`** — parallel over array.
-3. **`step.parallel(name, ...)`** — custom shape or `step.parallel(name, () => Awaitly.allAsync([...]))`.
-4. **`Awaitly.allAsync([...])`** — ONLY inside a step callback (e.g. inside `step.parallel(name, () => Awaitly.allAsync([...]))`).
+3. **`step.all(name, () => Awaitly.allAsync([...]))`** — array form when you need a tuple of heterogeneous results.
+4. **`Awaitly.allAsync([...])`** — ONLY inside a step callback.
 
-**MUST NOT** use `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows. Replace with `step.all`, `step.map`, `step.parallel`, or `step.race` (consult types).
+**MUST NOT** use `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows. Replace with `step.all`, `step.map`, or `step.race`.
 
-**Object form** (named keys; prefer `step.all` for Effect-style API):
+**Object form** (named keys):
+
 ```typescript
 const { user, posts } = await step.all('fetchAll', {
-  user: () => deps.getUser(id),
-  posts: () => deps.getPosts(id),
-});
-
-// Same with step.parallel
-const { user, posts } = await step.parallel('Fetch user and posts', {
   user: () => deps.getUser(id),
   posts: () => deps.getPosts(id),
 });
 ```
 
 **Array form** (wraps Awaitly.allAsync):
+
 ```typescript
 import { Awaitly } from 'awaitly';
 
-const [user1, user2] = await step.parallel('Fetch users', () =>
+const [user1, user2] = await step.all('Fetch users', () =>
   Awaitly.allAsync([deps.getUser('1'), deps.getUser('2')])
 );
 ```
 
 **Map over array** (parallel, step-tracked):
+
 ```typescript
 const users = await step.map('fetchUsers', userIds, (id) => deps.getUser(id));
 ```
 
-Legacy `step.parallel(operations, { name })` is not supported; always pass the name as the first argument. **step.all** and **step.map** only use the workflow cache when you pass an explicit `key`; without a key they do not cache by step id.
+`step.all` and `step.map` only use the workflow cache when you pass an explicit `key`; without a key they do not cache by step id.
 
 ---
 
@@ -787,8 +781,8 @@ type RunErrors = ErrorsOf<typeof deps>;
 export async function handleRequest(userId: string) {
   const result = await run<Order, RunErrors>(
     async ({ step }) => {
-      const user = await step('getUser', getUser(userId));
-      const order = await step('createOrder', createOrder(user));
+      const user = await step('getUser', () => getUser(userId));
+      const order = await step('createOrder', () => createOrder(user));
       return order;
     }
   );
@@ -816,8 +810,8 @@ type MyErrors = 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED';
 
 const result = await run<Order, MyErrors>(
   async ({ step }) => {
-    const user = await step('getUser', getUser(userId));
-    const order = await step('createOrder', createOrder(user));
+    const user = await step('getUser', () => getUser(userId));
+    const order = await step('createOrder', () => createOrder(user));
     return order;
   },
   { catchUnexpected: () => 'UNEXPECTED' as const }
@@ -830,7 +824,7 @@ const result = await run<Order, MyErrors>(
 import { isUnexpectedError } from 'awaitly';
 
 const result = await run(async ({ step }) => {
-  const user = await step('getUser', getUser(userId));
+  const user = await step('getUser', () => getUser(userId));
   return user;
 });
 
@@ -1062,7 +1056,7 @@ it('run(name, fn) uses name as workflowId in events', async () => {
 ### Documentation options
 
 - **Workflows:** Set `description` and `markdown` in `createWorkflow` (deps or second-argument options) for doc generation and static analysis. Not available on `run()` / `runSaga()` (no options object).
-- **Steps:** Set `description` and `markdown` in step options, e.g. `step('id', fn, { key, description, markdown })`, `step.sleep(id, duration, { description, markdown })`, `saga.step('name', fn, { description, markdown, compensate })`. Optional metadata for observability and static analysis: `intent`, `domain`, `owner`, `tags`, `stateChanges`, `emits`, `calls`, `errorMeta` (see API reference).
+- **Steps:** Set `description` and `markdown` in step options, e.g. `step('id', fn, { key, description, markdown })`, `step.sleep(id, duration, { description, markdown })`. Saga callbacks expose the same `step` (with optional `{ compensate }`). Optional metadata for observability and static analysis: `intent`, `domain`, `owner`, `tags`, `stateChanges`, `emits`, `calls`, `errorMeta` (see API reference).
 
 ### Static analysis output
 
@@ -1080,8 +1074,8 @@ Full structure is documented in awaitly-analyze README (“JSON output shape”)
 |---------|--------------------------------------------------------|
 | Creation-time (createWorkflow / createSagaWorkflow) | `description`, `markdown`, `strict`, `catchUnexpected`, `onEvent`, `createContext`, `cache`, `resumeState`, `signal`, `streamStore` |
 | Per-run (second argument to `workflow.run(fn, config)` or `workflow.run(name, fn, config)`) | `deps` (partial override; merges with creation-time deps), `onEvent`, `resumeState`, `cache`, `signal`, `createContext`, `onError`, `onBeforeStart`, `onAfterStep`, `shouldRun`, `streamStore` — use for testing (deps override) or per-run hooks. |
-| Step (step, step.run, step.andThen, step.match, step.all, step.map, step.sleep, step.retry, step.withTimeout, step.try, step.fromResult, step.parallel, step.race, step.allSettled) | **Every step type**: first arg is string (ID or name, required). No `name` in options. `step(id, fn, opts)`, `step.run(id, result, opts?)`, `step.andThen(id, value, fn, opts?)`, `step.match(id, result, { ok, err }, opts?)`, `step.all(name, shape, opts?)`, `step.map(id, items, mapper, opts?)`, `step.retry(id, fn, opts)`, `step.withTimeout(id, fn, opts)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, opts?)`, `step.parallel(name, operations | callback)`, `step.race(name, callback)`, `step.allSettled(name, callback)`. Options (where applicable): `key`, `description`, `markdown`, `ttl`, `retry`, `timeout`, `signal`, and optional metadata `intent`, `domain`, `owner`, `tags`, `stateChanges`, `emits`, `calls`, `errorMeta`. For createWorkflow cache: use `step(id, () => dep(), { key })` for lazy cache checks; `step.all`/`step.map` only cache when `key` is provided. |
-| Saga step (saga.step / saga.tryStep) | First argument is step name (required). Options: `description`, `markdown`, `compensate`. No `name` in options. |
+| Step (step, step.try, step.all, step.map, step.race, step.sleep, step.retry, step.withTimeout, step.fromResult, step.fromNullable, step.withFallback, step.withResource, step.workflow) | **Every step type**: first arg is string (ID or name, required). No `name` in options. `step(id, fn, opts)`, `step.try(id, fn, { error \| onError, retry?, timeout?, compensate?, key?, ttl? })`, `step.all(name, shape, opts?)`, `step.map(id, items, mapper, opts?)`, `step.race(name, callback)`, `step.sleep(id, duration, opts?)`, `step.retry(id, fn, opts)`, `step.withTimeout(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.fromNullable(id, fn, onNull)`, `step.withFallback(id, primaryGetter, opts?)`, `step.withResource(id, { acquire, use, release }, opts?)`, `step.workflow(id, getter, opts?)`. Options (where applicable): `key`, `description`, `markdown`, `ttl`, `retry`, `timeout`, `signal`, `compensate`, and optional metadata `intent`, `domain`, `owner`, `tags`, `stateChanges`, `emits`, `calls`, `errorMeta`. For createWorkflow cache: `step(id, () => dep(), { key })` for lazy cache checks; `step.all`/`step.map` only cache when `key` is provided. |
+| Saga callback | `({ step, deps }) => …` — `step(id, fn, { compensate })` mirrors workflow `step`. Use `step.try(id, fn, { error \| onError, compensate? })` for throwing ops. Run via `saga.run(fn)`. |
 
 ---
 

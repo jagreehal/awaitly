@@ -213,7 +213,7 @@ Pattern match on a Result.
 When to use: Handle both Ok and Err in a single expression that returns a value.
 
 ```typescript
-match(r: Ok<T>, handlers: unknown): R
+match(handlers: unknown): (r: Result<T, E, C>) => R
 ```
 
 ### orElse
@@ -440,10 +440,10 @@ Single place for all workflow and step option keys (for docs and static analysis
 | `timeout` | `object?` | Timeout config (step.withTimeout) |
 | `signal` | `AbortSignal?` | Step cancellation (e.g. step.sleep) |
 
-**Saga step (saga.step / saga.tryStep)** — first argument is the step name (string). Optional third argument is an options object:
+**Compensation (`step` / `step.try` inside any workflow)** — pass `{ compensate }` on any step. If a later step or the user callback fails, every step that recorded a `compensate` runs in reverse:
 
 | Option | Type | Purpose |
 |--------|------|---------|
-| `description` | `string?` | Short description for docs and static analysis |
-| `markdown` | `string?` | Full markdown for step documentation |
-| `compensate` | `function?` | Compensation function on rollback |
+| `compensate` | `(value: T) => void \| Promise<void>` | Rollback action; receives the value the step returned |
+
+When at least one compensation throws, the workflow result is a `SagaCompensationError` carrying the original error and per-step compensation failures.

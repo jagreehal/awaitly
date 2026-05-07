@@ -160,6 +160,8 @@ export {
   matchErrorPartial,
 } from "./result";
 
+export { provide } from "./di";
+
 export { TaggedError } from "./tagged-error";
 
 export {
@@ -216,3 +218,5 @@ export type {
   ErrorByTag,
   PropsOf,
 } from "./tagged-error";
+
+export type { RetryOptions, BackoffStrategy } from "./core";

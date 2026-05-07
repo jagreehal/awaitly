@@ -16,6 +16,7 @@ export {
   UnauthorizedError,
   NetworkError,
   CompensationError,
+  UnexpectedError,
   // Union type
   type AwaitlyError,
   // Type guards

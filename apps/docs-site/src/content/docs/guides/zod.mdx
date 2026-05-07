@@ -311,7 +311,7 @@ const register = async (rawInput: unknown) => {
     // Step 2: Check if email is taken
     const emailExists = await step('checkEmailExists', () => deps.checkEmailExists(input.email));
     if (emailExists) {
-      return await step('createUser', err({ type: 'EMAIL_TAKEN' as const, email: input.email }));
+      return await step('createUser', () => err({ type: 'EMAIL_TAKEN' as const, email: input.email }));
     }
 
     // Step 3: Create user

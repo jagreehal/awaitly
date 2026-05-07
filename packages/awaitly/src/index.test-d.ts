@@ -38,7 +38,7 @@ const {
   allSettled,
 } = Awaitly;
 import { run, type WorkflowEvent } from "./run-entry";
-import { createWorkflow, ErrorsOfDeps } from "./workflow-entry";
+import { createWorkflow, ErrorsOfDeps, provide } from "./workflow-entry";
 import { pendingApproval } from "./hitl-entry";
 import { Duration, type DurationType } from "./duration";
 // These are exported via awaitly/match and awaitly/retry entry points.
@@ -49,6 +49,8 @@ import { Schedule } from "./schedule";
 import { CircuitOpenError } from "./circuit-breaker";
 import { matchError as matchErrorCore, type MatchErrorHandlers as MatchErrorHandlersCore } from "./core-entry";
 import { createWebhookHandler } from "./webhook-entry";
+import { tryAsyncBoundary } from "./result/retry";
+import type { RetryOptions } from "./core";
 
 // =============================================================================
 // TEST HELPERS
@@ -219,6 +221,102 @@ function _test3() {
     [typeof fetchUser, typeof fetchPosts, typeof validateUser]
   >;
   expectType<"NOT_FOUND" | "FETCH_ERROR" | "INVALID_USER">({} as AllErrors);
+}
+
+// =============================================================================
+// TEST: provide() inference (standalone + fluent forms)
+// =============================================================================
+
+async function _testProvideInference() {
+  const wf = createWorkflow("di-types", {
+    fetchUser,
+  });
+
+  // Standalone form
+  const provided = provide(wf, {
+    fetchUser: async (_id: string) => ok({ id: "x", name: "Test" } as User),
+  });
+
+  const result = await provided.run(async ({ step, deps }) => {
+    const user = await step("fetch", () => deps.fetchUser("1"));
+    return user.name;
+  });
+
+  if (result.ok) {
+    expectType<string>(result.value);
+  } else {
+    expectType<"NOT_FOUND" | UnexpectedError>(result.error);
+  }
+
+  // Fluent form
+  const providedViaMethod = wf.provide({
+    fetchUser: async (_id: string) => ok({ id: "y", name: "Method" } as User),
+  });
+  const methodResult = await providedViaMethod.run(async ({ step, deps }) => {
+    const user = await step("fetch", () => deps.fetchUser("1"));
+    return user.id;
+  });
+  if (methodResult.ok) {
+    expectType<string>(methodResult.value);
+  }
+
+  // Chained .provide() returns Workflow with .provide() still available
+  const chained = wf
+    .provide({ fetchUser: async (_id: string) => ok({ id: "a", name: "A" } as User) })
+    .provide({ fetchUser: async (_id: string) => ok({ id: "b", name: "B" } as User) });
+  const chainedResult = await chained.run(async ({ step, deps }) =>
+    step("fetch", () => deps.fetchUser("1"))
+  );
+  if (chainedResult.ok) {
+    expectType<User>(chainedResult.value);
+  }
+}
+
+// =============================================================================
+// TEST: RetryOptions infers shouldRetry's error type
+// =============================================================================
+
+function _testRetryOptionsTypes() {
+  const opts: RetryOptions<string> = {
+    attempts: 3,
+    initialDelay: 10,
+    backoff: "fixed",
+    shouldRetry: (e, attempt) => {
+      expectType<string>(e);
+      expectType<number>(attempt);
+      return e === "TRANSIENT";
+    },
+  };
+  expectType<number>(opts.attempts);
+}
+
+// =============================================================================
+// TEST: tryAsyncBoundary types
+// =============================================================================
+
+async function _testTryAsyncBoundaryTypes() {
+  const result = await tryAsyncBoundary({
+    try: async () => 42,
+    catch: () => "EDGE_ERROR" as const,
+  });
+
+  if (result.ok) {
+    expectType<number>(result.value);
+  } else {
+    expectType<"EDGE_ERROR">(result.error);
+  }
+
+  const withRetry = await tryAsyncBoundary({
+    try: async () => 42,
+    catch: () => "EDGE_ERROR" as const,
+    retry: {
+      attempts: 3,
+      initialDelay: 10,
+      backoff: "fixed",
+      shouldRetry: (e) => e === "EDGE_ERROR",
+    },
+  });
+  if (!withRetry.ok) expectType<"EDGE_ERROR">(withRetry.error);
 }
 
 // =============================================================================
@@ -546,7 +644,7 @@ async function _test7d() {
 
 async function _test7e() {
   const result = await run(async ({ step }) => {
-    const data = await step.parallel("Fetch user + posts", {
+    const data = await step.all("Fetch user + posts", {
       user: () => fetchUser("1"),
       posts: () => fetchPosts("1"),
     });
@@ -1132,7 +1230,7 @@ async function _test30RunStrictCauseIsUnknown() {
 }
 
 // =============================================================================
-// TEST 31: step.parallel() named object form type inference
+// TEST 31: step.all() named object form type inference
 // =============================================================================
 
 async function _test31ParallelNamedObjectTypeInference() {
@@ -1150,7 +1248,7 @@ async function _test31ParallelNamedObjectTypeInference() {
     Promise.resolve(ok([{ id: "c1", text: `Comment on ${postId}` }]));
 
   await run(async ({ step }) => {
-    const result = await step.parallel("Fetch user posts comments", {
+    const result = await step.all("Fetch user posts comments", {
       user: () => fetchUser("1"),
       posts: () => fetchPosts("1"),
       comments: () => fetchComments("p1"),
@@ -1166,7 +1264,7 @@ async function _test31ParallelNamedObjectTypeInference() {
 }
 
 // =============================================================================
-// TEST 32a: step.parallel() name-first object form
+// TEST 32a: step.all() name-first object form
 // =============================================================================
 
 async function _test32aParallelNameFirstForm() {
@@ -1180,7 +1278,7 @@ async function _test32aParallelNameFirstForm() {
     Promise.resolve(ok([{ id: "p1", title: `Post by ${userId}` }]));
 
   await run(async ({ step }) => {
-    const result = await step.parallel("Fetch user data", {
+    const result = await step.all("Fetch user data", {
       user: () => fetchUser("1"),
       posts: () => fetchPosts("1"),
     });
@@ -1193,7 +1291,7 @@ async function _test32aParallelNameFirstForm() {
 }
 
 // =============================================================================
-// TEST 33: step.parallel() with createWorkflow preserves error types
+// TEST 33: step.all() with createWorkflow preserves error types
 // =============================================================================
 
 async function _test36ParallelWithCreateWorkflow() {
@@ -1210,7 +1308,7 @@ async function _test36ParallelWithCreateWorkflow() {
   const workflow = createWorkflow("parallelCreateWorkflow", { fetchUser, fetchPosts });
 
   const result = await workflow.run(async ({ step, deps: { fetchUser, fetchPosts } }) => {
-    const { user, posts } = await step.parallel("Fetch user and posts", {
+    const { user, posts } = await step.all("Fetch user and posts", {
       user: () => fetchUser("1"),
       posts: () => fetchPosts("1"),
     });

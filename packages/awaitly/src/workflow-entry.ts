@@ -70,6 +70,7 @@ export {
 
   // Functions
   createWorkflow,
+  provide,
   isStepComplete,
   isWorkflowCancelled,
   isResumeState,

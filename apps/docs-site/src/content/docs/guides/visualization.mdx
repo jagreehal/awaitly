@@ -208,13 +208,13 @@ The step id is used for visualization and step identification.
 
 ## Parallel operations
 
-Track parallel operations with `step.parallel(name, ...)`:
+Track parallel operations with `step.all(name, ...)`:
 
 ```typescript
 import { allAsync } from 'awaitly';
 
 const result = await workflow.run(async ({ step, deps }) => {
-  const [user, posts] = await step.parallel('Fetch user data', () =>
+  const [user, posts] = await step.all('Fetch user data', () =>
     allAsync([deps.fetchUser('1'), deps.fetchPosts('1')])
   );
   return { user, posts };
@@ -537,7 +537,7 @@ console.log(ir.metadata);        // { createdAt, lastUpdatedAt }
 | Type | Node | Created by | Key fields |
 |------|------|------------|------------|
 | Step | `StepNode` | `step()`, `step.retry()` | `state`, `durationMs`, `retryCount?`, `timedOut?` |
-| Parallel | `ParallelNode` | `step.parallel()` | `children`, `mode: "all" \| "allSettled"` |
+| Parallel | `ParallelNode` | `step.all()` | `children`, `mode: "all" \| "allSettled"` |
 | Race | `RaceNode` | `step.race()` | `children`, `winnerId?` |
 | Decision | `DecisionNode` | `trackIf`, `trackSwitch` | `branches`, `branchTaken?` |
 | Stream | `StreamNode` | streaming ops | `namespace`, `writeCount`, `readCount` |

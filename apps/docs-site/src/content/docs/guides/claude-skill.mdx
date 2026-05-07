@@ -61,19 +61,16 @@ Or Claude will use it contextually when you ask about:
 
 ## Key rules Claude learns
 
-### R1: step() requires a string ID; supports direct and thunk forms
+### R1: step() requires a string ID; use thunk form
 
-`step()` requires a string ID as the first argument: `step('id', fnOrResult, opts?)`.
+`step()` requires a string ID as the first argument: `step('id', fn, opts?)`.
 
 ```typescript
-// Thunk form - deferred, enables retry/caching (preferred when using cache/retry)
+// Canonical form - deferred, enables retry/caching
 await step('getUser', () => deps.getUser(id));
-
-// Direct form - already started, can't retry/cache-before-run
-await step('getUser', deps.getUser(id));
 ```
 
-**Rule**: If an operation must be re-executed (retry) or conditionally executed (cache), use the thunk form. **Every step type takes an ID as the first argument**: `step(id, fn, opts)`, `step.retry(id, operation, options)`, `step.withTimeout(id, operation, options)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, opts?)`.
+**Rule**: Use thunk form by default for consistent execution semantics. **Every step type takes an ID as the first argument**: `step(id, fn, opts)`, `step.retry(id, operation, options)`, `step.withTimeout(id, operation, options)`, `step.try(id, fn, opts)`, `step.fromResult(id, fn, opts)`, `step.sleep(id, duration, opts?)`.
 
 ### R2: step() handles early exit
 

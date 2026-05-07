@@ -59,32 +59,8 @@ describe('no-immediate-execution', () => {
       expect(messages).toHaveLength(0);
     });
 
-    it('allows step.run with getter (thunk)', () => {
-      const code = `step.run('fetchUser', () => fetchUser('1'));`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(0);
-    });
-
     it('allows step.retry with id and thunk', () => {
       const code = `step.retry('fetchData', () => fetchData(), { attempts: 3 });`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(0);
-    });
-
-    it('allows step.andThen with function reference', () => {
-      const code = `step.andThen('enrich', user, (u) => enrichUser(u));`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(0);
-    });
-
-    it('allows step.andThen with arrow function', () => {
-      const code = `step.andThen('enrich', user, async (u) => enrichUser(u));`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(0);
-    });
-
-    it('allows step.match with handler object', () => {
-      const code = `step.match('handle', result, { ok: (v) => v, err: (e) => e });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(0);
     });
@@ -149,26 +125,10 @@ describe('no-immediate-execution', () => {
       expect(messages).toHaveLength(1);
     });
 
-    it('reports immediate execution with step.run (second arg)', () => {
-      const code = `step.run('fetchUser', fetchUser('1'));`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/no-immediate-execution');
-      expect(messages[0].message).toContain('fetchUser');
-    });
-
     it('reports immediate execution with step.retry id-first and immediate second arg', () => {
       const code = `step.retry('fetchData', fetchData(), { attempts: 3 });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-    });
-
-    it('reports immediate execution with step.andThen (third arg)', () => {
-      const code = `step.andThen('enrich', user, enrichUser(config));`;
-      const messages = linter.verify(code, config);
-      expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/no-immediate-execution');
-      expect(messages[0].message).toContain('enrichUser');
     });
 
     it('reports immediate execution with step.map (third arg)', () => {
@@ -217,18 +177,6 @@ describe('no-immediate-execution', () => {
       const code = `step(fetchUser('1'), { key: 'user:1' });`;
       const result = linter.verifyAndFix(code, config);
       expect(result.output).toBe(`step('fetchUser', () => fetchUser('1'), { key: 'user:1' });`);
-    });
-
-    it('wraps step.run second arg in thunk', () => {
-      const code = `step.run('fetchUser', fetchUser('1'));`;
-      const result = linter.verifyAndFix(code, config);
-      expect(result.output).toBe(`step.run('fetchUser', () => fetchUser('1'));`);
-    });
-
-    it('wraps step.andThen third arg in thunk', () => {
-      const code = `step.andThen('enrich', user, enrichUser(config));`;
-      const result = linter.verifyAndFix(code, config);
-      expect(result.output).toBe(`step.andThen('enrich', user, () => enrichUser(config));`);
     });
 
     it('wraps step.map third arg in thunk', () => {
