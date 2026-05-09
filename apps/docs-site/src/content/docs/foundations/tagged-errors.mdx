@@ -278,6 +278,28 @@ console.log(error.resource);                 // 'User'
 console.log(error.message);                  // 'NotFoundError'
 ```
 
+## Slug spine fields
+
+When you pass `slug` and `hint` to the `TaggedError` factory, instances carry three readonly fields populated automatically — `code`, `hint`, and `docsUrl` — alongside `_tag` and `message`. These fields participate in the [slug spine](/awaitly/reference/spine/) so the same canonical identifier appears on the runtime error, the lint rule that would catch a related mistake statically, the `awaitly-analyze --doctor` diagnostic, and the docs page.
+
+```typescript
+class CheckoutFailed extends TaggedError('CheckoutFailed', {
+  slug: 'runtime-saga-compensation',
+  hint: 'Compensation already ran. Surface to the user; do not retry.',
+  message: (p: { orderId: string }) =>
+    `Checkout ${p.orderId} could not be compensated`,
+}) {}
+
+const e = new CheckoutFailed({ orderId: 'o-1' });
+e.code;     // 'runtime-saga-compensation' (typed as AwaitlySlug)
+e.hint;     // 'Compensation already ran. Surface to the user; do not retry.'
+e.docsUrl;  // 'https://jagreehal.github.io/awaitly/rules/#runtime-saga-compensation'
+```
+
+`slug` and `hint` are optional. If you set `slug`, `hint` is **required** — the factory throws `TypeError` at class-definition time if `hint` is missing or empty.
+
+The six awaitly-system errors (`TimeoutError`, `RetryExhaustedError`, `RateLimitError`, `CircuitBreakerOpenError`, `CompensationError`, `UnexpectedError`) all participate in the spine. User-domain conveniences (`ValidationError`, `NotFoundError`, `UnauthorizedError`, `NetworkError`) deliberately do not — they represent your domain failures, not awaitly internals.
+
 ## Error chaining
 
 Link to the original error via `ErrorOptions.cause`:

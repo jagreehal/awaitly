@@ -12,6 +12,7 @@ import type {
   SourceLocation,
 } from "./types";
 import { getStaticChildren } from "./types";
+import { type AwaitlySlug, slugDocsUrl } from "awaitly/slugs";
 
 // =============================================================================
 // Types
@@ -23,12 +24,18 @@ import { getStaticChildren } from "./types";
 export interface StrictDiagnostic {
   /** Unique rule ID */
   rule: StrictRule;
+  /** Canonical awaitly slug for this issue */
+  code: AwaitlySlug;
   /** Severity level */
   severity: "error" | "warning";
   /** Human-readable message */
   message: string;
   /** Suggested fix */
   fix?: string;
+  /** One-line actionable hint */
+  hint: string;
+  /** Canonical docs URL */
+  docsUrl: string;
   /** Source location */
   location?: SourceLocation;
   /** Related node ID */
@@ -86,6 +93,48 @@ const DEFAULT_OPTIONS: Required<StrictValidationOptions> = {
   warningsAsErrors: false,
 };
 
+/**
+ * Map analyzer-internal strict-rule names to canonical awaitly slugs.
+ *
+ * Each strict-rule maps to the closest existing slug in awaitly/slugs. Some
+ * concepts (e.g. unlabelled conditionals, loop collect) don't yet have their
+ * own dedicated slugs — they map to the most semantically related existing
+ * slug. Adding a dedicated slug for these would be a non-breaking change to
+ * the namespace; revisit when the concept earns its own surface.
+ */
+export const STRICT_RULE_TO_SLUG: Record<StrictRule, AwaitlySlug> = {
+  "missing-step-id": "step-require-id",
+  "dynamic-step-id": "step-require-id",
+  "missing-errors": "result-require-handling",
+  "dynamic-errors": "result-require-handling",
+  "spread-in-options": "workflow-options-position",
+  "computed-property": "step-require-id",
+  "template-literal-id": "step-require-id",
+  "imported-config": "workflow-options-position",
+  // Conditionals containing steps need stable identity, same as step IDs.
+  "unlabelled-conditional": "step-require-id",
+  "parallel-missing-errors": "result-require-handling",
+  // Missing `collect` is fundamentally a Result-handling gap inside a loop.
+  "loop-missing-collect": "result-require-handling",
+};
+
+function createDiagnostic(input: {
+  rule: StrictRule;
+  severity: "error" | "warning";
+  message: string;
+  fix?: string;
+  location?: SourceLocation;
+  nodeId?: string;
+}): StrictDiagnostic {
+  const code = STRICT_RULE_TO_SLUG[input.rule];
+  return {
+    ...input,
+    code,
+    hint: input.fix ?? "Follow the linked rule guidance.",
+    docsUrl: slugDocsUrl(code),
+  };
+}
+
 // =============================================================================
 // Main Validation
 // =============================================================================
@@ -135,14 +184,14 @@ function validateNodes(
         const hasStepsInBranches =
           hasSteps(node.consequent) || (node.alternate && hasSteps(node.alternate));
         if (hasStepsInBranches && !node.name) {
-          diagnostics.push({
-            rule: "unlabelled-conditional",
-            severity: "warning",
-            message: "Conditional containing steps should use step.if() for stable IDs",
-            fix: "Use step.if('id', 'conditionLabel', () => condition) instead of plain if/else",
-            location: node.location,
-            nodeId: node.id,
-          });
+          diagnostics.push(createDiagnostic({
+              rule: "unlabelled-conditional",
+              severity: "warning",
+              message: "Conditional containing steps should use step.if() for stable IDs",
+              fix: "Use step.if('id', 'conditionLabel', () => condition) instead of plain if/else",
+              location: node.location,
+              nodeId: node.id,
+            }));
         }
       }
     } else if (node.type === "parallel") {
@@ -150,14 +199,14 @@ function validateNodes(
       if (opts.requireErrors) {
         for (const child of node.children) {
           if (child.type === "step" && !child.errors) {
-            diagnostics.push({
+            diagnostics.push(createDiagnostic({
               rule: "parallel-missing-errors",
               severity: "warning",
               message: `Parallel branch "${child.name ?? child.id}" does not declare errors`,
               fix: "Use { fn: () => ..., errors: ['ERROR'] } form for parallel branches",
               location: child.location,
               nodeId: child.id,
-            });
+            }));
           }
         }
       }
@@ -166,26 +215,26 @@ function validateNodes(
       if (node.loopType === "step.forEach") {
         // step.forEach is already structured - check for collect requirement
         if (node.out && !node.collect) {
-          diagnostics.push({
+          diagnostics.push(createDiagnostic({
             rule: "loop-missing-collect",
             severity: "warning",
             message: `Loop "${node.name ?? node.loopId ?? node.id}" has out without collect option`,
             fix: "Add collect: 'array' or collect: 'last' when using out",
             location: node.location,
             nodeId: node.id,
-          });
+          }));
         }
       } else {
         // Native loops with steps
         if (hasSteps(node.body)) {
-          diagnostics.push({
+          diagnostics.push(createDiagnostic({
             rule: "unlabelled-conditional",
             severity: "warning",
             message: "Loop containing steps should use step.forEach() for structured iteration",
             fix: "Use step.forEach('id', items, { run: (item) => ... }) instead of native loop",
             location: node.location,
             nodeId: node.id,
-          });
+          }));
         }
       }
     }
@@ -208,38 +257,38 @@ function validateStep(
 ): void {
   // Check for missing step ID (new API): no stepId, or analyzer set "<missing>" for legacy step(fn, opts)
   if (opts.requireStepId && (!node.stepId || node.stepId === "<missing>")) {
-    diagnostics.push({
+    diagnostics.push(createDiagnostic({
       rule: "missing-step-id",
       severity: "warning",
       message: `Step "${node.name ?? node.id}" uses legacy signature without explicit ID`,
       fix: "Use step('id', fn, opts) instead of step(fn, opts)",
       location: node.location,
       nodeId: node.id,
-    });
+    }));
   }
 
   // Check for dynamic step ID
   if (node.stepId === "<dynamic>") {
-    diagnostics.push({
+    diagnostics.push(createDiagnostic({
       rule: "dynamic-step-id",
       severity: "error",
       message: `Step ID must be a string literal`,
       fix: "Use a string literal step ID instead of a variable or expression",
       location: node.location,
       nodeId: node.id,
-    });
+    }));
   }
 
   // Check for missing errors declaration
   if (opts.requireErrors && !node.errors) {
-    diagnostics.push({
+    diagnostics.push(createDiagnostic({
       rule: "missing-errors",
       severity: "warning",
       message: `Step "${node.name ?? node.stepId ?? node.id}" does not declare its errors`,
       fix: "Add errors: ['ERROR_TAG'] or errors: [] to step options",
       location: node.location,
       nodeId: node.id,
-    });
+    }));
   }
 }
 
@@ -279,8 +328,9 @@ export function formatDiagnostics(result: StrictValidationResult): string {
   for (const diag of result.diagnostics) {
     const icon = diag.severity === "error" ? "✗" : "⚠";
     const loc = diag.location ? `:${diag.location.line}:${diag.location.column}` : "";
-    lines.push(`${icon} [${diag.rule}]${loc}`);
+    lines.push(`${icon} [${diag.code}]${loc}`);
     lines.push(`  ${diag.message}`);
+    lines.push(`  Docs: ${diag.docsUrl}`);
     if (diag.fix) {
       lines.push(`  Fix: ${diag.fix}`);
     }
@@ -301,9 +351,12 @@ export function formatDiagnosticsJSON(result: StrictValidationResult): string {
       warningCount: result.warnings.length,
       diagnostics: result.diagnostics.map((d) => ({
         rule: d.rule,
+        code: d.code,
         severity: d.severity,
         message: d.message,
         fix: d.fix,
+        hint: d.hint,
+        docsUrl: d.docsUrl,
         location: d.location
           ? {
               line: d.location.line,

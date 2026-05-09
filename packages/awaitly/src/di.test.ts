@@ -1,27 +1,27 @@
 import { describe, it, expect } from "vitest";
 import { ok } from "./core";
 import { createWorkflow } from "./workflow/execute";
-import { provide } from "./di";
+import { withDeps } from "./di";
 
-describe("provide()", () => {
-  it("is available as workflow.provide() (fluent form)", async () => {
+describe("withDeps()", () => {
+  it("is available as workflow.withDeps() (fluent form)", async () => {
     const workflow = createWorkflow("di-method", {
       getValue: async () => ok("base"),
     });
 
     const result = await workflow
-      .provide({ getValue: async () => ok("provided") })
+      .withDeps({ getValue: async () => ok("provided") })
       .run(async ({ step, deps }) => step("value", () => deps.getValue()));
 
     expect(result).toEqual({ ok: true, value: "provided" });
   });
 
   it("applies provided deps for run() (standalone form)", async () => {
-    const workflow = createWorkflow("di-provide-run", {
+    const workflow = createWorkflow("di-withdeps-run", {
       getValue: async () => ok("base"),
     });
 
-    const provided = provide(workflow, {
+    const provided = withDeps(workflow, {
       getValue: async () => ok("provided"),
     });
 
@@ -33,11 +33,11 @@ describe("provide()", () => {
   });
 
   it("supports named run overload and run config deps override precedence", async () => {
-    const workflow = createWorkflow("di-provide-precedence", {
+    const workflow = createWorkflow("di-withdeps-precedence", {
       getValue: async () => ok("base"),
     });
 
-    const provided = provide(workflow, {
+    const provided = withDeps(workflow, {
       getValue: async () => ok("provided"),
     });
 
@@ -55,11 +55,11 @@ describe("provide()", () => {
   });
 
   it("applies provided deps for runWithState()", async () => {
-    const workflow = createWorkflow("di-provide-state", {
+    const workflow = createWorkflow("di-withdeps-state", {
       getValue: async () => ok("base"),
     });
 
-    const provided = provide(workflow, {
+    const provided = withDeps(workflow, {
       getValue: async () => ok("provided"),
     });
 
@@ -71,14 +71,14 @@ describe("provide()", () => {
     expect(resumeState.steps).toBeInstanceOf(Map);
   });
 
-  it("supports chained provide() with right-most precedence", async () => {
-    const workflow = createWorkflow("di-provide-chain", {
+  it("supports chained withDeps() with right-most precedence", async () => {
+    const workflow = createWorkflow("di-withdeps-chain", {
       getValue: async () => ok("base"),
     });
 
     const provided = workflow
-      .provide({ getValue: async () => ok("first") })
-      .provide({ getValue: async () => ok("second") });
+      .withDeps({ getValue: async () => ok("first") })
+      .withDeps({ getValue: async () => ok("second") });
 
     const result = await provided.run(async ({ step, deps }) =>
       step("value", () => deps.getValue())

@@ -10,7 +10,7 @@ const config = [
       awaitly: plugin,
     },
     rules: {
-      'awaitly/require-thunk-for-key': 'error',
+      'awaitly/step-require-thunk-for-key': 'error',
     },
   },
 ];
@@ -158,7 +158,7 @@ describe('require-thunk-for-key', () => {
       const code = `step(fetchUser('1'), { key: 'user:1' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-thunk-for-key');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-thunk-for-key');
       expect(messages[0].message).toContain('thunk');
       expect(messages[0].message).toContain('cache');
     });
@@ -203,21 +203,21 @@ describe('require-thunk-for-key', () => {
       const code = `step.map('fetchUsers', userIds, createMapper(), { key: 'users:1' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-thunk-for-key');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-thunk-for-key');
     });
 
     it('reports step.workflow with key and immediate call (second arg)', () => {
       const code = `step.workflow('child-call', childWorkflow.run(async ({ step }) => step('x', () => ok(1))), { key: 'child:1' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-thunk-for-key');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-thunk-for-key');
     });
 
     it('reports step.withFallback with key and immediate call (second arg)', () => {
       const code = `step.withFallback('getUser', deps.getUser(id), { fallback: () => deps.getUserFromCache(id), key: 'user:1' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-thunk-for-key');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-thunk-for-key');
     });
 
     it('reports non-thunk identifier with key option', () => {

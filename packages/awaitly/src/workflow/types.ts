@@ -430,10 +430,10 @@ export type RunWithStateResult<T, E, U> = {
 export interface Workflow<E, U = UnexpectedError, Deps = unknown, C = void> {
   /**
    * Pre-bind dependency overrides and return another `Workflow`.
-   * Chain `.provide()` and call `.run()` / `.runWithState()` as normal.
-   * Precedence: createWorkflow deps < provide deps < run config deps.
+   * Chain `.withDeps()` and call `.run()` / `.runWithState()` as normal.
+   * Precedence: createWorkflow deps < withDeps deps < run config deps.
    */
-  provide(overrides: Partial<Deps>): Workflow<E, U, Deps, C>;
+  withDeps(overrides: Partial<Deps>): Workflow<E, U, Deps, C>;
 
   /**
    * Execute workflow (anonymous run).

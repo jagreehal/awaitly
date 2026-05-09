@@ -5,13 +5,16 @@
   "private": true,
   "description": "Documentation for awaitly",
   "scripts": {
+    "predev": "pnpm run generate-rules",
     "dev": "astro dev",
     "start": "astro dev",
     "dev:root": "BASE=/ astro dev",
-    "build": "pnpm run generate-api && astro build",
+    "build": "pnpm run generate-api && pnpm run generate-rules && astro build",
     "generate-api": "pnpm run -C ../.. generate-api",
+    "generate-rules": "node scripts/generate-rule-pages.mjs",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "test": "vitest run"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.9",
@@ -29,7 +32,7 @@
     "lucide-react": "^0.577.0",
     "mermaid": "^11.14.0",
     "radix-ui": "^1.4.3",
-    "react": "^19.2.5",
+    "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "sharp": "^0.34.5",
     "shiki": "^4.0.2",
@@ -43,6 +46,10 @@
     "node": ">=22"
   },
   "devDependencies": {
-    "tw-animate-css": "^1.4.0"
+    "awaitly": "workspace:*",
+    "awaitly-analyze": "workspace:*",
+    "eslint-plugin-awaitly": "workspace:*",
+    "tw-animate-css": "^1.4.0",
+    "vitest": "^4.1.5"
   }
 }

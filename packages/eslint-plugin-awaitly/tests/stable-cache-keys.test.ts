@@ -10,7 +10,7 @@ const config = [
       awaitly: plugin,
     },
     rules: {
-      'awaitly/stable-cache-keys': 'error',
+      'awaitly/step-stable-cache-keys': 'error',
     },
   },
 ];
@@ -47,7 +47,7 @@ describe('stable-cache-keys', () => {
       const code = `step(() => fetchUser(id), { key: \`user:\${Date.now()}\` });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/stable-cache-keys');
+      expect(messages[0].ruleId).toBe('awaitly/step-stable-cache-keys');
       expect(messages[0].message).toContain('Date.now');
     });
 

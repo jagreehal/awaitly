@@ -22,6 +22,21 @@
  * ```
  */
 
+/**
+ * Spine policy:
+ *
+ * Awaitly-system errors (raised by awaitly internals on workflow execution
+ * failure modes) carry a `slug` + `hint` so they participate in the
+ * AI-DX spine: TimeoutError, RetryExhaustedError, RateLimitError,
+ * CircuitBreakerOpenError, CompensationError, UnexpectedError.
+ *
+ * Convenience domain errors (ValidationError, NotFoundError,
+ * UnauthorizedError, NetworkError) are deliberately NOT slugged — they
+ * represent USER domain failures and would force user code into the
+ * awaitly slug namespace. Users can opt in by adding `slug` + `hint`
+ * to their own TaggedError subclasses.
+ */
+
 import { TaggedError } from "./tagged-error";
 
 // =============================================================================
@@ -84,6 +99,8 @@ export function makeError<Tag extends string>(
  * ```
  */
 export class TimeoutError extends TaggedError("TimeoutError", {
+  slug: "runtime-step-timeout",
+  hint: "Increase the step's timeout option, or check why the upstream operation is slow.",
   message: (p: {
     /** Name of the operation that timed out */
     operation?: string;
@@ -109,6 +126,8 @@ export class TimeoutError extends TaggedError("TimeoutError", {
  * ```
  */
 export class RetryExhaustedError extends TaggedError("RetryExhaustedError", {
+  slug: "runtime-retry-exhausted",
+  hint: "All retry attempts failed. Inspect lastError and decide whether to surface it or compensate.",
   message: (p: {
     /** Name of the operation that failed */
     operation?: string;
@@ -135,6 +154,8 @@ export class RetryExhaustedError extends TaggedError("RetryExhaustedError", {
  * ```
  */
 export class RateLimitError extends TaggedError("RateLimitError", {
+  slug: "runtime-rate-limit",
+  hint: "Wait retryAfterMs before retrying, or apply step.cache to deduplicate calls.",
   message: (p: {
     /** Name of the rate limiter that was exceeded */
     limiterName?: string;
@@ -162,6 +183,8 @@ export class RateLimitError extends TaggedError("RateLimitError", {
 export class CircuitBreakerOpenError extends TaggedError(
   "CircuitBreakerOpenError",
   {
+    slug: "runtime-circuit-open",
+    hint: "The circuit is open. Wait for it to half-open or fall back to a degraded path.",
     message: (p: {
       /** Name of the circuit breaker */
       circuitName: string;
@@ -290,6 +313,8 @@ export class NetworkError extends TaggedError("NetworkError", {
  * ```
  */
 export class CompensationError extends TaggedError("CompensationError", {
+  slug: "runtime-saga-compensation",
+  hint: "A saga compensation step failed. Inspect compensationError and ensure compensation is idempotent.",
   message: (p: {
     /** Step that triggered compensation */
     step: string;
@@ -320,6 +345,8 @@ export class CompensationError extends TaggedError("CompensationError", {
  * ```
  */
 export class UnexpectedError extends TaggedError("UnexpectedError", {
+  slug: "runtime-unexpected",
+  hint: "An unexpected exception escaped a step. Inspect cause; consider returning a typed Result instead of throwing.",
   message: (p: {
     /** The original thrown value or cancellation error */
     cause?: unknown;
@@ -363,6 +390,43 @@ export type AwaitlyError =
   | NetworkError
   | CompensationError
   | UnexpectedError;
+
+/**
+ * The six awaitly-system errors that carry slug + hint + docsUrl spine fields.
+ *
+ * Distinguishes spine-bearing errors from user-domain convenience errors
+ * (ValidationError, NotFoundError, UnauthorizedError, NetworkError) so that
+ * downstream tooling (lint, analyzer, docs generator) can target the spine
+ * roster without duplicating the class list.
+ */
+export type AwaitlySystemError =
+  | TimeoutError
+  | RetryExhaustedError
+  | RateLimitError
+  | CircuitBreakerOpenError
+  | CompensationError
+  | UnexpectedError;
+
+/**
+ * Roster of awaitly-system error classes that participate in the slug spine.
+ *
+ * Adding a new system error means adding it to `AwaitlySystemError`, this
+ * roster, and `slugs.ts`. The integrity test in `spine-integrity.test.ts`
+ * iterates this roster, so a missing entry there is caught at CI time.
+ *
+ * @internal Tooling integration point (docs generator, integrity tests). Not
+ *   a stable user-facing API — application code should not depend on this
+ *   array's identity or order.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const AWAITLY_SYSTEM_ERROR_CLASSES: ReadonlyArray<new (...args: any[]) => AwaitlySystemError> = [
+  TimeoutError,
+  RetryExhaustedError,
+  RateLimitError,
+  CircuitBreakerOpenError,
+  CompensationError,
+  UnexpectedError,
+];
 
 // =============================================================================
 // Type Guards

@@ -118,6 +118,11 @@
       "import": "./dist/match.js",
       "require": "./dist/match.cjs"
     },
+    "./slugs": {
+      "types": "./dist/slugs.d.ts",
+      "import": "./dist/slugs.js",
+      "require": "./dist/slugs.cjs"
+    },
     "./tagged-error": {
       "types": "./dist/tagged-error.d.ts",
       "import": "./dist/tagged-error.js",
@@ -248,7 +253,6 @@
     "@types/node": "^25.6.0",
     "@types/picomatch": "^4.0.3",
     "@vitest/coverage-v8": "^4.1.2",
-    "eslint-plugin-awaitly": "workspace:*",
     "pino": "^10.3.1",
     "tsd": "^0.33.0",
     "tsup": "^8.5.1",

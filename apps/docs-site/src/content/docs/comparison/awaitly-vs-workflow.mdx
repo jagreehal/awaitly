@@ -133,7 +133,7 @@ export async function workflow() {
 </Tabs>
 
 <Aside type="tip" title="ESLint Plugin">
-Use `eslint-plugin-awaitly` to catch common mistakes. The `no-immediate-execution` and `require-thunk-for-key` rules detect when you forget the function wrapper (`step('id', fn())` instead of `step('id', () => fn())`) and autofix it for you.
+Use `eslint-plugin-awaitly` to catch common mistakes. The `step-no-immediate-execution` and `step-require-thunk-for-key` rules detect when you forget the function wrapper (`step('id', fn())` instead of `step('id', () => fn())`) and autofix it for you.
 </Aside>
 
 ## Error Handling

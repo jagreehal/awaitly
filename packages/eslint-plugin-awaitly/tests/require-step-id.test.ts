@@ -10,7 +10,7 @@ const config = [
       awaitly: plugin,
     },
     rules: {
-      'awaitly/require-step-id': 'error',
+      'awaitly/step-require-id': 'error',
     },
   },
 ];
@@ -201,35 +201,35 @@ describe('require-step-id', () => {
       const code = `step();`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
     });
 
     it('reports when first argument is thunk (missing id)', () => {
       const code = `step(() => fetchUser('1'));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
     });
 
     it('reports when first argument is call expression', () => {
       const code = `step(fetchUser('1'));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
     });
 
     it('reports when first argument is identifier', () => {
       const code = `step(myThunk);`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
     });
 
     it('reports when first argument is template literal with expressions', () => {
       const code = `step(\`step-\${i}\`, () => fetchUser(i));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
     });
   });
 
@@ -238,7 +238,7 @@ describe('require-step-id', () => {
       const code = `step.sleep();`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('step.sleep()');
     });
 
@@ -246,7 +246,7 @@ describe('require-step-id', () => {
       const code = `step.sleep('5s');`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('step.sleep()');
     });
 
@@ -254,7 +254,7 @@ describe('require-step-id', () => {
       const code = `step.sleep(delayId, '5s');`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
     });
   });
 
@@ -263,7 +263,7 @@ describe('require-step-id', () => {
       const code = `step.retry(() => fetchData(), { attempts: 3 });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('step.retry()');
     });
 
@@ -271,7 +271,7 @@ describe('require-step-id', () => {
       const code = `step.retry(myId, () => fetchData(), { attempts: 3 });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
     });
   });
 
@@ -280,7 +280,7 @@ describe('require-step-id', () => {
       const code = `step.withTimeout(() => slowOp(), { ms: 5000 });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('step.withTimeout()');
     });
   });
@@ -290,7 +290,7 @@ describe('require-step-id', () => {
       const code = `step.try(() => JSON.parse(str), { error: 'PARSE_ERROR' });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('step.try()');
     });
   });
@@ -300,7 +300,7 @@ describe('require-step-id', () => {
       const code = `step.fromResult(() => callProvider(), { onError: e => ({ type: 'FAILED' }) });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('step.fromResult()');
     });
   });
@@ -310,7 +310,7 @@ describe('require-step-id', () => {
       const code = `step.withFallback(() => deps.getUser(id), { fallback: () => deps.getUserFromCache(id) });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('step.withFallback()');
     });
     it('reports when step.withFallback first argument is identifier', () => {
@@ -326,7 +326,7 @@ describe('require-step-id', () => {
       const code = `step.withResource({ acquire: () => connect(), use: (db) => query(db), release: (db) => db.close() });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('step.withResource()');
     });
     it('reports when step.withResource first argument is identifier', () => {
@@ -342,7 +342,7 @@ describe('require-step-id', () => {
       const code = `step.workflow(() => childWorkflow.run(async ({ step }) => step('x', () => ok(1))));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('step.workflow()');
     });
     it('reports when step.workflow first argument is identifier', () => {
@@ -362,7 +362,7 @@ describe('require-step-id', () => {
       `;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('saga.step()');
     });
 
@@ -374,7 +374,7 @@ describe('require-step-id', () => {
       `;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('saga.tryStep()');
     });
 
@@ -386,7 +386,7 @@ describe('require-step-id', () => {
       `;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
     });
 
     it('reports when destructured tryStep has operation first (missing name)', () => {
@@ -397,7 +397,7 @@ describe('require-step-id', () => {
       `;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('tryStep');
     });
 
@@ -409,7 +409,7 @@ describe('require-step-id', () => {
       `;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('saga.step()');
     });
 
@@ -421,7 +421,7 @@ describe('require-step-id', () => {
       `;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('tryStep');
     });
   });
@@ -431,7 +431,7 @@ describe('require-step-id', () => {
       const code = `step.race(() => anyAsync([a(), b()]));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
       expect(messages[0].message).toContain('step.race()');
     });
   });
@@ -459,7 +459,7 @@ describe('require-step-id', () => {
       const code = `s.sleep(delayId, '5s');`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
     });
 
     it('allows s alias with valid string literal', () => {
@@ -472,7 +472,7 @@ describe('require-step-id', () => {
       const code = `runStep.retry(() => fetchData(), { attempts: 3 });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-step-id');
+      expect(messages[0].ruleId).toBe('awaitly/step-require-id');
     });
   });
 });

@@ -787,6 +787,48 @@ import type {
 } from 'awaitly-analyze';
 ```
 
+## `--doctor` — strict diagnostics with slug codes
+
+Run `awaitly-analyze` with `--doctor` to surface strict-mode violations as slug-keyed diagnostics. The output uses the same canonical [slug spine](/awaitly/reference/spine/) as runtime errors and ESLint rules — one identifier across surfaces.
+
+```bash
+awaitly-analyze ./src/workflows/checkout.ts --doctor
+```
+
+```text
+✗ [step-require-id]:12:4
+  Step "<missing>" uses legacy signature without explicit ID
+  Docs: https://jagreehal.github.io/awaitly/rules/#step-require-id
+  Fix: Use step('id', fn, opts) instead of step(fn, opts)
+```
+
+For tooling integration, use `--format=json`:
+
+```bash
+awaitly-analyze ./src/workflows/checkout.ts --doctor --format=json
+```
+
+```json
+[
+  {
+    "workflowName": "checkoutWorkflow",
+    "diagnostics": [
+      {
+        "rule": "missing-step-id",
+        "code": "step-require-id",
+        "severity": "warning",
+        "message": "Step \"<missing>\" uses legacy signature without explicit ID",
+        "hint": "Use step('id', fn, opts) instead of step(fn, opts)",
+        "docsUrl": "https://jagreehal.github.io/awaitly/rules/#step-require-id",
+        "location": { "line": 12, "column": 4 }
+      }
+    ]
+  }
+]
+```
+
+Each diagnostic carries `code`, `hint`, and `docsUrl` — the same fields awaitly-system runtime errors carry. CI scripts and review tools can map a doctor diagnostic to the matching ESLint rule (also slug-named) and the docs URL without any translation.
+
 ## Limitations
 
 - **Dynamic code**: Template literals in step keys show as `<dynamic>`

@@ -110,6 +110,7 @@ export {
   formatDiagnostics,
   formatDiagnosticsJSON,
   getSummary,
+  STRICT_RULE_TO_SLUG,
 } from "./strict-diagnostics";
 export type {
   StrictDiagnostic,

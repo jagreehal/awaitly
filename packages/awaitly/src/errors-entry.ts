@@ -17,8 +17,11 @@ export {
   NetworkError,
   CompensationError,
   UnexpectedError,
-  // Union type
+  // Union types
   type AwaitlyError,
+  type AwaitlySystemError,
+  // Roster
+  AWAITLY_SYSTEM_ERROR_CLASSES,
   // Type guards
   isTimeoutError,
   isRetryExhaustedError,

@@ -7,7 +7,7 @@ sidebar:
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
 
-ESLint rules for awaitly workflow patterns. Catch common mistakes automatically with autofixes. The plugin covers all step helpers, including `step.withFallback`, `step.withResource`, and `step.workflow`.
+ESLint rules for awaitly workflow patterns. Every rule is named with its **canonical slug** — the same identifier that appears on runtime errors (`error.code`), in the `awaitly-analyze` `--doctor` output, and as the URL slug for the rule's docs page (`jagreehal.github.io/awaitly/rules/#<slug>`). One token, four surfaces.
 
 ## Installation
 
@@ -46,188 +46,307 @@ export default [
 ];
 ```
 
+For projects that want hints upgraded to errors (CI gating), use `recommended-strict`:
+
+```js
+import awaitly from 'eslint-plugin-awaitly';
+
+export default [
+  ...awaitly.configs['recommended-strict'],
+];
+```
+
 ## Rules
 
-### `awaitly/no-immediate-execution`
+Twenty rules in six categories. The category prefix matches the canonical slug namespace.
 
-**Severity**: error | **Autofix**: Yes
+### `step-*` — step() discipline
+
+#### `awaitly/step-no-immediate-execution`
+
+**Severity**: error • **Autofix**: yes
 
 Prevents `step('id', fn())` patterns where the function executes immediately instead of being wrapped in a thunk.
 
 ```typescript
-// Bad - executes immediately, defeats caching/retries
+// Bad — fn() runs synchronously, defeats caching/retries
 step('fetchUser', fetchUser('1'));
 step('fetchUser', deps.fetchUser('1'), { key: 'user:1' });
 
-// Good - thunk lets step control execution
+// Good — thunk lets step control execution
 step('fetchUser', () => fetchUser('1'));
 step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 ```
 
-### `awaitly/require-step-id`
+#### `awaitly/step-require-id`
 
-**Severity**: error | **Autofix**: No
+**Severity**: error
 
-Requires a string literal as the first argument to `step()` and step helpers (`step.sleep`, `step.retry`, `step.all`, `step.race`, `step.withFallback`, `step.withResource`, `step.workflow`, etc.). Ensures stable step IDs for visualization and static analysis.
+Requires a string literal as the first argument to `step()` and step helpers (`step.sleep`, `step.retry`, `step.all`, `step.race`, `step.withFallback`, `step.withResource`, `step.workflow`, ...). Stable IDs are needed for visualization, caching, and resume.
 
 ```typescript
-// Bad - missing step ID
+// Bad — missing or computed step ID
 step(() => fetchUser('1'));
+step(`user-${i}`, () => deps.fetchUser(i));
 step.all({ a: () => fetchA(), b: () => fetchB() });
-step(() => deps.createOrder(), { compensate: () => {} });
 
-// Good - string ID as first argument
+// Good — string literal ID; use { key } for per-item identity
 step('fetchUser', () => fetchUser('1'));
-step.all('Fetch data', () => allAsync([fetchA(), fetchB()]));
-step('createOrder', () => deps.createOrder(), { compensate: () => {} });
+step('fetchUser', () => deps.fetchUser(i), { key: `user:${i}` });
+step.all('fetch', () => allAsync([fetchA(), fetchB()]));
 ```
 
-### `awaitly/require-thunk-for-key`
+#### `awaitly/step-require-thunk-for-key`
 
-**Severity**: error | **Autofix**: Yes
+**Severity**: error • **Autofix**: yes
 
-When using `step()` with a `key` option, the second argument must be a thunk. Without a thunk, the cache is never checked.
+When using `step()` with a `key` option, the second argument must be a thunk. Without one the cache is never checked.
 
 ```typescript
-// Bad - key option is useless without thunk
+// Bad — key option is useless without thunk
 step('fetchUser', fetchUser('1'), { key: 'user:1' });
 
-// Good - thunk enables caching with key
+// Good — thunk enables caching
 step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 ```
 
-### `awaitly/stable-cache-keys`
+#### `awaitly/step-stable-cache-keys`
 
-**Severity**: error | **Autofix**: No
+**Severity**: error
 
 Prevents non-deterministic values like `Date.now()`, `Math.random()`, or `uuid()` in cache keys.
 
 ```typescript
-// Bad - new key every time, cache never hits
+// Bad — new key every call, cache never hits
 step('fetchUser', () => fetch(id), { key: `user:${Date.now()}` });
-step('fetchUser', () => fetch(id), { key: `user:${Math.random()}` });
 
-// Good - stable key enables caching
+// Good — stable identifier
 step('fetchUser', () => fetch(id), { key: `user:${userId}` });
 ```
 
-### `awaitly/no-floating-workflow`
+#### `awaitly/step-no-bare-await`
 
-**Severity**: error | **Autofix**: No
+**Severity**: error
 
-Detects `run()` calls that are not awaited, returned, or assigned. Floating workflows execute asynchronously without any way to handle their results.
+Disallows `await deps.fn()` outside a `step()` wrapper. Bare awaits skip the workflow's caching, retries, and resume.
 
 ```typescript
-// Bad - fire-and-forget, no error handling
-run(async ({ step }) => { ... });
+// Bad — bypasses step semantics
+const user = await deps.fetchUser('1');
 
-// Good - properly handled
-await run(async ({ step }) => { ... });
-const result = await run(async ({ step }) => { ... });
-return run(async ({ step }) => { ... });
+// Good — wrapped in step
+const user = await step('fetchUser', () => deps.fetchUser('1'));
 ```
 
-### `awaitly/no-floating-result`
+#### `awaitly/step-no-try-catch-wrap`
 
-**Severity**: error | **Autofix**: No
+**Severity**: error
 
-Detects `step()` calls whose Result is discarded without handling. Results should be assigned or their status checked.
+Disallows wrapping `step()` in `try/catch`. Use `step.try()` for typed throw-to-error conversion.
 
 ```typescript
-// Bad - Result ignored
+// Bad
+try { await step('charge', () => deps.charge(amount)); } catch (e) { /* */ }
+
+// Good
+const charge = await step.try('charge', () => deps.charge(amount), {
+  error: (cause) => ({ type: 'CHARGE_THREW', cause }),
+});
+```
+
+### `workflow-*` — workflow shape
+
+#### `awaitly/workflow-no-floating`
+
+**Severity**: error
+
+Detects `run()` calls that are not awaited, returned, or assigned. Floating workflows execute without any way to handle their results.
+
+```typescript
+// Bad — fire-and-forget
+run(async ({ step }) => { /* */ });
+
+// Good
+await run(async ({ step }) => { /* */ });
+```
+
+#### `awaitly/workflow-options-position`
+
+**Severity**: error
+
+Detects when workflow options (`cache`, `onEvent`, `resumeState`, ...) are passed to the executor instead of `createWorkflow()`. Options on the executor are silently ignored.
+
+```typescript
+// Bad — options ignored
+const workflow = createWorkflow('w', deps);
+await workflow.run(async ({ step }) => {}, { cache: new Map() });
+
+// Good
+const workflow = createWorkflow('w', deps, { cache: new Map() });
+await workflow.run(async ({ step }) => {});
+```
+
+#### `awaitly/workflow-callback-shape`
+
+**Severity**: warn
+
+Workflow callbacks should destructure their context. Only `step` is required; `deps` and `ctx` are optional depending on the entry point.
+
+```typescript
+// Bad — opaque parameter
+workflow.run(async (ctx) => { /* */ });
+
+// Good — any of these
+workflow.run(async ({ step }) => { /* */ });
+workflow.run(async ({ step, deps }) => { /* */ });
+workflow.run(async ({ step, deps, ctx }) => { /* */ });
+```
+
+#### `awaitly/workflow-no-callable-form`
+
+**Severity**: error
+
+The workflow callable form (`workflow(callback)`) is not supported. Always use `workflow.run(...)`. Detection narrows on the `step` destructure to avoid false positives on generic callback patterns.
+
+```typescript
+// Bad
+workflow(async ({ step }) => { /* */ });
+
+// Good
+workflow.run(async ({ step }) => { /* */ });
+```
+
+#### `awaitly/workflow-no-dynamic-import`
+
+**Severity**: error
+
+Disallows dynamic `import()` and `require()` so static analysis can trace dependencies.
+
+### `result-*` — Result handling
+
+#### `awaitly/result-no-floating`
+
+**Severity**: error
+
+Detects `step()` calls whose Result is discarded. Results should be assigned, returned, or have `.ok` checked.
+
+```typescript
+// Bad
 step('fetchUser', () => fetchUser());
-await step('fetchUser', () => fetchUser());
 
-// Good - Result captured
-const result = await step('fetchUser', () => fetchUser());
-return step('fetchUser', () => fetchUser());
+// Good
+const user = await step('fetchUser', () => fetchUser());
 ```
 
-### `awaitly/require-result-handling`
+#### `awaitly/result-require-handling`
 
-**Severity**: warn | **Autofix**: No
+**Severity**: warn
 
-Warns when accessing `.value` on a Result without checking `.ok` first. This prevents runtime errors when the Result is an Err.
+Warns when accessing `.value` on a Result without checking `.ok` first.
 
 ```typescript
-// Bad - could throw if result is Err
-const result = await run(...);
+// Bad
+const result = await run(/* */);
 console.log(result.value);
 
-// Good - check .ok first
-const result = await run(...);
-if (result.ok) {
-  console.log(result.value);
-}
-
-// Good - early return pattern
-const result = await run(...);
-if (!result.ok) {
-  return result;
-}
-console.log(result.value);  // Safe after guard
+// Good
+const result = await run(/* */);
+if (result.ok) console.log(result.value);
 ```
 
-### `awaitly/no-options-on-executor`
+#### `awaitly/result-no-double-wrap`
 
-**Severity**: error | **Autofix**: No
+**Severity**: error
 
-Detects when workflow options (`cache`, `onEvent`, `resumeState`, etc.) are passed to the workflow executor function instead of `createWorkflow()`. Options passed to the executor are silently ignored.
-
-```typescript
-// Bad - options are ignored
-const workflow = createWorkflow('w', deps, { cache: new Map() });
-await workflow.run(async ({ step }) => { ... });
-
-// Good - options passed to createWorkflow
-const workflow = createWorkflow('workflow', deps, { cache: new Map() });
-await workflow.run(async ({ step, deps }) => { ... });
-```
-
-### `awaitly/no-double-wrap-result`
-
-**Severity**: error | **Autofix**: No
-
-Detects returning `ok()` or `err()` from workflow executor functions. Executors should return raw values; awaitly wraps them automatically.
+Detects returning `ok()` or `err()` from workflow callbacks. The workflow wraps the return value automatically.
 
 ```typescript
-// Bad - double-wrapped Result
+// Bad
 run(async ({ step }) => {
   const user = await step('fetchUser', () => fetchUser('1'));
   return ok({ user });
 });
-createWorkflow('workflow', deps).run(async ({ step, deps }) => err({ type: 'FAILED' }));
 
-// Good - return raw value
+// Good
 run(async ({ step }) => {
   const user = await step('fetchUser', () => fetchUser('1'));
   return { user };
 });
-createWorkflow('workflow', deps).run(async ({ step, deps }) => value);
 ```
 
-## Why these rules?
+#### `awaitly/result-no-manual-propagation`
 
-The #1 mistake with awaitly is forgetting the thunk:
+**Severity**: error
+
+Disallows `return ok(...)` / `return err(...)` **inside a workflow callback**. The rule scope-guards on workflow callbacks — deps functions and step thunks are unaffected.
 
 ```typescript
-// This looks correct but is wrong:
-const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+// Bad — manual propagation in workflow callback
+workflow.run(async ({ step }) => {
+  return ok({ id: 1 });
+});
+
+// Fine — deps function returning a Result
+async function fetchUser(): AsyncResult<User, 'NOT_FOUND'> {
+  return ok({ id: 1 });
+}
 ```
 
-The function `fetchUser('1')` executes **immediately** when JavaScript evaluates this line. The `step()` function receives the Promise (already started), not a function it can call. This defeats:
+#### `awaitly/result-no-direct-ok-err`
 
-- **Caching**: step can't check the cache before calling
-- **Retries**: step can't re-call on failure
-- **Resume**: step can't skip already-completed work
+**Severity**: error
 
-The correct pattern:
+Disallows `ok()` / `err()` calls **inside a workflow callback**. Same scope guard as `result-no-manual-propagation`. Step thunks and deps functions can still call `ok`/`err`.
+
+### `concurrency-*` — concurrency primitives
+
+#### `awaitly/concurrency-no-promise-all`
+
+**Severity**: error
+
+Replace `Promise.all` inside workflows with `step.all()` / `step.map()`.
+
+#### `awaitly/concurrency-no-promise-race`
+
+**Severity**: error
+
+Replace `Promise.race` with `step.race()`.
+
+#### `awaitly/concurrency-no-promise-allsettled`
+
+**Severity**: error
+
+Replace `Promise.allSettled` with `step.map()` (which collects per-item Results without fail-fast).
+
+### `error-*` — boundary handling
+
+#### `awaitly/error-check-unexpected-first`
+
+**Severity**: warn (opt-in — not in `recommended`)
+
+When matching on `result.error._tag` / `.type`, check `isUnexpectedError(result.error)` first to separate library bugs from typed business errors.
+
+This rule uses heuristic AST matching and may false-positive on patterns it can't statically distinguish. It's deliberately not enabled by `recommended` or `recommended-strict`; opt in by adding it to your `rules` block explicitly:
+
+```js
+{
+  rules: {
+    'awaitly/error-check-unexpected-first': 'warn',
+  },
+}
+```
 
 ```typescript
-const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
-```
+// Bad
+if (result.error._tag === 'TimeoutError') { /* */ }
 
-Now `step()` receives a function it can call **after** checking the cache.
+// Good
+if (isUnexpectedError(result.error)) {
+  log.error('library bug', result.error.cause);
+} else if (result.error._tag === 'TimeoutError') {
+  /* */
+}
+```
 
 ## Custom configuration
 
@@ -239,19 +358,28 @@ import awaitly from 'eslint-plugin-awaitly';
 
 export default [
   {
-    plugins: {
-      awaitly,
-    },
+    plugins: { awaitly },
     rules: {
-      'awaitly/require-step-id': 'error',
-      'awaitly/no-immediate-execution': 'error',
-      'awaitly/require-thunk-for-key': 'error',
-      'awaitly/stable-cache-keys': 'error',
-      'awaitly/no-floating-workflow': 'error',
-      'awaitly/no-floating-result': 'error',
-      'awaitly/require-result-handling': 'warn',
-      'awaitly/no-options-on-executor': 'error',
-      'awaitly/no-double-wrap-result': 'error',
+      'awaitly/step-require-id': 'error',
+      'awaitly/step-no-immediate-execution': 'error',
+      'awaitly/step-require-thunk-for-key': 'error',
+      'awaitly/step-stable-cache-keys': 'error',
+      'awaitly/step-no-bare-await': 'error',
+      'awaitly/step-no-try-catch-wrap': 'error',
+      'awaitly/workflow-no-floating': 'error',
+      'awaitly/workflow-options-position': 'error',
+      'awaitly/workflow-callback-shape': 'warn',
+      'awaitly/workflow-no-callable-form': 'error',
+      'awaitly/workflow-no-dynamic-import': 'error',
+      'awaitly/result-no-floating': 'error',
+      'awaitly/result-require-handling': 'warn',
+      'awaitly/result-no-double-wrap': 'error',
+      'awaitly/result-no-manual-propagation': 'error',
+      'awaitly/result-no-direct-ok-err': 'error',
+      'awaitly/concurrency-no-promise-all': 'error',
+      'awaitly/concurrency-no-promise-race': 'error',
+      'awaitly/concurrency-no-promise-allsettled': 'error',
+      'awaitly/error-check-unexpected-first': 'warn',
     },
   },
 ];
@@ -275,3 +403,20 @@ Enable "fix on save" for automatic corrections:
   }
 }
 ```
+
+## Why these rules?
+
+The #1 mistake with awaitly is forgetting the thunk:
+
+```typescript
+// Looks correct but is wrong:
+const user = await step('fetchUser', deps.fetchUser('1'), { key: 'user:1' });
+```
+
+`deps.fetchUser('1')` runs **immediately** — `step()` receives the in-flight Promise, not a function it can call. That defeats:
+
+- **Caching** — step can't check the cache before calling
+- **Retries** — step can't re-call on failure
+- **Resume** — step can't skip already-completed work
+
+The slug-named rules (`step-no-immediate-execution`, `step-require-thunk-for-key`, ...) catch this and the other small-but-important mistakes statically — and the slug names match the runtime error codes, so a developer or AI agent can grep one token to find both the lint rule and the runtime error guidance.

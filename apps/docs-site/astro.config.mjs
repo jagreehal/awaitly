@@ -177,6 +177,13 @@ export default defineConfig({
           items: [
             { label: 'Quick Reference', slug: 'reference/quick-reference' },
             { label: 'API', slug: 'reference/api' },
+            { label: 'Slug Spine', slug: 'reference/spine' },
+          ],
+        },
+        {
+          label: 'Rules',
+          items: [
+            { label: 'Rule Index', slug: 'rules' },
           ],
         },
         {

@@ -76,7 +76,7 @@ import {
 
 import { isWorkflowCancelled } from "./guards";
 import { validateInput } from "./validation";
-import { provide as provideWorkflow } from "../di";
+import { withDeps as withDepsWorkflow } from "../di";
 import type { SagaCompensationError } from "../saga";
 
 import type {
@@ -2056,7 +2056,7 @@ export function createWorkflow<
   }
 
   const workflow: Workflow<E, U, Deps, C> = {
-    provide: (overrides) => provideWorkflow(workflow, overrides),
+    withDeps: (overrides) => withDepsWorkflow(workflow, overrides),
     run: runMethod as Workflow<E, U, Deps, C>["run"],
     runWithState: runWithStateMethod as Workflow<E, U, Deps, C>["runWithState"],
   };

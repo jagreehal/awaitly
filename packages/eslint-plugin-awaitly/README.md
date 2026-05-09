@@ -20,9 +20,22 @@ export default [
 ];
 ```
 
+### Strict Preset (recommended for AI-first workflows)
+
+```js
+// eslint.config.js
+import awaitly from 'eslint-plugin-awaitly';
+
+export default [
+  ...awaitly.configs['recommended-strict'],
+];
+```
+
+`recommended-strict` is the same rule set as `recommended`, but upgrades `awaitly/result-require-handling` from `warn` to `error`.
+
 ## Rules
 
-### `awaitly/require-step-id` (error)
+### `awaitly/step-require-id` (error)
 
 Requires a string literal as the first argument to `step()`. Use `step('id', fn, options?)` or `step('id', result, options?)`.
 
@@ -38,7 +51,7 @@ step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 
 **Note**: All step types take a string as the first argument (ID or name): `step.retry(id, operation, options)`, `step.withTimeout(id, operation, options)`, `step.try(id, operation, opts)`, `step.sleep(id, duration, opts?)`, `step.fromResult(id, operation, opts)`, `step.parallel(name, operations | callback)`, `step.race(name, callback)`, `step.allSettled(name, callback)`, `step.run(id, result | getter, options?)`, `step.andThen(id, value, fn, options?)`, `step.match(id, result, handlers, options?)`, `step.all(name, shape, options?)`, `step.map(id, items, mapper, options?)`, `step.withFallback(id, primaryGetter, opts?)`, `step.withResource(id, { acquire, use, release }, opts?)`, `step.workflow(id, getter, opts?)`.
 
-### `awaitly/no-immediate-execution` (error)
+### `awaitly/step-no-immediate-execution` (error)
 
 Prevents `step('id', fn())` patterns where the function executes immediately instead of being wrapped in a thunk. The executor is the second argument (after the ID).
 
@@ -54,7 +67,7 @@ step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' });
 
 **Autofix**: Wraps the executor in an arrow function (and inserts a suggested ID if missing).
 
-### `awaitly/require-thunk-for-key` (error)
+### `awaitly/step-require-thunk-for-key` (error)
 
 When using `step()` with a `key` option, the executor (second argument, after the ID) must be a thunk. Without a thunk, the function executes immediately *before* the cache can be checked.
 
@@ -70,7 +83,7 @@ step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
 
 **Autofix**: Wraps the executor in an arrow function (and inserts a suggested ID if missing).
 
-### `awaitly/stable-cache-keys` (error)
+### `awaitly/step-stable-cache-keys` (error)
 
 Prevents non-deterministic values like `Date.now()`, `Math.random()`, or `uuid()` in cache keys.
 
@@ -83,7 +96,7 @@ step('fetch', () => fetch(id), { key: `user:${Math.random()}` });
 step('fetch', () => fetch(id), { key: `user:${userId}` });
 ```
 
-### `awaitly/no-options-on-executor` (error)
+### `awaitly/workflow-options-position` (error)
 
 Prevents passing workflow options in the wrong argument position. Use `workflow.run(fn, config)` or `workflow.run(name, fn, config)`, where the callback comes before config.
 
@@ -145,7 +158,7 @@ export default [
       awaitly,
     },
     rules: {
-      'awaitly/no-immediate-execution': 'error',
+      'awaitly/step-no-immediate-execution': 'error',
       // disable others if needed
     },
   },

@@ -10,7 +10,7 @@ const config = [
       awaitly: plugin,
     },
     rules: {
-      'awaitly/no-options-on-executor': 'error',
+      'awaitly/workflow-options-position': 'error',
     },
   },
 ];
@@ -84,7 +84,7 @@ describe('no-options-on-executor', () => {
       const code = `workflow({ cache: new Map() }, async ({ step }) => { return step(fetchUser('1')); });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/no-options-on-executor');
+      expect(messages[0].ruleId).toBe('awaitly/workflow-options-position');
       expect(messages[0].message).toContain('cache');
     });
 
@@ -202,7 +202,7 @@ describe('no-options-on-executor', () => {
       const code = `workflow.run({ cache: new Map() }, async ({ step }) => { return step(fetchUser('1')); });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/no-options-on-executor');
+      expect(messages[0].ruleId).toBe('awaitly/workflow-options-position');
       expect(messages[0].message).toContain('cache');
       expect(messages[0].message).toContain('wrong argument position');
     });

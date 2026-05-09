@@ -31,6 +31,12 @@ awaitly-analyze ./src/workflows/checkout.ts --html
 
 # Custom HTML output path
 awaitly-analyze ./src/workflows/checkout.ts --html --html-output=./docs/checkout.html
+
+# Doctor mode: strict diagnostics with concrete fix guidance
+awaitly-analyze ./src/workflows/checkout.ts --doctor
+
+# Doctor mode JSON for AI/tooling pipelines
+awaitly-analyze ./src/workflows/checkout.ts --doctor --format=json
 ```
 
 ### CLI Options
@@ -44,9 +50,10 @@ awaitly-analyze ./src/workflows/checkout.ts --html --html-output=./docs/checkout
 | `--direction=<dir>` | `TB` | Diagram direction: `TB`, `LR`, `BT`, `RL` |
 | `--output-adjacent`, `-o` | - | Write output file next to source file |
 | `--suffix=<value>` | `workflow` | Configurable suffix for output file |
-| `--no-stdout` | - | Suppress stdout when writing to file (requires `-o`) |
+| `--no-stdout` | - | Suppress stdout when writing to file (requires `-o` or `--html`) |
 | `--dsl-output=<value>` | `off` | Write DSL: `off`, `.awaitly`, or custom path (for visualization) |
 | `--write-dsl` | - | Shorthand for `--dsl-output=.awaitly` |
+| `--doctor` | - | Print strict diagnostics with fix suggestions |
 | `--help`, `-h` | - | Show help message |
 
 ### Output File Naming

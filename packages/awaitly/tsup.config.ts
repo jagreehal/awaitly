@@ -53,6 +53,7 @@ export default defineConfig({
     conditional: 'src/conditional-entry.ts',
     duration: 'src/duration-entry.ts',
     match: 'src/match-entry.ts',
+    slugs: 'src/slugs.ts',
     'tagged-error': 'src/tagged-error-entry.ts',
     errors: 'src/errors-entry.ts',
     cache: 'src/cache-entry.ts',
