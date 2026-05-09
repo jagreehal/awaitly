@@ -187,7 +187,7 @@ importers:
         version: 16.2.6(@typescript-eslint/parser@8.59.0(eslint@10.1.0(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)
       tailwindcss:
         specifier: ^4
-        version: 4.2.1
+        version: 4.3.0
       typescript:
         specifier: ^5
         version: 5.9.3
@@ -7344,9 +7344,6 @@ packages:
 
   tailwind-merge@3.5.0:
     resolution: {integrity: sha512-I8K9wewnVDkL1NTGoqWmVEIlUcB9gFriAEkXkfCjX5ib8ezGxtR3xD7iZIxrfArjEsH7F1CHD4RFUtxefdqV/A==}
-
-  tailwindcss@4.2.1:
-    resolution: {integrity: sha512-/tBrSQ36vCleJkAOsy9kbNTgaxvGbyOamC30PRePTQe/o1MFwEKHQk4Cn7BNGaPtjp+PuUrByJehM1hgxfq4sw==}
 
   tailwindcss@4.3.0:
     resolution: {integrity: sha512-y6nxMGB1nMW9R6k96e5gdIFzcfL/gTJRNaqGes1YvkLnPVXzWgbqFF2yLC0T8G774n24cx3Pe8XrKoniCOAH+Q==}
@@ -16026,8 +16023,6 @@ snapshots:
   symbol-tree@3.2.4: {}
 
   tailwind-merge@3.5.0: {}
-
-  tailwindcss@4.2.1: {}
 
   tailwindcss@4.3.0: {}
 
