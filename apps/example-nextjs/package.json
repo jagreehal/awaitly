@@ -16,7 +16,7 @@
     "drizzle-orm": "^0.45",
     "next": "16.2.6",
     "react": "19.2.5",
-    "react-dom": "19.2.5"
+    "react-dom": "19.2.6"
   },
   "devDependencies": {
     "drizzle-kit": "^0.31",
