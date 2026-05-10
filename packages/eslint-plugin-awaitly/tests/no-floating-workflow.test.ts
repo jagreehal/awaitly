@@ -10,7 +10,7 @@ const config = [
       awaitly: plugin,
     },
     rules: {
-      'awaitly/no-floating-workflow': 'error',
+      'awaitly/workflow-no-floating': 'error',
     },
   },
 ];
@@ -71,7 +71,7 @@ describe('no-floating-workflow', () => {
       const code = `run(async ({ step }) => { return 42; });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/no-floating-workflow');
+      expect(messages[0].ruleId).toBe('awaitly/workflow-no-floating');
       expect(messages[0].message).toContain('run');
     });
 

@@ -1,0 +1,254 @@
+---
+title: Slug Spine
+description: One canonical kebab-case slug per concept, threaded through runtime errors, lint rules, the static analyzer, the visualizer, and docs.
+sidebar:
+  order: 30
+---
+
+import { Aside, Card, CardGrid } from "@astrojs/starlight/components";
+
+awaitly's **slug spine** gives every concept exactly one canonical kebab-case identifier and threads it through every surface a developer or AI coding agent can hit. One token, six surfaces, zero translation.
+
+| Surface | Where the slug appears |
+|---|---|
+| Runtime error | `error.code === 'runtime-step-timeout'` |
+| Lint rule | `awaitly/step-no-immediate-execution` (rule name) |
+| Static analyzer | `awaitly-analyze --doctor` emits the slug as `code` |
+| Visualizer | `step_error` / `workflow_error` events carry the slug |
+| Skill rule | `.claude/skills/awaitly-patterns/rules/<slug>.md` |
+| Docs | `jagreehal.github.io/awaitly/rules/#<slug>` |
+
+If you hit a runtime error, you can grep the slug in your `.eslintrc` to enable static enforcement. If a lint rule fires, the rule name is the same slug your runtime errors will report. The contract is intentionally narrow: one identifier, one fix-direction. Rule docs are published at `jagreehal.github.io/awaitly/rules/#<slug>`.
+
+## Categories
+
+Slugs are grouped by a single-word prefix:
+
+| Prefix | Domain |
+|---|---|
+| `step-*` | step() discipline (id, thunk, nesting, options) |
+| `workflow-*` | createWorkflow / run / runWithState shape |
+| `result-*` | Result usage |
+| `error-*` | Boundary handling |
+| `concurrency-*` | step.all / step.map / step.race vs Promise.* |
+| `runtime-*` | Failures observable at runtime: timeout, retry-exhausted, rate-limit, circuit-open, unexpected, ... |
+
+The full enumerated list lives in `awaitly/slugs` (see below). Adding a slug is non-breaking; renaming one is a major version bump.
+
+## `awaitly/slugs` — source of truth
+
+Import from a dedicated sub-path so the slug namespace doesn't pull the rest of awaitly into your bundle:
+
+```typescript
+import {
+  type AwaitlySlug,
+  type AwaitlySlugCategory,
+  AWAITLY_SLUGS,
+  ALL_SLUGS,
+  slugCategory,
+  slugDocsUrl,
+  isAwaitlySlug,
+} from 'awaitly/slugs';
+```
+
+The same exports are also available on `awaitly/core`. The root `awaitly` entry re-exports the **types only** (`AwaitlySlug`, `AwaitlySlugCategory`) — the runtime helpers live at `awaitly/slugs` to keep the root bundle lean.
+
+### `AwaitlySlug`
+
+A string-literal union of every canonical slug. Use it anywhere you want compile-time enforcement that a value is a known slug:
+
+```typescript
+import { type AwaitlySlug } from 'awaitly/slugs';
+
+function logError(code: AwaitlySlug, message: string): void {
+  console.error(`[${code}] ${message}`);
+}
+```
+
+### `slugDocsUrl(slug)`
+
+Returns the canonical docs URL for a slug. Every awaitly-system error sets `error.docsUrl` to the result of this call.
+
+```typescript
+slugDocsUrl('runtime-step-timeout');
+// → 'https://jagreehal.github.io/awaitly/rules/#runtime-step-timeout'
+```
+
+### `isAwaitlySlug(value)`
+
+Type guard. Use when accepting arbitrary strings (e.g., from a config file or external tool) and narrowing to a known slug:
+
+```typescript
+if (isAwaitlySlug(input)) {
+  // input is now typed as AwaitlySlug
+  return slugDocsUrl(input);
+}
+```
+
+### `slugCategory(slug)`
+
+Returns the category prefix:
+
+```typescript
+slugCategory('runtime-step-timeout'); // → 'runtime'
+slugCategory('step-require-id');      // → 'step'
+```
+
+### `ALL_SLUGS`
+
+A readonly array of every registered slug, useful for iteration or diagnostics:
+
+```typescript
+import { ALL_SLUGS } from 'awaitly/slugs';
+
+for (const slug of ALL_SLUGS) {
+  // populate a docs index, build a CLI menu, etc.
+}
+```
+
+## Error shape
+
+Every awaitly-system error carries three readonly fields populated from the slug spine — in addition to its existing `_tag`, `message`, and (where applicable) `cause`.
+
+```typescript
+interface AwaitlySystemErrorShape {
+  readonly _tag: string;        // existing — class-name discriminant
+  readonly code: AwaitlySlug;   // new — canonical slug
+  readonly message: string;     // existing
+  readonly hint: string;        // new — one-line "do X instead"
+  readonly docsUrl: string;     // new — `jagreehal.github.io/awaitly/rules/#${code}`
+  readonly cause?: unknown;     // existing on UnexpectedError
+}
+```
+
+The six awaitly-system errors that participate in the spine are:
+
+| Class | Slug | Hint |
+|---|---|---|
+| `TimeoutError` | `runtime-step-timeout` | Increase the step's timeout option, or check why the upstream operation is slow. |
+| `RetryExhaustedError` | `runtime-retry-exhausted` | All retry attempts failed. Inspect lastError and decide whether to surface it or compensate. |
+| `RateLimitError` | `runtime-rate-limit` | Wait retryAfterMs before retrying, or apply step.cache to deduplicate calls. |
+| `CircuitBreakerOpenError` | `runtime-circuit-open` | The circuit is open. Wait for it to half-open or fall back to a degraded path. |
+| `CompensationError` | `runtime-saga-compensation` | A saga compensation step failed. Inspect compensationError and ensure compensation is idempotent. |
+| `UnexpectedError` | `runtime-unexpected` | An unexpected exception escaped a step. Inspect cause; consider returning a typed Result instead of throwing. |
+
+User-domain errors (`ValidationError`, `NotFoundError`, `UnauthorizedError`, `NetworkError`) are **not** slugged — they represent your domain failures, not awaitly-internal ones. You can opt your own `TaggedError` subclasses into the spine by passing `slug` and `hint` to the factory:
+
+```typescript
+import { TaggedError } from 'awaitly/tagged-error';
+
+class CheckoutFailed extends TaggedError('CheckoutFailed', {
+  slug: 'runtime-saga-compensation',
+  hint: 'Compensation already ran. Surface to the user; do not retry.',
+  message: (p: { orderId: string }) => `Checkout ${p.orderId} could not be compensated`,
+}) {}
+```
+
+When `slug` is set, `hint` is **required** — the factory throws `TypeError` at construction time if it's missing.
+
+### `AwaitlySystemError`
+
+A discriminated union of the six spine-bearing classes. Use it when you want to distinguish "errors that carry the spine" from user-domain errors:
+
+```typescript
+import { type AwaitlySystemError } from 'awaitly/errors';
+
+function isAwaitlySystemError(e: unknown): e is AwaitlySystemError {
+  return typeof (e as AwaitlySystemError).code === 'string'
+    && typeof (e as AwaitlySystemError).docsUrl === 'string';
+}
+```
+
+## Static enforcement
+
+Every statically-checkable item in the spine is enforced by `eslint-plugin-awaitly`. The plugin's rule names are the slugs themselves:
+
+```js
+// eslint.config.js
+import awaitly from 'eslint-plugin-awaitly';
+
+export default [
+  ...awaitly.configs.recommended,
+  // or for CI gating:
+  // ...awaitly.configs['recommended-strict'],
+];
+```
+
+See the [ESLint plugin guide](/awaitly/guides/eslint-plugin/) for every rule.
+
+## `awaitly-analyze --doctor`
+
+The static analyzer emits slug-keyed diagnostics. The `--doctor` flag prints them with concrete fix guidance; `--format=json` produces structured output for CI and tooling.
+
+```bash
+awaitly-analyze ./src/workflows/checkout.ts --doctor
+```
+
+```text
+✗ [step-require-id]:12:4
+  Step "<missing>" uses legacy signature without explicit ID
+  Docs: https://jagreehal.github.io/awaitly/rules/#step-require-id
+  Fix: Use step('id', fn, opts) instead of step(fn, opts)
+```
+
+```bash
+awaitly-analyze ./src/workflows/checkout.ts --doctor --format=json
+```
+
+```json
+[
+  {
+    "workflowName": "checkoutWorkflow",
+    "diagnostics": [
+      {
+        "rule": "missing-step-id",
+        "code": "step-require-id",
+        "severity": "warning",
+        "message": "Step \"<missing>\" uses legacy signature without explicit ID",
+        "hint": "Use step('id', fn, opts) instead of step(fn, opts)",
+        "docsUrl": "https://jagreehal.github.io/awaitly/rules/#step-require-id",
+        "location": { "line": 12, "column": 4 }
+      }
+    ]
+  }
+]
+```
+
+## Visualizer events
+
+When a workflow run is captured by `createVisualizer`, error events preserve the slug code:
+
+```typescript
+import { createVisualizer } from 'awaitly-visualizer';
+
+const viz = createVisualizer({ workflowName: 'checkout' });
+// ... drive workflow events ...
+const ir = viz.getIR();
+
+// step.error?.code === 'runtime-step-timeout' (etc.) for spine-bearing errors.
+```
+
+Renderers (mermaid diagrams, devtools panel) can surface the slug as a clickable link to its docs page.
+
+## Why this exists
+
+awaitly is built to be friendly for both humans and AI coding agents. Agents pattern-match on tokens; humans grep. By giving every concept exactly one slug, and threading that slug through runtime errors, lint rules, the analyzer, the visualizer, and the docs site, we collapse the cost of "find the rule that applies to what I just hit."
+
+If a developer (or agent) sees `error.code === 'step-require-id'` at runtime, they can grep `awaitly/step-require-id` in their lint config to enable static enforcement, search `rules/step-require-id.md` in the skill catalogue for a worked example, and hit `jagreehal.github.io/awaitly/rules/#step-require-id` for prose. The same identifier means the same thing in every direction.
+
+## See also
+
+<CardGrid>
+  <Card title="ESLint plugin" icon="approve-check">
+    [Twenty slug-named rules](/awaitly/guides/eslint-plugin/)
+  </Card>
+  <Card title="Tagged Errors" icon="warning">
+    [How errors carry the spine](/awaitly/foundations/tagged-errors/)
+  </Card>
+  <Card title="Static analysis" icon="magnifier">
+    [awaitly-analyze --doctor](/awaitly/guides/static-analysis/)
+  </Card>
+  <Card title="Visualization" icon="seti:html">
+    [Visualizing workflow runs](/awaitly/guides/visualization/)
+  </Card>
+</CardGrid>

@@ -32,6 +32,8 @@
  * ```
  */
 
+import { type AwaitlySlug, slugDocsUrl } from "./slugs";
+
 /**
  * Options for Error constructor (compatible with ES2022 ErrorOptions).
  */
@@ -45,6 +47,17 @@ export interface TaggedErrorOptions {
 export interface TaggedErrorCreateOptions<Props extends Record<string, unknown>> {
   /** Custom message generator from props. Annotate parameter for type safety. */
   message: (props: Props) => string;
+  /**
+   * Canonical awaitly slug for this error class. When set, instances carry
+   * `code`, `hint`, and `docsUrl` populated from the slugs namespace.
+   * Required together with `hint` for awaitly-system errors.
+   */
+  slug?: AwaitlySlug;
+  /**
+   * One-line "do X instead" guidance shown alongside the error.
+   * Required when `slug` is set.
+   */
+  hint?: string;
 }
 
 /**
@@ -52,6 +65,12 @@ export interface TaggedErrorCreateOptions<Props extends Record<string, unknown>>
  */
 export interface TaggedErrorBase extends Error {
   readonly _tag: string;
+  /** Canonical slug for awaitly-system errors. Undefined for user errors that opt out. */
+  readonly code?: AwaitlySlug;
+  /** One-line guidance. Undefined when no slug is set. */
+  readonly hint?: string;
+  /** Canonical docs URL. Undefined when no slug is set. */
+  readonly docsUrl?: string;
 }
 
 /**
@@ -179,21 +198,66 @@ function TaggedError<Tag extends string, Props extends Record<string, unknown>>(
       super(message);
       this.name = tag;
 
+      // Spine fields: populate when factory was given a slug
+      if (options?.slug !== undefined) {
+        if (!options.hint) {
+          throw new TypeError(
+            `TaggedError: 'hint' is required when 'slug' is set (slug: "${options.slug}")`
+          );
+        }
+        Object.defineProperty(this, "code", {
+          value: options.slug,
+          enumerable: true,
+          writable: false,
+          configurable: false,
+        });
+        Object.defineProperty(this, "hint", {
+          value: options.hint,
+          enumerable: true,
+          writable: false,
+          configurable: false,
+        });
+        Object.defineProperty(this, "docsUrl", {
+          value: slugDocsUrl(options.slug),
+          enumerable: true,
+          writable: false,
+          configurable: false,
+        });
+      }
+
       // Maintains proper prototype chain for instanceof checks
       Object.setPrototypeOf(this, new.target.prototype);
 
       // Assign props to instance, stripping reserved keys:
       // - _tag: discriminant for pattern matching (cannot be forged)
       // - name, message, stack: Error internals (preserve for logging/debugging)
+      // - code, hint, docsUrl: spine fields stripped when slug is set, to prevent
+      //   Object.assign from clobbering the non-configurable/non-writable own props
       // Note: 'cause' is allowed as a user prop (common for domain errors)
       if (props && typeof props === "object") {
-        const {
-          _tag: _,
-          name: _n,
-          message: _m,
-          stack: _s,
-          ...safeProps
-        } = props;
+        let safeProps: Record<string, unknown>;
+        if (options?.slug !== undefined) {
+          const {
+            _tag: _,
+            name: _n,
+            message: _m,
+            stack: _s,
+            code: _c,
+            hint: _h,
+            docsUrl: _d,
+            ...rest
+          } = props;
+          safeProps = rest;
+        } else {
+          const {
+            _tag: _,
+            name: _n,
+            message: _m,
+            stack: _s,
+            ...rest
+          } = props;
+          safeProps = rest;
+        }
 
         const hasUserCause = Object.prototype.hasOwnProperty.call(
           safeProps,
@@ -370,10 +434,11 @@ export type ErrorByTag<
  * These keys cannot be used as user-defined properties:
  * - _tag: discriminant for pattern matching
  * - name, message, stack: Error internals (preserved for logging/debugging)
+ * - code, hint, docsUrl: spine fields (non-configurable own properties when slug is set)
  *
  * Note: 'cause' is NOT reserved - it can be used as a user prop.
  */
-type ReservedErrorKeys = "_tag" | "name" | "message" | "stack";
+type ReservedErrorKeys = "_tag" | "name" | "message" | "stack" | "code" | "hint" | "docsUrl";
 
 /**
  * Helper type to extract props from a TaggedError.

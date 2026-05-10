@@ -38,7 +38,7 @@ const {
   allSettled,
 } = Awaitly;
 import { run, type WorkflowEvent } from "./run-entry";
-import { createWorkflow, ErrorsOfDeps, provide } from "./workflow-entry";
+import { createWorkflow, ErrorsOfDeps, withDeps } from "./workflow-entry";
 import { pendingApproval } from "./hitl-entry";
 import { Duration, type DurationType } from "./duration";
 // These are exported via awaitly/match and awaitly/retry entry points.
@@ -224,16 +224,16 @@ function _test3() {
 }
 
 // =============================================================================
-// TEST: provide() inference (standalone + fluent forms)
+// TEST: withDeps() inference (standalone + fluent forms)
 // =============================================================================
 
-async function _testProvideInference() {
+async function _testWithDepsInference() {
   const wf = createWorkflow("di-types", {
     fetchUser,
   });
 
   // Standalone form
-  const provided = provide(wf, {
+  const provided = withDeps(wf, {
     fetchUser: async (_id: string) => ok({ id: "x", name: "Test" } as User),
   });
 
@@ -249,7 +249,7 @@ async function _testProvideInference() {
   }
 
   // Fluent form
-  const providedViaMethod = wf.provide({
+  const providedViaMethod = wf.withDeps({
     fetchUser: async (_id: string) => ok({ id: "y", name: "Method" } as User),
   });
   const methodResult = await providedViaMethod.run(async ({ step, deps }) => {
@@ -260,10 +260,10 @@ async function _testProvideInference() {
     expectType<string>(methodResult.value);
   }
 
-  // Chained .provide() returns Workflow with .provide() still available
+  // Chained .withDeps() returns Workflow with .withDeps() still available
   const chained = wf
-    .provide({ fetchUser: async (_id: string) => ok({ id: "a", name: "A" } as User) })
-    .provide({ fetchUser: async (_id: string) => ok({ id: "b", name: "B" } as User) });
+    .withDeps({ fetchUser: async (_id: string) => ok({ id: "a", name: "A" } as User) })
+    .withDeps({ fetchUser: async (_id: string) => ok({ id: "b", name: "B" } as User) });
   const chainedResult = await chained.run(async ({ step, deps }) =>
     step("fetch", () => deps.fetchUser("1"))
   );

@@ -11,6 +11,14 @@ describe("root entry bundle budget", () => {
     }
     const { size } = statSync(rootDist);
     // Guardrail: root entry should stay close to a minimal Result-focused bundle.
-    expect(size).toBeLessThan(12_000);
+    // Budget breakdown (approximate, minified):
+    //   ~12KB — Result core, TaggedError factory, Awaitly namespace
+    //   ~3KB  — AI-DX slug spine: runtime-* hint strings, code/hint/docsUrl
+    //           property descriptors, slugDocsUrl helper. Every awaitly-system
+    //           error carries this — see docs/superpowers/specs/2026-05-09-ai-friendly-redesign-design.md
+    //
+    // If you grow the root bundle beyond ~16KB, reconsider: can the addition
+    // live behind a sub-path entry (awaitly/slugs, awaitly/errors) instead?
+    expect(size).toBeLessThan(16_000);
   });
 });

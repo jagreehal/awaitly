@@ -154,9 +154,9 @@ const harness = createWorkflowHarness({
 
 **WHY**: Test complex scenarios like retries, call tracking, and conditional responses.
 
-### Prefer `provide()` for reusable test deps
+### Prefer `withDeps()` for reusable test deps
 
-If multiple tests share the same overrides, pre-bind them once with `provide()` (or `workflow.provide()`), then run the same workflow logic with less setup noise.
+If multiple tests share the same overrides, pre-bind them once with `withDeps()` (or `workflow.withDeps()`), then run the same workflow logic with less setup noise.
 
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
@@ -168,7 +168,7 @@ const workflow = createWorkflow('checkout', {
 });
 
 // Fluent form: pre-bind common test deps once
-const testWorkflow = workflow.provide({
+const testWorkflow = workflow.withDeps({
   fetchUser: async () => ok({ id: 'u-1', email: 'test@example.com' }),
   sendEmail: async () => ok(undefined),
 });
@@ -197,10 +197,10 @@ const result = await testWorkflow.run(
 Precedence is:
 
 - `createWorkflow(...)` deps
-- then `provide(...)` deps
+- then `withDeps(...)` deps
 - then `run(..., { deps })` deps (highest precedence)
 
-Use `provide()` for shared baseline mocks, and use per-run `deps` overrides for one-off test scenarios.
+Use `withDeps()` for shared baseline mocks, and use per-run `deps` overrides for one-off test scenarios.
 
 ### Mock functions
 

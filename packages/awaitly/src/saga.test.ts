@@ -8,12 +8,12 @@ import { ok, err, type AsyncResult } from "./core";
 
 describe("Saga / Compensation Pattern", () => {
   describe("createSagaWorkflow", () => {
-    it("supports provide-style dep overrides", async () => {
+    it("supports withDeps-style dep overrides", async () => {
       const getMessage = vi.fn().mockResolvedValue(ok("base"));
       const saga = createSagaWorkflow("provided-saga", { getMessage });
 
       const result = await saga
-        .provide({ getMessage: vi.fn().mockResolvedValue(ok("provided")) })
+        .withDeps({ getMessage: vi.fn().mockResolvedValue(ok("provided")) })
         .run(async ({ step, deps }) =>
           step("getMessage", () => deps.getMessage())
         );
@@ -21,11 +21,11 @@ describe("Saga / Compensation Pattern", () => {
       expect(result).toEqual({ ok: true, value: "provided" });
     });
 
-    it("chains provide() with right-most precedence", async () => {
+    it("chains withDeps() with right-most precedence", async () => {
       const getMessage = vi.fn().mockResolvedValue(ok("base"));
       const saga = createSagaWorkflow("provided-saga-chain", { getMessage })
-        .provide({ getMessage: vi.fn().mockResolvedValue(ok("first")) })
-        .provide({ getMessage: vi.fn().mockResolvedValue(ok("second")) });
+        .withDeps({ getMessage: vi.fn().mockResolvedValue(ok("first")) })
+        .withDeps({ getMessage: vi.fn().mockResolvedValue(ok("second")) });
 
       const result = await saga.run(async ({ step, deps }) =>
         step("getMessage", () => deps.getMessage())

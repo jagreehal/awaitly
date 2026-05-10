@@ -10,7 +10,7 @@ const config = [
       awaitly: plugin,
     },
     rules: {
-      'awaitly/no-immediate-execution': 'error',
+      'awaitly/step-no-immediate-execution': 'error',
     },
   },
 ];
@@ -89,7 +89,7 @@ describe('no-immediate-execution', () => {
       const code = `step(fetchUser('1'));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/no-immediate-execution');
+      expect(messages[0].ruleId).toBe('awaitly/step-no-immediate-execution');
       expect(messages[0].message).toContain('fetchUser');
     });
 
@@ -104,7 +104,7 @@ describe('no-immediate-execution', () => {
       const code = `step('fetchUser', fetchUser('1'));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/no-immediate-execution');
+      expect(messages[0].ruleId).toBe('awaitly/step-no-immediate-execution');
     });
 
     it('reports immediate execution with id and key option', () => {
@@ -135,7 +135,7 @@ describe('no-immediate-execution', () => {
       const code = `step.map('fetchUsers', userIds, createMapper());`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/no-immediate-execution');
+      expect(messages[0].ruleId).toBe('awaitly/step-no-immediate-execution');
       expect(messages[0].message).toContain('createMapper');
     });
 
@@ -143,14 +143,14 @@ describe('no-immediate-execution', () => {
       const code = `step.workflow('sub', childWorkflow.run(async ({ step }) => step('x', () => ok(1))));`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/no-immediate-execution');
+      expect(messages[0].ruleId).toBe('awaitly/step-no-immediate-execution');
     });
 
     it('reports immediate execution with step.withFallback (second arg)', () => {
       const code = `step.withFallback('getUser', deps.getUser(id), { fallback: () => deps.getUserFromCache(id) });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/no-immediate-execution');
+      expect(messages[0].ruleId).toBe('awaitly/step-no-immediate-execution');
     });
   });
 

@@ -10,7 +10,7 @@ const config = [
       awaitly: plugin,
     },
     rules: {
-      'awaitly/require-result-handling': 'error',
+      'awaitly/result-require-handling': 'error',
     },
   },
 ];
@@ -141,7 +141,7 @@ describe('require-result-handling', () => {
       `;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/require-result-handling');
+      expect(messages[0].ruleId).toBe('awaitly/result-require-handling');
       expect(messages[0].message).toContain('result');
       expect(messages[0].message).toContain('value');
     });

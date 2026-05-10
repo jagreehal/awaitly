@@ -29,6 +29,7 @@ import { renderRailwayMermaid } from "./output/railway";
 import { analyzeWorkflowSource } from "./static-analyzer";
 import { inferBestDiagramType } from "./auto-diagram";
 import { startWatch } from "./watch";
+import { formatDiagnostics, formatDiagnosticsJSON, validateStrict } from "./strict-diagnostics";
 
 type Direction = "TB" | "TD" | "LR" | "BT" | "RL";
 type Format = "mermaid" | "json" | "markdown";
@@ -61,6 +62,7 @@ interface CliOptions {
   test: boolean;
   testRunner: TestRunner;
   errors: boolean;
+  doctor: boolean;
 }
 
 function printHelp(): void {
@@ -97,6 +99,7 @@ Options:
   --test / --no-test     Generate test stubs (default: off)
   --test-runner=<runner> Test runner: vitest (default), jest, or mocha
   --errors / --no-errors Show error nodes in diagrams (default: on)
+  --doctor              Print strict diagnostics with concrete fix guidance
   --help, -h             Show this help message
 
 Auto-detection:
@@ -119,6 +122,7 @@ Examples:
   awaitly-analyze --diff v1.ts v2.ts
   awaitly-analyze --diff v1.ts v2.ts --format=json
   awaitly-analyze --diff v1.ts v2.ts --format=mermaid --regression
+  awaitly-analyze ./src/workflows/checkout.ts --doctor
 `);
 }
 
@@ -147,6 +151,7 @@ export function parseArgs(args: string[]): CliOptions {
     test: false,
     testRunner: "vitest",
     errors: true,
+    doctor: false,
   };
 
   for (const arg of args) {
@@ -225,6 +230,8 @@ export function parseArgs(args: string[]): CliOptions {
       }
     } else if (arg === "--errors" || arg === "--no-errors") {
       options.errors = arg === "--errors";
+    } else if (arg === "--doctor") {
+      options.doctor = true;
     } else if (!arg.startsWith("-")) {
       if (options.diff) {
         options.diffSources.push(arg);
@@ -473,6 +480,38 @@ function runAnalysis(options: CliOptions, filePath: string): void {
 
     if (workflows.length === 0) {
       throw new Error(`No workflows found in ${options.filePath}`);
+    }
+
+    if (options.doctor) {
+      const sections: string[] = [];
+      const doctorResults: Array<{
+        workflowName: string;
+        diagnostics: ReturnType<typeof validateStrict>;
+      }> = [];
+      for (const ir of workflows) {
+        const strict = validateStrict(ir);
+        doctorResults.push({
+          workflowName: ir.root.workflowName,
+          diagnostics: strict,
+        });
+        sections.push(`# ${ir.root.workflowName}`);
+        sections.push(formatDiagnostics(strict));
+      }
+      if (options.format === "json") {
+        console.log(
+          JSON.stringify(
+            doctorResults.map((r) => ({
+              workflowName: r.workflowName,
+              ...JSON.parse(formatDiagnosticsJSON(r.diagnostics)),
+            })),
+            null,
+            2
+          )
+        );
+      } else {
+        console.log(sections.join("\n\n"));
+      }
+      return;
     }
 
     // Generate interactive HTML if --html

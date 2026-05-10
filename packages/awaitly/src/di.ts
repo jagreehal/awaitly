@@ -4,13 +4,13 @@ import type { RunConfig, Workflow } from "./workflow/types";
 /**
  * Pre-bind dependency overrides on a workflow.
  *
- * Returns another `Workflow` with the same shape — chain `.provide()`,
+ * Returns another `Workflow` with the same shape — chain `.withDeps()`,
  * call `.run()` / `.runWithState()` exactly as before.
  *
  * Precedence (lowest → highest):
- *   createWorkflow deps  <  provide deps  <  run config deps
+ *   createWorkflow deps  <  withDeps deps  <  run config deps
  */
-export function provide<E, U = UnexpectedError, Deps = unknown, C = void>(
+export function withDeps<E, U = UnexpectedError, Deps = unknown, C = void>(
   workflow: Workflow<E, U, Deps, C>,
   overrides: Partial<Deps>
 ): Workflow<E, U, Deps, C> {
@@ -39,8 +39,8 @@ export function provide<E, U = UnexpectedError, Deps = unknown, C = void>(
   return {
     run: forward("run"),
     runWithState: forward("runWithState"),
-    provide(nextOverrides: Partial<Deps>) {
-      return provide(workflow, { ...overrides, ...nextOverrides });
+    withDeps(nextOverrides: Partial<Deps>) {
+      return withDeps(workflow, { ...overrides, ...nextOverrides });
     },
   };
 }

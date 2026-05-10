@@ -1,0 +1,304 @@
+---
+title: Rule Index
+description: "Every canonical awaitly slug, grouped by category. One destination for runtime errors, lint diagnostics, and analyzer doctor output."
+sidebar:
+  order: 0
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+Every canonical awaitly slug lives on this page. The same slug appears on runtime errors (`error.code`), ESLint rule names (`awaitly/<slug>`), and `awaitly-analyze --doctor` diagnostics. `error.docsUrl` deep-links to the matching section.
+
+See the [Slug Spine reference](/awaitly/reference/spine/) for the design rationale and the [ESLint plugin guide](/awaitly/guides/eslint-plugin/) for hand-authored examples of every lint rule.
+
+## `step-*`
+
+step() discipline: id, thunk, nesting, options.
+
+### `step-require-id` \{#step-require-id\}
+
+Require a string literal as the first argument to step() and step helper methods (sleep, retry, withTimeout, try, fromResult, parallel, race, allSettled, run, andThen, match, all, map, withFallback, withResource, workflow).
+
+- **ESLint rule:** `awaitly/step-require-id`
+- **Analyzer:** `awaitly-analyze --doctor` strict rules `missing-step-id`, `dynamic-step-id`, `computed-property`, `template-literal-id`, `unlabelled-conditional`
+
+```text
+step() requires a string literal as the first argument (step ID). Example: step('fetchUser', () => fetchUser(id)).
+step.{{method}}() requires a string literal as the first argument (step ID). Example: step.{{method}}('{{example}}', ...).
+step.sleep() requires two arguments: id and duration (e.g. step.sleep('delay', '5s')). Single-argument step.sleep(duration) is the old API and fails at runtime.
+saga.{{method}}() requires a string literal as the first argument (step name). Example: saga.{{method}}('createOrder', () => deps.createOrder(), { compensate: ... }).
+```
+
+### `step-no-immediate-execution` \{#step-no-immediate-execution\}
+
+Disallow immediate function execution in step() calls. Use thunks: step(() => fn()) instead of step(fn())
+
+- **ESLint rule:** `awaitly/step-no-immediate-execution`
+
+```text
+Avoid immediate execution in step(). Use a thunk: step('id', () => {{functionName}}(...)) instead of step('id', {{functionName}}(...)). Immediate execution defeats caching, retries, and resume capabilities.
+```
+
+### `step-require-thunk-for-key` \{#step-require-thunk-for-key\}
+
+Require thunk when using step() with a key option. Without a thunk, the function executes immediately before the cache can be checked, defeating the purpose of caching.
+
+- **ESLint rule:** `awaitly/step-require-thunk-for-key`
+
+```text
+When using step() with a 'key' option, the executor (second argument) must be a thunk: step('id', () => fn(), { key }). Without a thunk, the function executes immediately before step() checks the cache. The cache will still be populated and step_complete events will fire, but the operation runs regardless of cache state.
+```
+
+### `step-no-bare-await` \{#step-no-bare-await\}
+
+Disallow bare await deps.*() in workflow callbacks. Wrap deps calls in step().
+
+- **ESLint rule:** `awaitly/step-no-bare-await`
+
+```text
+Avoid bare await on deps call. Wrap it in step(): step('id', () => deps.fn(...)).
+```
+
+### `step-no-try-catch-wrap` \{#step-no-try-catch-wrap\}
+
+Disallow wrapping step calls in try/catch; prefer step.try().
+
+- **ESLint rule:** `awaitly/step-no-try-catch-wrap`
+
+```text
+Do not wrap step() in try/catch. Use step.try() with explicit error mapping.
+```
+
+### `step-stable-cache-keys` \{#step-stable-cache-keys\}
+
+Disallow non-deterministic values in cache keys. Using Date.now(), Math.random(), etc. means the cache will never hit.
+
+- **ESLint rule:** `awaitly/step-stable-cache-keys`
+
+```text
+Cache key contains '{{name}}' which produces a different value on each call. Use stable identifiers like user IDs or idempotency keys instead.
+```
+
+## `workflow-*`
+
+createWorkflow / run / runWithState shape.
+
+### `workflow-no-floating` \{#workflow-no-floating\}
+
+Disallow floating workflow calls (run() or workflow functions not awaited/assigned)
+
+- **ESLint rule:** `awaitly/workflow-no-floating`
+
+```text
+Floating workflow call. The result of {{functionName}}() is not awaited, returned, or assigned. This creates a fire-and-forget async operation that cannot be tracked.
+```
+
+### `workflow-options-position` \{#workflow-options-position\}
+
+Disallow passing workflow options in the wrong argument position. For workflow.run(), pass callback first (or run name then callback), then config.
+
+- **ESLint rule:** `awaitly/workflow-options-position`
+- **Analyzer:** `awaitly-analyze --doctor` strict rules `spread-in-options`, `imported-config`
+
+```text
+Workflow options ({{ keys }}) are in the wrong place. Use workflow.run(callback, config) or workflow.run(name, callback, config).
+Workflow options ({{ keys }}) are in the wrong argument position for .run(). The callback must come first (or after run name), then config.
+```
+
+### `workflow-callback-shape` \{#workflow-callback-shape\}
+
+Require workflow callbacks to destructure their context, e.g. (\{ step \}) or (\{ step, deps \}) or (\{ step, deps, ctx \}).
+
+- **ESLint rule:** `awaitly/workflow-callback-shape`
+
+```text
+Workflow callback should destructure its context, e.g. ({ step }) => ... or ({ step, deps }) => ...
+```
+
+### `workflow-no-callable-form` \{#workflow-no-callable-form\}
+
+Disallow the callable workflow form: workflow(callback). Use workflow.run(callback) instead.
+
+- **ESLint rule:** `awaitly/workflow-no-callable-form`
+
+```text
+Use workflow.run(...) instead of calling workflow(...) as a function. The callable form is not supported.
+```
+
+### `workflow-no-dynamic-import` \{#workflow-no-dynamic-import\}
+
+Disallow dynamic import() and require(). Use static imports for predictable bundling and tree-shaking.
+
+- **ESLint rule:** `awaitly/workflow-no-dynamic-import`
+
+```text
+Dynamic import() is not allowed. Use static import instead.
+require() is not allowed. Use static import instead.
+```
+
+## `result-*`
+
+Result usage: ok/err, propagation, double-wrap.
+
+### `result-no-floating` \{#result-no-floating\}
+
+Disallow discarding Result values from step() calls. Results must be assigned or returned.
+
+- **ESLint rule:** `awaitly/result-no-floating`
+
+```text
+Floating Result from {{methodName}}(). The Result is discarded without checking its status. Assign it to a variable or return it.
+```
+
+### `result-require-handling` \{#result-require-handling\}
+
+Require checking Result.ok before accessing Result.value to prevent runtime errors
+
+- **ESLint rule:** `awaitly/result-require-handling`
+- **Analyzer:** `awaitly-analyze --doctor` strict rules `missing-errors`, `dynamic-errors`, `parallel-missing-errors`, `loop-missing-collect`
+
+```text
+Unsafe access to '{{property}}' on Result '{{name}}'. Check '.ok' first: if ({{name}}.ok) { ... {{name}}.{{property}} ... }
+```
+
+### `result-no-double-wrap` \{#result-no-double-wrap\}
+
+Disallow returning ok() or err() from workflow executor functions. Return raw values instead.
+
+- **ESLint rule:** `awaitly/result-no-double-wrap`
+
+```text
+Do not return {{fn}}() from workflow executor. Return the raw value instead. awaitly automatically wraps the return value, so this causes double-wrapping where result.value will be a Result object.
+```
+
+### `result-no-manual-propagation` \{#result-no-manual-propagation\}
+
+Disallow manual Result propagation (return ok()/err()) inside workflow callbacks. Return raw values; the workflow wraps them automatically.
+
+- **ESLint rule:** `awaitly/result-no-manual-propagation`
+
+```text
+Do not return ok()/err() inside a workflow callback. Return the raw value; the workflow wraps it automatically.
+```
+
+### `result-no-direct-ok-err` \{#result-no-direct-ok-err\}
+
+Disallow direct ok()/err() calls inside workflow callbacks. Steps unwrap Results automatically; raw values are returned from the callback.
+
+- **ESLint rule:** `awaitly/result-no-direct-ok-err`
+
+```text
+Do not call ok()/err() directly inside a workflow callback. Return raw values; steps unwrap Results automatically.
+```
+
+## `error-*`
+
+Boundary handling: isUnexpectedError, .cause, normalization.
+
+### `error-check-unexpected-first` \{#error-check-unexpected-first\}
+
+When matching on result.error tags, check isUnexpectedError(result.error) first to separate library bugs from typed business errors.
+
+- **ESLint rule:** `awaitly/error-check-unexpected-first`
+
+```text
+Check isUnexpectedError(result.error) before matching on result.error._tag / .type. Without it, library/SDK bugs are silently treated as typed errors.
+```
+
+### `error-access-cause` \{#error-access-cause\}
+
+Canonical awaitly slug: error-access-cause
+
+### `error-normalize` \{#error-normalize\}
+
+Canonical awaitly slug: error-normalize
+
+### `error-no-throw-in-deps` \{#error-no-throw-in-deps\}
+
+Canonical awaitly slug: error-no-throw-in-deps
+
+## `concurrency-*`
+
+step.all / step.map / step.race vs Promise.*.
+
+### `concurrency-no-promise-all` \{#concurrency-no-promise-all\}
+
+Disallow Promise.all in workflows; use step.all/step.map.
+
+- **ESLint rule:** `awaitly/concurrency-no-promise-all`
+
+```text
+Use step.all() or step.map() instead of Promise.all() inside workflows.
+```
+
+### `concurrency-no-promise-race` \{#concurrency-no-promise-race\}
+
+Disallow Promise.race in workflows; use step.race.
+
+- **ESLint rule:** `awaitly/concurrency-no-promise-race`
+
+```text
+Use step.race() instead of Promise.race() inside workflows.
+```
+
+### `concurrency-no-promise-allsettled` \{#concurrency-no-promise-allsettled\}
+
+Disallow Promise.allSettled in workflows; use step.map.
+
+- **ESLint rule:** `awaitly/concurrency-no-promise-allsettled`
+
+```text
+Use step.map() instead of Promise.allSettled() inside workflows.
+```
+
+## `runtime-*`
+
+Failures only observable at runtime.
+
+### `runtime-step-timeout` \{#runtime-step-timeout\}
+
+Increase the step's timeout option, or check why the upstream operation is slow.
+
+- **Runtime error:** `TimeoutError` (`error.code === 'runtime-step-timeout'`)
+
+### `runtime-step-aborted` \{#runtime-step-aborted\}
+
+Canonical awaitly slug: runtime-step-aborted
+
+### `runtime-retry-exhausted` \{#runtime-retry-exhausted\}
+
+All retry attempts failed. Inspect lastError and decide whether to surface it or compensate.
+
+- **Runtime error:** `RetryExhaustedError` (`error.code === 'runtime-retry-exhausted'`)
+
+### `runtime-rate-limit` \{#runtime-rate-limit\}
+
+Wait retryAfterMs before retrying, or apply step.cache to deduplicate calls.
+
+- **Runtime error:** `RateLimitError` (`error.code === 'runtime-rate-limit'`)
+
+### `runtime-circuit-open` \{#runtime-circuit-open\}
+
+The circuit is open. Wait for it to half-open or fall back to a degraded path.
+
+- **Runtime error:** `CircuitBreakerOpenError` (`error.code === 'runtime-circuit-open'`)
+
+### `runtime-unexpected` \{#runtime-unexpected\}
+
+An unexpected exception escaped a step. Inspect cause; consider returning a typed Result instead of throwing.
+
+- **Runtime error:** `UnexpectedError` (`error.code === 'runtime-unexpected'`)
+
+### `runtime-resolver-not-found` \{#runtime-resolver-not-found\}
+
+Canonical awaitly slug: runtime-resolver-not-found
+
+### `runtime-saga-compensation` \{#runtime-saga-compensation\}
+
+A saga compensation step failed. Inspect compensationError and ensure compensation is idempotent.
+
+- **Runtime error:** `CompensationError` (`error.code === 'runtime-saga-compensation'`)
+
+---
+
+_This page is generated by `apps/docs-site/scripts/generate-rule-pages.mjs` from `awaitly/slugs`, `awaitly/errors`, `eslint-plugin-awaitly`, and `awaitly-analyze`. Adding a slug to `packages/awaitly/src/slugs.ts` and re-running the generator regenerates this page; the cross-surface parity test fails until each surface (lint rule, runtime error, or analyzer mapping) is wired up._

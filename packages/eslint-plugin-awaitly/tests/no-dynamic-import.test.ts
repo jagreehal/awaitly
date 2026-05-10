@@ -10,7 +10,7 @@ const config = [
       awaitly: plugin,
     },
     rules: {
-      "awaitly/no-dynamic-import": "error",
+      "awaitly/workflow-no-dynamic-import": "error",
     },
   },
 ];
@@ -35,7 +35,7 @@ describe("no-dynamic-import", () => {
       const code = `const m = await import('pkg');`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe("awaitly/no-dynamic-import");
+      expect(messages[0].ruleId).toBe("awaitly/workflow-no-dynamic-import");
       expect(messages[0].messageId).toBe("dynamicImport");
     });
   });
@@ -45,7 +45,7 @@ describe("no-dynamic-import", () => {
       const code = `const m = require('pkg');`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe("awaitly/no-dynamic-import");
+      expect(messages[0].ruleId).toBe("awaitly/workflow-no-dynamic-import");
       expect(messages[0].messageId).toBe("require");
     });
   });

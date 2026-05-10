@@ -140,6 +140,19 @@ export {
 } from "./tagged-error";
 
 // =============================================================================
+// Slug Namespace
+// =============================================================================
+export {
+  type AwaitlySlug,
+  type AwaitlySlugCategory,
+  AWAITLY_SLUGS,
+  ALL_SLUGS,
+  slugCategory,
+  slugDocsUrl,
+  isAwaitlySlug,
+} from "./slugs";
+
+// =============================================================================
 // Pattern Matching
 // =============================================================================
 export {

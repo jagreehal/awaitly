@@ -160,7 +160,7 @@ export {
   matchErrorPartial,
 } from "./result";
 
-export { provide } from "./di";
+export { withDeps } from "./di";
 
 export { TaggedError } from "./tagged-error";
 
@@ -220,3 +220,8 @@ export type {
 } from "./tagged-error";
 
 export type { RetryOptions, BackoffStrategy } from "./core";
+
+// Slug Namespace — types only at the root to keep the bundle lean.
+// For runtime helpers (slugDocsUrl, isAwaitlySlug, AWAITLY_SLUGS, etc.),
+// import from "awaitly/slugs" or "awaitly/core".
+export type { AwaitlySlug, AwaitlySlugCategory } from "./slugs";

@@ -168,6 +168,39 @@ describe("CLI", () => {
       expect(exitCode).toBe(0);
       expect(stdout).toContain("--no-stdout           Suppress stdout when writing to file (requires -o or --html)");
     });
+
+    it("should document --doctor", () => {
+      const { stdout, exitCode } = runCli(["--help"]);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("--doctor");
+    });
+  });
+
+  describe("--doctor", () => {
+    it("prints strict diagnostics with canonical slug codes", () => {
+      const { stdout, exitCode } = runCli([testFilePath, "--doctor", "--no-test", "--no-types"]);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("step-require-id");
+      expect(stdout).toContain("https://jagreehal.github.io/awaitly/rules/#step-require-id");
+    });
+
+    it("supports JSON output for tooling", () => {
+      const { stdout, exitCode } = runCli([
+        testFilePath,
+        "--doctor",
+        "--format=json",
+        "--no-test",
+        "--no-types",
+      ]);
+      expect(exitCode).toBe(0);
+      const parsed = JSON.parse(stdout) as Array<{
+        workflowName: string;
+        diagnostics: Array<{ code: string; docsUrl: string }>;
+      }>;
+      expect(parsed.length).toBeGreaterThan(0);
+      expect(parsed[0]?.diagnostics?.[0]?.code).toBeDefined();
+      expect(parsed[0]?.diagnostics?.[0]?.docsUrl).toContain("https://jagreehal.github.io/awaitly/rules/#");
+    });
   });
 
   describe("--output-adjacent", () => {
@@ -379,6 +412,12 @@ describe("CLI", () => {
 });
 
 describe("diff source argument parsing", () => {
+  it("parses --doctor flag", () => {
+    const options = parseArgs(["src/workflow.ts", "--doctor"]);
+    expect(options.filePath).toBe("src/workflow.ts");
+    expect(options.doctor).toBe(true);
+  });
+
   it("collects single file in diff mode", () => {
     const options = parseArgs(["--diff", "src/wf.ts"]);
     expect(options.diff).toBe(true);

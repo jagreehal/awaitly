@@ -1,7 +1,10 @@
 import eslint from "@eslint/js";
 import eslintConfigPrettier from "eslint-config-prettier";
 import tseslint from "typescript-eslint";
-import awaitlyPlugin from "eslint-plugin-awaitly";
+// Relative import avoids a workspace dependency on eslint-plugin-awaitly (breaks turbo
+// build cycle: awaitly <-> eslint-plugin-awaitly). Requires `eslint-plugin-awaitly` dist
+// (built by `^build` before lint). Not published — monorepo-only.
+import awaitlyPlugin from "../eslint-plugin-awaitly/dist/index.js";
 
 export default tseslint.config(
   {
@@ -23,16 +26,16 @@ export default tseslint.config(
           varsIgnorePattern: "^_",
         },
       ],
-      // Awaitly rules - dogfood our own plugin
-      "awaitly/require-step-id": "warn",
-      "awaitly/no-immediate-execution": "warn",
-      "awaitly/no-floating-result": "warn",
-      "awaitly/no-floating-workflow": "warn",
-      "awaitly/require-result-handling": "warn",
-      "awaitly/stable-cache-keys": "warn",
-      "awaitly/require-thunk-for-key": "warn",
-      "awaitly/no-options-on-executor": "warn",
-      "awaitly/no-double-wrap-result": "warn",
+      // Awaitly rules - dogfood our own plugin (canonical slug rule ids)
+      "awaitly/step-require-id": "warn",
+      "awaitly/step-no-immediate-execution": "warn",
+      "awaitly/result-no-floating": "warn",
+      "awaitly/workflow-no-floating": "warn",
+      "awaitly/result-require-handling": "warn",
+      "awaitly/step-stable-cache-keys": "warn",
+      "awaitly/step-require-thunk-for-key": "warn",
+      "awaitly/workflow-options-position": "warn",
+      "awaitly/result-no-double-wrap": "warn",
     },
   },
   // Relax rules for test files - tests intentionally access .value/.error directly
@@ -40,13 +43,13 @@ export default tseslint.config(
   {
     files: ["**/*.test.ts", "**/*.test-d.ts"],
     rules: {
-      "awaitly/require-result-handling": "off",
-      "awaitly/no-floating-result": "off",
-      "awaitly/no-floating-workflow": "off",
-      "awaitly/no-immediate-execution": "off",
-      "awaitly/require-thunk-for-key": "off",
-      "awaitly/no-double-wrap-result": "off",
-      "awaitly/require-step-id": "off",
+      "awaitly/result-require-handling": "off",
+      "awaitly/result-no-floating": "off",
+      "awaitly/workflow-no-floating": "off",
+      "awaitly/step-no-immediate-execution": "off",
+      "awaitly/step-require-thunk-for-key": "off",
+      "awaitly/result-no-double-wrap": "off",
+      "awaitly/step-require-id": "off",
     },
   },
 );

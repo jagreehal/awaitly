@@ -10,7 +10,7 @@ const config = [
       awaitly: plugin,
     },
     rules: {
-      'awaitly/no-double-wrap-result': 'error',
+      'awaitly/result-no-double-wrap': 'error',
     },
   },
 ];
@@ -134,7 +134,7 @@ describe('no-double-wrap-result', () => {
       });`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/no-double-wrap-result');
+      expect(messages[0].ruleId).toBe('awaitly/result-no-double-wrap');
       expect(messages[0].message).toContain('ok()');
       expect(messages[0].message).toContain('double-wrapping');
     });

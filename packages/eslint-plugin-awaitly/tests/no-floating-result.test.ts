@@ -10,7 +10,7 @@ const config = [
       awaitly: plugin,
     },
     rules: {
-      'awaitly/no-floating-result': 'error',
+      'awaitly/result-no-floating': 'error',
     },
   },
 ];
@@ -95,7 +95,7 @@ describe('no-floating-result', () => {
       const code = `step(() => fetchUser());`;
       const messages = linter.verify(code, config);
       expect(messages).toHaveLength(1);
-      expect(messages[0].ruleId).toBe('awaitly/no-floating-result');
+      expect(messages[0].ruleId).toBe('awaitly/result-no-floating');
       expect(messages[0].message).toContain('step');
     });
 
