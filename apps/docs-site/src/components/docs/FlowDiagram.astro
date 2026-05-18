@@ -1,0 +1,27 @@
+---
+interface Node {
+  title: string;
+  detail: string;
+}
+
+interface Props {
+  title?: string;
+  nodes: Node[];
+}
+
+const { title = "Flow", nodes } = Astro.props;
+---
+
+<section class="doc-flow not-content">
+  <h2 class="doc-card-title">{title}</h2>
+  <div class="doc-flow-grid">
+    {nodes.map((node, idx) => (
+      <div class="doc-flow-node">
+        <div class="doc-flow-step">{idx + 1}</div>
+        <h3>{node.title}</h3>
+        <p>{node.detail}</p>
+      </div>
+    ))}
+  </div>
+</section>
+

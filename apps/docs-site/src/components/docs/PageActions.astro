@@ -1,0 +1,73 @@
+---
+interface Props {
+  mdHref?: string;
+  agentSetupHref?: string;
+  docsForAgentsHref?: string;
+}
+
+const {
+  mdHref = '',
+  agentSetupHref = '/guides/claude-skill/',
+  docsForAgentsHref = '/guides/docs-for-agents/',
+} = Astro.props;
+---
+
+<nav class="page-actions not-content" aria-label="Page actions">
+  {mdHref && (
+  <button class="page-action-btn" data-action="copy-md" data-md-href={mdHref} aria-label="Copy Page as Markdown">
+    <svg class="copy-icon" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 256 256" fill="currentColor"><path d="M216,34H88a6,6,0,0,0-6,6V82H40a6,6,0,0,0-6,6V216a6,6,0,0,0,6,6H168a6,6,0,0,0,6-6V174h42a6,6,0,0,0,6-6V40A6,6,0,0,0,216,34ZM162,210H46V94H162Zm48-48H174V88a6,6,0,0,0-6-6H94V46H210Z"></path></svg>
+    <svg class="check-icon" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 256 256" fill="currentColor"><path d="M172.24,99.76a6,6,0,0,1,0,8.48l-56,56a6,6,0,0,1-8.48,0l-24-24a6,6,0,0,1,8.48-8.48L112,151.51l51.76-51.75A6,6,0,0,1,172.24,99.76ZM230,128A102,102,0,1,1,128,26,102.12,102.12,0,0,1,230,128Zm-12,0a90,90,0,1,0-90,90A90.1,90.1,0,0,0,218,128Z"></path></svg>
+    <span class="label-wrap">
+      <span class="label">Copy as Markdown</span>
+      <span class="copied-label" aria-hidden="true">Copied!</span>
+    </span>
+  </button>
+  )}
+
+  {mdHref && <span class="sep" aria-hidden="true">|</span>}
+
+  {mdHref && (
+  <a class="page-action-btn page-action-link" aria-label="View Page as Markdown" href={mdHref} target="_blank" rel="noopener noreferrer">
+    <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 256 256" fill="currentColor"><path d="M232,50H24A14,14,0,0,0,10,64V192a14,14,0,0,0,14,14H232a14,14,0,0,0,14-14V64A14,14,0,0,0,232,50Zm2,142a2,2,0,0,1-2,2H24a2,2,0,0,1-2-2V64a2,2,0,0,1,2-2H232a2,2,0,0,1,2,2ZM126,104v48a6,6,0,0,1-12,0V118.49L92.24,140.24a6,6,0,0,1-8.48,0L62,118.49V152a6,6,0,0,1-12,0V104a6,6,0,0,1,10.24-4.24L88,127.51l27.76-27.75A6,6,0,0,1,126,104Zm78.24,19.76a6,6,0,0,1,0,8.48l-24,24a6,6,0,0,1-8.48,0l-24-24a6,6,0,1,1,8.48-8.48L170,137.51V104a6,6,0,0,1,12,0v33.51l13.76-13.75A6,6,0,0,1,204.24,123.76Z"></path></svg>
+    <span>View as Markdown</span>
+  </a>
+  )}
+
+  <span class="sep" aria-hidden="true">|</span>
+
+  <a class="page-action-btn page-action-link" href={agentSetupHref} data-tooltip="Setup your agent for awaitly docs" aria-label="Setup your agent for awaitly docs">
+    <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 256 256" fill="currentColor"><path d="M200,50H134V16a6,6,0,0,0-12,0V50H56A30,30,0,0,0,26,80V192a30,30,0,0,0,30,30H200a30,30,0,0,0,30-30V80A30,30,0,0,0,200,50Zm18,142a18,18,0,0,1-18,18H56a18,18,0,0,1-18-18V80A18,18,0,0,1,56,62H200a18,18,0,0,1,18,18ZM74,108a10,10,0,1,1,10,10A10,10,0,0,1,74,108Zm88,0a10,10,0,1,1,10,10A10,10,0,0,1,162,108Zm2,30H92a26,26,0,0,0,0,52h72a26,26,0,0,0,0-52Zm-22,12v28H114V150ZM78,164a14,14,0,0,1,14-14h10v28H92A14,14,0,0,1,78,164Zm86,14H154V150h10a14,14,0,0,1,0,28Z"></path></svg>
+    <span>Agent setup</span>
+  </a>
+
+  <span class="sep" aria-hidden="true">|</span>
+
+  <a class="page-action-btn page-action-link" href={docsForAgentsHref} data-tooltip="Consume awaitly docs with your agent" aria-label="Consume awaitly docs with your agent">
+    <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 256 256" fill="currentColor"><path d="M98,136a6,6,0,0,1,6-6h64a6,6,0,0,1,0,12H104A6,6,0,0,1,98,136Zm6-26h64a6,6,0,0,0,0-12H104a6,6,0,0,0,0,12Zm126,82a30,30,0,0,1-30,30H88a30,30,0,0,1-30-30V64a18,18,0,0,0-36,0c0,6.76,5.58,11.19,5.64,11.23A6,6,0,1,1,20.4,84.8C20,84.48,10,76.85,10,64A30,30,0,0,1,40,34H176a30,30,0,0,1,30,30V170h10a6,6,0,0,1,3.6,1.2C220,171.52,230,179.15,230,192Zm-124,0c0-6.76-5.59-11.19-5.64-11.23A6,6,0,0,1,104,170h90V64a18,18,0,0,0-18-18H64a29.82,29.82,0,0,1,6,18V192a18,18,0,0,0,36,0Zm112,0a14.94,14.94,0,0,0-4.34-10H115.88A24.83,24.83,0,0,1,118,192a29.87,29.87,0,0,1-6,18h88A18,18,0,0,0,218,192Z"></path></svg>
+    <span>Docs for agents</span>
+  </a>
+</nav>
+
+<script>
+  document.querySelectorAll('[data-action="copy-md"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const mdHref = btn.getAttribute('data-md-href');
+      if (!mdHref) return;
+      let content = '';
+      try {
+        const resp = await fetch(mdHref, { credentials: 'omit' });
+        content = await resp.text();
+      } catch {
+        content = `${document.title}\n\n${window.location.href}`;
+      }
+
+      try {
+        await navigator.clipboard.writeText(content);
+        btn.classList.add('is-copied');
+        window.setTimeout(() => btn.classList.remove('is-copied'), 1600);
+      } catch {
+        // no-op fallback
+      }
+    });
+  });
+</script>

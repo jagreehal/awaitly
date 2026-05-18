@@ -3,276 +3,203 @@ title: Static Analysis
 description: Analyze workflow structure without execution
 ---
 
-Analyze workflow source code to extract structure, dependencies, and generate visualization data without executing the workflow.
+import DocBlueprint from '../../../components/docs/DocBlueprint.astro';
+import DecisionMatrix from '../../../components/docs/DecisionMatrix.astro';
+import FlowDiagram from '../../../components/docs/FlowDiagram.astro';
 
-**Documentation fields:** `description` and `markdown` on workflows and steps are the canonical way to feed static analysis and doc generation. See [Documenting workflows](/docs/guides/documenting-workflows/) for how to set them. JSDoc above workflow and step declarations is also extracted and available as `jsdocDescription` on the root and step nodes.
+<DocBlueprint
+  tldr="Use awaitly-analyze to extract workflow structure from TypeScript, then render Mermaid/JSON/HTML artifacts for docs, review, and CI checks without running workflows."
+  whenToUse={[
+    'You want architecture diagrams from source code, not runtime traces.',
+    'You need deterministic workflow docs in CI.',
+    'You want workflow diffs in PR review.',
+    'You need rule-style diagnostics with stable slug codes.'
+  ]}
+/>
 
-**Step names:** `step()` requires a string literal as the first argument. The analyzer uses that string as the step **display name** (for docs/diagrams). There is no inference; a missing or non-string first argument is reported as an error. See [Steps](/docs/foundations/step/#basic-usage) for usage.
+<FlowDiagram
+  title="Static Analysis Pipeline"
+  nodes={[
+    { title: 'Analyze Source', detail: 'Parse workflow file and extract IR tree, stats, and references.' },
+    { title: 'Render Artifact', detail: 'Generate Mermaid, JSON, markdown report, or interactive HTML.' },
+    { title: 'Apply In Workflow', detail: 'Use output in docs, PRs, CI gates, and architecture reviews.' }
+  ]}
+/>
 
-**Step metadata:** The analyzer also reads optional step metadata when present (`intent`, `domain`, `owner`, `tags`, `stateChanges`, `emits`, `calls`, `errorMeta`) and includes it in the IR and generated diagrams/tooling — e.g. `step('charge', () => charge(), { domain: 'payments', intent: 'charge customer' })`.
-
-## CLI Tool
-
-The `awaitly-analyze` CLI analyzes TypeScript workflow files and outputs Mermaid diagrams or JSON:
+## Fast start
 
 ```bash
-# Output Mermaid diagram + types file (default)
+# Mermaid markdown (default)
 npx awaitly-analyze ./src/workflows/checkout.ts
 
-# Output JSON
+# JSON
 npx awaitly-analyze ./src/workflows/checkout.ts --format=json
 
-# Railway diagram (linear happy path with ok/err branching)
-npx awaitly-analyze ./src/workflows/checkout.ts --railway
-
-# Pipe to file
-npx awaitly-analyze ./src/workflows/checkout.ts > workflow.md
-
-# Show step cache keys
-npx awaitly-analyze ./src/workflows/checkout.ts --keys
-
-# Change diagram direction (TB, LR, BT, RL)
-npx awaitly-analyze ./src/workflows/checkout.ts --direction=LR
-
-# Control generated output files
-npx awaitly-analyze ./src/workflows/checkout.ts --no-types    # Skip types file generation
-npx awaitly-analyze ./src/workflows/checkout.ts --test        # Generate test stubs
-npx awaitly-analyze ./src/workflows/checkout.ts --test --test-runner=jest
-
-# Control error display in diagrams
-npx awaitly-analyze ./src/workflows/checkout.ts --no-errors   # Hide error nodes
-
-# Compare two workflow files
-npx awaitly-analyze --diff v1.ts v2.ts
-
-# Compare HEAD vs working copy (single file shorthand)
-npx awaitly-analyze --diff src/workflows/checkout.ts
-
-# Compare a git ref against a local file
-npx awaitly-analyze --diff main:src/workflows/checkout.ts src/workflows/checkout.ts
-
-# Diff all workflow files in a GitHub PR
-npx awaitly-analyze --diff gh:#123
-
-# Diff as JSON or Mermaid diagram
-npx awaitly-analyze --diff v1.ts v2.ts --format=json
-npx awaitly-analyze --diff v1.ts v2.ts --format=mermaid
-
-# Flag removed steps as regressions
-npx awaitly-analyze --diff v1.ts v2.ts --regression
-```
-
-### Interactive HTML
-
-Generate a self-contained HTML file with an interactive Mermaid diagram, click-to-inspect node details, and a built-in theme picker:
-
-```bash
-# Generate interactive HTML (writes <basename>.html next to source)
+# Interactive HTML artifact
 npx awaitly-analyze ./src/workflows/checkout.ts --html
 
-# Custom output path
+# Workflow diff
+npx awaitly-analyze --diff v1.ts v2.ts
+
+# Strict diagnostics
+npx awaitly-analyze ./src/workflows/checkout.ts --doctor
+```
+
+## What the analyzer reads
+
+- Step IDs from `step('id', fn, opts)` as canonical names.
+- Workflow and step docs from `description` and `markdown`.
+- JSDoc descriptions as `jsdocDescription` fallback.
+- Optional step metadata: `intent`, `domain`, `owner`, `tags`, `stateChanges`, `emits`, `calls`, `errorMeta`.
+
+## CLI reference
+
+### Core flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--format=<fmt>` | `mermaid` | `mermaid`, `json`, `markdown` |
+| `--direction=<dir>` | `TB` | `TB`, `TD`, `LR`, `BT`, `RL` |
+| `--railway` | off | Linear happy-path + ok/err branching |
+| `--keys` | off | Show step cache keys |
+| `--errors` / `--no-errors` | on | Show/hide error nodes |
+| `--html` | off | Generate interactive HTML artifact |
+| `--html-output=<path>` | auto | Write HTML to custom path |
+
+### Output control
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--types` / `--no-types` | on | Generate `.types.ts` |
+| `--test` / `--no-test` | off | Generate test stubs |
+| `--test-runner=<runner>` | `vitest` | `vitest`, `jest`, `mocha` |
+| `-o`, `--output-adjacent` | off | Write output next to source |
+| `--suffix=<value>` | `workflow` | Adjacent output file suffix |
+| `--no-stdout` | off | Suppress stdout output |
+| `--dsl-output=<value>` | `off` | Write DSL output |
+| `--write-dsl` | off | Same as `--dsl-output=.awaitly` |
+| `--watch` | off | Re-analyze on source changes |
+
+## Interactive HTML artifact
+
+```bash
+# Writes <basename>.html next to workflow source
+npx awaitly-analyze ./src/workflows/checkout.ts --html
+
+# Custom path
 npx awaitly-analyze ./src/workflows/checkout.ts --html --html-output=./docs/checkout-diagram.html
 ```
 
-The generated HTML file is fully self-contained — it loads Mermaid from a CDN and embeds all workflow metadata inline. Open it in any browser; no dev server needed.
+The HTML output includes:
+- Mermaid rendered client-side.
+- Click-to-inspect node details.
+- Built-in theme picker with persistence.
+- Self-contained payload for easy sharing.
 
-**What's included:**
-
-- **Mermaid diagram** rendered client-side via CDN
-- **Click-to-inspect** — click any node to see its step ID, callee, retry/timeout config, types, data flow, and source location in a side panel
-- **6 color themes** — 4 dark (Midnight, Ocean, Ember, Forest) and 2 light (Daylight, Paper)
-- **System preference detection** — auto-selects a dark or light theme based on `prefers-color-scheme`
-- **localStorage persistence** — your theme choice is remembered across sessions
-
-**Programmatic usage:**
+## Programmatic API
 
 ```typescript
 import {
   analyze,
   renderStaticMermaid,
+  renderStaticJSON,
   extractNodeMetadata,
   generateInteractiveHTML,
 } from 'awaitly-analyze';
 
-const ir = analyze('./checkout.ts').single();
-const mermaid = renderStaticMermaid(ir);
+const ir = analyze('./src/workflows/checkout.ts').single();
+
+const mermaid = renderStaticMermaid(ir, { direction: 'TB', showKeys: false });
+const json = renderStaticJSON(ir, { pretty: true });
+
 const metadata = extractNodeMetadata(ir);
 const html = generateInteractiveHTML(mermaid, metadata, {
-  theme: 'midnight',    // optional: force a specific theme
-  title: 'Checkout',    // optional: override page title
-  direction: 'TB',      // optional: diagram direction
+  title: 'Checkout Workflow',
+  direction: 'TB',
+});
+```
+
+### Fluent selection helpers
+
+| Method | Returns | Throws | Best for |
+|--------|---------|--------|----------|
+| `.single()` | Single IR | If 0 or >1 workflows | Single-workflow file |
+| `.singleOrNull()` | IR or null | Never | Optional single workflow |
+| `.all()` | IR array | Never | Multi-workflow iteration |
+| `.named(name)` | Single IR | If not found | Named workflow selection |
+| `.first()` | Single IR | If empty | First workflow only |
+| `.firstOrNull()` | IR or null | Never | Safe first workflow |
+
+## Diff workflows
+
+```bash
+# Local files
+npx awaitly-analyze --diff before.ts after.ts
+
+# HEAD vs working copy
+npx awaitly-analyze --diff src/workflows/checkout.ts
+
+# Git ref vs local
+npx awaitly-analyze --diff main:src/workflows/checkout.ts src/workflows/checkout.ts
+
+# GitHub PR
+npx awaitly-analyze --diff gh:#123
+```
+
+```typescript
+import {
+  analyze,
+  diffWorkflows,
+  renderDiffMarkdown,
+  renderDiffJSON,
+  renderDiffMermaid,
+} from 'awaitly-analyze';
+
+const before = analyze('./v1.ts').single();
+const after = analyze('./v2.ts').single();
+
+const diff = diffWorkflows(before, after, {
+  detectRenames: true,
+  regressionMode: false,
 });
 
-// Write to disk
-import { writeFileSync } from 'node:fs';
-writeFileSync('checkout.html', html);
+const md = renderDiffMarkdown(diff, { showUnchanged: true });
+const json = renderDiffJSON(diff);
+const mermaid = renderDiffMermaid(after, diff, { showRemovedSteps: true, direction: 'TB' });
 ```
 
-See [Renderers → Interactive HTML renderer](#interactive-html-renderer) for the full API.
+### Diff options
 
-### Multi-workflow output
+| Option | Default | Description |
+|--------|---------|-------------|
+| `detectRenames` | `true` | Match same callee+position as rename |
+| `regressionMode` | `false` | Mark removals as regressions |
 
-When a file contains multiple workflows, each gets its own section with a markdown header and mermaid diagram:
+## `--doctor` diagnostics
+
+Use strict slug-keyed diagnostics aligned with runtime and ESLint rule naming.
+
+```bash
+awaitly-analyze ./src/workflows/checkout.ts --doctor
+awaitly-analyze ./src/workflows/checkout.ts --doctor --format=json
+```
+
+Sample output:
 
 ```text
-## Workflow: checkoutWorkflow
-
-(mermaid diagram for checkout workflow)
-
-## Workflow: paymentWorkflow
-
-(mermaid diagram for payment workflow)
+✗ [step-require-id]:12:4
+  Step "<missing>" uses legacy signature without explicit ID
+  Docs: https://jagreehal.github.io/awaitly/rules/#step-require-id
+  Fix: Use step('id', fn, opts) instead of step(fn, opts)
 ```
 
-### CLI flags reference
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--format=<fmt>` | `mermaid` | Output format: `mermaid`, `json`, or `markdown` |
-| `--railway` | off | Railway-style diagram (linear happy path with ok/err branches) |
-| `--direction=<dir>` | `TB` | Diagram direction: `TB`, `TD`, `LR`, `BT`, `RL` |
-| `--keys` | off | Show step cache keys in labels |
-| `--errors` / `--no-errors` | on | Show error nodes in diagrams |
-| `--types` / `--no-types` | on | Generate a `.types.ts` file with workflow input/output/error types |
-| `--test` / `--no-test` | off | Generate a `.test.ts` file with test stubs |
-| `--test-runner=<runner>` | `vitest` | Test runner for generated stubs: `vitest`, `jest`, or `mocha` |
-| `--html` | off | Generate interactive HTML file |
-| `--html-output=<path>` | auto | Custom output path for HTML |
-| `-o`, `--output-adjacent` | off | Write output file next to source |
-| `--suffix=<value>` | `workflow` | Suffix for adjacent output file |
-| `--no-stdout` | off | Suppress stdout when writing to file |
-| `--dsl-output=<value>` | `off` | Write DSL: `off`, `.awaitly`, or custom path |
-| `--write-dsl` | off | Shorthand for `--dsl-output=.awaitly` |
-| `--diff` | off | Compare workflows (see [Workflow Diff](#workflow-diff)) |
-| `--regression` | off | Flag removed steps as regressions (with `--diff`) |
-| `--watch` | off | Watch source file and re-analyze on changes |
-
-## Basic usage
-
-```typescript
-import { analyze } from 'awaitly-analyze';
-
-// Analyze a single-workflow file
-const ir = analyze('./src/workflows/checkout.ts').single();
-console.log(`Steps: ${ir.metadata.stats.totalSteps}`);
-
-// Analyze a multi-workflow file
-const workflows = analyze('./src/workflows/all.ts').all();
-for (const ir of workflows) {
-  console.log(`${ir.root.workflowName}: ${ir.metadata.stats.totalSteps} steps`);
-}
-
-// Get a specific workflow by name
-const checkout = analyze('./src/workflows/all.ts').named('checkoutWorkflow');
-```
-
-### Fluent API methods
-
-| Method | Returns | Throws | Use when |
-|--------|---------|--------|----------|
-| `.single()` | Single IR | If 0 or >1 workflows | File has exactly one workflow |
-| `.singleOrNull()` | IR or null | Never | Checking if file has one workflow |
-| `.all()` | IR array | Never | Processing all workflows in file |
-| `.named(name)` | Single IR | If not found | Targeting specific workflow by name |
-| `.first()` | Single IR | If empty | Getting first workflow, don't care about count |
-| `.firstOrNull()` | IR or null | Never | Safely getting first workflow |
-
-**Choosing the right method:**
-
-```typescript
-// Most common: single workflow per file
-const ir = analyze('./checkout.ts').single();
-
-// Multi-workflow files: iterate all
-for (const ir of analyze('./workflows.ts').all()) {
-  console.log(ir.root.workflowName);
-}
-
-// Target by name when you know what you want
-const payment = analyze('./workflows.ts').named('paymentWorkflow');
-
-// Safe access when file might be empty
-const ir = analyze(filePath).firstOrNull();
-if (ir) {
-  // process workflow
-}
-```
-
-## Analyzing source strings
-
-Analyze workflow code directly without reading from a file:
-
-```typescript
-import { analyze } from 'awaitly-analyze';
-
-const source = `
-  const checkout = createWorkflow('workflow', deps);
-
-  async function run() {
-    return await checkout.run(async ({ step, deps }) => {
-      const cart = await step('fetchCart', () => deps.fetchCart(), { key: 'cart' });
-      const total = await step('calculateTotal', () => deps.calculateTotal(cart), { key: 'total' });
-      return { cart, total };
-    });
-  }
-`;
-
-const ir = analyze.source(source).single();
-console.log(ir.metadata.stats);
-// { totalSteps: 2, conditionalCount: 0, parallelCount: 0, ... }
-```
-
-## What gets detected
-
-The analyzer extracts:
-
-| Feature | Detection |
-|---------|-----------|
-| Steps | `step()`, `step.retry()`, `step.withTimeout()` |
-| Conditionals | `if/else`, `when()`, `unless()`, `whenOr()`, `unlessOr()` |
-| Loops | `for`, `while`, `for-of`, `for-in` |
-| Parallel | `step.all()`, `allAsync()`, `allSettledAsync()` |
-| Race | `step.race()`, `anyAsync()` |
-| Retry/Timeout | Options in step config, `step.retry()`, `step.withTimeout()` |
-| Workflow refs | Calls to other workflows |
-
-### Supported callback patterns
-
-The analyzer handles various callback patterns:
-
-```typescript
-// Simple identifier
-workflow.run(async ({ step, deps }) => { ... });
-
-// Destructuring
-workflow.run(async ({ step }) => { ... });
-
-// Destructuring with alias
-workflow.run(async ({ step: runStep }) => { ... });
-
-// Destructuring with default
-workflow.run(async ({ step = defaultStep }) => { ... });
-
-// Destructuring with alias and default
-workflow.run(async ({ step: runStep = fallback }) => { ... });
-```
-
-## IR structure
-
-The analyzer returns a `StaticWorkflowIR` with:
+## Analyzer output model
 
 ```typescript
 interface StaticWorkflowIR {
-  root: StaticWorkflowNode;      // Workflow tree
+  root: StaticWorkflowNode;
   metadata: StaticAnalysisMetadata;
   references: Map<string, StaticWorkflowIR>;
-}
-
-interface StaticAnalysisMetadata {
-  analyzedAt: number;
-  filePath: string;
-  warnings: AnalysisWarning[];
-  stats: AnalysisStats;
 }
 
 interface AnalysisStats {
@@ -286,554 +213,65 @@ interface AnalysisStats {
 }
 ```
 
-## Node types
+Node categories:
+- `StaticStepNode`
+- `StaticSequenceNode`
+- `StaticParallelNode`
+- `StaticRaceNode`
+- `StaticConditionalNode`
+- `StaticLoopNode`
+- `StaticWorkflowRefNode`
+- `StaticUnknownNode`
 
-The workflow tree contains these node types:
+## Feature detection coverage
 
-```typescript
-type StaticFlowNode =
-  | StaticStepNode        // step() call
-  | StaticSequenceNode    // Sequential steps
-  | StaticParallelNode    // Parallel execution
-  | StaticRaceNode        // Race execution
-  | StaticConditionalNode // if/else or conditional helpers
-  | StaticLoopNode        // for/while loops
-  | StaticWorkflowRefNode // Call to another workflow
-  | StaticUnknownNode;    // Unanalyzable code
-```
+| Feature | Detection |
+|---------|-----------|
+| Steps | `step()`, `step.retry()`, `step.withTimeout()` |
+| Conditionals | `if/else`, `when*`, `unless*` |
+| Loops | `for`, `while`, `for-of`, `for-in` |
+| Parallel | `step.all()`, `allAsync()`, `allSettledAsync()` |
+| Race | `step.race()`, `anyAsync()` |
+| Workflow refs | Child workflow run calls |
 
-## API types reference
-
-Main static-analysis node types and when fields are populated:
-
-- **StaticWorkflowNode** (root): `workflowName`, `source`, `dependencies`, `children`, `description`, `markdown`, `jsdocDescription?`, `errorTypes`.
-  `description` and `markdown` are set only for `createWorkflow` / `createSagaWorkflow` (from options or deps). They are undefined for `run()` / `runSaga()`. `jsdocDescription` is extracted from JSDoc above the workflow variable when present.
-
-- **StaticStepNode**: `stepId`, `callee`, `name`, `key`, `description`, `markdown`, `jsdocDescription?`, `retry`, `timeout`, `errors?`, `out?`, `reads?`.
-  `stepId` is required and comes from the first argument to **`step('id', fn, opts)`**. `description` and `markdown` come from step options. `jsdocDescription` is extracted from JSDoc above the step statement.
-
-- **StaticSagaStepNode**: `callee`, `name`, `description`, `markdown`, `jsdocDescription?`, `hasCompensation`, `compensationCallee`, `isTryStep`.
-  `description` and `markdown` come from saga step options.
-
-- **DependencyInfo**: `name`, `typeSignature?`, `errorTypes`.
-  `typeSignature` is the TypeScript type when the type checker is available. `errorTypes` is not yet inferred from types.
-
-## Walking the tree
-
-Use the built-in helpers to traverse nodes:
-
-```typescript
-import {
-  analyze,
-  isStaticStepNode,
-  isStaticConditionalNode,
-  getStaticChildren
-} from 'awaitly-analyze';
-
-function walkWorkflow(node: StaticFlowNode) {
-  if (isStaticStepNode(node)) {
-    console.log(`Step: ${node.key || node.name}`);
-  }
-
-  if (isStaticConditionalNode(node)) {
-    console.log(`Condition: ${node.condition}`);
-  }
-
-  // Recursively walk children
-  for (const child of getStaticChildren(node)) {
-    walkWorkflow(child);
-  }
-}
-
-const ir = analyze('./checkout.ts').single();
-for (const child of ir.root.children) {
-  walkWorkflow(child);
-}
-```
-
-## Multiple workflows
-
-A single file can contain multiple workflows:
-
-```typescript
-import { analyze } from 'awaitly-analyze';
-
-const source = `
-  const workflowA = createWorkflow('workflowA', depsA);
-  const workflowB = createWorkflow('workflowB', depsB);
-
-  async function runA() {
-    return await workflowA.run(async ({ step }) => { ... });
-  }
-
-  async function runB() {
-    return await workflowB.run(async ({ step }) => { ... });
-  }
-`;
-
-const result = analyze.source(source);
-
-// Get all workflows
-const workflows = result.all();
-console.log(workflows.length); // 2
-
-// Get by name
-const wfA = analyze.source(source).named('workflowA');
-const wfB = analyze.source(source).named('workflowB');
-```
-
-## Use cases
-
-### Generating documentation
-
-Use `description` and `markdown` on workflows and steps (see [Documenting workflows](/docs/guides/documenting-workflows/)) so the analyzer can extract them. Then:
-
-1. Call `analyze(filePath).all()` to get all workflows in a file.
-2. For each IR: use `root.workflowName`, `root.description`, `root.markdown` for the workflow title and body.
-3. Walk `root.children` (and nested sequences) to list steps; use each step’s `name`, `key`, `description`, `markdown` for step tables or lists.
-4. Optionally use `generatePaths(ir)` and `renderStaticMermaid(ir)` for path coverage and diagrams.
-
-Minimal recipe:
-
-```typescript
-import { analyze, getStaticChildren, isStaticStepNode } from 'awaitly-analyze';
-
-const workflows = analyze('./src/workflows/checkout.ts').all();
-
-for (const ir of workflows) {
-  const { root } = ir;
-  console.log(`# ${root.workflowName}\n`);
-  if (root.description) console.log(root.description + '\n');
-  if (root.markdown) console.log(root.markdown + '\n');
-  console.log(`- ${ir.metadata.stats.totalSteps} steps\n`);
-
-  function listSteps(node) {
-    if (isStaticStepNode(node)) {
-      const name = node.stepId;
-      console.log(`- **${name}**${node.description ? ` — ${node.description}` : ''}`);
+<DecisionMatrix
+  title="Which Output Should You Use?"
+  rows={[
+    {
+      choice: '--format=mermaid',
+      bestFor: 'Readable architecture diagrams in docs and PRs.',
+      tradeoff: 'Less detail than full JSON payload.'
+    },
+    {
+      choice: '--format=json',
+      bestFor: 'CI, automation, and custom tooling.',
+      tradeoff: 'Harder for humans to skim quickly.'
+    },
+    {
+      choice: '--html',
+      bestFor: 'Shareable deep review with click-to-inspect details.',
+      tradeoff: 'Heavier artifact than markdown output.'
+    },
+    {
+      choice: '--diff',
+      bestFor: 'PR-level workflow change review.',
+      tradeoff: 'Requires clean baseline/version selection.'
+    },
+    {
+      choice: '--doctor',
+      bestFor: 'Strict diagnostics and policy enforcement.',
+      tradeoff: 'Can surface warnings that require migration work.'
     }
-    for (const child of getStaticChildren(node)) listSteps(child);
-  }
-  for (const child of root.children) listSteps(child);
-}
-```
-
-An optional script that does this is provided in the repo: run `node packages/awaitly-analyze/scripts/generate-workflow-docs.mjs <path-to-workflow.ts>` from the repo root (after building awaitly-analyze) to output one markdown section per workflow.
-
-### Build test coverage matrix
-
-```typescript
-import { analyze, isStaticConditionalNode } from 'awaitly-analyze';
-
-function countPaths(node: StaticFlowNode): number {
-  if (isStaticConditionalNode(node)) {
-    const thenPaths = node.consequent.reduce((n, c) => n * countPaths(c), 1);
-    const elsePaths = (node.alternate || []).reduce((n, c) => n * countPaths(c), 1);
-    return thenPaths + elsePaths;
-  }
-  // ... handle other node types
-  return 1;
-}
-
-const ir = analyze('./checkout.ts').single();
-console.log(`Execution paths: ${countPaths(ir.root)}`);
-```
-
-### Validate workflow complexity
-
-```typescript
-import { analyze } from 'awaitly-analyze';
-
-const ir = analyze('./checkout.ts').single();
-const stats = ir.metadata.stats;
-
-if (stats.totalSteps > 20) {
-  console.warn('Consider breaking this workflow into smaller pieces');
-}
-
-if (stats.conditionalCount > 5) {
-  console.warn('High cyclomatic complexity');
-}
-```
-
-## Renderers
-
-Generate output from the IR using built-in renderers:
-
-### Mermaid renderer
-
-```typescript
-import { analyze, renderStaticMermaid } from 'awaitly-analyze';
-
-const ir = analyze('./checkout.ts').single();
-const mermaid = renderStaticMermaid(ir, {
-  direction: 'TB',      // TB, LR, BT, RL
-  showKeys: false,      // Show step cache keys
-  showConditions: true, // Show condition text
-});
-
-console.log(mermaid);
-// flowchart TB
-//   start(("▶"))
-//   step_1["Fetch cart"]
-//   ...
-```
-
-### Railway renderer
-
-Generate a linear happy-path diagram with ok/err branching per step. Error types are inferred from `AsyncResult` return types on dependency functions.
-
-```typescript
-import { analyze, renderRailwayMermaid } from 'awaitly-analyze';
-
-const ir = analyze('./checkout.ts').single();
-const railway = renderRailwayMermaid(ir, {
-  direction: 'LR',              // 'LR' or 'TD' (default: 'LR')
-  showKeys: true,                // Show step cache keys
-  showRetry: true,               // Show retry info on labels
-  showTimeout: true,             // Show timeout info on labels
-  includeInferredErrors: true,   // Show errors inferred from return types (default: true)
-});
-
-console.log(railway);
-// flowchart LR
-//   VE["validateEmail"] -->|ok| FU["findUser"]
-//   FU -->|ok| Done((Success))
-//   VE -->|err| VEE["'INVALID_EMAIL'"]
-//   FU -->|err| FUE["'DB_ERROR'"]
-```
-
-Set `includeInferredErrors: false` to show only explicitly declared errors (from step `errors` option):
-
-```typescript
-const explicitOnly = renderRailwayMermaid(ir, { includeInferredErrors: false });
-```
-
-### JSON renderer
-
-```typescript
-import { analyze, renderStaticJSON, renderMultipleStaticJSON } from 'awaitly-analyze';
-
-const ir = analyze('./checkout.ts').single();
-const json = renderStaticJSON(ir, { pretty: true });
-
-// For multiple workflows
-const workflows = analyze('./checkout.ts').all();
-const multiJson = renderMultipleStaticJSON(workflows, './checkout.ts', {
-  pretty: true,
-});
-```
-
-### JSON output shape
-
-The output of `renderStaticJSON(ir)` has this structure:
-
-- **Top level**: `{ root, metadata?, references? }`
-- **StaticWorkflowNode**: `type: "workflow"`, `id`, `workflowName`, `source?`, `dependencies[]`, `errorTypes[]`, `children[]`, `description?`, `markdown?`, `jsdocDescription?`
-- **Flow nodes** (discriminated by `type`): `"step"` (includes required `stepId` from the first argument), `"saga-step"`, `"sequence"`, `"parallel"`, `"race"`, `"conditional"`, `"switch"`, `"loop"`, `"stream"`, `"workflow-ref"`, `"unknown"`
-
-A JSON Schema for validation is available at `schema/static-workflow-ir.schema.json` in the awaitly-analyze package.
-
-### Interactive HTML renderer
-
-Generate a self-contained HTML file with an interactive Mermaid diagram and click-to-inspect panel. This is the same output produced by the `--html` CLI flag.
-
-The pipeline has two steps: extract metadata from the IR, then combine it with the Mermaid text into HTML:
-
-```typescript
-import {
-  analyze,
-  renderStaticMermaid,
-  extractNodeMetadata,
-  generateInteractiveHTML,
-} from 'awaitly-analyze';
-
-const ir = analyze('./checkout.ts').single();
-const mermaid = renderStaticMermaid(ir);
-const metadata = extractNodeMetadata(ir);
-const html = generateInteractiveHTML(mermaid, metadata, { theme: 'midnight' });
-```
-
-**`extractNodeMetadata(ir)`** walks the IR tree and returns a `WorkflowMetadata` object containing per-node metadata (step IDs, callees, retry/timeout config, types, source locations) keyed by the Mermaid node ID so the HTML click handler can look up details.
-
-**`generateInteractiveHTML(mermaidText, metadata, options?)`** returns a complete HTML string. Options:
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `title` | `string` | workflow name | Page title |
-| `theme` | `string` | auto-detect | Initial theme (`midnight`, `ocean`, `ember`, `forest`, `daylight`, `paper`) |
-| `mermaidCdnUrl` | `string` | latest v11 | Mermaid CDN URL |
-| `direction` | `string` | `TB` | Diagram direction |
-
-### Custom names
-
-Parallel and race nodes support custom names that appear in diagrams:
-
-```typescript
-// Object form with name option
-await step.all('Fetch user data', {
-  user: () => deps.fetchUser(),
-  posts: () => deps.fetchPosts(),
-});
-
-// Array form with name
-await step.all('Fetch all', () => allAsync([
-  deps.fetchUser(),
-  deps.fetchPosts(),
-]));
-```
-
-Both forms render with the custom name in Mermaid diagrams instead of generic "Parallel (all)".
-
-## Workflow Diff
-
-Compare two versions of a workflow to detect added, removed, renamed, and moved steps, plus structural changes like new parallel blocks.
-
-### CLI diff mode
-
-Pass `--diff` with one or two sources. Sources can be local files, git refs (`ref:path`), or a GitHub PR (`gh:#N`). The default output format is markdown; use `--format` to switch to JSON or Mermaid.
-
-```bash
-# Two local files
-npx awaitly-analyze --diff before.ts after.ts
-
-# Single file — compares HEAD against working copy
-npx awaitly-analyze --diff src/workflows/checkout.ts
-
-# Git ref vs local file
-npx awaitly-analyze --diff main:src/workflows/checkout.ts src/workflows/checkout.ts
-
-# GitHub PR — auto-discovers changed workflow files
-npx awaitly-analyze --diff gh:#123
-
-# GitHub PR — specific file only
-npx awaitly-analyze --diff gh:#123 src/workflows/checkout.ts
-
-# Output formats
-npx awaitly-analyze --diff before.ts after.ts --format=json
-npx awaitly-analyze --diff before.ts after.ts --format=mermaid
-
-# Flag removed steps as regressions
-npx awaitly-analyze --diff before.ts after.ts --regression
-```
-
-The git ref syntax uses `ref:path` where `ref` is any valid git ref (branch, tag, or SHA). GitHub PR mode requires the [GitHub CLI](https://cli.github.com) (`gh`) to be installed and authenticated.
-
-### Programmatic API
-
-```typescript
-import {
-  analyze,
-  diffWorkflows,
-  renderDiffMarkdown,
-  renderDiffJSON,
-  renderDiffMermaid,
-} from 'awaitly-analyze';
-
-const before = analyze('./v1.ts').single();
-const after  = analyze('./v2.ts').single();
-
-const diff = diffWorkflows(before, after, {
-  detectRenames: true,   // match renamed steps by callee + position (default: true)
-  regressionMode: false, // flag removals as regressions (default: false)
-});
-
-// Render as markdown
-const md = renderDiffMarkdown(diff, { showUnchanged: true });
-
-// Render as JSON
-const json = renderDiffJSON(diff);
-
-// Render as Mermaid (needs the "after" IR for the base diagram)
-const mermaid = renderDiffMermaid(after, diff, {
-  showRemovedSteps: true,  // add ghost nodes for removed steps (default: true)
-  direction: 'TB',         // diagram direction (default: TB)
-});
-```
-
-### What gets detected
-
-| Change | Description |
-|--------|-------------|
-| **Added** | Step exists in the after workflow but not in the before |
-| **Removed** | Step exists in the before workflow but not in the after |
-| **Renamed** | Same callee and position, different step ID |
-| **Moved** | Same step ID, different container (e.g. sequential to parallel) |
-| **Structural** | Container-level changes — added/removed parallel, race, conditional, or loop blocks |
-
-### Output formats
-
-**Markdown** — human-readable report with sections for each change kind:
-
-```text
-# Workflow Diff: checkout → checkout
-
-## Summary
-- 1 added, 1 removed, 1 renamed, 0 moved, 2 unchanged
-
-## Added Steps
-- `apply-discount` (deps.applyDiscount)
-
-## Removed Steps
-- `send-receipt` (deps.sendReceipt)
-
-## Renamed Steps
-- `validate-cart` → `verify-cart` (deps.validateCart)
-
-## Unchanged Steps
-- `fetch-cart` (deps.fetchCart)
-- `charge-payment` (deps.chargePayment)
-```
-
-The `regressionMode` option prepends a warning icon to the Removed Steps heading.
-
-**JSON** — structured `WorkflowDiff` object for CI checks, dashboards, or piping into other tools:
-
-```json
-{
-  "steps": [
-    { "kind": "unchanged", "stepId": "fetch-cart", "callee": "deps.fetchCart" },
-    { "kind": "unchanged", "stepId": "charge-payment", "callee": "deps.chargePayment" },
-    { "kind": "renamed", "stepId": "verify-cart", "previousStepId": "validate-cart", "callee": "deps.validateCart" },
-    { "kind": "removed", "stepId": "send-receipt", "callee": "deps.sendReceipt" },
-    { "kind": "added", "stepId": "apply-discount", "callee": "deps.applyDiscount" }
-  ],
-  "summary": {
-    "stepsAdded": 1,
-    "stepsRemoved": 1,
-    "stepsRenamed": 1,
-    "stepsMoved": 0,
-    "stepsUnchanged": 2,
-    "hasRegressions": false
-  }
-}
-```
-
-**Mermaid** — renders the "after" workflow diagram with diff styling overlaid. Added steps get a green fill, renamed steps orange, moved steps blue. Removed steps appear as dashed ghost nodes:
-
-```mermaid
-flowchart TB
-  start((Start))
-  step_1["fetch-cart"]
-  step_2["verify-cart"]
-  step_3["apply-discount"]
-  step_4["charge-payment"]
-  end_node((End))
-
-  step_1 --> step_2
-  step_2 --> step_3
-  step_3 --> step_4
-  start --> step_1
-  step_4 --> end_node
-
-  classDef diffAddedStyle fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
-  classDef diffRemovedStyle fill:#ffcdd2,stroke:#c62828,stroke-width:2px,stroke-dasharray:5
-  classDef diffRenamedStyle fill:#fff3e0,stroke:#e65100,stroke-width:2px
-
-  classDef stepStyle fill:#e1f5fe,stroke:#01579b
-  classDef startStyle fill:#c8e6c9,stroke:#2e7d32
-  classDef endStyle fill:#ffcdd2,stroke:#c62828
-  class start startStyle
-  class end_node endStyle
-  class step_1 stepStyle
-  class step_4 stepStyle
-
-  removed_1["❌ send-receipt"]
-
-  class step_2 diffRenamedStyle
-  class step_3 diffAddedStyle
-  class removed_1 diffRemovedStyle
-```
-
-Style classes `diffAddedStyle`, `diffRemovedStyle`, `diffRenamedStyle`, and `diffMovedStyle` are injected automatically.
-
-### Diff options reference
-
-**`diffWorkflows(before, after, options?)`**
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `detectRenames` | `boolean` | `true` | Match steps with the same callee and position index as renames instead of remove + add |
-| `regressionMode` | `boolean` | `false` | Flag removed steps as regressions in the summary |
-
-**`renderDiffMarkdown(diff, options?)`**
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `showUnchanged` | `boolean` | `true` | Include the Unchanged Steps section |
-| `title` | `string` | auto | Override the report title |
-
-**`renderDiffMermaid(afterIR, diff, options?)`**
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `showRemovedSteps` | `boolean` | `true` | Add ghost nodes for removed steps |
-| `direction` | `string` | `TB` | Mermaid flowchart direction (TB, LR, BT, RL) |
-
-### Diff types
-
-All diff types are exported from `awaitly-analyze`:
-
-```typescript
-import type {
-  WorkflowDiff,
-  StepDiffEntry,
-  StepChangeKind,
-  StructuralChange,
-  DiffSummary,
-  DiffOptions,
-  DiffMarkdownOptions,
-  DiffMermaidOptions,
-} from 'awaitly-analyze';
-```
-
-## `--doctor` — strict diagnostics with slug codes
-
-Run `awaitly-analyze` with `--doctor` to surface strict-mode violations as slug-keyed diagnostics. The output uses the same canonical [slug spine](/awaitly/reference/spine/) as runtime errors and ESLint rules — one identifier across surfaces.
-
-```bash
-awaitly-analyze ./src/workflows/checkout.ts --doctor
-```
-
-```text
-✗ [step-require-id]:12:4
-  Step "<missing>" uses legacy signature without explicit ID
-  Docs: https://jagreehal.github.io/awaitly/rules/#step-require-id
-  Fix: Use step('id', fn, opts) instead of step(fn, opts)
-```
-
-For tooling integration, use `--format=json`:
-
-```bash
-awaitly-analyze ./src/workflows/checkout.ts --doctor --format=json
-```
-
-```json
-[
-  {
-    "workflowName": "checkoutWorkflow",
-    "diagnostics": [
-      {
-        "rule": "missing-step-id",
-        "code": "step-require-id",
-        "severity": "warning",
-        "message": "Step \"<missing>\" uses legacy signature without explicit ID",
-        "hint": "Use step('id', fn, opts) instead of step(fn, opts)",
-        "docsUrl": "https://jagreehal.github.io/awaitly/rules/#step-require-id",
-        "location": { "line": 12, "column": 4 }
-      }
-    ]
-  }
-]
-```
-
-Each diagnostic carries `code`, `hint`, and `docsUrl` — the same fields awaitly-system runtime errors carry. CI scripts and review tools can map a doctor diagnostic to the matching ESLint rule (also slug-named) and the docs URL without any translation.
+  ]}
+/>
 
 ## Limitations
 
-- **Dynamic code**: Template literals in step keys show as `<dynamic>`
-- **External imports**: Referenced workflows must be in the same file to resolve
+- Dynamic step IDs can appear as `<dynamic>`.
+- External workflow references are only resolved when analyzable in context.
 
 ## Next
 
-[Learn about Visualization →](/visualization/)
+- [Documenting Workflows →](/docs/guides/documenting-workflows/)
+- [Visualization →](/docs/guides/visualization/)
+- [Rules Index →](/docs/rules/)

@@ -5,6 +5,12 @@ description: createWorkflow vs run() and when to use each
 
 import { Aside } from '@astrojs/starlight/components';
 import { Tabs, TabItem } from '@astrojs/starlight/components';
+import PageActions from '../../../components/docs/PageActions.astro';
+
+<PageActions
+  agentSetupHref="/guides/claude-skill/"
+  docsForAgentsHref="/guides/docs-for-agents/"
+/>
 
 You create workflows with `createWorkflow` (reusable, with dependency inference) or use `run()` for one-off operations. **Execution is always via `workflow.run(fn)`** — the workflow object is not callable.
 
