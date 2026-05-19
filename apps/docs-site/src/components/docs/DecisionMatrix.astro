@@ -1,0 +1,39 @@
+---
+interface Row {
+  choice: string;
+  bestFor: string;
+  tradeoff: string;
+}
+
+interface Props {
+  title?: string;
+  rows: Row[];
+}
+
+const { title = "Decision Matrix", rows } = Astro.props;
+---
+
+<section class="doc-matrix not-content">
+  <h2 class="doc-card-title">{title}</h2>
+  <div class="doc-table-wrap">
+    <table class="doc-table">
+      <thead>
+        <tr>
+          <th>Choice</th>
+          <th>Best for</th>
+          <th>Tradeoff</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr>
+            <td><code>{row.choice}</code></td>
+            <td>{row.bestFor}</td>
+            <td>{row.tradeoff}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</section>
+

@@ -4739,6 +4739,28 @@ export async function run<T, E, C = void>(
 }
 
 /**
+ * Non-overloaded re-typing of `run()`. Same function at runtime — just
+ * exposed with one signature so other awaitly modules (e.g. `awaitly/flow`)
+ * can call the engine without dancing through TS overload resolution.
+ *
+ * End-users should call `run()` instead; the overloads give better inference
+ * at call sites.
+ *
+ * @internal
+ */
+export const runInternal: <T, E, U = UnexpectedError, C = void>(
+  fn: (context: { step: RunStep<E> }) => Promise<T> | T,
+  options?: {
+    catchUnexpected?: (cause: unknown) => U;
+    onEvent?: (event: WorkflowEvent<E | U, C>, ctx: C) => void;
+    onError?: (error: E | U, stepName?: string, ctx?: C) => void;
+    workflowId?: string;
+    workflowName?: string;
+    context?: C;
+  }
+) => Promise<Result<T, E | U>> = run as never;
+
+/**
  * Convenience for run() with catchUnexpected: closed union Result<T, E>.
  * You must provide catchUnexpected to map uncaught exceptions to E.
  */

@@ -65,6 +65,15 @@ Inside a workflow callback:
 - **MUST NOT** assume `step()` is globally available outside workflow callbacks.
 - If a helper is not listed here, consult package types before using it.
 
+### flow() specifics (only when using `awaitly/flow`)
+- **MUST** execute via `await flow(deps, body, options?)`. **MUST NOT** call `flow.run(...)` — there is no such method.
+- The body signature is `(d, c?) => …`. **MUST NOT** call `step()` inside a `flow()` body — it isn't passed in. Use `d.*` (auto-step) or `c.key` / `c.all` (explicit context).
+- Calls through `d.*` use the **deps-object key** as the step id. If you call the same dep twice in one flow, both calls share that id — **MUST** use `c.key('custom-id', () => c.raw.dep(args))` when you need distinct trace/cache identity.
+- Inside `c.key` / `c.all` callbacks, **MUST** call deps through `c.raw.*` (which returns `Result`/`AsyncResult`). **MUST NOT** call `d.*` inside those callbacks — `d.*` already auto-steps and would create a nested step boundary.
+- `c.all(name, ops)` runs ops in parallel under one **scope name**. Within that scope, each op is already disambiguated by its object key for the **returned shape** and for the scope's child trace — you do **not** need `c.key` to disambiguate ops within the same `c.all`. The "same dep called twice → use `c.key`" rule applies to repeated **top-level** `d.*` calls in the body, not to two ops inside one `c.all` (which are already in different trace positions).
+- If you need parallel **and** per-op step ids that participate in the engine's cache/retry identity (not just trace position), drop to `run()` / `createWorkflow()` and use `step.all` / `step.map` with explicit `key`s. **MUST NOT** nest `c.key` inside `c.all` ops — untested, and it mixes unwrapped-Promise (from `c.key`) with Result return shapes (what `c.all` ops expect).
+- **MUST NOT** invent helpers on `c` (no `c.retry`, `c.timeout`, `c.try`, `c.map`, `c.race`, `c.forEach`). Only `c.key`, `c.all`, and `c.raw` exist. For anything else, use `run()` / `createWorkflow()`.
+
 ---
 
 ## Rules
@@ -244,6 +253,17 @@ If you need per-item error handling in a loop, use `step.forEach()` with error c
 | `throw` in deps | Return `err()` instead, or wrap with `step.try(id, fn, { error: 'TYPED_ERROR' })`. |
 | `try/catch` around step() | Remove try/catch; errors propagate to workflow result. Use `step.try()` only for converting throws to typed errors. |
 
+### Inside `flow()` bodies
+| MUST NOT | Replacement |
+|----------|-------------|
+| `flow.run(...)` | `await flow(deps, body, options?)` — `flow` itself is the executor. |
+| `step(...)` inside a `flow()` body | Use `d.*` (auto-step) or `c.key('id', () => c.raw.fn())`. `step` is not passed to `flow` bodies. |
+| `d.*` inside a `c.key` / `c.all` callback (e.g. `c.key('id', () => d.fn())`) | Use `c.raw.*`: `c.key('id', () => c.raw.fn())`. `c.raw.*` returns `Result`; `d.*` already auto-steps and would nest. |
+| Same dep called twice in one flow with no override (both share one step id) | Wrap one (or both) in `c.key('distinct-id', () => c.raw.dep(args))`. |
+| `c.retry`, `c.timeout`, `c.try`, `c.map`, `c.race`, `c.forEach`, etc. | Those don't exist on `c`. Drop to `run()` / `createWorkflow()` for retry/timeout/cache/race/map/try. |
+| `c.key` nested inside a `c.all` op (untested mix of unwrapped-Promise and Result return shapes) | If you need parallel **and** per-op step ids, use `run()` + `step.all` / `step.map` with explicit `key`s. |
+| Returning a `Result` from a `flow()` body | Return the raw value. On Err, `flow()` short-circuits automatically and the outer call resolves to that Err. |
+
 Synchronous computation and pure logic are allowed inside workflows. Only async operations require `step()`.
 
 ---
@@ -268,17 +288,18 @@ When you see these patterns, apply the rewrite:
 **Canonical signatures:**
 - `run(callback, options?)` — `import { run } from 'awaitly/run'` (standalone; no workflow object).
 - `createWorkflow('name', deps, options?)` returns a workflow object; **execute only via** `workflow.run(fn)`, `workflow.run(fn, config)`, `workflow.run(name, fn)`, or `workflow.run(name, fn, config)` — `import { createWorkflow } from 'awaitly/workflow'`.
+- `flow(deps, body, options?)` — `import { flow } from 'awaitly/flow'`. Smallest API; dep calls become tracked steps **automatically** using the deps-object key as the step id. **No callable form**, no `.run()` method — `flow()` itself is the executor.
 
-| Aspect | `run()` | `createWorkflow('name', deps)` |
-|--------|---------|-------------------------------|
-| Import | `awaitly/run` | `awaitly/workflow` |
-| Execute | `run(fn)` or `run(fn, options)` | `workflow.run(fn)` or `workflow.run(fn, config)` or `workflow.run(name, fn)` or `workflow.run(name, fn, config)` — **no callable** |
-| Step syntax | `step('id', promiseOrResult)` or `step('id', () => promiseOrResult)` | `step('id', deps.fn(args))` or `step('id', () => deps.fn(args))` |
-| Deps | Closures | Injected at creation; override per run with `workflow.run(fn, { deps: partialOverride })` |
-| Error types | **Recommended:** `run<T, ErrorOf<typeof dep>>(fn)` (single dep), `run<T, Errors<[typeof d1, typeof d2]>>(fn)` (tuple deps), or `run<T, ErrorsOf<typeof deps>>(fn)` (deps object) so `result.error` is typed. Or manual `E`; or `catchUnexpected` for custom unexpected. `UnexpectedError` always included. | Auto-inferred from deps (includes `UnexpectedError`) |
-| Features | Basic step execution | Retries, timeout, state persistence, caching |
-| Bundle | Smaller | Larger |
-| Best for | Single-use, wrapping throwing APIs | Shared deps, DI, testing (deps override), typed errors (best DX) |
+| Aspect | `run()` | `createWorkflow('name', deps)` | `flow(deps, body)` |
+|--------|---------|-------------------------------|--------------------|
+| Import | `awaitly/run` | `awaitly/workflow` | `awaitly/flow` |
+| Execute | `run(fn)` or `run(fn, options)` | `workflow.run(fn)` or `workflow.run(fn, config)` or `workflow.run(name, fn)` or `workflow.run(name, fn, config)` — **no callable** | `await flow(deps, fn, options?)` — no `.run()` method |
+| Step syntax | `step('id', () => deps.fn(args))` (explicit) | `step('id', () => deps.fn(args))` (explicit) | `await d.fn(args)` — **implicit step** with id = property name |
+| Deps | Closures | Injected at creation; override per run with `workflow.run(fn, { deps: partialOverride })` | Passed as first arg to `flow()`; available as wrapped `d` and raw `c.raw` inside body |
+| Error types | **Recommended:** `run<T, ErrorOf<typeof dep>>(fn)` (single dep), `run<T, Errors<[typeof d1, typeof d2]>>(fn)` (tuple deps), or `run<T, ErrorsOf<typeof deps>>(fn)` (deps object). Or manual `E`; or `catchUnexpected` for custom unexpected. `UnexpectedError` always included. | Auto-inferred from deps (includes `UnexpectedError`) | Auto-inferred from deps (`FlowErrors<D> \| UnexpectedError`); `catchUnexpected` to replace `UnexpectedError` with `U` |
+| Features | Basic step execution | Retries, timeout, state persistence, caching | Auto-step + `c.key` (custom step id) + `c.all` (named parallel scope). **No** per-call retry/timeout/cache/resume |
+| Bundle | Smaller | Larger | Smallest |
+| Best for | Single-use, wrapping throwing APIs | Shared deps, DI, testing (deps override), typed errors (best DX) | Effect.gen-style ergonomics; reads like ordinary async/await |
 
 ### Use `run()` when:
 - Single-use workflow (not reused across files)
@@ -292,7 +313,13 @@ When you see these patterns, apply the rewrite:
 - Deps already return `AsyncResult`
 - Need retries, timeout, or state persistence
 
-**Deps and throwing:** Prefer deps that return Results and never throw. If you can't control a dep (e.g. third-party), wrap it with `step.try()` or convert at the boundary.
+### Use `flow(deps, body)` when:
+- You want the body to read like ordinary `async/await` — no `step('id', ...)` ceremony at each call
+- Your workflow is linear dep calls (optionally with one or two `c.all` scopes)
+- You don't need per-call retry, timeout, cache, or resume — those are unavailable here
+- The deps-object key is a good step id for each call (override with `c.key` when not)
+
+**Deps and throwing:** Prefer deps that return Results and never throw. If you can't control a dep (e.g. third-party), wrap it with `step.try()` or convert at the boundary. (`step.try()` lives in `run()` / `createWorkflow()` — not exposed inside `flow()`.)
 
 ---
 
@@ -320,6 +347,31 @@ const workflow = createWorkflow('myWorkflow', deps);
 const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('getUser', () => deps.getUser(id));
   return user;
+});
+```
+
+### flow() canonical (auto-step; no callable form, no `.run()`)
+```typescript
+import { flow } from 'awaitly/flow';
+
+// Simple: dep calls become tracked steps with the property name as id
+const result = await flow({ getUser, createOrder }, async (d) => {
+  const user = await d.getUser(userId);
+  const order = await d.createOrder(user);
+  return order;
+});
+
+// With context: c.key for distinct ids, c.all for parallel scope
+const bundle = await flow({ getUser, getPosts }, async (d, c) => {
+  const user = await d.getUser(userId);              // step id: 'getUser'
+  const fresh = await c.key('getUser:fresh', () =>   // step id: 'getUser:fresh'
+    c.raw.getUser(userId)
+  );
+  const { posts, profile } = await c.all('userBundle', {
+    posts: () => c.raw.getPosts(user.id),
+    profile: () => c.raw.getUser(user.id),
+  });
+  return { user, fresh, posts, profile };
 });
 ```
 
@@ -1099,6 +1151,10 @@ import { run } from 'awaitly/run';
 
 // Full workflow (DI, retries, timeout)
 import { createWorkflow } from 'awaitly/workflow';
+
+// Smallest workflow API (auto-step from deps-object key)
+import { flow, type Flowed, type FlowOptions } from 'awaitly/flow';
+// Note: FlowContext and FlowErrors are internal — derive via Parameters/ReturnType if you need them.
 
 // Partial application
 import { bindDeps } from 'awaitly/bind-deps';

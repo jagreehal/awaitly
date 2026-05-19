@@ -1,0 +1,27 @@
+---
+interface Props {
+  tldr: string;
+  whenToUse?: string[];
+}
+
+const { tldr, whenToUse = [] } = Astro.props;
+---
+
+<section class="doc-blueprint not-content">
+  <div class="doc-card">
+    <h2 class="doc-card-title">TL;DR</h2>
+    <p class="doc-card-body">{tldr}</p>
+  </div>
+
+  {whenToUse.length > 0 && (
+    <div class="doc-card">
+      <h2 class="doc-card-title">When To Use</h2>
+      <ul class="doc-card-list">
+        {whenToUse.map((item) => (
+          <li>{item}</li>
+        ))}
+      </ul>
+    </div>
+  )}
+</section>
+

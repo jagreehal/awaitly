@@ -58,6 +58,7 @@ export default defineConfig({
     errors: 'src/errors-entry.ts',
     cache: 'src/cache-entry.ts',
     'bind-deps': 'src/bind-deps-entry.ts',
+    flow: 'src/flow-entry.ts',
     fetch: 'src/fetch-entry.ts',
 
     // =========================================================================

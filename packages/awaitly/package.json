@@ -143,6 +143,11 @@
       "import": "./dist/bind-deps.js",
       "require": "./dist/bind-deps.cjs"
     },
+    "./flow": {
+      "types": "./dist/flow.d.ts",
+      "import": "./dist/flow.js",
+      "require": "./dist/flow.cjs"
+    },
     "./fetch": {
       "types": "./dist/fetch.d.ts",
       "import": "./dist/fetch.js",
