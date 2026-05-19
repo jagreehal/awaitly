@@ -7,6 +7,7 @@ on:
     paths:
       - 'apps/docs-site/**'
       - 'packages/awaitly-analyze/**'
+      - 'packages/eslint-plugin-awaitly/**'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -50,7 +51,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build docs
-        run: pnpm --filter awaitly build && pnpm --filter awaitly-visualizer build && pnpm --filter awaitly-analyze build && pnpm --filter awaitly-docs build
+        run: pnpm --filter awaitly build && pnpm --filter awaitly-visualizer build && pnpm --filter awaitly-analyze build && pnpm --filter eslint-plugin-awaitly build && pnpm --filter awaitly-docs build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
