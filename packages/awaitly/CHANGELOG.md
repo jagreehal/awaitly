@@ -1,5 +1,11 @@
 # awaitly
 
+## 1.33.2
+
+### Patch Changes
+
+- 7b87901: Added flow
+
 ## 1.33.1
 
 ### Patch Changes
