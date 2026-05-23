@@ -156,7 +156,7 @@ importers:
         version: 0.17.3
       '@tanstack/react-query':
         specifier: ^5
-        version: 5.100.8(react@19.2.6)
+        version: 5.100.14(react@19.2.6)
       awaitly:
         specifier: workspace:*
         version: link:../../packages/awaitly
@@ -3305,11 +3305,11 @@ packages:
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
 
-  '@tanstack/query-core@5.100.8':
-    resolution: {integrity: sha512-ceYwSFOqjPwET5TA6IOYxzxlGc0ekyH/gfOtWkP0PX43rzX9bxW48Iuw8KAduKCToi4rJAQ6nRy2kAe8gszdmg==}
+  '@tanstack/query-core@5.100.14':
+    resolution: {integrity: sha512-5X41dGpxgeaHISCRW2oYwcSycZeULZzAunaudXT9ov1KOTj9xwt0CH6hbwqP1/z74ZWF7rYFnDpyYH07XFcZew==}
 
-  '@tanstack/react-query@5.100.8':
-    resolution: {integrity: sha512-iNNEekixXU5vtAGKKZX2lx3jTooG5yNY+kv0wSgEdEYG0Mj0JM5bcuQtC35ZAP3nDopT6jciUK3xeX65U7AnfA==}
+  '@tanstack/react-query@5.100.14':
+    resolution: {integrity: sha512-oOr6aRdSFEwWhzxEkD/9ZcItM3+LjBSkeVmadWKwUssAHTsqd/7bOjWrX4AbvEkoEhgAxzN0Xk6H/aYzXiYBAw==}
     peerDependencies:
       react: ^18 || ^19
 
@@ -3532,6 +3532,9 @@ packages:
 
   '@types/node@25.6.0':
     resolution: {integrity: sha512-+qIYRKdNYJwY3vRCZMdJbPLJAtGjQBudzZzdzwQYkEPQd+PJGixUL5QfvCLDaULoLv+RhT3LDkwEfKaAkgSmNQ==}
+
+  '@types/node@25.9.1':
+    resolution: {integrity: sha512-xfrlY7UD5rMJk3ZVJP8BNzS28J36YJg+xp+LPXV1TdWxr8uMH5A860QNxYDGQe/ylDSgjxE52Q9VnO7p75tJxg==}
 
   '@types/node@25.9.1':
     resolution: {integrity: sha512-xfrlY7UD5rMJk3ZVJP8BNzS28J36YJg+xp+LPXV1TdWxr8uMH5A860QNxYDGQe/ylDSgjxE52Q9VnO7p75tJxg==}
@@ -10778,11 +10781,11 @@ snapshots:
       tailwindcss: 4.3.0
       vite: 8.0.11(@types/node@25.9.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4)
 
-  '@tanstack/query-core@5.100.8': {}
+  '@tanstack/query-core@5.100.14': {}
 
-  '@tanstack/react-query@5.100.8(react@19.2.6)':
+  '@tanstack/react-query@5.100.14(react@19.2.6)':
     dependencies:
-      '@tanstack/query-core': 5.100.8
+      '@tanstack/query-core': 5.100.14
       react: 19.2.6
 
   '@total-typescript/ts-reset@0.6.1': {}
@@ -11029,6 +11032,11 @@ snapshots:
   '@types/node@25.6.0':
     dependencies:
       undici-types: 7.19.2
+
+  '@types/node@25.9.1':
+    dependencies:
+      undici-types: 7.24.6
+    optional: true
 
   '@types/node@25.9.1':
     dependencies:
