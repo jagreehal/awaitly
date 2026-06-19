@@ -10,16 +10,16 @@ Both awaitly and [neverthrow](https://github.com/supermacro/neverthrow) provide 
 
 ## The Conceptual Difference
 
-**neverthrow** gives you a way to **represent success or failure**. It is a data type: `Result<T, E>`, combinators, and explicit error values. It does not structure your app, provide dependency injection, or model effectful computation — it's a tool for wrapping results.
+**neverthrow** gives you a way to represent success or failure. It's a data type: `Result<T, E>`, combinators, and explicit error values. It doesn't structure your app, provide dependency injection, or model effectful computation. It's a tool for wrapping results.
 
-**awaitly** gives you a way to **model computations** that:
+**awaitly** gives you a way to model computations that:
 
 - run asynchronously
 - depend on an explicit environment (deps)
 - may fail with a typed error
 - compose predictably (workflows, steps, retries, persistence)
 
-In other words: **neverthrow wraps results; awaitly models effects.** That’s the structural difference. neverthrow is ideal for local operations and clear error returns; awaitly addresses application-level composition and environment so that as your app grows, you have one coherent abstraction for async + env + errors.
+neverthrow wraps results; awaitly models effects. neverthrow is a good fit for local operations and clear error returns. awaitly takes on application-level composition and environment, so as your app grows you keep one consistent way to handle async, dependencies, and errors together.
 
 ## Quick Comparison
 
@@ -45,7 +45,7 @@ In other words: **neverthrow wraps results; awaitly models effects.** That’s t
 | Unified abstraction (async + env + errors) | ❌ | ✅ |
 | Runtime / framework | ❌ | ❌ |
 
-So: **neverthrow is the smallest step** from plain async/await if you only want Result types. **awaitly is a bigger structural step** when you want one model for composition, environment, and errors — a minimal effect-style approach for TypeScript apps.
+neverthrow is the smallest step from plain async/await if you only want Result types. awaitly is a bigger step: one model for composition, environment, and errors, in a minimal effect style for TypeScript apps.
 
 ## Creating Results
 
@@ -708,13 +708,13 @@ Both approaches give imperative short-circuiting. The difference is what comes w
 - **neverthrow `safeTry`** — generators give short-circuiting without a workflow engine
 - **awaitly workflows** — async/await gives short-circuiting plus step IDs, retry/timeout/cache, and inferred error types
 
-The "generators vs async/await" syntax is not the main differentiator — the workflow engine is.
+What matters is the workflow engine, not the choice between generators and async/await.
 </Aside>
 
 ## What awaitly Adds: Workflow Orchestration
 
 <Aside type="tip" title="awaitly's Key Advantage">
-neverthrow focuses purely on Result types. awaitly adds workflow orchestration and automatic error inference — but the point isn’t “Result plus DI.” It’s a single computation model: one abstraction for async, environment, and typed failure that composes predictably.
+neverthrow focuses on Result types. awaitly adds workflow orchestration and automatic error inference: a single model for async, environment, and typed failure that composes predictably.
 </Aside>
 
 ### Automatic Error Type Inference
@@ -837,7 +837,7 @@ if (loaded) {
 - You want the smallest possible bundle size
 - Your project already uses neverthrow
 
-**Bottom line:** neverthrow helps you return errors; awaitly helps you structure applications.
+neverthrow helps you return errors. awaitly helps you structure whole applications around them.
 
 ## Method Chaining vs Functions
 

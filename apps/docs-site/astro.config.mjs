@@ -13,6 +13,12 @@ const require = createRequire(import.meta.url);
 // https://astro.build/config
 export default defineConfig({
   site: 'https://jagreehal.github.io',
+  // GFM is enabled by default, but astro-mermaid sets markdown.remarkPlugins,
+  // which drops the default GFM plugins from the MDX pipeline (tables render as
+  // raw `|` text in .mdx). Setting it explicitly restores tables/strikethrough.
+  markdown: {
+    gfm: true,
+  },
   // Use base path for GitHub Pages deployment (https://jagreehal.github.io/awaitly/).
   // Local dev uses /awaitly by default so you can catch production issues; use pnpm dev:root or BASE=/ pnpm dev to run from /.
   base: process.env.BASE || '/awaitly',
@@ -56,7 +62,7 @@ export default defineConfig({
         src: './public/logo-animated.svg',
         alt: 'awaitly',
       },
-      customCss: ['./src/styles/global.css'],
+      customCss: ['./src/styles/global.css', './src/styles/landing.css'],
       plugins: [starlightThemeNext()],
       tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 3 },
       editLink: {

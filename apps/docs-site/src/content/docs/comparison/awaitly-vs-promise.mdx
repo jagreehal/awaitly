@@ -10,19 +10,17 @@ Promises are JavaScript's native way to handle async operations — they're exce
 
 ## The Conceptual Difference
 
-**A Promise models:** "This async computation will eventually produce a value or reject." It's about **time** — when something finishes.
+A Promise models time. It says "this async computation will eventually produce a value, or reject." That's the whole contract.
 
-**awaitly models:** "This computation may depend on an environment, may fail with a typed error, may perform async work, and composes predictably." It's about **effects** — what it needs, what it may fail with, and what it produces.
+awaitly models more than time. Its type says what the computation needs, what it can fail with, and what it produces. Promises give you eventual values; awaitly adds typed failure and an explicit environment on top.
 
-**One sentence:** Promises model eventual values; awaitly models effectful computation.
+Where Promises stop short (they aren't "wrong", just incomplete):
 
-**Where Promises are incomplete (not "wrong"):**
+1. **Rejection is unstructured**: any value can be thrown. Errors aren't declared in the type, so `Promise<T>` tells you nothing about failure modes.
+2. **Composition loses failure information**: when you chain or combine promises, failure types widen to `unknown`, and you inspect errors at runtime.
+3. **Dependencies are invisible**: a function returning `Promise<T>` doesn't tell you what services or context it depends on. That becomes a scaling problem in larger apps.
 
-1. **Rejection is unstructured** — Any value can be thrown. Errors aren't declared in the type. `Promise<T>` tells you nothing about failure modes.
-2. **Composition loses failure information** — When you chain or combine promises, failure types widen to `unknown`; you must inspect errors at runtime.
-3. **Dependencies are invisible** — A function returning `Promise<T>` doesn't tell you what services or context it depends on. That invisibility becomes a scaling problem in larger apps.
-
-awaitly doesn't replace Promises — it's a superset abstraction for application-level computation. Promises remain the foundation; awaitly adds a second typed channel (failure) and an explicit environment.
+awaitly doesn't replace Promises. It builds on them: Promises stay the foundation, and awaitly adds a second typed channel for failure and an explicit environment.
 
 ## Philosophy Comparison
 
@@ -409,7 +407,7 @@ const safeJsonParse = (s: string) =>
 - **Thin API wrappers** — You translate to/from a typed layer at the boundary.
 - **Codebases where error types don't matter** — Internal tools, low-risk paths.
 
-Plain Promises with disciplined error handling are perfectly reasonable there. That builds credibility.
+Plain Promises with disciplined error handling are perfectly reasonable there.
 
 ### Use awaitly when:
 
@@ -420,10 +418,10 @@ Plain Promises with disciplined error handling are perfectly reasonable there. T
 - TypeScript type safety is important to your team
 
 <Aside type="tip" title="Ecosystem positioning">
-Promises solve async. neverthrow solves typed success/failure. Effect solves capability modeling and resource safety. awaitly solves **async + typed errors + environment** — without a custom runtime.
+Promises solve async. neverthrow solves typed success/failure. Effect solves capability modeling and resource safety. awaitly solves **async + typed errors + environment**, without a custom runtime.
 </Aside>
 
-**Bottom line:** A Promise tells you when something finishes. awaitly tells you what it needs, what it may fail with, and what it produces.
+A Promise tells you when something finishes. awaitly also tells you what it needs and what it can fail with.
 
 ## Summary
 
@@ -443,10 +441,8 @@ Promises solve async. neverthrow solves typed success/failure. Effect solves cap
 └────────────────────────────────────────────────────────────────┘
 ```
 
-**Takeaway:** Promises model eventual values. awaitly models effectful computation.
-
-<Aside type="tip" title="Best of Both Worlds">
-awaitly uses standard async/await syntax, so you get Promise ergonomics with Result type safety. No new syntax to learn!
+<Aside type="tip" title="Same syntax you already use">
+awaitly uses standard async/await, so you keep Promise ergonomics and add Result type safety. There's no new syntax to learn.
 </Aside>
 
 ## Next Steps

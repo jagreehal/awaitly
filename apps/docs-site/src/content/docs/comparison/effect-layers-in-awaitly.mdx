@@ -6,7 +6,7 @@ description: How to get Effect-style dependency injection and composition with a
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 import { Aside } from '@astrojs/starlight/components';
 
-**Short answer: no.** Layers are an abstraction over something simpler: passing a typed object as a parameter. awaitly uses that primitive directly — this page shows how.
+**Short answer: no.** Layers are an abstraction over something simpler: passing a typed object as a parameter. awaitly uses that primitive directly, and this page shows how.
 
 <Aside type="tip" title="One rule">
 Pass whatever object matches the shape your workflow expects, whenever you want: at construction time, via `withDeps(...)`, at execution time, per request, or from a composition root. You can **override deps at run time** with `workflow.run(fn, { deps: { ... } })` — same workflow instance, different deps for that run (great for tests). TypeScript enforces the shape.
@@ -277,7 +277,7 @@ So you get "did I provide everything?" and "what errors can this workflow produc
 
 You get **different implementations per environment, composition root, per-request context, and type safety** with that one rule. Small surface, simple mental model.
 
-**Philosophy in one line:** Effect optimizes for encoding capabilities and resources in the type system and runtime. awaitly optimizes for the same outcomes while staying close to normal JavaScript and minimal abstraction.
+Effect optimizes for encoding capabilities and resources in the type system and runtime. awaitly aims for the same outcomes while staying close to normal JavaScript with minimal abstraction.
 
 ## Day-to-day JavaScript ergonomics
 
@@ -315,7 +315,7 @@ Same problem, same solution. If service A needs B and B needs A, you hit that in
 
 The dependency graph is normal JavaScript object composition.
 
-**One way to put it:** Effect encodes architecture in types; awaitly keeps it in values. Both get you testability and a composition root — the mechanism differs.
+Effect encodes architecture in types; awaitly keeps it in values. Both give you testability and a composition root; only the mechanism differs.
 
 ## See Also
 
