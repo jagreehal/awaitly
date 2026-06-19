@@ -164,7 +164,7 @@ Adding a new error variant forces a new handler at compile time.
 
 For this booking flow, `awaitly/saga` is clearer because it also models rollback for partial side effects. That is the decisive requirement in payment-plus-reservation orchestration.
 
-In other words:
+Two cases:
 
 1. If you only need typed edge classification, `better-result` is a strong fit.
 2. If you need typed classification plus rollback semantics in a multi-step transaction, `awaitly/saga` is the better fit.

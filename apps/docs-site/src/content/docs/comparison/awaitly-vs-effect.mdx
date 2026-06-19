@@ -17,11 +17,11 @@ The sections below go into detail.
 
 ## The Abstraction-Level Difference
 
-**Effect is closer to infrastructure-level.** It's a full effect runtime with a capability-tracking type system: fibers, Scope, Layers, Schedule algebra. You get a runtime that manages effects — concurrency, interruption, resource lifecycles — and the type system encodes that architecture.
+**Effect works at the infrastructure level.** It's a full effect runtime with a capability-tracking type system: fibers, Scope, Layers, Schedule algebra. The runtime manages effects (concurrency, interruption, resource lifecycles), and the type system encodes that architecture.
 
-**awaitly is closer to application-level orchestration.** It's a minimal effect abstraction layered directly on top of JavaScript: async/await, Result types, and a step engine. No custom runtime. Architecture lives in values (deps, config, store), not in a capability graph.
+**awaitly works at the application-orchestration level.** It's a minimal effect abstraction layered directly on JavaScript: async/await, Result types, and a step engine. No custom runtime. Architecture lives in values (deps, config, store), not in a capability graph.
 
-That's not "Effect minus runtime" — it's a **different layer of the stack**. awaitly is a deliberately minimal computation model for TypeScript applications: a small model for async workflows, typed errors, and value-level dependencies — without a custom runtime. Effect is the tool when you want the runtime and the full type-level encoding of capabilities.
+These sit at different layers of the stack. awaitly is a deliberately minimal computation model for TypeScript apps: async workflows, typed errors, and value-level dependencies, with no custom runtime. Effect is the tool when you want that runtime and the full type-level encoding of capabilities.
 
 ## Philosophy Comparison
 
@@ -1300,7 +1300,7 @@ Effect's tracing is deeper: spans are part of the runtime and propagate automati
 
 **If your team finds the runtime and abstraction surface too heavy** — awaitly offers a simpler mental model: same async/await, typed errors in the return type, deps passed as values. No generators, no Layer graph.
 
-Spell it out: both get you typed errors and composition; the trade-off is runtime power and type-level architecture (Effect) vs. application-level simplicity (awaitly).
+Both get you typed errors and composition. The trade-off is runtime power and type-level architecture (Effect) against application-level simplicity (awaitly).
 
 ### Choose awaitly when:
 
@@ -1334,7 +1334,7 @@ Spell it out: both get you typed errors and composition; the trade-off is runtim
 - **Human-in-the-loop**: Pause and resume via approval store.
 - **Automatic error inference**: Inferred union from deps; no manual wiring.
 
-**Bottom line:** Effect encodes architecture in types; awaitly keeps architecture in values.
+Effect encodes architecture in types; awaitly keeps it in values.
 
 ## Next Steps
 

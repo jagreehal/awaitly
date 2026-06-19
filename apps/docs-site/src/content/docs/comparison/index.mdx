@@ -7,11 +7,9 @@ sidebar:
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-Here's the thing about software: it fails. Not sometimes. **Always**.
+Software fails, and it fails often. The database is down when you query it. The payment provider times out. A user submits "banana" where you expected a number.
 
-The database takes a nap when you need it. The payment provider goes for coffee. The user types "banana" where you expected a number.
-
-Most programmers treat errors like embarrassing relatives. They pretend they don't exist until they show up and ruin everything. But what if we treated errors as first-class citizens?
+Most code treats these as afterthoughts: you write the happy path, then bolt a `try/catch` onto the end. This page compares five approaches that treat failure as part of the design instead.
 
 ## Five Philosophies
 
@@ -41,13 +39,13 @@ Most programmers treat errors like embarrassing relatives. They pretend they don
 | **neverthrow** | High | High | Medium | Light |
 | **Effect** | Very High | Very High | Low → Medium | Heavy |
 
-## Three Criteria for Great Error Handling
+## Three Criteria for Good Error Handling
 
-Whatever approach you choose, evaluate it against these benchmarks:
+Whatever approach you choose, judge it against three questions:
 
-1. **Visible**: Can you see all the ways your code can fail just by looking at it?
-2. **Composable**: Do errors make it painful to combine functions together?
-3. **Honest**: Do your function signatures tell the truth about what might happen?
+1. **Visible**: can you see every way the code can fail just by reading it?
+2. **Composable**: can you combine fallible functions without extra ceremony?
+3. **Honest**: does the function signature say what can go wrong?
 
 ## The Decision Tree
 
@@ -143,14 +141,13 @@ Want compiler-verified error handling (Result types)?
   </Card>
 </CardGrid>
 
-## The Uncomfortable Truth
+## Choosing
 
-Errors aren't bugs, they're features. The difference between a junior and senior developer isn't bug-free code. It's designing around inevitable failure.
+No approach is right for every project. Each is a tool for a different job:
 
-**There's no "correct" choice.** Each approach is a tool:
-- Use **try/catch** when you need simplicity
-- Use **neverthrow** when you need functional composition
-- Use **awaitly** when you want familiar syntax with type safety
-- Use **Effect** when you need the full architectural toolkit
+- **try/catch** when you need simplicity
+- **neverthrow** when you want functional composition
+- **awaitly** when you want familiar async/await with type safety
+- **Effect** when you need the full architectural toolkit
 
-But whatever you choose, **choose deliberately**. Your future self at 3 AM will thank you.
+Pick the one that fits the failure modes your code actually has, and the amount of structure your team wants to maintain.

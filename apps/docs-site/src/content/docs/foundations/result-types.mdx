@@ -5,9 +5,29 @@ description: The foundation of typed error handling in awaitly
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-A `Result<T, E>` represents either success (`ok`) or failure (`err`). It replaces try/catch with explicit typing, giving you compile-time guarantees about error handling.
+Every function that can fail has to answer one question: how does it tell you what went wrong? `try/catch` hides the answer: the function throws, and you find out at runtime. A Result puts the answer in the return value instead.
 
-For async SDK/vendor boundaries, the canonical awaitly pattern is `tryAsyncBoundary` from `awaitly/result/retry`.
+A Result is a plain object with one of two shapes:
+
+```typescript
+// success
+{ ok: true, value: 5 }
+
+// failure
+{ ok: false, error: 'DIVIDE_BY_ZERO' }
+```
+
+You check `result.ok` to see which one you got. There's nothing magic here. You could write these objects by hand. awaitly gives you `ok()` and `err()` to build them, plus helpers to work with them safely.
+
+## New to the type syntax?
+
+You'll see types like `Result<number, 'DIVIDE_BY_ZERO'>` throughout this page. If TypeScript's notation is new to you, three pieces are worth knowing first:
+
+- **A specific string can be a type.** A value typed as `'DIVIDE_BY_ZERO'` can only ever be that exact string. The string is both a value and its own type.
+- **`|` means "one of".** `'A' | 'B'` describes a value that is either `'A'` or `'B'`, and nothing else. TypeScript calls this a union.
+- **The angle brackets fill in blanks.** `Result` needs two types to be complete: the success value, then the error. You pass them in that order, so `Result<number, 'DIVIDE_BY_ZERO'>` reads as "a number if it worked, or `'DIVIDE_BY_ZERO'` if it didn't."
+
+Take your time with these. The rest of the page builds on them.
 
 ## Why Results?
 
