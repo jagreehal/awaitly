@@ -34,7 +34,7 @@
     "radix-ui": "1.6.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "sharp": "0.35.1",
+    "sharp": "0.35.3",
     "shiki": "4.2.0",
     "starlight-theme-next": "0.4.0",
     "tailwind-merge": "3.6.0",
