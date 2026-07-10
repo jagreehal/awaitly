@@ -58,10 +58,11 @@ describe("README Examples", () => {
       };
 
       const orderId = "order-1";
-      const result = await run(async ({ step }) => {
-        const order = await step('getOrder', () => getOrder(orderId)); // unwraps ok, exits on err
-        const user = await step('getUser', () => getUser(order.userId)); // same
-        const payment = await step('charge', () => charge(order.total)); // same
+      // Deps-first form (the README's primary example): errors inferred, no IDs, no thunks
+      const result = await run({ getOrder, getUser, charge }, async (s) => {
+        const order = await s.getOrder(orderId); // unwraps ok, exits on err
+        const user = await s.getUser(order.userId); // same
+        const payment = await s.charge(order.total); // same
         return payment;
       });
 
@@ -69,6 +70,16 @@ describe("README Examples", () => {
       if (result.ok) {
         expect(result.value.id).toBe("payment-123");
       }
+
+      // The explicit form still works for dynamic deps / manual error unions
+      const explicit = await run(async ({ step }) => {
+        const order = await step('getOrder', () => getOrder(orderId));
+        const user = await step('getUser', () => getUser(order.userId));
+        const payment = await step('charge', () => charge(order.total));
+        return payment;
+      });
+
+      expect(explicit.ok).toBe(true);
     });
   });
 
@@ -110,9 +121,9 @@ describe("README Examples", () => {
 
       const userId = "user-1";
       const orderId = "order-1";
-      const result = await workflow.run(async ({ step, deps }) => {
-        const user = await step('getUser', () => deps.getUser(userId));
-        const order = await step('getOrder', () => deps.getOrder(orderId));
+      const result = await workflow.run(async ({ steps }) => {
+        const user = await steps.getUser(userId);
+        const order = await steps.getOrder(orderId);
         return { user, order };
       });
 
@@ -140,8 +151,8 @@ describe("README Examples", () => {
       // 2. Create and run a workflow
       const workflow = createWorkflow("workflow", deps);
 
-      const result = await workflow.run(async ({ step, deps }) => {
-        return await step('loadTask', () => deps.loadTask("t-1"));
+      const result = await workflow.run(async ({ steps }) => {
+        return await steps.loadTask("t-1");
       });
 
       // 3. Handle the result

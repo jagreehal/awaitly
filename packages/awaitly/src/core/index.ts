@@ -140,6 +140,9 @@ export const AWAITLY_TIMEOUT = "AWAITLY_TIMEOUT" as const;
 export const tags = <const T extends readonly string[]>(...t: T): T => t;
 
 import { UnexpectedError } from "../errors";
+import { bindSteps, type BoundSteps, type StepCallable } from "./bound-steps";
+
+export { bindSteps, type BoundSteps } from "./bound-steps";
 export { UnexpectedError };
 
 /**
@@ -361,10 +364,15 @@ type AnyFunction = (...args: never[]) => unknown;
 /**
  * Helper to extract the error type from Result or AsyncResult return values.
  * Works even when a function is declared to return a union of both forms.
+ * Plain (non-Result) return types contribute `never` — without the [never]
+ * guard they would infer `unknown` and poison error unions built from
+ * mixed deps.
  */
-type ErrorOfReturn<R> = Extract<Awaited<R>, { ok: false }> extends { error: infer E }
-  ? E
-  : never;
+type ErrorOfReturn<R> = [Extract<Awaited<R>, { ok: false }>] extends [never]
+  ? never
+  : Extract<Awaited<R>, { ok: false }> extends { error: infer E }
+    ? E
+    : never;
 
 /**
  * Extract error type from a single function's return type
@@ -2711,12 +2719,100 @@ export function run<T, E = never, C = void>(
   }
 ): AsyncResult<T, E | UnexpectedError, unknown>;
 
+/**
+ * run() with dependencies: auto-bound steps and automatic error inference.
+ *
+ * Pass your functions as the first argument; the callback receives a steps
+ * object mirroring them. Calling `s.getUser(id)` behaves exactly like
+ * `step('getUser', () => getUser(id))` — unwraps ok, early-exits on err —
+ * and the result's error union is inferred from the deps. No type
+ * parameters, no string IDs, no thunks.
+ *
+ * Plain (non-Result) functions are valid deps: their values pass through
+ * and their throws become UnexpectedError, so existing code works unchanged
+ * and can adopt typed errors incrementally.
+ *
+ * @example
+ * ```typescript
+ * const result = await run({ getOrder, getUser, charge }, async (s) => {
+ *   const order = await s.getOrder(orderId);
+ *   const user = await s.getUser(order.userId);
+ *   return s.charge(order.total);
+ * });
+ * // result.error: OrderNotFound | UserNotFound | ChargeDeclined | UnexpectedError
+ * ```
+ */
+export function run<const Deps extends Record<string, AnyFunction>, T, C = void>(
+  deps: Deps,
+  fn: (
+    steps: BoundSteps<Deps>,
+    context: {
+      step: [ErrorsOf<Deps>] extends [never]
+        ? RunStep<unknown>
+        : RunStep<ErrorsOf<Deps>>;
+    }
+  ) => Promise<T> | T,
+  options?: {
+    onError?: (
+      error: ErrorsOf<Deps> | UnexpectedError,
+      stepName?: string,
+      ctx?: C
+    ) => void;
+    onEvent?: (
+      event: WorkflowEvent<ErrorsOf<Deps> | UnexpectedError, C>,
+      ctx: C
+    ) => void;
+    workflowId?: string;
+    workflowName?: string;
+    context?: C;
+    /** @internal External signal for workflow-level cancellation. */
+    _workflowSignal?: AbortSignal;
+  }
+): AsyncResult<T, ErrorsOf<Deps> | UnexpectedError, unknown>;
+
 // Implementation
 export async function run<T, E, C = void>(
-  fn: (context: { step: RunStep<E> }) => Promise<T> | T,
-  options?: RunOptions<E, C>
+  fnOrDeps:
+    | ((context: { step: RunStep<E> }) => Promise<T> | T)
+    | Record<string, AnyFunction>,
+  optionsOrFn?:
+    | RunOptions<E, C>
+    | ((
+        steps: BoundSteps<Record<string, AnyFunction>>,
+        context: { step: RunStep<E> }
+      ) => Promise<T> | T),
+  maybeOptions?: RunOptions<E, C>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): AsyncResult<T, any> {
+  // Deps-first form: run(deps, fn, options?) — bind deps as steps and
+  // re-enter through the classic form.
+  if (typeof fnOrDeps !== "function") {
+    const deps = fnOrDeps;
+    const boundFn = optionsOrFn as (
+      steps: BoundSteps<Record<string, AnyFunction>>,
+      context: { step: RunStep<E> }
+    ) => Promise<T> | T;
+    if (typeof boundFn !== "function") {
+      throw new TypeError(
+        "[awaitly] run(deps, fn) requires a callback as the second argument. " +
+          "Example: run({ getUser }, async (s) => s.getUser(id))"
+      );
+    }
+    // Re-enter the implementation with the classic (fn, options) shape;
+    // cast past the public overloads (same approach as runInternal).
+    const classicRun = run as unknown as (
+      fn: (context: { step: RunStep<E> }) => Promise<T> | T,
+      options?: RunOptions<E, C>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ) => AsyncResult<T, any>;
+    return classicRun(
+      ({ step }) => boundFn(bindSteps(deps, step as StepCallable), { step }),
+      maybeOptions
+    );
+  }
+
+  const fn = fnOrDeps;
+  const options = optionsOrFn as RunOptions<E, C> | undefined;
   const {
     onError,
     onEvent,

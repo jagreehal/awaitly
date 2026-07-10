@@ -219,7 +219,7 @@ export type {
   PropsOf,
 } from "./tagged-error";
 
-export type { RetryOptions, BackoffStrategy } from "./core";
+export type { RetryOptions, BackoffStrategy, BoundSteps } from "./core";
 
 // Slug Namespace — types only at the root to keep the bundle lean.
 // For runtime helpers (slugDocsUrl, isAwaitlySlug, AWAITLY_SLUGS, etc.),

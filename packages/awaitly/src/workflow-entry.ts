@@ -57,6 +57,7 @@ export {
   // Types
   type AnyResultFn,
   type ErrorsOfDeps,
+  type WorkflowSteps,
   type CausesOfDeps,
   type WorkflowOptions,
   type ExecutionOptions,

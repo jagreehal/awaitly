@@ -26,6 +26,7 @@ export type {
   RunWithStateResult,
   AnyResultFn,
   ErrorsOfDeps,
+  WorkflowSteps,
   CausesOfDeps,
   ExecutionOptions,
   WorkflowOptions,

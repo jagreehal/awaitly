@@ -17,12 +17,10 @@ import { extname } from "path";
 // These provide type checking without creating a runtime dependency on ts-morph
 import type { SourceFile, Project, Node } from "ts-morph";
 import type * as ts from "typescript";
-import { loadTsMorph, loadTypescript } from "../ts-morph-loader";
+import { loadTsMorph } from "../ts-morph-loader";
 
-import { extractResultLike } from "../type-extractor";
 import {
   extractFunctionName,
-  getStaticChildren,
   type StaticWorkflowIR,
   type StaticWorkflowNode,
   type StaticFlowNode,
@@ -38,32 +36,52 @@ import {
   type StaticSagaStepNode,
   type StaticSwitchNode,
   type StaticSwitchCase,
-  type SourceLocation,
-  type DependencyInfo,
   type AnalysisWarning,
   type AnalysisStats,
-  type StaticRetryConfig,
-  type StaticTimeoutConfig,
-  type TypeInfo,
 } from "../types";
 
-/**
- * Options for the static analyzer.
- */
-export interface AnalyzerOptions {
-  /** Path to tsconfig.json (optional, will use default if not provided) */
-  tsConfigPath?: string;
-  /** Whether to resolve and inline referenced workflows */
-  resolveReferences?: boolean;
-  /** Maximum depth for reference resolution (default: 5) */
-  maxReferenceDepth?: number;
-  /** Whether to include source locations in output */
-  includeLocations?: boolean;
-  /** Assume imports are present (for code snippets without imports) */
-  assumeImported?: boolean;
-  /** Filter which patterns to detect: 'run', 'createWorkflow', 'createSagaWorkflow', or 'all' */
-  detect?: "run" | "createWorkflow" | "createSagaWorkflow" | "all";
-}
+import { generateId, getLocation, type AnalyzerOptions } from "./shared";
+import {
+  findWorkflowCalls,
+  findWorkflowInvocations,
+  type WorkflowCallInfo,
+} from "./discovery";
+import {
+  extractBoundStepsInfo,
+  extractSagaParameterInfo,
+  extractStepParameterInfo,
+  type AnalysisContext,
+  type BoundStepsInfo,
+  type SagaContext,
+  type StepParameterInfo,
+} from "./bindings";
+import {
+  attachStepDocsAndDepLocation,
+  extractErrorsArray,
+  extractRetryConfig,
+  extractStepOptions,
+  extractStringValue,
+  extractTimeoutConfig,
+  extractWorkflowDocumentation,
+  extractWorkflowStrictOptions,
+  getContainingStatement,
+  getDefinitionLocationForCallee,
+  getJSDocDescriptionFromNode,
+  getJSDocTagsFromNode,
+} from "./step-options";
+import {
+  enrichStepDepSource,
+  enrichStepOutputTypes,
+  enrichStepReadTypes,
+  extractDependencies,
+  extractErrorTypes,
+  inferErrorsFromErrorTypeInfo,
+  inferStepIOFromInnerCall,
+} from "./deps-types";
+
+// Re-exported so everything previously importable from this module keeps working.
+export type { AnalyzerOptions } from "./shared";
+export { resetIdCounter } from "./shared";
 
 // =============================================================================
 // Default Options
@@ -354,509 +372,6 @@ function createProject(opts: Required<AnalyzerOptions>): Project {
 }
 
 // =============================================================================
-// Workflow Discovery
-// =============================================================================
-
-interface WorkflowCallInfo {
-  name: string;
-  /**
-   * Identifier name used to invoke the workflow (e.g. `myWorkflow(...)`).
-   * This is usually the variable name the factory call is assigned to.
-   *
-   * Note: This is distinct from `name`, which is the workflow's canonical name
-   * (for createWorkflow/createSagaWorkflow this should come from the explicit first argument).
-   */
-  bindingName?: string;
-  callExpression: Node;
-  depsObject: Node | undefined;
-  optionsObject: Node | undefined;
-  callbackFunction: Node | undefined;
-  variableDeclaration: Node | undefined;
-  source: "createWorkflow" | "createSagaWorkflow" | "runSaga" | "run";
-}
-
-/**
- * Info about saga parameter destructuring.
- * e.g., `async ({ saga }) => {...}` -> { isDestructured: true, sagaAlias: "saga" }
- * e.g., `async ({ step, tryStep }) => {...}` -> { isDestructured: true, stepAlias: "step", tryStepAlias: "tryStep" }
- */
-interface SagaParameterInfo {
-  name?: string;
-  isDestructured: boolean;
-  stepAlias?: string;
-  tryStepAlias?: string;
-  /** When destructured as ({ saga }), the alias for the saga context object */
-  sagaAlias?: string;
-}
-
-/**
- * Context for saga analysis.
- */
-interface SagaContext {
-  isSagaWorkflow: boolean;
-  sagaParamInfo?: SagaParameterInfo;
-}
-
-/**
- * Get the callee text, unwrapping ParenthesizedExpression so that (run)(cb)
- * is recognized as "run".
- */
-function getCalleeText(expression: Node): string {
-  const { Node } = loadTsMorph();
-  let current: Node = expression;
-  while (Node.isParenthesizedExpression(current)) {
-    current = current.getExpression();
-  }
-  return current.getText();
-}
-
-/**
- * Get the effective callee node (unwrap parentheses) for checks like
- * isPropertyAccessExpression.
- */
-function getCalleeExpression(expression: Node): Node {
-  const { Node } = loadTsMorph();
-  let current: Node = expression;
-  while (Node.isParenthesizedExpression(current)) {
-    current = current.getExpression();
-  }
-  return current;
-}
-
-/**
- * Get the callee as an Identifier if possible (unwrap parentheses and await).
- * Returns undefined for property access (e.g. obj.run) or other non-identifier callees.
- * Handles (await (workflow)) by unwrapping parentheses again after await.
- */
-function getCalleeIdentifier(expression: Node): Node | undefined {
-  const { Node } = loadTsMorph();
-  let current: Node = expression;
-  while (true) {
-    while (Node.isParenthesizedExpression(current)) {
-      current = current.getExpression();
-    }
-    if (Node.isAwaitExpression(current)) {
-      current = (current as { getExpression: () => Node }).getExpression();
-      continue;
-    }
-    break;
-  }
-  return Node.isIdentifier(current) ? current : undefined;
-}
-
-function findWorkflowCalls(sourceFile: SourceFile, opts: Required<AnalyzerOptions>): WorkflowCallInfo[] {
-  const { Node } = loadTsMorph();
-  const workflows: WorkflowCallInfo[] = [];
-
-  // Track imports from awaitly
-  const awaitlyImports = findAwaitlyImports(sourceFile, opts);
-
-  // Track local declarations that shadow imports
-  const localDeclarations = findLocalDeclarations(sourceFile);
-
-  function resolveWorkflowNameArg(arg: Node | undefined): string | undefined {
-    if (!arg) return undefined;
-    if (Node.isStringLiteral(arg)) return arg.getLiteralText();
-    if (Node.isNoSubstitutionTemplateLiteral(arg)) return arg.getLiteralText();
-    // Best-effort: keep something stable for labels (may be dynamic).
-    return arg.getText();
-  }
-
-  // Find all call expressions
-  sourceFile.forEachDescendant((node) => {
-    if (!Node.isCallExpression(node)) return;
-
-    const expression = node.getExpression();
-    const callee = getCalleeExpression(expression);
-    const text = getCalleeText(expression);
-
-    // Check for createWorkflow calls (direct, aliased, or via namespace/default import)
-    const calleeExprText = Node.isPropertyAccessExpression(callee) ? callee.getExpression().getText() : "";
-    const isNamespaceOrDefaultImport = awaitlyImports.namespaceImports.has(calleeExprText) || awaitlyImports.defaultImports.has(calleeExprText);
-    const isCreateWorkflowCall =
-      text === "createWorkflow" ||
-      awaitlyImports.namedImportAliases.get(text) === "createWorkflow" ||
-      (Node.isPropertyAccessExpression(callee) &&
-        callee.getName() === "createWorkflow" &&
-        isNamespaceOrDefaultImport);
-
-    if (isCreateWorkflowCall && (opts.detect === "all" || opts.detect === "createWorkflow")) {
-      // Only count if imported from awaitly or assumeImported
-      if (awaitlyImports.namedImports.has("createWorkflow") || awaitlyImports.namespaceImports.size > 0 || awaitlyImports.defaultImports.size > 0 || opts.assumeImported) {
-        const args = node.getArguments();
-        const parent = node.getParent();
-
-        let bindingName: string | undefined;
-        let variableDeclaration: Node | undefined;
-        let depsObject: Node | undefined;
-        let optionsObject: Node | undefined;
-
-        // Track the binding name (how this workflow is invoked in code)
-        if (Node.isVariableDeclaration(parent)) {
-          bindingName = parent.getName();
-          variableDeclaration = parent;
-        } else if (Node.isPropertyAssignment(parent)) {
-          bindingName = parent.getName();
-        }
-
-        // createWorkflow(workflowName) or createWorkflow(workflowName, deps, options?)
-        if (args.length >= 1 && args[0]) {
-          const name = resolveWorkflowNameArg(args[0]) ?? bindingName ?? "anonymous";
-          depsObject = args.length >= 2 ? args[1] : undefined;
-          if (args.length >= 3 && args[2] && Node.isObjectLiteralExpression(args[2])) {
-            optionsObject = args[2];
-          }
-
-          workflows.push({
-          name,
-          bindingName,
-          callExpression: node,
-          depsObject,
-          optionsObject,
-          callbackFunction: undefined,
-          variableDeclaration,
-          source: "createWorkflow",
-        });
-        }
-      }
-    }
-
-    // Check for createSagaWorkflow calls (direct, aliased, or via namespace/default import)
-    const isCreateSagaWorkflowCall =
-      text === "createSagaWorkflow" ||
-      awaitlyImports.namedImportAliases.get(text) === "createSagaWorkflow" ||
-      (Node.isPropertyAccessExpression(callee) &&
-        callee.getName() === "createSagaWorkflow" &&
-        isNamespaceOrDefaultImport);
-
-    if (isCreateSagaWorkflowCall && (opts.detect === "all" || opts.detect === "createSagaWorkflow")) {
-      if (awaitlyImports.namedImports.has("createSagaWorkflow") || awaitlyImports.namespaceImports.size > 0 || awaitlyImports.defaultImports.size > 0 || opts.assumeImported) {
-        const args = node.getArguments();
-        const parent = node.getParent();
-
-        let bindingName: string | undefined;
-        let variableDeclaration: Node | undefined;
-        let depsObject: Node | undefined;
-        let optionsObject: Node | undefined;
-
-        // Track the binding name (how this saga is invoked in code)
-        if (Node.isVariableDeclaration(parent)) {
-          bindingName = parent.getName();
-          variableDeclaration = parent;
-        } else if (Node.isPropertyAssignment(parent)) {
-          bindingName = parent.getName();
-        }
-
-        // createSagaWorkflow(workflowName, deps, options?) — deps required (no name-only form at runtime)
-        if (args.length >= 2 && args[0]) {
-          const name = resolveWorkflowNameArg(args[0]) ?? bindingName ?? "anonymous";
-          depsObject = args[1];
-          if (args[2] && Node.isObjectLiteralExpression(args[2])) {
-            optionsObject = args[2];
-          }
-
-          workflows.push({
-            name,
-            callExpression: node,
-            bindingName,
-            depsObject,
-            optionsObject,
-            callbackFunction: undefined,
-            variableDeclaration,
-            source: "createSagaWorkflow",
-          });
-        }
-      }
-    }
-
-    // Check for runSaga() calls (direct, aliased, or via namespace/default import)
-    const isRunSagaCall =
-      text === "runSaga" ||
-      awaitlyImports.namedImportAliases.get(text) === "runSaga" ||
-      (Node.isPropertyAccessExpression(callee) &&
-        callee.getName() === "runSaga" &&
-        isNamespaceOrDefaultImport);
-
-    if (isRunSagaCall && (opts.detect === "all" || opts.detect === "createSagaWorkflow")) {
-      if (awaitlyImports.namedImports.has("runSaga") || awaitlyImports.namespaceImports.size > 0 || awaitlyImports.defaultImports.size > 0 || opts.assumeImported) {
-        const args = node.getArguments();
-        const line = node.getStartLineNumber();
-        const filePath = sourceFile.getFilePath();
-        const fileName = filePath.includes("/")
-          ? filePath.split("/").pop() || filePath
-          : filePath;
-
-        workflows.push({
-          name: `runSaga@${fileName}:${line}`,
-          callExpression: node,
-          depsObject: undefined,
-          optionsObject: undefined,
-          callbackFunction: args[0], // First argument is the callback
-          variableDeclaration: undefined,
-          source: "runSaga",
-        });
-      }
-    }
-
-    // Check for run() calls (direct, aliased, or via namespace/default import)
-    const isRunCall =
-      text === "run" ||
-      awaitlyImports.namedImportAliases.get(text) === "run" ||
-      (Node.isPropertyAccessExpression(callee) &&
-        callee.getName() === "run" &&
-        isNamespaceOrDefaultImport);
-
-    if (isRunCall && (opts.detect === "all" || opts.detect === "run")) {
-      // Check if run is imported from awaitly (or assumeImported) and not shadowed
-      const isImported = awaitlyImports.namedImports.has("run") || awaitlyImports.namedImportAliases.get(text) === "run" || awaitlyImports.namespaceImports.size > 0 || awaitlyImports.defaultImports.size > 0 || opts.assumeImported;
-      const isShadowed = isIdentifierShadowed("run", node, localDeclarations);
-
-      // For namespace/default calls (Awaitly.run()), we allow PropertyAccessExpression
-      // For direct calls, we don't match obj.run() - only bare run() calls
-      const isNamespaceCall = Node.isPropertyAccessExpression(callee) && isNamespaceOrDefaultImport;
-      if (isImported && !isShadowed && (isNamespaceCall || !Node.isPropertyAccessExpression(callee))) {
-        const args = node.getArguments();
-        const line = node.getStartLineNumber();
-        const filePath = sourceFile.getFilePath();
-        const fileName = filePath.includes("/")
-          ? filePath.split("/").pop() || filePath
-          : filePath;
-
-        workflows.push({
-          name: `run@${fileName}:${line}`,
-          callExpression: node,
-          depsObject: undefined,
-          optionsObject: undefined,
-          callbackFunction: args[0], // First argument is the callback
-          variableDeclaration: undefined,
-          source: "run",
-        });
-      }
-    }
-  });
-
-  return workflows;
-}
-
-interface AwaitlyImports {
-  /** Named imports like { createWorkflow } - stores original names */
-  namedImports: Set<string>;
-  /** Maps local name (alias or original) to original name for named imports */
-  namedImportAliases: Map<string, string>;
-  /** Namespace imports like * as Awaitly */
-  namespaceImports: Set<string>;
-  /** Default imports like import Awaitly from 'awaitly' */
-  defaultImports: Set<string>;
-}
-
-/**
- * Find awaitly imports in the source file.
- */
-function findAwaitlyImports(sourceFile: SourceFile, _opts: Required<AnalyzerOptions>): AwaitlyImports {
-  const result: AwaitlyImports = {
-    namedImports: new Set<string>(),
-    namedImportAliases: new Map<string, string>(),
-    namespaceImports: new Set<string>(),
-    defaultImports: new Set<string>(),
-  };
-
-  for (const importDecl of sourceFile.getImportDeclarations()) {
-    const moduleSpecifier = importDecl.getModuleSpecifierValue();
-
-    // Check if importing from awaitly or awaitly/*
-    if (moduleSpecifier === "awaitly" || moduleSpecifier.startsWith("awaitly/")) {
-      // Check if this is a type-only import
-      if (importDecl.isTypeOnly()) {
-        continue; // Skip type-only imports
-      }
-
-      const namedImports = importDecl.getNamedImports();
-      for (const namedImport of namedImports) {
-        // Skip type-only import specifiers
-        if (namedImport.isTypeOnly()) {
-          continue;
-        }
-        const originalName = namedImport.getName();
-        const aliasNode = namedImport.getAliasNode();
-        const localName = aliasNode ? aliasNode.getText() : originalName;
-        result.namedImports.add(originalName);
-        result.namedImportAliases.set(localName, originalName);
-      }
-
-      // Check default import
-      const defaultImport = importDecl.getDefaultImport();
-      if (defaultImport) {
-        result.defaultImports.add(defaultImport.getText());
-      }
-
-      // Check namespace import (import * as X from 'awaitly')
-      const namespaceImport = importDecl.getNamespaceImport();
-      if (namespaceImport) {
-        result.namespaceImports.add(namespaceImport.getText());
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
- * Find local declarations (variables, functions, parameters) that might shadow imports.
- */
-function findLocalDeclarations(sourceFile: SourceFile): Map<string, Node[]> {
-  const { Node } = loadTsMorph();
-  const declarations = new Map<string, Node[]>();
-
-  const addDeclaration = (name: string, node: Node) => {
-    const existing = declarations.get(name) || [];
-    existing.push(node);
-    declarations.set(name, existing);
-  };
-
-  // Helper to extract names from binding patterns (destructuring)
-  const extractBindingNames = (node: Node, containerNode: Node) => {
-    if (Node.isIdentifier(node)) {
-      addDeclaration(node.getText(), containerNode);
-    } else if (Node.isObjectBindingPattern(node)) {
-      for (const element of node.getElements()) {
-        const nameNode = element.getNameNode();
-        extractBindingNames(nameNode, containerNode);
-      }
-    } else if (Node.isArrayBindingPattern(node)) {
-      for (const element of node.getElements()) {
-        if (Node.isBindingElement(element)) {
-          const nameNode = element.getNameNode();
-          extractBindingNames(nameNode, containerNode);
-        }
-      }
-    }
-  };
-
-  sourceFile.forEachDescendant((node) => {
-    if (Node.isVariableDeclaration(node)) {
-      const nameNode = node.getNameNode();
-      extractBindingNames(nameNode, node);
-    } else if (Node.isFunctionDeclaration(node)) {
-      const name = node.getName();
-      if (name) {
-        addDeclaration(name, node);
-      }
-    } else if (Node.isParameterDeclaration(node)) {
-      const nameNode = node.getNameNode();
-      extractBindingNames(nameNode, node);
-    }
-  });
-
-  return declarations;
-}
-
-/**
- * Check if an identifier is shadowed at a given call site.
- */
-function isIdentifierShadowed(
-  name: string,
-  callSite: Node,
-  localDeclarations: Map<string, Node[]>
-): boolean {
-  const { Node } = loadTsMorph();
-  const decls = localDeclarations.get(name);
-  if (!decls || decls.length === 0) return false;
-
-  const callStart = callSite.getStart();
-
-  for (const decl of decls) {
-    // Get the scope of the declaration
-    const declParent = decl.getParent();
-    if (!declParent) continue;
-
-    // Check if the call site is within the scope of this declaration
-    const scopeParent = findContainingScope(decl);
-
-    // For var declarations, they are hoisted to function scope
-    // ts-morph returns string values: "var", "let", "const"
-    const declKind = Node.isVariableDeclaration(decl)
-      ? decl.getVariableStatement()?.getDeclarationKind()
-      : undefined;
-    const isVar = declKind === "var";
-
-    if (isVar) {
-      // var declarations are hoisted to function scope
-      const declFunctionScope = findFunctionScope(decl);
-      const callFunctionScope = findFunctionScope(callSite);
-      if (declFunctionScope === callFunctionScope) {
-        return true; // Shadowed by hoisted var
-      }
-    } else {
-      // let/const are block-scoped
-      if (scopeParent && isAncestorOf(scopeParent, callSite)) {
-        // Check if the declaration comes before the call (for let/const)
-        const declEnd = decl.getEnd();
-        if (declEnd <= callStart) {
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
-}
-
-/**
- * Find the containing scope (block or function) of a node.
- */
-function findContainingScope(node: Node): Node | undefined {
-  const { Node } = loadTsMorph();
-  let current = node.getParent();
-
-  while (current) {
-    if (Node.isBlock(current) ||
-        Node.isFunctionDeclaration(current) ||
-        Node.isArrowFunction(current) ||
-        Node.isFunctionExpression(current) ||
-        Node.isSourceFile(current)) {
-      return current;
-    }
-    current = current.getParent();
-  }
-
-  return undefined;
-}
-
-/**
- * Find the function scope containing a node.
- */
-function findFunctionScope(node: Node): Node | undefined {
-  const { Node } = loadTsMorph();
-  let current = node.getParent();
-
-  while (current) {
-    if (Node.isFunctionDeclaration(current) ||
-        Node.isArrowFunction(current) ||
-        Node.isFunctionExpression(current) ||
-        Node.isSourceFile(current)) {
-      return current;
-    }
-    current = current.getParent();
-  }
-
-  return undefined;
-}
-
-/**
- * Check if a node is an ancestor of another node.
- */
-function isAncestorOf(ancestor: Node, descendant: Node): boolean {
-  let current = descendant.getParent();
-
-  while (current) {
-    if (current === ancestor) return true;
-    current = current.getParent();
-  }
-
-  return false;
-}
-
-// =============================================================================
 // Workflow Analysis
 // =============================================================================
 
@@ -920,15 +435,24 @@ function analyzeWorkflowCall(
       if (source === "runSaga") {
         sagaContext.sagaParamInfo = extractSagaParameterInfo(workflowInfo.callbackFunction);
       }
+      // Deps-first form run(deps, fn): the first callback param is the
+      // bound-steps object, not { step } — use bound-steps detection.
+      const boundStepsInfo =
+        source === "run" && depsObject
+          ? extractBoundStepsInfo(workflowInfo.callbackFunction)
+          : undefined;
       // Extract step parameter info for proper step detection
-      const stepParamInfo = extractStepParameterInfo(workflowInfo.callbackFunction);
+      const stepParamInfo = boundStepsInfo
+        ? undefined
+        : extractStepParameterInfo(workflowInfo.callbackFunction);
       const analyzed = analyzeCallback(
         workflowInfo.callbackFunction,
         opts,
         warnings,
         stats,
         sagaContext,
-        stepParamInfo
+        stepParamInfo,
+        boundStepsInfo
       );
       children.push(...analyzed);
     }
@@ -1016,56 +540,6 @@ function analyzeWorkflowCall(
 }
 
 /**
- * Extract step parameter info from a workflow callback.
- * Handles: (step), ({ step }), ({ step: s }), ({ step = default }), ({ step: s = default })
- */
-interface StepParameterInfo {
-  name?: string;
-  isDestructured: boolean;
-  stepAlias?: string;
-}
-
-function extractStepParameterInfo(callback: Node): StepParameterInfo | undefined {
-  const { Node } = loadTsMorph();
-
-  let params: Node[] = [];
-  if (Node.isArrowFunction(callback)) {
-    params = callback.getParameters();
-  } else if (Node.isFunctionExpression(callback)) {
-    params = callback.getParameters();
-  }
-
-  if (params.length === 0) return undefined;
-
-  const firstParam = params[0];
-  if (!Node.isParameterDeclaration(firstParam)) return undefined;
-
-  const nameNode = firstParam.getNameNode();
-
-  // Check if it's destructured: ({ step }) or ({ step: s })
-  if (Node.isObjectBindingPattern(nameNode)) {
-    const result: StepParameterInfo = { isDestructured: true };
-
-    for (const element of nameNode.getElements()) {
-      const propName = element.getPropertyNameNode()?.getText() || element.getName();
-      const bindingName = element.getName();
-
-      if (propName === "step") {
-        result.stepAlias = bindingName;
-      }
-    }
-
-    return result;
-  }
-
-  // Not destructured: (step) or (s)
-  return {
-    name: nameNode.getText(),
-    isDestructured: false,
-  };
-}
-
-/**
  * Infer workflow callback return type using the TypeScript type checker.
  * Preserves type aliases (e.g. User, Enriched) instead of expanding to object shapes with any.
  */
@@ -1139,565 +613,9 @@ function getWorkflowCallbackReturnType(cb: Node | undefined): string | undefined
   return undefined;
 }
 
-/**
- * Extract description and markdown from workflow options.
- * Can be in either the deps object or a separate options object.
- */
-function extractWorkflowDocumentation(optionsNode: Node): {
-  description?: string;
-  markdown?: string;
-} {
-  const { Node } = loadTsMorph();
-  const result: { description?: string; markdown?: string } = {};
-
-  if (!Node.isObjectLiteralExpression(optionsNode)) {
-    return result;
-  }
-
-  for (const prop of optionsNode.getProperties()) {
-    if (!Node.isPropertyAssignment(prop)) continue;
-
-    const propName = prop.getName();
-    const init = prop.getInitializer();
-
-    if (propName === "description" && init) {
-      result.description = extractStringValue(init);
-    } else if (propName === "markdown" && init) {
-      result.markdown = extractStringValue(init);
-    }
-  }
-
-  return result;
-}
-
-/**
- * Extract strict mode options from workflow options.
- */
-function extractWorkflowStrictOptions(optionsNode: Node): {
-  strict?: boolean;
-  declaredErrors?: string[];
-} {
-  const { Node } = loadTsMorph();
-  const result: { strict?: boolean; declaredErrors?: string[] } = {};
-
-  if (!Node.isObjectLiteralExpression(optionsNode)) {
-    return result;
-  }
-
-  for (const prop of optionsNode.getProperties()) {
-    if (!Node.isPropertyAssignment(prop)) continue;
-
-    const propName = prop.getName();
-    const init = prop.getInitializer();
-
-    if (propName === "strict" && init) {
-      if (Node.isTrueLiteral(init)) {
-        result.strict = true;
-      } else if (Node.isFalseLiteral(init)) {
-        result.strict = false;
-      }
-    } else if (propName === "errors" && init) {
-      result.declaredErrors = extractErrorsArray(init);
-    }
-  }
-
-  return result;
-}
-
-/**
- * Extract saga parameter info from a callback.
- * e.g., `async ({ saga }) => {...}` -> { isDestructured: true, sagaAlias: "saga" }
- * e.g., `async ({ step, tryStep }) => {...}` -> { isDestructured: true, stepAlias: "step", tryStepAlias: "tryStep" }
- */
-function extractSagaParameterInfo(callback: Node): SagaParameterInfo | undefined {
-  const { Node } = loadTsMorph();
-
-  let params: Node[] = [];
-  if (Node.isArrowFunction(callback)) {
-    params = callback.getParameters();
-  } else if (Node.isFunctionExpression(callback)) {
-    params = callback.getParameters();
-  }
-
-  if (params.length === 0) return undefined;
-
-  const firstParam = params[0];
-  if (!Node.isParameterDeclaration(firstParam)) return undefined;
-
-  const nameNode = firstParam.getNameNode();
-
-  if (Node.isObjectBindingPattern(nameNode)) {
-    const result: SagaParameterInfo = { isDestructured: true };
-
-    for (const element of nameNode.getElements()) {
-      const propName = element.getPropertyNameNode()?.getText() || element.getName();
-      const bindingName = element.getName();
-
-      if (propName === "saga") {
-        result.sagaAlias = bindingName;
-      } else if (propName === "step") {
-        result.stepAlias = bindingName;
-      } else if (propName === "tryStep") {
-        result.tryStepAlias = bindingName;
-      }
-    }
-
-    return result;
-  }
-
-  // Not destructured: (saga)
-  return {
-    name: nameNode.getText(),
-    isDestructured: false,
-  };
-}
-
-interface WorkflowInvocation {
-  callExpression: Node;
-  callbackArg: Node | undefined;
-}
-
-/**
- * Check if a node is contained within another node (is a descendant).
- */
-function isDescendantOf(node: Node, potentialAncestor: Node): boolean {
-  let current = node.getParent();
-  while (current) {
-    if (current === potentialAncestor) return true;
-    current = current.getParent();
-  }
-  return false;
-}
-
-function findWorkflowInvocations(
-  workflowInfo: WorkflowCallInfo,
-  sourceFile: SourceFile
-): WorkflowInvocation[] {
-  const { Node } = loadTsMorph();
-  const invocations: WorkflowInvocation[] = [];
-  const workflowName = workflowInfo.bindingName ?? workflowInfo.name;
-
-  // Get the position of the workflow definition to limit search
-  const workflowDefinitionNode =
-    workflowInfo.variableDeclaration || workflowInfo.callExpression;
-  const workflowDefinitionPos = workflowDefinitionNode.getStart();
-
-  // Scope in which this workflow's binding is visible. We only count invocations inside this scope.
-  // For var declarations use function scope (var hoists); for const/let use containing block/function.
-  let workflowContainingScope: Node | undefined;
-  if (workflowInfo.variableDeclaration && Node.isVariableDeclaration(workflowInfo.variableDeclaration)) {
-    const list = workflowInfo.variableDeclaration.getVariableStatement()?.getDeclarationKind();
-    if (list === "var") {
-      workflowContainingScope = findFunctionScope(workflowDefinitionNode);
-    }
-  }
-  workflowContainingScope ??= findContainingScope(workflowDefinitionNode);
-
-  // First pass: find all scopes where the workflow name is shadowed
-  // This includes variable declarations AND function parameters
-  const shadowingScopes: Node[] = [];
-
-  /**
-   * Extract all bound names from a name node.
-   * Handles simple identifiers, object destructuring, and array destructuring.
-   */
-  function extractBoundNames(nameNode: Node): string[] {
-    const names: string[] = [];
-
-    if (Node.isIdentifier(nameNode)) {
-      names.push(nameNode.getText());
-    } else if (Node.isObjectBindingPattern(nameNode)) {
-      for (const element of nameNode.getElements()) {
-        const elementName = element.getNameNode();
-        names.push(...extractBoundNames(elementName));
-      }
-    } else if (Node.isArrayBindingPattern(nameNode)) {
-      for (const element of nameNode.getElements()) {
-        if (Node.isBindingElement(element)) {
-          const elementName = element.getNameNode();
-          names.push(...extractBoundNames(elementName));
-        }
-      }
-    }
-
-    return names;
-  }
-
-  sourceFile.forEachDescendant((node) => {
-    // Check for variable declarations that shadow the workflow name
-    // Handles both simple identifiers and destructuring patterns
-    if (Node.isVariableDeclaration(node)) {
-      if (node.getStart() <= workflowDefinitionPos) return;
-
-      const nameNode = node.getNameNode();
-      const boundNames = extractBoundNames(nameNode);
-
-      if (boundNames.includes(workflowName)) {
-        // Check if this is a var declaration (function-scoped) vs const/let (block-scoped)
-        const declarationList = node.getParent();
-        const isVar =
-          declarationList &&
-          Node.isVariableDeclarationList(declarationList) &&
-          declarationList.getDeclarationKind() === "var";
-
-        // Find the containing scope based on declaration type
-        let scope: Node | undefined = node.getParent();
-
-        if (isVar) {
-          // var hoists to function scope - find containing function
-          while (
-            scope &&
-            !Node.isFunctionDeclaration(scope) &&
-            !Node.isFunctionExpression(scope) &&
-            !Node.isArrowFunction(scope) &&
-            !Node.isSourceFile(scope)
-          ) {
-            scope = scope.getParent();
-          }
-        } else {
-          // const/let are block-scoped - find containing block or function
-          while (
-            scope &&
-            !Node.isFunctionDeclaration(scope) &&
-            !Node.isFunctionExpression(scope) &&
-            !Node.isArrowFunction(scope) &&
-            !Node.isBlock(scope) &&
-            !Node.isSourceFile(scope)
-          ) {
-            scope = scope.getParent();
-          }
-        }
-
-        if (scope && !Node.isSourceFile(scope)) {
-          shadowingScopes.push(scope);
-        }
-      }
-      return;
-    }
-
-    // Check for function declarations that shadow the workflow name
-    // Function declarations hoist to their containing block/function scope
-    if (Node.isFunctionDeclaration(node)) {
-      if (node.getStart() <= workflowDefinitionPos) return;
-
-      const fnName = node.getName();
-      if (fnName === workflowName) {
-        // Find the containing scope (block or function)
-        let scope: Node | undefined = node.getParent();
-        while (
-          scope &&
-          !Node.isFunctionDeclaration(scope) &&
-          !Node.isFunctionExpression(scope) &&
-          !Node.isArrowFunction(scope) &&
-          !Node.isBlock(scope) &&
-          !Node.isSourceFile(scope)
-        ) {
-          scope = scope.getParent();
-        }
-        if (scope && !Node.isSourceFile(scope)) {
-          shadowingScopes.push(scope);
-        }
-      }
-    }
-
-    // Check for function/method parameters that shadow the workflow name
-    // Parameters shadow for the entire function body
-    if (
-      Node.isFunctionDeclaration(node) ||
-      Node.isFunctionExpression(node) ||
-      Node.isArrowFunction(node) ||
-      Node.isMethodDeclaration(node)
-    ) {
-      if (node.getStart() <= workflowDefinitionPos) return;
-
-      const parameters = node.getParameters();
-      for (const param of parameters) {
-        const paramNameNode = param.getNameNode();
-
-        // Check if any bound name in the parameter matches the workflow name
-        const boundNames = extractBoundNames(paramNameNode);
-        if (boundNames.includes(workflowName)) {
-          // The function itself is the shadowing scope
-          shadowingScopes.push(node);
-          break;
-        }
-      }
-    }
-  });
-
-  // Second pass: find invocations, excluding those in shadowed scopes
-  sourceFile.forEachDescendant((node) => {
-    if (!Node.isCallExpression(node)) return;
-
-    const expression = node.getExpression();
-    const text = getCalleeText(expression);
-
-    // Check if this is an invocation of our workflow
-    // Handle: workflow(...), await workflow(...), (await workflow)(...)
-    if (
-      text === workflowName ||
-      text === `await ${workflowName}` ||
-      text === `(await ${workflowName})` ||
-      text === `${workflowName}.run` ||
-      text === `await ${workflowName}.run`
-    ) {
-      // When we have the actual workflow variable declaration, require the call's
-      // callee to resolve to that declaration (avoids same-name different variable).
-      if (workflowInfo.variableDeclaration) {
-        // For direct calls: getCalleeIdentifier extracts workflow from `workflow(...)` or `await workflow(...)`
-        // For .run() calls: need to extract workflow from `workflow.run(...)` or `await workflow.run(...)`
-        let calleeId = getCalleeIdentifier(expression);
-        if (!calleeId) {
-          // Try extracting from PropertyAccessExpression (workflow.run case)
-          const callee = getCalleeExpression(expression);
-          if (Node.isPropertyAccessExpression(callee)) {
-            const obj = callee.getExpression();
-            if (Node.isIdentifier(obj)) {
-              calleeId = obj;
-            }
-          }
-        }
-        if (calleeId) {
-          const symbol = calleeId.getSymbol();
-          if (symbol) {
-            const decls = symbol.getDeclarations();
-            const isSameBinding = decls.some(
-              (d) => d === workflowInfo.variableDeclaration
-            );
-            if (!isSameBinding) return;
-          }
-        }
-      }
-
-      // Only count invocations that are inside this workflow's containing scope
-      // (so inner workflow doesn't pick up outer invocations with the same name).
-      const isInWorkflowScope =
-        !workflowContainingScope || isDescendantOf(node, workflowContainingScope);
-      // Check if this invocation is inside a scope that shadows the workflow name
-      const isInShadowedScope = shadowingScopes.some((scope) =>
-        isDescendantOf(node, scope)
-      );
-
-      if (isInWorkflowScope && !isInShadowedScope) {
-        const args = node.getArguments();
-        invocations.push({
-          callExpression: node,
-          callbackArg: args[0],
-        });
-      }
-    }
-  });
-
-  // ── Fallback: factory pattern support ──
-  // When createWorkflow() is returned from a function (no variable binding),
-  // the direct binding-name search above finds nothing. Try two fallbacks:
-  //
-  // 1. Factory tracing: find calls to the enclosing factory function in the
-  //    same file, trace the result variable, and find invocations of it.
-  // 2. Deps-signature matching: find any callback invocation whose parameter
-  //    destructuring matches the workflow's dependency names.
-  if (invocations.length === 0 && !workflowInfo.bindingName) {
-    // Fallback 1: Factory tracing
-    // Check if createWorkflow is returned from a named function
-    let factoryName: string | undefined;
-    let factoryDecl: Node | undefined;
-    let current: Node | undefined = workflowInfo.callExpression.getParent();
-    while (current) {
-      if (Node.isReturnStatement(current) || Node.isArrowFunction(current)) {
-        // Walk up to find enclosing named function
-        let scope: Node | undefined = current.getParent();
-        while (scope) {
-          if (Node.isFunctionDeclaration(scope)) {
-            factoryName = (scope as { getName?: () => string | undefined }).getName?.();
-            factoryDecl = scope;
-            break;
-          }
-          if (Node.isVariableDeclaration(scope)) {
-            const init = scope.getInitializer();
-            if (init && (Node.isArrowFunction(init) || Node.isFunctionExpression(init))) {
-              factoryName = scope.getName();
-              factoryDecl = scope;
-              break;
-            }
-          }
-          scope = scope.getParent();
-        }
-        break;
-      }
-      current = current.getParent();
-    }
-
-    if (factoryName && factoryDecl) {
-      // Search for calls to the factory function that resolve to this declaration
-      // (not a shadowed same-named function), then trace result variable declarations.
-      const factoryResultDecls: Node[] = [];
-      sourceFile.forEachDescendant((node) => {
-        if (!Node.isCallExpression(node)) return;
-        const expression = node.getExpression();
-        const calleeId = getCalleeIdentifier(expression);
-        if (!calleeId || calleeId.getText() !== factoryName) return;
-        const symbol = calleeId.getSymbol();
-        if (!symbol) return;
-        const decls = symbol.getDeclarations();
-        const isOurFactory = decls.some((d) => d === factoryDecl);
-        if (!isOurFactory) return;
-        const parent = node.getParent();
-        if (parent && Node.isVariableDeclaration(parent)) {
-          factoryResultDecls.push(parent);
-        }
-      });
-
-      // Find invocations only when the callee resolves to a factory result variable
-      // (avoids same-name different variable and method calls like obj.run(cb)).
-      sourceFile.forEachDescendant((node) => {
-        if (!Node.isCallExpression(node)) return;
-        const expression = node.getExpression();
-        // For direct calls: getCalleeIdentifier extracts the identifier
-        // For .run() calls: extract the object part of the PropertyAccessExpression
-        let calleeId = getCalleeIdentifier(expression);
-        if (!calleeId) {
-          const callee = getCalleeExpression(expression);
-          if (Node.isPropertyAccessExpression(callee)) {
-            const obj = callee.getExpression();
-            if (Node.isIdentifier(obj)) {
-              calleeId = obj;
-            }
-          }
-        }
-        if (!calleeId) return;
-        const symbol = calleeId.getSymbol();
-        if (!symbol) return;
-        const decls = symbol.getDeclarations();
-        const isFactoryResultVar = decls.some((d) =>
-          factoryResultDecls.includes(d)
-        );
-        if (!isFactoryResultVar) return;
-        const args = node.getArguments();
-        if (args.length > 0) {
-          const firstArg = args[0];
-          if (Node.isArrowFunction(firstArg) || Node.isFunctionExpression(firstArg)) {
-            invocations.push({
-              callExpression: node,
-              callbackArg: firstArg,
-            });
-          }
-        }
-      });
-    }
-
-    // Fallback 2: Deps-signature matching
-    // When the workflow is invoked via a parameter (e.g., function run(workflow) { workflow(cb) }),
-    // match by checking if the callback's second parameter destructures the same dep names.
-    if (invocations.length === 0 && workflowInfo.depsObject) {
-      const depNames = extractDepNamesFromObject(workflowInfo.depsObject);
-
-      if (depNames.length > 0) {
-        sourceFile.forEachDescendant((node) => {
-          if (!Node.isCallExpression(node)) return;
-          const expression = node.getExpression();
-          // Only consider `workflow(cb)` or `workflow.run(cb)` where `workflow` is a function parameter.
-          // Unwrap parentheses and await so (workflow)(cb) and (await workflow)(cb) are recognized.
-          let calleeId = getCalleeIdentifier(expression);
-          if (!calleeId) {
-            const callee = getCalleeExpression(expression);
-            if (Node.isPropertyAccessExpression(callee)) {
-              const obj = callee.getExpression();
-              if (Node.isIdentifier(obj)) {
-                calleeId = obj;
-              }
-            }
-          }
-          if (!calleeId) return;
-          const symbol = calleeId.getSymbol();
-          if (!symbol) return;
-          const isParameterCallee = symbol
-            .getDeclarations()
-            .some((decl) => Node.isParameterDeclaration(decl));
-          if (!isParameterCallee) return;
-
-          const args = node.getArguments();
-          if (args.length === 0) return;
-
-          const firstArg = args[0];
-          if (!Node.isArrowFunction(firstArg) && !Node.isFunctionExpression(firstArg)) return;
-
-          const params = (firstArg as { getParameters: () => Node[] }).getParameters();
-          if (params.length !== 1) return;
-
-          const firstParam = params[0];
-          if (!Node.isParameterDeclaration(firstParam)) return;
-          const paramNameNode = firstParam.getNameNode();
-          if (!Node.isObjectBindingPattern(paramNameNode)) return;
-
-          const elements = paramNameNode.getElements();
-          const hasStep = elements.some((e: { getName: () => string; getPropertyNameNode?: () => { getText: () => string } | undefined }) => {
-            const propName = e.getPropertyNameNode?.()?.getText() || e.getName();
-            return propName === "step";
-          });
-          if (!hasStep) return;
-
-          const depsElement = elements.find((e: { getName: () => string; getPropertyNameNode?: () => { getText: () => string } | undefined }) => {
-            const propName = e.getPropertyNameNode?.()?.getText() || e.getName();
-            return propName === "deps";
-          });
-          if (!depsElement) return;
-
-          const depsNameNode = (depsElement as { getNameNode?: () => Node }).getNameNode?.();
-          let boundNames: string[];
-          if (depsNameNode && Node.isObjectBindingPattern(depsNameNode)) {
-            boundNames = depsNameNode.getElements().map((e: { getName: () => string }) => e.getName());
-          } else {
-            // deps is not further destructured, can't match individual dep names
-            return;
-          }
-
-          // Require all workflow dep names to appear in the callback destructuring
-          const allDepsPresent = depNames.every((d) => boundNames.includes(d));
-
-          if (allDepsPresent) {
-            // Guard: skip if the callee resolves to a locally-defined
-            // function/variable (not a parameter) – those are unlikely to be
-            // workflow invocations.
-            if (calleeId) {
-              const ident = calleeId as { getDefinitionNodes?: () => Node[] };
-              const defs = ident.getDefinitionNodes?.() ?? [];
-              const isLocalNonParam = defs.some(
-                (d: Node) =>
-                  Node.isFunctionDeclaration(d) ||
-                  Node.isVariableDeclaration(d)
-              );
-              if (isLocalNonParam) return;
-            }
-            invocations.push({
-              callExpression: node,
-              callbackArg: firstArg,
-            });
-          }
-        });
-      }
-    }
-  }
-
-  return invocations;
-}
-
 // =============================================================================
 // Callback Analysis
 // =============================================================================
-
-/**
- * Extended context for analyzing workflow structure.
- * Tracks whether we're inside the workflow callback to properly count
- * control structures regardless of whether they contain step calls.
- */
-interface AnalysisContext {
-  /** Names that refer to the step function */
-  stepNames: Set<string>;
-  /** Whether we're currently inside the workflow callback body */
-  isInWorkflowCallback: boolean;
-  /** Nesting depth for tracking nested functions */
-  depth: number;
-}
 
 function analyzeCallback(
   callback: Node,
@@ -1705,7 +623,8 @@ function analyzeCallback(
   warnings: AnalysisWarning[],
   stats: AnalysisStats,
   sagaContext: SagaContext = { isSagaWorkflow: false },
-  stepParamInfo?: StepParameterInfo
+  stepParamInfo?: StepParameterInfo,
+  boundStepsInfo?: BoundStepsInfo
 ): StaticFlowNode[] {
   const { Node } = loadTsMorph();
   // Get the function body
@@ -1728,11 +647,27 @@ function analyzeCallback(
 
   // Build analysis context from step parameter info
   const context: AnalysisContext = { stepNames: new Set(), isInWorkflowCallback: true, depth: 0 };
-  if (stepParamInfo) {
+  if (boundStepsInfo) {
+    // Deps-first form: first param is the bound-steps object; the classic
+    // step (escape hatch) comes from the second param's destructuring.
+    context.boundSteps = boundStepsInfo;
+    if (boundStepsInfo.stepAlias) {
+      context.stepNames.add(boundStepsInfo.stepAlias);
+    }
+  } else if (stepParamInfo) {
     if (stepParamInfo.isDestructured && stepParamInfo.stepAlias) {
       context.stepNames.add(stepParamInfo.stepAlias);
     } else if (stepParamInfo.name) {
       context.stepNames.add(stepParamInfo.name);
+    }
+    // Workflow bound steps: ({ steps }) or ({ steps: { getUser } })
+    if (stepParamInfo.stepsAlias || stepParamInfo.stepsBareAliases) {
+      context.boundSteps = {
+        objectNames: stepParamInfo.stepsAlias
+          ? new Set([stepParamInfo.stepsAlias])
+          : new Set(),
+        bareAliases: stepParamInfo.stepsBareAliases ?? new Map(),
+      };
     }
   }
   // Default to "step" if no explicit parameter info
@@ -2048,6 +983,100 @@ function analyzeCallbackArgument(
 // Call Expression Analysis
 // =============================================================================
 
+/** Everything a step-method handler may need, bundled once at dispatch. */
+interface StepMethodHandlerArgs {
+  node: Node;
+  args: Node[];
+  opts: Required<AnalyzerOptions>;
+  warnings: AnalysisWarning[];
+  stats: AnalysisStats;
+  sagaContext: SagaContext;
+  context: AnalysisContext;
+}
+
+/** step.withResource(): step node plus acquire/use/release extraction. */
+function analyzeStepWithResourceCall(h: StepMethodHandlerArgs): StaticStepNode {
+  const { Node } = loadTsMorph();
+  const stepNode = analyzeStepCall(h.node, h.args, h.opts, h.warnings, h.stats, {
+    displayCallee: "step.withResource",
+  });
+  stepNode.stepKind = "withResource";
+  // Parse options object for acquire/use/release and attach resourceOps
+  if (h.args[1] && Node.isObjectLiteralExpression(h.args[1])) {
+    const resourceOps: { acquire?: string; use?: string; release?: string } = {};
+    for (const prop of h.args[1].getProperties()) {
+      if (!Node.isPropertyAssignment(prop)) continue;
+      const key = prop.getName();
+      if (key !== "acquire" && key !== "use" && key !== "release") continue;
+      const init = prop.getInitializer();
+      if (init) {
+        const calleeStr = extractCalleeFromResourceCallback(init);
+        if (calleeStr) resourceOps[key as "acquire" | "use" | "release"] = calleeStr;
+      }
+    }
+    if (Object.keys(resourceOps).length > 0) stepNode.resourceOps = resourceOps;
+  }
+  return stepNode;
+}
+
+/** step.workflow(): step node, sequenced with any getter-callback results. */
+function analyzeStepWorkflowCall(h: StepMethodHandlerArgs): StaticFlowNode {
+  const getterResults = h.args[1]
+    ? analyzeCallbackArgument(h.args[1], h.opts, h.warnings, h.stats, h.sagaContext, h.context)
+    : [];
+  const stepNode = analyzeStepCall(h.node, h.args, h.opts, h.warnings, h.stats, {
+    displayCallee: "step.workflow",
+  });
+  if (getterResults.length === 0) return stepNode;
+  return {
+    id: generateId(),
+    type: "sequence",
+    children: [stepNode, ...getterResults],
+  } as StaticSequenceNode;
+}
+
+/**
+ * Dispatch table for `step.<method>()` calls. Adding a step method to the
+ * analyzer is one table row here — not another branch in
+ * analyzeCallExpression.
+ */
+const STEP_METHOD_HANDLERS: Record<
+  string,
+  (h: StepMethodHandlerArgs) => StaticFlowNode | undefined
+> = {
+  sleep: (h) => analyzeStepSleepCall(h.node, h.args, h.opts, h.stats),
+  retry: (h) => analyzeStepRetryCall(h.node, h.args, h.opts, h.warnings, h.stats),
+  withTimeout: (h) => analyzeStepTimeoutCall(h.node, h.args, h.opts, h.warnings, h.stats),
+  try: (h) => analyzeStepTryCall(h.node, h.args, h.opts, h.warnings, h.stats),
+  fromResult: (h) => analyzeStepFromResultCall(h.node, h.args, h.opts, h.warnings, h.stats),
+  withFallback: (h) =>
+    analyzeStepCall(h.node, h.args, h.opts, h.warnings, h.stats, { displayCallee: "step.withFallback" }),
+  withResource: analyzeStepWithResourceCall,
+  workflow: analyzeStepWorkflowCall,
+  // Effect-style ergonomics methods
+  run: (h) => analyzeStepCall(h.node, h.args, h.opts, h.warnings, h.stats, { displayCallee: "step.run" }),
+  andThen: (h) =>
+    analyzeStepCall(h.node, h.args, h.opts, h.warnings, h.stats, { displayCallee: "step.andThen" }),
+  match: (h) =>
+    analyzeStepCall(h.node, h.args, h.opts, h.warnings, h.stats, { displayCallee: "step.match" }),
+  map: (h) => analyzeStepCall(h.node, h.args, h.opts, h.warnings, h.stats, { displayCallee: "step.map" }),
+  // Parallel / race / iteration
+  all: (h) => analyzeParallelCall(h.node, h.args, "all", h.opts, h.warnings, h.stats, h.sagaContext, h.context),
+  allSettled: (h) =>
+    analyzeParallelCall(h.node, h.args, "allSettled", h.opts, h.warnings, h.stats, h.sagaContext, h.context),
+  parallel: (h) =>
+    analyzeParallelCall(h.node, h.args, "all", h.opts, h.warnings, h.stats, h.sagaContext, h.context),
+  race: (h) => analyzeRaceCall(h.node, h.args, h.opts, h.warnings, h.stats, h.sagaContext, h.context),
+  forEach: (h) =>
+    analyzeStepForEachCall(h.node, h.args, h.opts, h.warnings, h.stats, h.sagaContext, h.context),
+  branch: (h) =>
+    analyzeStepBranchCall(h.node, h.args, h.opts, h.warnings, h.stats, h.sagaContext, h.context),
+  // Streaming operations
+  getWritable: (h) => analyzeStreamCall(h.node, "write", h.opts, h.stats),
+  getReadable: (h) => analyzeStreamCall(h.node, "read", h.opts, h.stats),
+  streamForEach: (h) => analyzeStreamCall(h.node, "forEach", h.opts, h.stats),
+};
+
 function analyzeCallExpression(
   node: Node,
   opts: Required<AnalyzerOptions>,
@@ -2093,6 +1122,26 @@ function analyzeCallExpression(
     }
   }
 
+  // Deps-first bound step calls from run(deps, fn):
+  //   s.getOrder(id)          — property access on the steps object
+  //   getOrder(id)            — destructured binding ({ getOrder }) => ...
+  // Step ID = the dep key. Checked before classic step handling so a steps
+  // object named like the step param can't be misread; the classic escape
+  // hatch (s, { step }) still routes through stepNames below.
+  if (context.boundSteps) {
+    if (Node.isPropertyAccessExpression(expression)) {
+      const objText = expression.getExpression().getText();
+      if (context.boundSteps.objectNames.has(objText)) {
+        return analyzeBoundStepCall(node, expression.getName(), opts, stats);
+      }
+    } else if (Node.isIdentifier(expression)) {
+      const depKey = context.boundSteps.bareAliases.get(callee);
+      if (depKey) {
+        return analyzeBoundStepCall(node, depKey, opts, stats);
+      }
+    }
+  }
+
   // Check for step calls using custom step parameter names
   const isStepCall = isStepFunctionCall(callee, context);
 
@@ -2101,134 +1150,17 @@ function analyzeCallExpression(
     return analyzeStepCall(node, args, opts, warnings, stats);
   }
 
-  // step.sleep() call
-  if (isStepMethodCall(callee, "sleep", context)) {
-    return analyzeStepSleepCall(node, args, opts, stats);
-  }
-
-  // step.retry() call
-  if (isStepMethodCall(callee, "retry", context)) {
-    return analyzeStepRetryCall(node, args, opts, warnings, stats);
-  }
-
-  // step.withTimeout() call
-  if (isStepMethodCall(callee, "withTimeout", context)) {
-    return analyzeStepTimeoutCall(node, args, opts, warnings, stats);
-  }
-
-  // step.try() call
-  if (isStepMethodCall(callee, "try", context)) {
-    return analyzeStepTryCall(node, args, opts, warnings, stats);
-  }
-
-  // step.fromResult() call
-  if (isStepMethodCall(callee, "fromResult", context)) {
-    return analyzeStepFromResultCall(node, args, opts, warnings, stats);
-  }
-
-  // step.withFallback() call
-  if (isStepMethodCall(callee, "withFallback", context)) {
-    return analyzeStepCall(node, args, opts, warnings, stats, { displayCallee: "step.withFallback" });
-  }
-
-  // step.withResource() call
-  if (isStepMethodCall(callee, "withResource", context)) {
-    const stepNode = analyzeStepCall(node, args, opts, warnings, stats, {
-      displayCallee: "step.withResource",
-    });
-    stepNode.stepKind = "withResource";
-    // Parse options object for acquire/use/release and attach resourceOps
-    if (args[1] && Node.isObjectLiteralExpression(args[1])) {
-      const resourceOps: { acquire?: string; use?: string; release?: string } = {};
-      for (const prop of args[1].getProperties()) {
-        if (!Node.isPropertyAssignment(prop)) continue;
-        const key = prop.getName();
-        if (key !== "acquire" && key !== "use" && key !== "release") continue;
-        const init = prop.getInitializer();
-        if (init) {
-          const calleeStr = extractCalleeFromResourceCallback(init);
-          if (calleeStr) resourceOps[key as "acquire" | "use" | "release"] = calleeStr;
-        }
+  // step.<method>() calls — dispatched via STEP_METHOD_HANDLERS. Matches the
+  // property access structurally: the object must be a known step name and
+  // the method a registered handler.
+  if (Node.isPropertyAccessExpression(expression)) {
+    const objectName = expression.getExpression().getText();
+    if (context.stepNames.has(objectName)) {
+      const handler = STEP_METHOD_HANDLERS[expression.getName()];
+      if (handler) {
+        return handler({ node, args, opts, warnings, stats, sagaContext, context });
       }
-      if (Object.keys(resourceOps).length > 0) stepNode.resourceOps = resourceOps;
     }
-    return stepNode;
-  }
-
-  // step.workflow() call
-  if (isStepMethodCall(callee, "workflow", context)) {
-    const getterResults = args[1]
-      ? analyzeCallbackArgument(args[1], opts, warnings, stats, sagaContext, context)
-      : [];
-    const stepNode = analyzeStepCall(node, args, opts, warnings, stats, { displayCallee: "step.workflow" });
-    if (getterResults.length === 0) return stepNode;
-    return {
-      id: generateId(),
-      type: "sequence",
-      children: [stepNode, ...getterResults],
-    } as StaticSequenceNode;
-  }
-
-  // Effect-style ergonomics methods
-  // step.run() - unwrap AsyncResult directly
-  if (isStepMethodCall(callee, "run", context)) {
-    return analyzeStepCall(node, args, opts, warnings, stats, { displayCallee: "step.run" });
-  }
-
-  // step.andThen() - chain AsyncResults
-  if (isStepMethodCall(callee, "andThen", context)) {
-    return analyzeStepCall(node, args, opts, warnings, stats, { displayCallee: "step.andThen" });
-  }
-
-  // step.match() - pattern matching (treated as a step call)
-  if (isStepMethodCall(callee, "match", context)) {
-    return analyzeStepCall(node, args, opts, warnings, stats, { displayCallee: "step.match" });
-  }
-
-  // step.all() - alias for step.parallel()
-  if (isStepMethodCall(callee, "all", context)) {
-    return analyzeParallelCall(node, args, "all", opts, warnings, stats, sagaContext, context);
-  }
-
-  // step.allSettled() - parallel with allSettled mode
-  if (isStepMethodCall(callee, "allSettled", context)) {
-    return analyzeParallelCall(node, args, "allSettled", opts, warnings, stats, sagaContext, context);
-  }
-
-  // step.map() - parallel batch mapping (similar to parallel)
-  if (isStepMethodCall(callee, "map", context)) {
-    return analyzeStepCall(node, args, opts, warnings, stats, { displayCallee: "step.map" });
-  }
-
-  // step.parallel() call
-  if (isStepMethodCall(callee, "parallel", context)) {
-    return analyzeParallelCall(node, args, "all", opts, warnings, stats, sagaContext, context);
-  }
-
-  // step.race() call
-  if (isStepMethodCall(callee, "race", context)) {
-    return analyzeRaceCall(node, args, opts, warnings, stats, sagaContext, context);
-  }
-
-  // step.forEach() call
-  if (isStepMethodCall(callee, "forEach", context)) {
-    return analyzeStepForEachCall(node, args, opts, warnings, stats, sagaContext, context);
-  }
-
-  // step.branch() call - explicit conditional with metadata
-  if (isStepMethodCall(callee, "branch", context)) {
-    return analyzeStepBranchCall(node, args, opts, warnings, stats, sagaContext, context);
-  }
-
-  // Streaming operations
-  if (isStepMethodCall(callee, "getWritable", context)) {
-    return analyzeStreamCall(node, "write", opts, stats);
-  }
-  if (isStepMethodCall(callee, "getReadable", context)) {
-    return analyzeStreamCall(node, "read", opts, stats);
-  }
-  if (isStepMethodCall(callee, "streamForEach", context)) {
-    return analyzeStreamCall(node, "forEach", opts, stats);
   }
 
   // allAsync() call
@@ -2297,6 +1229,45 @@ function analyzeCallExpression(
 }
 
 /**
+ * Analyze a bound step call from the deps-first form run(deps, fn):
+ * `s.getOrder(id)` or destructured `getOrder(id)`. The step ID is the dep
+ * key, and the call itself is the inner call — no string ID, no thunk.
+ * Error/output types resolve via the deps object (depSource matching),
+ * with the type checker on the call as a secondary source.
+ */
+function analyzeBoundStepCall(
+  node: Node,
+  depKey: string,
+  opts: Required<AnalyzerOptions>,
+  stats: AnalysisStats
+): StaticStepNode {
+  stats.totalSteps++;
+
+  const stepNode: StaticStepNode = {
+    id: generateId(),
+    type: "step",
+    stepId: depKey,
+    location: opts.includeLocations ? getLocation(node) : undefined,
+  };
+
+  // The dep key doubles as callee and depSource so dependency enrichment
+  // (error types, output types) matches by name against the deps object.
+  stepNode.callee = depKey;
+  stepNode.depSource = depKey;
+
+  // The call expression itself is the inner call (there is no thunk).
+  inferStepIOFromInnerCall(node, node, stepNode);
+
+  if (!stepNode.name) {
+    stepNode.name = depKey;
+  }
+
+  attachStepDocsAndDepLocation(stepNode, node, node, opts);
+
+  return stepNode;
+}
+
+/**
  * Check if a callee represents a step function call.
  * Matches: step, s (custom param), runStep (alias), etc.
  * Does NOT match: obj.step (property access on non-step object)
@@ -2305,20 +1276,6 @@ function isStepFunctionCall(callee: string, context: AnalysisContext): boolean {
   // Direct step call - check if callee is in the stepNames set from context
   if (context.stepNames.has(callee)) {
     return true;
-  }
-
-  return false;
-}
-
-/**
- * Check if a callee represents a step method call.
- * Matches: step.sleep, s.sleep, runStep.retry, etc.
- */
-function isStepMethodCall(callee: string, method: string, context: AnalysisContext): boolean {
-  for (const stepName of context.stepNames) {
-    if (callee === `${stepName}.${method}`) {
-      return true;
-    }
   }
 
   return false;
@@ -2643,26 +1600,7 @@ function analyzeStepCall(
     stepNode.name = stepNode.stepId;
   }
 
-  const statement = getContainingStatement(node);
-  if (statement) {
-    const jsdoc = getJSDocDescriptionFromNode(statement);
-    if (jsdoc) stepNode.jsdocDescription = jsdoc;
-    const tags = getJSDocTagsFromNode(statement);
-    if (tags) {
-      if (tags.params?.length) stepNode.jsdocParams = tags.params;
-      if (tags.returns) stepNode.jsdocReturns = tags.returns;
-      if (tags.throws?.length) stepNode.jsdocThrows = tags.throws;
-      if (tags.example) stepNode.jsdocExample = tags.example;
-    }
-  }
-
-  if (opts.includeLocations && innerCallNode) {
-    const { Node } = loadTsMorph();
-    if (Node.isCallExpression(innerCallNode)) {
-      const calleeExpr = innerCallNode.getExpression();
-      stepNode.depLocation = getDefinitionLocationForCallee(calleeExpr) ?? getLocation(calleeExpr);
-    }
-  }
+  attachStepDocsAndDepLocation(stepNode, node, innerCallNode, opts);
 
   if (stepCallOptions?.displayCallee) {
     stepNode.callee = stepCallOptions.displayCallee;
@@ -4444,711 +3382,6 @@ function isLikelyWorkflowCall(node: Node): boolean {
 // Utility Functions
 // =============================================================================
 
-/**
- * Extract just the property names from an object literal expression.
- * Used for deps-signature matching in the factory pattern fallback.
- */
-function extractDepNamesFromObject(depsNode: Node): string[] {
-  const { Node } = loadTsMorph();
-  const names: string[] = [];
-
-  if (!Node.isObjectLiteralExpression(depsNode)) {
-    return names;
-  }
-
-  for (const prop of depsNode.getProperties()) {
-    if (Node.isPropertyAssignment(prop)) {
-      names.push(prop.getName());
-    } else if (Node.isShorthandPropertyAssignment(prop)) {
-      names.push(prop.getName());
-    }
-  }
-
-  return names;
-}
-
-function extractDependencies(
-  depsNode: Node,
-  _warnings: AnalysisWarning[]
-): DependencyInfo[] {
-  const { Node } = loadTsMorph();
-  const dependencies: DependencyInfo[] = [];
-
-  if (!Node.isObjectLiteralExpression(depsNode)) {
-    return dependencies;
-  }
-
-  for (const prop of depsNode.getProperties()) {
-    let name: string;
-    let typeSignature: string | undefined;
-    let signature: DependencyInfo["signature"] = undefined;
-
-    if (Node.isPropertyAssignment(prop)) {
-      name = prop.getName();
-      const init = prop.getInitializer();
-      if (init && typeof (init as { getType?: () => MorphTypeForExtraction }).getType === "function") {
-        try {
-          const morphType = (init as { getType: () => MorphTypeForExtraction }).getType();
-          typeSignature = morphType.getText();
-          signature = extractTypedSignature(init, morphType);
-        } catch {
-          // Type checker may be unavailable (e.g. no tsconfig); leave typeSignature/signature undefined
-        }
-      }
-    } else if (Node.isShorthandPropertyAssignment(prop)) {
-      name = prop.getName();
-      const ident = prop.getNameNode();
-      if (ident && typeof (ident as { getType?: () => MorphTypeForExtraction }).getType === "function") {
-        try {
-          const morphType = (ident as { getType: () => MorphTypeForExtraction }).getType();
-          typeSignature = morphType.getText();
-          signature = extractTypedSignature(ident, morphType);
-        } catch {
-          // Type checker may be unavailable; leave typeSignature/signature undefined
-        }
-      }
-    } else {
-      continue;
-    }
-
-    const errorTypes = inferErrorTypesFromSignature(typeSignature);
-
-    dependencies.push({
-      name,
-      typeSignature,
-      errorTypes,
-      signature,
-    });
-  }
-
-  return dependencies;
-}
-
-/**
- * Populate step.readTypes from root.dependencies so data-flow can report type mismatches.
- * Maps each read key to the dependency param type by index (first ref -> first param, etc.).
- */
-function enrichStepReadTypes(root: StaticWorkflowNode): void {
-  const depMap = new Map(root.dependencies.map((d) => [d.name, d]));
-  function visit(node: StaticFlowNode): void {
-    if (node.type === "step") {
-      const step = node as StaticStepNode;
-      const reads = step.reads;
-      const callee = step.callee ?? step.name;
-      if (reads?.length && callee) {
-        const dep = depMap.get(callee) ?? depMap.get(extractFunctionName(callee));
-        const sig = dep?.signature;
-        if (sig?.params?.length) {
-          const readTypes: Record<string, TypeInfo> = {};
-          const paramIndices = step.readParamIndices;
-          reads.forEach((key, i) => {
-            const paramIndex = paramIndices?.[i];
-            if (paramIndex === undefined) return;
-            const param = sig.params[paramIndex];
-            if (param?.type) readTypes[key] = param.type;
-          });
-          if (Object.keys(readTypes).length > 0) step.readTypes = readTypes;
-        }
-      }
-    }
-    for (const c of getStaticChildren(node)) visit(c);
-  }
-  for (const c of root.children) visit(c);
-}
-
-/**
- * When inferStepIOFromInnerCall did not resolve (e.g. in-memory source), populate
- * step outputTypeInfo/errorTypeInfo/causeTypeInfo from root.dependencies by matching step callee.
- */
-function enrichStepOutputTypes(root: StaticWorkflowNode): void {
-  const depMap = new Map(root.dependencies.map((d) => [d.name, d]));
-  function visit(node: StaticFlowNode): void {
-    if (node.type === "step") {
-      const step = node as StaticStepNode;
-      if (step.outputTypeInfo) return;
-      const callee = step.callee ?? step.name;
-      if (!callee) return;
-      const dep = depMap.get(callee) ?? depMap.get(extractFunctionName(callee));
-      const sig = dep?.signature;
-      if (!sig?.returnType) return;
-      const resultLike = extractResultLikeFromTypeString(sig.returnType.display);
-      if (resultLike) {
-        step.outputTypeInfo = resultLike.okType;
-        step.errorTypeInfo = resultLike.errorType;
-        step.causeTypeInfo = resultLike.causeType;
-        step.outputTypeKind = "declared";
-      }
-    }
-    for (const c of getStaticChildren(node)) visit(c);
-  }
-  for (const c of root.children) visit(c);
-}
-
-/**
- * When step.errors is not explicitly set but errorTypeInfo has been resolved,
- * populate step.errors from errorTypeInfo.display by splitting union types.
- */
-function inferErrorsFromErrorTypeInfo(root: StaticWorkflowNode): void {
-  function visit(node: StaticFlowNode): void {
-    if (node.type === "step") {
-      const step = node as StaticStepNode;
-      // Don't override explicit errors declaration (including explicit empty array)
-      if (step.errors !== undefined) return;
-
-      const errorDisplay = step.errorTypeInfo?.display;
-      if (!errorDisplay || errorDisplay === "unknown" || errorDisplay === "never") return;
-
-      const errorNames = splitTopLevelUnion(errorDisplay)
-        .filter((s) => s && s !== "unknown" && s !== "never");
-
-      if (errorNames.length > 0) {
-        step.errors = errorNames;
-        step.errorsSource = "inferred";
-      }
-    }
-    for (const c of getStaticChildren(node)) visit(c);
-  }
-  for (const c of root.children) visit(c);
-}
-
-/**
- * Split a type string on top-level `|` only, respecting angle brackets.
- * e.g. `Envelope<"A" | "B"> | FooError` → [`Envelope<"A" | "B">`, `FooError`]
- */
-function splitTopLevelUnion(typeStr: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let inString: string | null = null;
-  let start = 0;
-  for (let i = 0; i < typeStr.length; i++) {
-    const ch = typeStr[i];
-    if (inString) {
-      if (ch === "\\" ) { i++; continue; }
-      if (ch === inString) inString = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") { inString = ch; continue; }
-    if (ch === "<" || ch === "(" || ch === "{" || ch === "[") depth++;
-    else if (ch === ">" || ch === ")" || ch === "}" || ch === "]") depth--;
-    else if (ch === "|" && depth === 0) {
-      parts.push(typeStr.slice(start, i).trim());
-      start = i + 1;
-    }
-  }
-  parts.push(typeStr.slice(start).trim());
-  return parts;
-}
-
-/** Built-in step callees: use stepKind for display, not depSource. */
-const BUILTIN_STEP_CALLEES = new Set([
-  "step.sleep",
-  "step.withResource",
-  "step.retry",
-  "step.withTimeout",
-  "step.try",
-  "step.fromResult",
-]);
-
-/**
- * Ensure every step has a display source: depSource (workflow dep) or stepKind (built-in).
- * For built-in steps (sleep, withResource, etc.) sets stepKind when missing; for others sets depSource from callee.
- */
-function enrichStepDepSource(root: StaticWorkflowNode): void {
-  function visit(node: StaticFlowNode): void {
-    if (node.type === "step") {
-      const step = node as StaticStepNode;
-      if (!step.callee) return;
-      const kind = extractFunctionName(step.callee);
-      if (BUILTIN_STEP_CALLEES.has(step.callee)) {
-        if (!step.stepKind) step.stepKind = kind;
-      } else if (!step.depSource) {
-        step.depSource = kind;
-      }
-    }
-    for (const c of getStaticChildren(node)) visit(c);
-  }
-  for (const c of root.children) visit(c);
-}
-
-/** Ts-morph Type shape: getText() and compiler type for type-extractor. */
-type MorphTypeForExtraction = { getText: () => string; compilerType: ts.Type };
-
-function extractTypedSignature(
-  node: Node,
-  morphType: MorphTypeForExtraction
-): DependencyInfo["signature"] {
-  const tsLib = loadTypescript();
-
-  const tsNode = (node as unknown as { compilerNode: ts.Node }).compilerNode;
-  if (!tsNode) return undefined;
-
-  const kind = tsNode.kind;
-  const isFunctionLike =
-    kind === tsLib.SyntaxKind.FunctionDeclaration ||
-    kind === tsLib.SyntaxKind.ArrowFunction ||
-    kind === tsLib.SyntaxKind.FunctionExpression ||
-    kind === tsLib.SyntaxKind.MethodDeclaration;
-
-  try {
-    const project = node.getSourceFile().getProject();
-    const typeChecker = project.getTypeChecker();
-    const tc = typeChecker.compilerObject as ts.TypeChecker;
-
-    let sig: ts.Signature | undefined;
-    if (isFunctionLike) {
-      sig = tc.getSignatureFromDeclaration(tsNode as ts.SignatureDeclaration);
-    } else if (kind === tsLib.SyntaxKind.Identifier) {
-      // Shorthand property: { fetchUser } – use ts-morph type and pass compiler type for extraction
-      const type = morphType.compilerType;
-      const callSigs = type.getCallSignatures?.();
-      sig = callSigs?.length ? callSigs[0] : undefined;
-    }
-    if (!sig) return undefined;
-
-    const params = sig.getParameters().map((param, index) => {
-      const decl = param.valueDeclaration;
-      const paramType = decl
-        ? tc.getTypeOfSymbolAtLocation(param, decl)
-        : tc.getAnyType();
-      const paramTypeString = tc.typeToString(paramType);
-      return {
-        name: param.getName() ?? `param${index}`,
-        type: {
-          display: paramTypeString,
-          canonical: paramTypeString.replace(/\s+/g, " ").trim(),
-          kind: "plain" as const,
-          confidence: "exact" as const,
-          source: "checker" as const,
-        },
-      };
-    });
-
-    const returnType = sig.getReturnType();
-    const returnTypeString = tc.typeToString(returnType);
-
-    const returnTypeInfo: TypeInfo = {
-      display: returnTypeString,
-      canonical: returnTypeString.replace(/\s+/g, " ").trim(),
-      kind: detectTypeKindFromString(returnTypeString),
-      confidence: "exact",
-      source: "checker",
-    };
-
-    const resultLike = extractResultLike(returnType, tc);
-
-    return {
-      params,
-      returnType: returnTypeInfo,
-      resultLike: resultLike ? {
-        okType: resultLike.okType,
-        errorType: resultLike.errorType,
-        causeType: resultLike.causeType,
-      } : undefined,
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-function detectTypeKindFromString(typeString: string): TypeInfo["kind"] {
-  if (typeString.includes("AsyncResult")) return "asyncResult";
-  if (typeString.includes("Promise<Result")) return "promiseResult";
-  if (typeString.includes("Result")) return "result";
-  return "plain";
-}
-
-/**
- * Best-effort: infer error type union from Result<T, E> in a type signature string.
- * Handles Promise<Result<T, E>> and Result<T, E>. Extracts string literal union members.
- * T may contain commas (e.g. tuple [number, string]), so we only treat a comma at
- * depth 1 (outside any nested <>, [], {}, ()) as the T/E separator.
- */
-function inferErrorTypesFromSignature(typeSignature: string | undefined): string[] {
-  if (!typeSignature) return [];
-  const resultMatch = typeSignature.match(/Result\s*</);
-  if (!resultMatch) return [];
-  const start = resultMatch.index! + resultMatch[0].length;
-  let depth = 1;
-  let i = start;
-  let firstComma = -1;
-  while (i < typeSignature.length && depth > 0) {
-    const c = typeSignature[i];
-    if (c === "<" || c === "[" || c === "{" || c === "(") depth++;
-    else if (c === ">" || c === "]" || c === "}" || c === ")") depth--;
-    else if (c === "," && depth === 1 && firstComma < 0) firstComma = i;
-    i++;
-  }
-  if (firstComma < 0 || depth !== 0) return [];
-  const secondArg = typeSignature.slice(firstComma + 1, i - 1).trim();
-  const parts = secondArg.split(/\s*\|\s*/).map((s) => s.trim().replace(/^["']|["']$/g, ""));
-  return parts.filter((s) => s.length > 0 && /^[A-Z_][A-Z0-9_]*$/i.test(s));
-}
-
-function extractErrorTypes(dependencies: DependencyInfo[]): string[] {
-  const errorTypes = new Set<string>();
-  for (const dep of dependencies) {
-    for (const error of dep.errorTypes) {
-      errorTypes.add(error);
-    }
-  }
-  return Array.from(errorTypes);
-}
-
-/**
- * Step options we extract from step('id', fn, opts).
- * Aligns with awaitly: step identity/name is always the first argument, never in opts.
- * Same in awaitly: step('id', ...), step.sleep/retry/withTimeout/try/fromResult('id', ...),
- * step.parallel(name, ...), step.race(name, ...), saga.step(name, ...), saga.tryStep(name, ...).
- */
-interface StepOptions {
-  key?: string;
-  description?: string;
-  markdown?: string;
-  retry?: StaticRetryConfig;
-  timeout?: StaticTimeoutConfig;
-  errors?: string[];
-  out?: string;
-  dep?: string;
-  reads?: string[];
-  intent?: string;
-  domain?: string;
-  owner?: string;
-  tags?: string[];
-  stateChanges?: string[];
-  emits?: string[];
-  calls?: string[];
-  errorMeta?: Record<
-    string,
-    { retryable?: boolean; severity?: string; description?: string }
-  >;
-  ttl?: number | "<dynamic>";
-}
-
-function extractStepOptions(optionsNode: Node): StepOptions {
-  const { Node } = loadTsMorph();
-  const options: StepOptions = {};
-
-  if (!Node.isObjectLiteralExpression(optionsNode)) {
-    return options;
-  }
-
-  for (const prop of optionsNode.getProperties()) {
-    if (!Node.isPropertyAssignment(prop)) continue;
-
-    const propName = prop.getName();
-    const init = prop.getInitializer();
-
-    // Intentionally do not extract "name": in awaitly, step name/ID is always the first argument.
-    if (propName === "name") continue;
-
-    if (propName === "key" && init) {
-      options.key = extractStringValue(init);
-    } else if (propName === "description" && init) {
-      options.description = extractStringValue(init);
-    } else if (propName === "markdown" && init) {
-      options.markdown = extractStringValue(init);
-    } else if (propName === "retry" && init && Node.isObjectLiteralExpression(init)) {
-      options.retry = extractRetryConfig(init);
-    } else if (propName === "timeout" && init && Node.isObjectLiteralExpression(init)) {
-      options.timeout = extractTimeoutConfig(init);
-    } else if (propName === "errors" && init) {
-      // Extract errors array: errors: ['A', 'B'] or errors: tags('A', 'B') or errors: someConst
-      options.errors = extractErrorsArray(init);
-    } else if (propName === "out" && init) {
-      options.out = extractStringValue(init);
-    } else if (propName === "dep" && init) {
-      options.dep = extractStringValue(init);
-    } else if (propName === "reads" && init) {
-      // Extract reads array: reads: ['a', 'b']
-      options.reads = extractStringArrayValue(init);
-    } else if (propName === "intent" && init) {
-      options.intent = extractStringValue(init);
-    } else if (propName === "domain" && init) {
-      options.domain = extractStringValue(init);
-    } else if (propName === "owner" && init) {
-      options.owner = extractStringValue(init);
-    } else if (propName === "tags" && init) {
-      options.tags = extractStringArrayValue(init);
-    } else if (propName === "stateChanges" && init) {
-      options.stateChanges = extractStringArrayValue(init);
-    } else if (propName === "emits" && init) {
-      options.emits = extractStringArrayValue(init);
-    } else if (propName === "calls" && init) {
-      options.calls = extractStringArrayValue(init);
-    } else if (
-      propName === "errorMeta" &&
-      init &&
-      Node.isObjectLiteralExpression(init)
-    ) {
-      options.errorMeta = extractErrorMeta(init);
-    } else if (propName === "ttl" && init) {
-      options.ttl = extractNumberValue(init);
-    }
-  }
-
-  return options;
-}
-
-function extractErrorMeta(
-  node: Node
-):
-  | Record<
-      string,
-      { retryable?: boolean; severity?: string; description?: string }
-    >
-  | undefined {
-  const { Node } = loadTsMorph();
-  if (!Node.isObjectLiteralExpression(node)) return undefined;
-
-  const meta: Record<
-    string,
-    { retryable?: boolean; severity?: string; description?: string }
-  > = {};
-
-  for (const prop of node.getProperties()) {
-    if (!Node.isPropertyAssignment(prop)) continue;
-    const errorKey = prop.getName();
-    const init = prop.getInitializer();
-    if (!init || !Node.isObjectLiteralExpression(init)) continue;
-
-    const entry: {
-      retryable?: boolean;
-      severity?: string;
-      description?: string;
-    } = {};
-    for (const subProp of init.getProperties()) {
-      if (!Node.isPropertyAssignment(subProp)) continue;
-      const subName = subProp.getName();
-      const subInit = subProp.getInitializer();
-      if (!subInit) continue;
-
-      if (subName === "retryable") {
-        entry.retryable = extractBooleanValue(subInit);
-      } else if (subName === "severity") {
-        const val = extractStringValue(subInit);
-        if (val && val !== "<dynamic>") entry.severity = val;
-      } else if (subName === "description") {
-        const val = extractStringValue(subInit);
-        if (val && val !== "<dynamic>") entry.description = val;
-      }
-    }
-    meta[errorKey] = entry;
-  }
-
-  return Object.keys(meta).length > 0 ? meta : undefined;
-}
-
-/**
- * Extract a string array from an array literal: ['a', 'b']
- */
-function extractStringArrayValue(node: Node): string[] | undefined {
-  const { Node } = loadTsMorph();
-
-  if (Node.isArrayLiteralExpression(node)) {
-    const values: string[] = [];
-    for (const element of node.getElements()) {
-      const val = extractStringValue(element);
-      if (val && val !== "<dynamic>") {
-        values.push(val);
-      }
-    }
-    return values.length > 0 ? values : undefined;
-  }
-
-  // Identifier - try to resolve const in same file
-  if (Node.isIdentifier(node)) {
-    const resolved = resolveConstValue(node);
-    if (resolved) {
-      return extractStringArrayValue(resolved);
-    }
-  }
-
-  return undefined;
-}
-
-/**
- * Extract errors array from various forms:
- * - Array literal: ['A', 'B']
- * - tags() call: tags('A', 'B')
- * - err() call: err('A', 'B')
- * - Identifier (const reference): someErrors
- */
-function extractErrorsArray(node: Node): string[] | undefined {
-  const { Node } = loadTsMorph();
-
-  // Array literal: ['A', 'B'] or []
-  // Return empty array for explicit [], not undefined (distinguishes from "not declared")
-  if (Node.isArrayLiteralExpression(node)) {
-    const errors: string[] = [];
-    for (const element of node.getElements()) {
-      const val = extractStringValue(element);
-      if (val && val !== "<dynamic>") {
-        errors.push(val);
-      }
-    }
-    return errors;
-  }
-
-  // tags() or err() call: tags('A', 'B') or tags()
-  // Return empty array for explicit tags(), not undefined
-  if (Node.isCallExpression(node)) {
-    const callee = node.getExpression();
-    const calleeName = callee.getText();
-    if (calleeName === "tags" || calleeName === "err") {
-      const errors: string[] = [];
-      for (const arg of node.getArguments()) {
-        const val = extractStringValue(arg);
-        if (val && val !== "<dynamic>") {
-          errors.push(val);
-        }
-      }
-      return errors;
-    }
-  }
-
-  // Identifier - try to resolve const in same file
-  if (Node.isIdentifier(node)) {
-    const resolved = resolveConstValue(node);
-    if (resolved) {
-      return extractErrorsArray(resolved);
-    }
-  }
-
-  return undefined;
-}
-
-/**
- * Try to resolve a const identifier to its initializer value.
- * Only works for same-file const declarations.
- */
-function resolveConstValue(identifier: Node): Node | undefined {
-  const { Node } = loadTsMorph();
-
-  if (!Node.isIdentifier(identifier)) {
-    return undefined;
-  }
-
-  const sourceFile = identifier.getSourceFile();
-  const name = identifier.getText();
-
-  // Look for const declaration in the same file
-  for (const stmt of sourceFile.getStatements()) {
-    if (Node.isVariableStatement(stmt)) {
-      const declList = stmt.getDeclarationList();
-      // Only resolve const declarations
-      if (declList.getDeclarationKind() !== "const") {
-        continue;
-      }
-      for (const decl of declList.getDeclarations()) {
-        if (decl.getName() === name) {
-          return decl.getInitializer();
-        }
-      }
-    }
-  }
-
-  return undefined;
-}
-
-function extractRetryConfig(node: Node): StaticRetryConfig {
-  const { Node } = loadTsMorph();
-  const config: StaticRetryConfig = {};
-
-  if (!Node.isObjectLiteralExpression(node)) {
-    return config;
-  }
-
-  for (const prop of node.getProperties()) {
-    if (!Node.isPropertyAssignment(prop)) continue;
-
-    const propName = prop.getName();
-    const init = prop.getInitializer();
-
-    if (propName === "attempts" && init) {
-      config.attempts = extractNumberValue(init);
-    } else if (propName === "backoff" && init) {
-      const val = extractStringValue(init);
-      if (val === "fixed" || val === "linear" || val === "exponential") {
-        config.backoff = val;
-      } else {
-        config.backoff = "<dynamic>";
-      }
-    } else if (propName === "baseDelay" && init) {
-      config.baseDelay = extractNumberValue(init);
-    } else if (propName === "retryOn" && init) {
-      config.retryOn = init.getText();
-    } else if (propName === "initialDelay" && init) {
-      config.initialDelay = extractNumberValue(init);
-    } else if (propName === "maxDelay" && init) {
-      config.maxDelay = extractNumberValue(init);
-    } else if (propName === "jitter" && init) {
-      config.jitter = extractBooleanValue(init) ?? "<dynamic>";
-    }
-  }
-
-  return config;
-}
-
-function extractTimeoutConfig(node: Node): StaticTimeoutConfig {
-  const { Node } = loadTsMorph();
-  const config: StaticTimeoutConfig = {};
-
-  if (!Node.isObjectLiteralExpression(node)) {
-    return config;
-  }
-
-  for (const prop of node.getProperties()) {
-    if (!Node.isPropertyAssignment(prop)) continue;
-
-    const propName = prop.getName();
-    const init = prop.getInitializer();
-
-    if (propName === "ms" && init) {
-      config.ms = extractNumberValue(init);
-    } else if (propName === "signal" && init) {
-      config.signal = extractBooleanValue(init) ?? "<dynamic>";
-    } else if (propName === "onTimeout" && init) {
-      const val = extractStringValue(init);
-      if (val === "error" || val === "option" || val === "disconnect") {
-        config.onTimeout = val;
-      } else {
-        config.onTimeout = "<dynamic>";
-      }
-    }
-  }
-
-  return config;
-}
-
-function extractStringValue(node: Node): string {
-  const { Node } = loadTsMorph();
-  if (Node.isStringLiteral(node)) {
-    return node.getLiteralValue();
-  }
-  if (Node.isTemplateExpression(node)) {
-    return "<dynamic>";
-  }
-  if (Node.isNoSubstitutionTemplateLiteral(node)) {
-    return node.getLiteralValue();
-  }
-  return node.getText();
-}
-
-function extractNumberValue(node: Node): number | "<dynamic>" {
-  const { Node } = loadTsMorph();
-  if (Node.isNumericLiteral(node)) {
-    return node.getLiteralValue();
-  }
-  return "<dynamic>";
-}
-
-function extractBooleanValue(node: Node): boolean | undefined {
-  const { Node } = loadTsMorph();
-  if (Node.isTrueLiteral(node)) return true;
-  if (Node.isFalseLiteral(node)) return false;
-  return undefined;
-}
-
 function extractCallee(node: Node): string {
   const { Node } = loadTsMorph();
   if (Node.isArrowFunction(node) || Node.isFunctionExpression(node)) {
@@ -5173,191 +3406,6 @@ function extractCallee(node: Node): string {
     return node.getExpression().getText();
   }
   return node.getText();
-}
-
-function getLocation(node: Node): SourceLocation {
-  const sourceFile = node.getSourceFile();
-  const start = node.getStart();
-  const end = node.getEnd();
-  const startPos = sourceFile.getLineAndColumnAtPos(start);
-  const endPos = sourceFile.getLineAndColumnAtPos(end);
-
-  return {
-    filePath: sourceFile.getFilePath(),
-    line: startPos.line,
-    column: startPos.column - 1,
-    endLine: endPos.line,
-    endColumn: endPos.column - 1,
-  };
-}
-
-/**
- * Best-effort: infer stepNode.outputType and stepNode.inputType from the inner call.
- * Uses ts-morph's getType() for the call's return type (passed to type-extractor); uses
- * getResolvedSignature(compilerNode) only for parameter types (inputType).
- * For step.retry/withTimeout/try/fromResult we use the inner operation's type. When that
- * stays unknown/any or does not extract as Result-like, we refine by following the
- * callee's type (e.g. deps.fetchData) and use its call signature's return type.
- */
-function inferStepIOFromInnerCall(
-  contextNode: Node,
-  innerCallNode: Node | undefined,
-  stepNode: StaticStepNode
-): void {
-  const { Node } = loadTsMorph();
-  if (!innerCallNode || !Node.isCallExpression(innerCallNode)) return;
-  try {
-    const project = contextNode.getSourceFile().getProject();
-    const typeChecker = project.getTypeChecker();
-    const tc = typeChecker.compilerObject as ts.TypeChecker;
-    const tsNode = (innerCallNode as { compilerNode: ts.CallExpression }).compilerNode;
-
-    // Return type via ts-morph so we pass a single ts.Type into type-extractor
-    const morphReturnType = innerCallNode.getType() as MorphTypeForExtraction;
-    const returnType = morphReturnType.compilerType;
-    stepNode.outputType = morphReturnType.getText();
-
-    let resultLike = extractResultLike(returnType, tc);
-    const needsRefinement =
-      !resultLike ||
-      stepNode.outputType === "any" ||
-      stepNode.outputType === "unknown";
-
-    if (needsRefinement) {
-      // Refine by following the callee: type of deps.fetchData -> call signature -> return type
-      const calleeTsNode = tsNode.expression;
-      const calleeType = tc.getTypeAtLocation(calleeTsNode);
-      const callSigs = calleeType.getCallSignatures?.() ?? [];
-      const sig = callSigs[0];
-      if (sig) {
-        const refinedReturnType = sig.getReturnType();
-        const refinedTypeStr = tc.typeToString(refinedReturnType);
-        stepNode.outputType = refinedTypeStr;
-        resultLike = extractResultLike(refinedReturnType, tc);
-      }
-    }
-
-    if (resultLike) {
-      stepNode.outputTypeInfo = resultLike.okType;
-      stepNode.errorTypeInfo = resultLike.errorType;
-      stepNode.causeTypeInfo = resultLike.causeType;
-      stepNode.outputTypeKind = "declared";
-    } else {
-      stepNode.outputTypeKind =
-        stepNode.outputType === "any" ? "unknown" : "inferred";
-    }
-
-    // Parameter types: resolved signature from call, or fallback to callee's first signature
-    let sig = tc.getResolvedSignature(tsNode);
-    if (!sig) {
-      const calleeTsNode = tsNode.expression;
-      const calleeType = tc.getTypeAtLocation(calleeTsNode);
-      const callSigs = calleeType.getCallSignatures?.() ?? [];
-      sig = callSigs[0];
-    }
-    if (sig) {
-      const decl = sig.getDeclaration();
-      if (decl && "parameters" in decl && Array.isArray((decl as ts.SignatureDeclaration).parameters)) {
-        const params = (decl as ts.SignatureDeclaration).parameters;
-        if (params.length > 0) {
-          const parts = params
-            .map((p: ts.ParameterDeclaration) => (p.type ? tc.getTypeFromTypeNode(p.type) : null))
-            .filter((t: ts.Type | null): t is ts.Type => t != null)
-            .map((t: ts.Type) => tc.typeToString(t));
-          if (parts.length > 0) stepNode.inputType = parts.join(", ");
-        }
-      }
-    }
-  } catch {
-    // Type checker may be unavailable or call not resolved
-  }
-}
-
-/**
- * Extract Result-like ok/error/cause types from a type string (e.g. from dependency returnType.display).
- * Handles AsyncResult<T,E,C>, Promise<Result<...>>, Promise<AsyncResult<...>>, and Result<T,E,C>.
- * Uses bracket-aware parsing to handle nested generics like Envelope<"A" | "B">.
- */
-function extractResultLikeFromTypeString(
-  typeString: string
-): { okType: TypeInfo; errorType: TypeInfo; causeType?: TypeInfo } | null {
-  // Unwrap Promise< ... > if present
-  let inner = typeString;
-  const promiseMatch = typeString.match(/^Promise<\s*([\s\S]+)\s*>$/);
-  if (promiseMatch) inner = promiseMatch[1].trim();
-
-  // Match AsyncResult< or Result< prefix
-  let kind: "asyncResult" | "result" | "promiseResult";
-  let argsStart: number;
-  const asyncResultIdx = inner.indexOf("AsyncResult<");
-  const resultIdx = inner.indexOf("Result<");
-  if (asyncResultIdx !== -1) {
-    kind = promiseMatch ? "asyncResult" : "asyncResult";
-    argsStart = asyncResultIdx + "AsyncResult<".length;
-  } else if (resultIdx !== -1) {
-    kind = promiseMatch ? "promiseResult" : "result";
-    argsStart = resultIdx + "Result<".length;
-  } else {
-    return null;
-  }
-
-  // Extract the content between the outermost < > of the Result type
-  // by finding the matching closing >
-  let depth = 1;
-  let argsEnd = argsStart;
-  for (let i = argsStart; i < inner.length; i++) {
-    const ch = inner[i];
-    if (ch === "<" || ch === "(" || ch === "{" || ch === "[") depth++;
-    else if (ch === ">" || ch === ")" || ch === "}" || ch === "]") { depth--; if (depth === 0) { argsEnd = i; break; } }
-  }
-  const argsStr = inner.slice(argsStart, argsEnd);
-
-  // Split on top-level commas (respecting nested brackets)
-  const args = splitTopLevelCommas(argsStr);
-  if (args.length < 2) return null;
-
-  return {
-    okType: createTypeInfoFromString(args[0], kind),
-    errorType: createTypeInfoFromString(args[1], kind),
-    causeType: args[2] ? createTypeInfoFromString(args[2], kind) : undefined,
-  };
-}
-
-/**
- * Split a type string on top-level commas, respecting angle brackets and parens.
- */
-function splitTopLevelCommas(typeStr: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let inString: string | null = null;
-  let start = 0;
-  for (let i = 0; i < typeStr.length; i++) {
-    const ch = typeStr[i];
-    if (inString) {
-      if (ch === "\\") { i++; continue; }
-      if (ch === inString) inString = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") { inString = ch; continue; }
-    if (ch === "<" || ch === "(" || ch === "{" || ch === "[") depth++;
-    else if (ch === ">" || ch === ")" || ch === "}" || ch === "]") depth--;
-    else if (ch === "," && depth === 0) {
-      parts.push(typeStr.slice(start, i).trim());
-      start = i + 1;
-    }
-  }
-  parts.push(typeStr.slice(start).trim());
-  return parts;
-}
-
-function createTypeInfoFromString(typeStr: string, _parentKind: "asyncResult" | "result" | "promiseResult"): TypeInfo {
-  return {
-    display: typeStr,
-    canonical: typeStr.replace(/\s+/g, " ").trim(),
-    kind: "plain",
-    confidence: "inferred",
-    source: "checker",
-  };
 }
 
 /**
@@ -5417,235 +3465,6 @@ function normalizeCalleeToDepSource(callee: string | undefined): string | undefi
   return m ? m[1] : undefined;
 }
 
-/**
- * Resolve the definition location of a callee expression (e.g. deps.getBatch).
- * Uses the type checker: symbol at location, or for property access the type's symbol.
- */
-function getDefinitionLocationForCallee(calleeNode: Node): SourceLocation | undefined {
-  const { Node } = loadTsMorph();
-  try {
-    const project = calleeNode.getSourceFile().getProject();
-    const typeChecker = project.getTypeChecker();
-    const tsNode = calleeNode as Parameters<typeof typeChecker.getSymbolAtLocation>[0];
-    let sym = typeChecker.getSymbolAtLocation(tsNode);
-    if (!sym && Node.isPropertyAccessExpression(calleeNode)) {
-      const nameNode = calleeNode.getNameNode();
-      if (nameNode) sym = typeChecker.getSymbolAtLocation(nameNode as typeof tsNode);
-    }
-    if (!sym) {
-      const type = (calleeNode.getType() as { compilerType: ts.Type }).compilerType;
-      if (type) {
-        const maybeSym = type.getSymbol?.() ?? (type as { symbol?: unknown }).symbol;
-        if (maybeSym) sym = maybeSym as ReturnType<typeof typeChecker.getSymbolAtLocation>;
-      }
-    }
-    if (!sym) return undefined;
-    const decls = sym.getDeclarations();
-    if (!decls?.length) return undefined;
-    const decl = decls[0];
-    const tsDecl = (decl as unknown as { compilerNode?: ts.Node }).compilerNode ?? (decl as unknown as ts.Node);
-    const sf = tsDecl.getSourceFile();
-    const start = tsDecl.getStart();
-    const end = tsDecl.getEnd();
-    const startPos = sf.getLineAndCharacterOfPosition(start);
-    const endPos = sf.getLineAndCharacterOfPosition(end);
-    return {
-      filePath: sf.fileName,
-      line: startPos.line + 1,
-      column: startPos.character,
-      endLine: endPos.line + 1,
-      endColumn: endPos.character,
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Get the statement that contains the given node (e.g. ExpressionStatement for `await step(...)`).
- */
-function getContainingStatement(node: Node): Node | undefined {
-  const { Node } = loadTsMorph();
-  let current: Node | undefined = node;
-  while (current) {
-    const parent = current.getParent();
-    if (!parent) return current;
-    if (Node.isExpressionStatement(parent) || Node.isVariableStatement(parent)) return parent;
-    if (Node.isBlock(parent)) return current;
-    current = parent;
-  }
-  return undefined;
-}
-
-/**
- * Parse JSDoc comment text to extract description (text before first @tag).
- */
-function parseJSDocCommentText(text: string): string | undefined {
-  const inner = text
-    .replace(/^\s*\/\*\*?\s*/, "")
-    .replace(/\s*\*\/\s*$/, "")
-    .replace(/^\s*\*\s?/gm, "\n")
-    .trim();
-  const beforeAt = inner.split(/\s*@/)[0].trim();
-  return beforeAt || undefined;
-}
-
-/** Structured JSDoc tags for steps/workflows */
-interface JSDocTagsResult {
-  params?: Array<{ name: string; description?: string }>;
-  returns?: string;
-  throws?: string[];
-  example?: string;
-}
-
-/**
- * Extract JSDoc @param, @returns, @throws, @example from a node that has getJsDocs().
- */
-function getJSDocTagsFromNode(node: Node): JSDocTagsResult | undefined {
-  const n = node as {
-    getJsDocs?: () => Array<{
-      getTags?: () => Array<{ getTagName?: () => string; getText: () => string }>;
-    }>;
-  };
-  if (typeof n.getJsDocs !== "function") return undefined;
-  try {
-    const docs = n.getJsDocs();
-    if (!docs || docs.length === 0) return undefined;
-    const first = docs[0];
-    const tags = first.getTags?.();
-    if (!tags || tags.length === 0) return undefined;
-
-    const result: JSDocTagsResult = {};
-    for (const tag of tags) {
-      const raw = tag.getTagName?.() ?? (tag as { getName?: () => string }).getName?.();
-      const tagName = typeof raw === "string" ? raw.toLowerCase() : undefined;
-      const text = tag.getText().trim();
-      if (!tagName) continue;
-      if (tagName === "param" || tagName === "argument" || tagName === "arg") {
-        // JSDoc: @param [type] name - desc or @param [type] [name] - desc (optional param). Capture name without brackets.
-        const match = text.match(/^(?:@?\w+\s+)?(?:\{[^}]*\}\s*)?\[?(\w+)\]?\s*[-–—]\s*(.*)$/s);
-        const words = text.split(/\s+/);
-        const tagWords = ["@param", "param", "@argument", "argument", "@arg", "arg"];
-        const isTypeToken = (w: string) => /^\{.*\}$/.test(w);
-        const nameFromFallback = words.find((w) => !tagWords.includes(w) && !isTypeToken(w)) ?? words[0] ?? "?";
-        const rawName = match ? match[1]!.trim() : nameFromFallback;
-        // Strip optional brackets and default value: [id="guest"] -> id
-        const name = rawName.replace(/^@/, "").replace(/^\[|\]$/g, "").split("=")[0]!.trim();
-        let desc: string | undefined;
-        if (match) {
-          desc = match[2]!.trim().replace(/\s*\*+\s*$/, "");
-        } else {
-          // No dash separator: @param {string} id User identifier — description is everything after the param name
-          const wordsForDesc = words.filter((w) => !isTypeToken(w));
-          const nameToken = rawName.replace(/^@/, "");
-          const nameIdx = wordsForDesc.indexOf(nameToken);
-          const descStr = nameIdx >= 0 ? wordsForDesc.slice(nameIdx + 1).join(" ") : wordsForDesc.slice(1).join(" ");
-          desc = descStr.replace(/^\s*[-–—]\s*/, "").trim().replace(/\s*\*+\s*$/, "") || undefined;
-        }
-        result.params = result.params ?? [];
-        result.params.push({ name, description: desc || undefined });
-      } else if (tagName === "returns" || tagName === "return") {
-        // Strip tag then optional @returns {Type}; keep only the description
-        const afterTag = text.replace(/^@?(?:returns?|return)\s+/i, "").trim();
-        const afterType = afterTag.replace(/^\s*\{[^}]*\}\s*/, "").trim().replace(/\s*\*+\s*$/, "");
-        result.returns = afterType || undefined;
-      } else if (tagName === "throws" || tagName === "exception") {
-        // Strip tag and optional {Type}; keep only the description (consistent with @returns)
-        const raw = text.trim();
-        const afterTag = raw.replace(/^@?(?:throws|exception)\s+/i, "").trim();
-        const afterType = afterTag.replace(/^\s*\{[^}]*\}\s*/, "").trim().replace(/\s*\*+\s*$/, "");
-        result.throws = result.throws ?? [];
-        result.throws.push(afterType || "");
-      } else if (tagName === "example") {
-        // Store only the example content, not the @example tag prefix
-        const clean = text.replace(/^@?example\s*/i, "").trim();
-        result.example = clean || undefined;
-      }
-    }
-    return Object.keys(result).length > 0 ? result : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Extract JSDoc description from a node that may have getJsDocs() (e.g. VariableStatement)
- * or from leading comment ranges (e.g. ExpressionStatement).
- * Returns the main description text (text before first @tag).
- */
-function getJSDocDescriptionFromNode(node: Node): string | undefined {
-
-  // Try getJsDocs() first (VariableStatement, FunctionDeclaration, etc.)
-  const n = node as { getJsDocs?: () => { getDescription: () => string; getInnerText?: () => string }[] };
-  if (typeof n.getJsDocs === "function") {
-    try {
-      const docs = n.getJsDocs();
-      if (docs && docs.length > 0) {
-        const first = docs[0];
-        const desc = first.getDescription?.();
-        if (desc && desc.trim()) return desc.trim();
-        const inner = first.getInnerText?.();
-        if (inner) {
-          const beforeAt = inner.split(/\s*@/)[0].trim();
-          if (beforeAt) return beforeAt;
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  // Fallback: leading comment ranges (for ExpressionStatement, VariableStatement, etc.)
-  if (typeof node.getLeadingCommentRanges === "function") {
-    const ranges = node.getLeadingCommentRanges();
-    if (ranges && ranges.length > 0) {
-      for (let i = ranges.length - 1; i >= 0; i--) {
-        const range = ranges[i];
-        const text = range.getText();
-        if (text.startsWith("/**")) {
-          const parsed = parseJSDocCommentText(text);
-          if (parsed) return parsed;
-          break;
-        }
-      }
-    }
-  }
-
-  // Fallback: scan source text. Node may start with JSDoc (e.g. VariableStatement) or have JSDoc immediately before it.
-  const sourceFile = node.getSourceFile();
-  const fullText = sourceFile.getFullText();
-  const start = node.getStart();
-
-  // If node starts with /** then JSDoc is the first token (e.g. VariableStatement in TS AST)
-  if (fullText.slice(start, start + 3) === "/**") {
-    const afterStart = fullText.slice(start);
-    const endMatch = afterStart.match(/\*\/\s*/);
-    if (endMatch && endMatch.index != null) {
-      const commentText = afterStart.slice(0, endMatch.index + 2);
-      const parsed = parseJSDocCommentText(commentText);
-      if (parsed) return parsed;
-    }
-  }
-
-  // Otherwise look for /** ... */ that ends immediately before the node (only whitespace between)
-  const textBefore = fullText.slice(0, start);
-  const re = /\/\*\*([\s\S]*?)\*\//g;
-  let match: RegExpExecArray | null;
-  let lastMatch: RegExpExecArray | null = null;
-  while ((match = re.exec(textBefore)) !== null) {
-    lastMatch = match;
-  }
-  if (lastMatch) {
-    const afterComment = lastMatch.index + lastMatch[0].length;
-    const between = textBefore.slice(afterComment);
-    if (/^\s*$/.test(between)) {
-      const parsed = parseJSDocCommentText(lastMatch[0]);
-      if (parsed) return parsed;
-    }
-  }
-  return undefined;
-}
-
 function wrapInSequence(
   nodes: StaticFlowNode[],
   _opts: Required<AnalyzerOptions>
@@ -5678,14 +3497,3 @@ function createEmptyStats(): AnalysisStats {
   };
 }
 
-let idCounter = 0;
-function generateId(): string {
-  return `static-${++idCounter}`;
-}
-
-/**
- * Reset the ID counter (useful for testing).
- */
-export function resetIdCounter(): void {
-  idCounter = 0;
-}
