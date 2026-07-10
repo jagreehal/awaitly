@@ -210,10 +210,15 @@ type AnyFunction = (...args: never[]) => unknown;
 /**
  * Helper to extract the error type from Result or AsyncResult return values.
  * Works even when a function is declared to return a union of both forms.
+ * Plain (non-Result) return types contribute `never` — without the [never]
+ * guard they would infer `unknown` and poison error unions built from
+ * mixed deps.
  */
-type ErrorOfReturn<R> = Extract<Awaited<R>, { ok: false }> extends { error: infer E }
-  ? E
-  : never;
+type ErrorOfReturn<R> = [Extract<Awaited<R>, { ok: false }>] extends [never]
+  ? never
+  : Extract<Awaited<R>, { ok: false }> extends { error: infer E }
+    ? E
+    : never;
 
 /**
  * Extract error type from a single function's return type

@@ -27,7 +27,9 @@ import {
   type StreamWriterInterface,
   type StreamReaderInterface,
   extractStepMetadata,
+  bindSteps,
 } from "../core";
+import type { StepCallable } from "../core/bound-steps";
 
 import type {
   StreamStore,
@@ -62,6 +64,7 @@ import type {
   WorkflowOptions,
   WorkflowContext,
   WorkflowFn,
+  WorkflowSteps,
   RunConfig,
   Workflow,
   WorkflowCancelledError,
@@ -1810,14 +1813,20 @@ export function createWorkflow<
       return cachedStepFn as RunStep<E>;
     };
 
-    // Wrap the user's callback to pass cached step, deps, and workflow context.
+    // Wrap the user's callback to pass cached step, bound steps, deps, and workflow context.
     // Cast step to RunStep<E | ExtraE> so callbacks using step.workflow/withFallback get correct error inference.
-    const wrappedFn = ({ step }: { step: RunStep<E> }) =>
-      userFn({
-        step: createCachedStep(step) as RunStep<E | ExtraE>,
+    // Bound steps route through the cached step so caching/resume apply; repeat
+    // invocations of a dep auto-suffix the key (getUser, getUser#2, ...) so
+    // loops don't collide on the cache key.
+    const wrappedFn = ({ step }: { step: RunStep<E> }) => {
+      const cachedStep = createCachedStep(step) as RunStep<E | ExtraE>;
+      return userFn({
+        step: cachedStep,
+        steps: bindSteps(effectiveDeps ?? {}, cachedStep as StepCallable) as WorkflowSteps<Deps>,
         deps: effectiveDeps,
         ctx: workflowContext,
       });
+    };
 
     // Always use run() with catchUnexpected (default or user-provided). Closed error union E | ExtraE | U.
     let result: Result<T, E | ExtraE | U | UnexpectedError | WorkflowCancelledError, unknown>;

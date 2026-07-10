@@ -26,6 +26,10 @@ export {
   // Run function
   run,
 
+  // Deps-first form types (for run(deps, fn))
+  type BoundSteps,
+  type ErrorsOf,
+
   // Step types (for run())
   type RunStep,
   type StepOptions,

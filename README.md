@@ -99,39 +99,43 @@ async function processOrder(orderId: string) {
 }
 ```
 
-10 steps = 10 if-checks. This is what `step()` solves.
+10 steps = 10 if-checks. This is what `run()` solves.
 
 ---
 
 ## run() — Simple Composition
 
-`run()` gives you a `step()` function that unwraps Results automatically:
+Pass your functions to `run()`. It hands you a steps object that mirrors them — each call unwraps the `ok` value and exits early on `err`:
 
 ```typescript
 import { run } from 'awaitly/run';
 
-const result = await run(async ({ step }) => {
-  const order = await step('getOrder', () => getOrder(orderId)); // unwraps ok, exits on err
-  const user = await step('getUser', () => getUser(order.userId)); // same
-  const payment = await step('charge', () => charge(order.total)); // same
+const result = await run({ getOrder, getUser, charge }, async (s) => {
+  const order = await s.getOrder(orderId); // unwraps ok, exits on err
+  const user = await s.getUser(order.userId); // same
+  const payment = await s.charge(order.total); // same
   return payment;
 });
+// result.error: 'ORDER_NOT_FOUND' | 'USER_NOT_FOUND' | 'CHARGE_DECLINED' | UnexpectedError
 ```
 
-**The happy path reads linearly.** No if-checks.
+**The happy path reads linearly**, and TypeScript infers every possible error from the functions you passed. No type parameters, no string IDs, no wrappers — it looks like the code you already write.
 
-### Typing errors with `ErrorOf` and `Errors`
+Three things you get for free:
 
-Without type parameters, `run()` only knows about `UnexpectedError` — your step error types aren't preserved at compile time. To get full type safety, derive the error union from your functions:
+- **Plain functions are valid deps.** A function that throws instead of returning a Result works unchanged: its value passes through, its failures become `UnexpectedError`. Wrap existing code today, adopt typed errors one function at a time.
+- **Loops are safe.** Calling the same dep twice auto-suffixes the step key (`getUser`, `getUser#2`, ...), so every iteration is a distinct step.
+- **The classic `step` is still there** when you need per-step options like retries or timeouts: `run(deps, async (s, { step }) => ...)`.
+
+### The explicit form: run(fn) with step('id', () => fn())
+
+When dependencies are dynamic or you're building abstractions, use the callback-only form and spell out (or derive) the error union yourself:
 
 ```typescript
 import { run } from 'awaitly/run';
 import { type ErrorOf, type Errors } from 'awaitly';
 
-// Single function — use ErrorOf
-type OrderErrors = ErrorOf<typeof getOrder>; // e.g. 'ORDER_NOT_FOUND'
-
-// Multiple functions — use Errors to union them all
+// Derive the union from your functions instead of writing it by hand
 type AllErrors = Errors<[typeof getOrder, typeof getUser, typeof charge]>;
 // e.g. 'ORDER_NOT_FOUND' | 'USER_NOT_FOUND' | 'CHARGE_DECLINED'
 
@@ -141,23 +145,23 @@ const result = await run<Payment, AllErrors>(async ({ step }) => {
   const payment = await step('charge', () => charge(order.total));
   return payment;
 });
-// result.error is: 'ORDER_NOT_FOUND' | 'USER_NOT_FOUND' | 'CHARGE_DECLINED' | UnexpectedError
 ```
 
-`ErrorOf<typeof fn>` extracts the error type from a single function's return type. `Errors<[typeof fn1, typeof fn2, ...]>` unions the error types from multiple functions. Both work with any function that returns `Result` or `AsyncResult`.
+`ErrorOf<typeof fn>` extracts the error type from a single function; `Errors<[typeof fn1, typeof fn2, ...]>` unions several. Both work with any function that returns `Result` or `AsyncResult`.
 
 **When to use which:**
 
 | Approach | Use when |
 | --- | --- |
-| `run<T, Errors<[...]>>()` | You want type-safe errors derived from your deps |
-| `run<T, 'ERR_A' \| 'ERR_B'>()` | You want to spell out the error union manually |
-| `run()` (no type params) | You don't need typed errors (quick scripts, prototyping) |
-| `createWorkflow(deps)` | You want errors inferred automatically (recommended for production) |
+| `run(deps, fn)` | Default — errors inferred automatically, steps auto-bound |
+| `createWorkflow(deps)` | Production handlers: caching, resume, retries, events |
+| `run<T, Errors<[...]>>(fn)` | Dynamic deps with a derived error union |
+| `run<T, 'ERR_A' \| 'ERR_B'>(fn)` | You want to spell out the error union manually |
+| `run(fn)` (no type params) | You don't need typed errors (quick scripts, prototyping) |
 
-### Why thunks? `step('id', () => fn())` not `step('id', fn())`
+### Why thunks in the explicit form? `step('id', () => fn())` not `step('id', fn())`
 
-`step()` requires a string ID as the first argument. Always wrap the operation in a function (thunk):
+(The deps-first form has no thunks — `s.getUser(id)` is already the controlled call.) In the explicit form, `step()` requires a string ID as the first argument, and the operation must be wrapped in a function (thunk):
 
 ```typescript
 step('getUser', () => getUser(id)); // ✅ Correct - step controls when it runs
@@ -191,7 +195,7 @@ TypeScript forces you to handle both.
 
 ## createWorkflow
 
-`run()` requires manual error type declaration. `createWorkflow()` infers them automatically:
+`createWorkflow()` is `run(deps, fn)` plus production machinery: step caching, save & resume, events, and human-in-the-loop. The same bound steps object is there as `steps`:
 
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
@@ -207,21 +211,25 @@ const deps = {
 
 const workflow = createWorkflow(deps);
 
-const result = await workflow(async ({ step, deps }) => {
-  const user = await step('getUser', () => deps.getUser(userId));
-  const order = await step('getOrder', () => deps.getOrder(orderId));
+const result = await workflow(async ({ steps }) => {
+  const user = await steps.getUser(userId);
+  const order = await steps.getOrder(orderId);
   return { user, order };
 });
 // TypeScript KNOWS: result.error is UserNotFound | OrderNotFound | UnexpectedError
 ```
 
+The classic `step` and raw `deps` remain available in the same callback (`async ({ steps, step, deps, ctx }) => ...`) for per-step options like retries, timeouts, or explicit cache keys.
+
 ### When to use which?
 
-| `run()`                    | `createWorkflow()`        |
-| -------------------------- | ------------------------- |
-| Simple one-off composition | Production handlers       |
-| Explicit error types       | Automatic error inference |
-| Building abstractions      | Caching, retries, events  |
+Both share the same error inference and the same bound steps — the difference is machinery:
+
+| `run(deps, fn)`            | `createWorkflow(deps)`       |
+| -------------------------- | ---------------------------- |
+| Simple one-off composition | Production handlers          |
+| Lightweight, no caching    | Caching, save & resume       |
+| Fire and forget            | Events, human-in-the-loop    |
 
 ---
 
@@ -280,8 +288,8 @@ const deps = {
 // 2. Create and run a workflow
 const workflow = createWorkflow(deps);
 
-const result = await workflow(async ({ step, deps }) => {
-  return await step('loadTask', () => deps.loadTask('t-1'));
+const result = await workflow(async ({ steps }) => {
+  return await steps.loadTask('t-1');
 });
 
 // 3. Handle the result
@@ -292,7 +300,7 @@ console.log(result.ok ? result.value : result.error);
 
 - `deps.loadTask` returns a Result (`ok` or `err`)
 - `createWorkflow(deps)` groups dependencies and infers all possible errors
-- `step('id', () => ...)` runs the operation and unwraps the success value
+- `steps.loadTask(...)` runs the dependency as a step and unwraps the success value
 - if a step returns `err`, the workflow exits early
 
 ---
@@ -828,8 +836,10 @@ With strict mode, TypeScript will error if a dep can produce an undeclared error
 
 | API                                | Description                                          |
 | ---------------------------------- | ---------------------------------------------------- |
-| `createWorkflow(deps)`             | Recommended. Auto-infers errors from deps.           |
-| `step('id', () => deps.fn())`      | Run a step, unwrap result. ID required.              |
+| `run(deps, fn)`                    | Compose with auto-bound steps. Errors inferred.      |
+| `createWorkflow(deps)`             | Production form. Adds caching, resume, events.       |
+| `steps.fn(args)`                   | Bound step: unwraps ok, exits on err. Key = dep name.|
+| `step('id', () => deps.fn())`      | Classic step with per-step options. ID required.     |
 | `step.retry(id, fn, opts)`         | Retry with backoff. ID required.                     |
 | `step.withTimeout(id, fn, { ms })` | Timeout protection. ID required.                     |
 | `step.try(id, fn, opts)`           | Wrap throwing code; map to typed error. ID required. |
@@ -840,17 +850,19 @@ See [full API reference](https://jagreehal.github.io/awaitly/reference/api/) for
 
 ### run()
 
-Most users do NOT need `run()`.
-
-Use it only when:
-
-- dependencies are passed dynamically as parameters
-- you want explicit control over the error union
-- you're building abstractions on top of awaitly
+The deps-first form is the default — errors inferred, no type parameters:
 
 ```typescript
 import { run } from 'awaitly/run';
 
+const result = await run({ fetchUser }, async (s) => {
+  return s.fetchUser(userId);
+});
+```
+
+The explicit callback-only form exists for dynamic dependencies or when you're building abstractions and want manual control of the error union:
+
+```typescript
 const result = await run<Output, 'NOT_FOUND' | 'FETCH_ERROR'>(
   async ({ step }) => {
     const user = await step('fetchUser', () => fetchUser(userId)); // thunk for consistency
@@ -860,7 +872,7 @@ const result = await run<Output, 'NOT_FOUND' | 'FETCH_ERROR'>(
 );
 ```
 
-For most cases, stick with `createWorkflow()` which infers error types automatically.
+For production handlers, use `createWorkflow()` — same inference and bound steps, plus caching and resume.
 
 ### Imports
 

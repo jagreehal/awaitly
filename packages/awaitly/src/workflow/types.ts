@@ -12,6 +12,7 @@ import type {
   CauseOf,
   RunStep,
   AsyncResult,
+  BoundSteps,
 } from "../core";
 import type { JSONValue, WorkflowSnapshot } from "../persistence";
 import type { StreamStore } from "../streaming/types";
@@ -408,8 +409,24 @@ export type WorkflowContext<C = void, Input = Record<string, unknown>, Data = Re
   get: <K extends keyof Data>(key: K) => Data[K] | undefined;
 };
 
+/**
+ * Bound steps for a workflow's deps: each dep key becomes a step function
+ * with the dep's arguments that unwraps ok / early-exits on err — same as
+ * the deps-first run(deps, fn) form. `never` deps (no deps) yield no steps.
+ */
+export type WorkflowSteps<Deps> = [Deps] extends [
+  Record<string, (...args: never[]) => unknown>,
+]
+  ? BoundSteps<Deps>
+  : Record<string, never>;
+
 /** Workflow function type (no args). E is the full step error union (deps errors + any ExtraE from step.workflow/withFallback). */
-export type WorkflowFn<T, E, Deps, C = void> = (context: { step: RunStep<E>; deps: Deps; ctx: WorkflowContext<C> }) => T | Promise<T>;
+export type WorkflowFn<T, E, Deps, C = void> = (context: {
+  step: RunStep<E>;
+  steps: WorkflowSteps<Deps>;
+  deps: Deps;
+  ctx: WorkflowContext<C>;
+}) => T | Promise<T>;
 
 /**
  * Return type of runWithState: result plus resume state for persistence.
