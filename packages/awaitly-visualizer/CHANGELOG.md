@@ -1,5 +1,12 @@
 # awaitly-visualizer
 
+## 24.0.0
+
+### Patch Changes
+
+- Updated dependencies [6789deb]
+  - awaitly@1.35.0
+
 ## 23.0.1
 
 ### Patch Changes
