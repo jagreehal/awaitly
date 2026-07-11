@@ -87,7 +87,7 @@
     "awaitly": "workspace:^"
   },
   "dependencies": {
-    "pako": "2.1.0"
+    "pako": "3.0.1"
   },
   "optionalDependencies": {
     "@slack/web-api": "7.18.0"
