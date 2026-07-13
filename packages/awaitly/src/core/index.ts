@@ -143,6 +143,14 @@ import { UnexpectedError } from "../errors";
 import { bindSteps, type BoundSteps, type StepCallable } from "./bound-steps";
 
 export { bindSteps, type BoundSteps } from "./bound-steps";
+export {
+  retry,
+  timeout,
+  fallback,
+  type RetryPolicyOptions,
+  type PolicyFn,
+  type PolicyDelay,
+} from "./policies";
 export { UnexpectedError };
 
 /**

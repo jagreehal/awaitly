@@ -220,6 +220,14 @@ export type {
 } from "./tagged-error";
 
 export type { RetryOptions, BackoffStrategy, BoundSteps } from "./core";
+export {
+  retry,
+  timeout,
+  fallback,
+  type RetryPolicyOptions,
+  type PolicyFn,
+  type PolicyDelay,
+} from "./core";
 
 // Slug Namespace — types only at the root to keep the bundle lean.
 // For runtime helpers (slugDocsUrl, isAwaitlySlug, AWAITLY_SLUGS, etc.),

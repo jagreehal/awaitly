@@ -509,6 +509,12 @@ export interface DependencyInfo {
       causeType?: TypeInfo;
     };
   };
+  /**
+   * Per-dep policies wrapping this dependency in the deps literal,
+   * innermost first (application order): `retry(timeout(fn, 5000), { attempts: 3 })`
+   * yields [{ kind: "timeout", options: "5000" }, { kind: "retry", options: "{ attempts: 3 }" }].
+   */
+  policies?: Array<{ kind: "retry" | "timeout" | "fallback"; options?: string }>;
 }
 
 /**

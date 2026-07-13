@@ -169,6 +169,54 @@ describe("deps-first form: run(deps, fn)", () => {
     expect(steps.map((s) => s.stepId)).toEqual(["getOrder", "chargeNow"]);
   });
 
+  it("unwraps policy-wrapped deps: base types + policy chain recorded", () => {
+    const source = `${PREAMBLE}
+      import { retry, timeout } from 'awaitly';
+      await run(
+        { getOrder, charge: retry(timeout(charge, 5000), { attempts: 3 }) },
+        async (s) => {
+          const order = await s.getOrder('o-1');
+          return s.charge(order.total);
+        }
+      );
+    `;
+
+    const results = analyzeWorkflowSource(source);
+    const deps = results[0].root.dependencies;
+    expect(deps.map((d) => d.name)).toEqual(["getOrder", "charge"]);
+
+    const charge = deps.find((d) => d.name === "charge");
+    // policy chain in application order, innermost first
+    expect(charge?.policies).toEqual([
+      { kind: "timeout", options: "5000" },
+      { kind: "retry", options: "{ attempts: 3 }" },
+    ]);
+    // error union = base errors + TimeoutError (retry preserves)
+    expect(charge?.errorTypes).toContain("CHARGE_DECLINED");
+    expect(charge?.errorTypes).toContain("TimeoutError");
+
+    const steps = collectStepNodes(results[0].root);
+    expect(steps.map((s) => s.stepId)).toEqual(["getOrder", "charge"]);
+  });
+
+  it("fallback policy consumes the base error union", () => {
+    const source = `${PREAMBLE}
+      import { fallback } from 'awaitly';
+      await run(
+        { getUser: fallback(getUser, () => ({ id: 'guest', name: 'Guest' })) },
+        async (s) => s.getUser('u-1')
+      );
+    `;
+
+    const results = analyzeWorkflowSource(source);
+    const dep = results[0].root.dependencies[0];
+    expect(dep.name).toBe("getUser");
+    expect(dep.errorTypes).toEqual([]);
+    expect(dep.policies).toEqual([
+      { kind: "fallback", options: "() => ({ id: 'guest', name: 'Guest' })" },
+    ]);
+  });
+
   it("keeps legacy run(cb) detection unchanged", () => {
     const source = `${PREAMBLE}
       await run(async ({ step }) => {

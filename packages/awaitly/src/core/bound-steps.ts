@@ -13,8 +13,9 @@ type AnyFunction = (...args: never[]) => unknown;
 /**
  * Success value of a dependency's return type. Result-returning deps
  * contribute their `ok` value; plain (non-Result) deps pass through as-is.
+ * Shared with the policy wrappers, which normalize the same way.
  */
-type DepValueOfReturn<R> = [Extract<Awaited<R>, { ok: true }>] extends [never]
+export type DepValueOfReturn<R> = [Extract<Awaited<R>, { ok: true }>] extends [never]
   ? Awaited<R>
   : Extract<Awaited<R>, { ok: true }> extends { value: infer V }
     ? V
@@ -57,7 +58,7 @@ export type StepCallable = (
  * plain domain objects that happen to have an `ok` field are less likely
  * to be misread as Results.
  */
-const isDepResultShaped = (
+export const isDepResultShaped = (
   value: unknown
 ): value is Result<unknown, unknown, unknown> =>
   typeof value === "object" &&
