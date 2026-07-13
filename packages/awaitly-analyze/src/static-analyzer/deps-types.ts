@@ -77,7 +77,7 @@ export function extractDependencies(
 
     if (Node.isPropertyAssignment(prop)) {
       name = prop.getName();
-      let init = prop.getInitializer();
+      let init: Node | undefined = prop.getInitializer();
 
       // Policy-wrapped dep: extract types from the BASE function so error
       // inference doesn't depend on resolving the wrapper's generics, and
