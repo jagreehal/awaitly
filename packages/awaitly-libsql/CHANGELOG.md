@@ -1,5 +1,12 @@
 # awaitly-libsql
 
+## 24.0.0
+
+### Patch Changes
+
+- Updated dependencies [6789deb]
+  - awaitly@1.35.0
+
 ## 22.0.0
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # example-nextjs
 
+## 0.5.15
+
+### Patch Changes
+
+- Updated dependencies [6789deb]
+  - awaitly@1.35.0
+
 ## 0.5.14
 
 ### Patch Changes

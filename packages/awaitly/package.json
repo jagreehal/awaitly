@@ -1,6 +1,6 @@
 {
   "name": "awaitly",
-  "version": "1.34.0",
+  "version": "1.35.0",
   "type": "module",
   "description": "Typed async workflows with automatic error inference. Build type-safe workflows with Result types, step caching, resume state, and human-in-the-loop support.",
   "main": "./dist/index.cjs",
@@ -257,12 +257,12 @@
     "@total-typescript/tsconfig": "1.0.4",
     "@types/node": "25.9.3",
     "@types/picomatch": "4.0.3",
-    "@vitest/coverage-v8": "4.1.9",
+    "@vitest/coverage-v8": "4.1.10",
     "pino": "10.3.1",
     "tsd": "0.33.0",
     "tsup": "8.5.1",
     "typescript": "5.9.3",
-    "vitest": "4.1.9"
+    "vitest": "4.1.10"
   },
   "publishConfig": {
     "access": "public",

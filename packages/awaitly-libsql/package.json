@@ -1,6 +1,6 @@
 {
   "name": "awaitly-libsql",
-  "version": "23.0.0",
+  "version": "24.0.0",
   "type": "module",
   "description": "libSQL / SQLite persistence adapter for awaitly workflows",
   "main": "./dist/index.cjs",
@@ -60,7 +60,7 @@
     "awaitly": "workspace:^",
     "tsup": "8.5.1",
     "typescript": "5.9.3",
-    "vitest": "4.1.9"
+    "vitest": "4.1.10"
   },
   "publishConfig": {
     "access": "public",
