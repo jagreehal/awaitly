@@ -220,6 +220,9 @@ export type {
 } from "./tagged-error";
 
 export type { RetryOptions, BackoffStrategy, BoundSteps } from "./core";
+// Per-dep policies re-export from the leaf module (NOT the ./core barrel):
+// the root entry has a strict bundle budget and the core engine must not
+// be pulled into it.
 export {
   retry,
   timeout,
@@ -227,7 +230,7 @@ export {
   type RetryPolicyOptions,
   type PolicyFn,
   type PolicyDelay,
-} from "./core";
+} from "./core/policies";
 
 // Slug Namespace — types only at the root to keep the bundle lean.
 // For runtime helpers (slugDocsUrl, isAwaitlySlug, AWAITLY_SLUGS, etc.),
