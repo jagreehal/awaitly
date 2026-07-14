@@ -16,9 +16,13 @@ describe("root entry bundle budget", () => {
     //   ~3KB  — AI-DX slug spine: runtime-* hint strings, code/hint/docsUrl
     //           property descriptors, slugDocsUrl helper. Every awaitly-system
     //           error carries this — see docs/superpowers/specs/2026-05-09-ai-friendly-redesign-design.md
+    //   ~2KB  — per-dep policies (retry/timeout/fallback) + TimeoutError.
+    //           Deliberately in the root: policies are canonical deps-first
+    //           API and replace the retry/circuit-breaker/reliability
+    //           sub-path entries in the canonical-core release.
     //
-    // If you grow the root bundle beyond ~16KB, reconsider: can the addition
+    // If you grow the root bundle beyond ~19KB, reconsider: can the addition
     // live behind a sub-path entry (awaitly/slugs, awaitly/errors) instead?
-    expect(size).toBeLessThan(16_000);
+    expect(size).toBeLessThan(19_000);
   });
 });

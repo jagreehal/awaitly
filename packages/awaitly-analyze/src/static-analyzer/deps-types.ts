@@ -23,6 +23,41 @@ import {
   type TypeInfo,
 } from "../types";
 
+/** Policy wrappers recognized structurally in deps literals. */
+const POLICY_KINDS = new Set(["retry", "timeout", "fallback"] as const);
+type PolicyKind = "retry" | "timeout" | "fallback";
+
+/**
+ * Unwrap per-dep policy calls in a deps-literal initializer:
+ * `retry(timeout(fn, 5000), { attempts: 3 })` resolves to the base `fn`
+ * expression plus the policy chain in application order (innermost first).
+ * Returns undefined when the initializer is not a policy call.
+ */
+function unwrapPolicyCalls(
+  init: Node
+): { base: Node; policies: NonNullable<DependencyInfo["policies"]> } | undefined {
+  const { Node } = loadTsMorph();
+  const policies: NonNullable<DependencyInfo["policies"]> = [];
+  let current: Node = init;
+
+  while (Node.isCallExpression(current)) {
+    const callee = current.getExpression();
+    if (!Node.isIdentifier(callee) || !POLICY_KINDS.has(callee.getText() as PolicyKind)) {
+      break;
+    }
+    const [baseArg, optionsArg] = current.getArguments();
+    if (!baseArg) break;
+    policies.unshift({
+      kind: callee.getText() as PolicyKind,
+      options: optionsArg?.getText(),
+    });
+    current = baseArg;
+  }
+
+  if (policies.length === 0) return undefined;
+  return { base: current, policies };
+}
+
 export function extractDependencies(
   depsNode: Node,
   _warnings: AnalysisWarning[]
@@ -38,10 +73,23 @@ export function extractDependencies(
     let name: string;
     let typeSignature: string | undefined;
     let signature: DependencyInfo["signature"] = undefined;
+    let policies: DependencyInfo["policies"];
 
     if (Node.isPropertyAssignment(prop)) {
       name = prop.getName();
-      const init = prop.getInitializer();
+      let init: Node | undefined = prop.getInitializer();
+
+      // Policy-wrapped dep: extract types from the BASE function so error
+      // inference doesn't depend on resolving the wrapper's generics, and
+      // record the policy chain as structural fact for diagrams.
+      if (init) {
+        const unwrapped = unwrapPolicyCalls(init);
+        if (unwrapped) {
+          policies = unwrapped.policies;
+          init = unwrapped.base;
+        }
+      }
+
       if (init && typeof (init as { getType?: () => MorphTypeForExtraction }).getType === "function") {
         try {
           const morphType = (init as { getType: () => MorphTypeForExtraction }).getType();
@@ -67,13 +115,28 @@ export function extractDependencies(
       continue;
     }
 
-    const errorTypes = inferErrorTypesFromSignature(typeSignature);
+    let errorTypes = inferErrorTypesFromSignature(typeSignature);
+
+    // Apply policy error-union math (mirrors the runtime wrappers):
+    // retry preserves errors; timeout adds TimeoutError; fallback consumes
+    // the base union (only the handler's errors remain, which we cannot
+    // reliably extract from text — leave empty rather than guess).
+    if (policies) {
+      for (const policy of policies) {
+        if (policy.kind === "timeout" && !errorTypes.includes("TimeoutError")) {
+          errorTypes = [...errorTypes, "TimeoutError"];
+        } else if (policy.kind === "fallback") {
+          errorTypes = [];
+        }
+      }
+    }
 
     dependencies.push({
       name,
       typeSignature,
       errorTypes,
       signature,
+      ...(policies ? { policies } : {}),
     });
   }
 

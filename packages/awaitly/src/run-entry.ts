@@ -30,6 +30,14 @@ export {
   type BoundSteps,
   type ErrorsOf,
 
+  // Per-dependency policies
+  retry,
+  timeout,
+  fallback,
+  type RetryPolicyOptions,
+  type PolicyFn,
+  type PolicyDelay,
+
   // Step types (for run())
   type RunStep,
   type StepOptions,
