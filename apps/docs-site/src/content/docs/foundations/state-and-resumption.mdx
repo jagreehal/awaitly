@@ -244,10 +244,10 @@ See [Persistence](/guides/persistence/) for the full interface and custom adapte
 
 ## In-Memory Step Cache
 
-For process-local caching without persistence, use `createMemoryCache` from `awaitly/persistence`:
+For process-local caching without persistence, use `createMemoryCache` from `awaitly/workflow`:
 
 ```typescript
-import { createMemoryCache } from 'awaitly/persistence';
+import { createMemoryCache } from 'awaitly/workflow';
 
 const cache = createMemoryCache({ maxSize: 1000, ttl: 7 * 24 * 60 * 60 });
 

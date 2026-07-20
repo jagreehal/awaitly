@@ -140,7 +140,7 @@ Use the same `mongo()` store with `durable.run`:
 
 ```typescript
 import { mongo } from 'awaitly-mongo';
-import { durable } from 'awaitly/durable';
+import { durable } from 'awaitly/workflow';
 
 const store = mongo(process.env.MONGODB_URI!);
 

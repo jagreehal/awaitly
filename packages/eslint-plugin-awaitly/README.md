@@ -119,6 +119,33 @@ await workflow.run('my-run', async ({ step }) => { ... }, { onEvent: handler });
 
 Detected option keys: `cache`, `deps`, `onEvent`, `resumeState`, `snapshot`, `serialization`, `snapshotSerialization`, `onUnknownSteps`, `onDefinitionChange`, `onError`, `onBeforeStart`, `onAfterStep`, `shouldRun`, `createContext`, `signal`, `strict`, `catchUnexpected`, `description`, `markdown`, `streamStore`.
 
+### `awaitly/workflow-prefer-step-if` (warn / error in strict)
+
+A raw `if/else` containing steps has no stable branch id, so the static diagram can't label it deterministically. Use `step.if` for a labelled branch, or `when`/`unless` to guard a single step.
+
+```typescript
+// BAD - unlabelled branch, degrades the diagram
+if (user.premium) { await step('sendPremiumEmail', () => deps.sendEmail(user)); }
+
+// GOOD - labelled/guarded, fully diagrammable
+await when(() => user.premium, () => step('sendPremiumEmail', () => deps.sendEmail(user)));
+```
+
+### `awaitly/workflow-prefer-step-foreach` (warn / error in strict)
+
+A native loop (or `.forEach`/`.map`) containing steps produces unstable, unbounded iteration ids. Use `step.forEach` for structured iteration.
+
+```typescript
+// BAD - unstable iteration ids
+for (const item of items) { await step('processItem', () => deps.process(item)); }
+
+// GOOD - structured, statically-analyzable
+await step.forEach('process', items, {
+  stepIdPattern: 'item-{i}',
+  run: (item) => step('processItem', () => deps.process(item)),
+});
+```
+
 ## Why These Rules?
 
 The #1 mistake with awaitly is forgetting the thunk:

@@ -19,6 +19,8 @@ import resultNoDirectOkErr from './rules/result-no-direct-ok-err.js';
 import workflowNoCallableForm from './rules/workflow-no-callable-form.js';
 import workflowCallbackShape from './rules/workflow-callback-shape.js';
 import errorCheckUnexpectedFirst from './rules/error-check-unexpected-first.js';
+import workflowPreferStepIf from './rules/workflow-prefer-step-if.js';
+import workflowPreferStepForEach from './rules/workflow-prefer-step-foreach.js';
 
 // Canonical slug-native rule names. No legacy aliases — the rename is a
 // breaking change accompanying the AI-DX slug spine.
@@ -36,6 +38,10 @@ const rules = {
   'workflow-callback-shape': workflowCallbackShape,
   'workflow-no-callable-form': workflowNoCallableForm,
   'workflow-no-dynamic-import': noDynamicImport,
+  // Diagrammability: steer raw control flow onto first-class constructs so
+  // the static diagram stays deterministic.
+  'workflow-prefer-step-if': workflowPreferStepIf,
+  'workflow-prefer-step-foreach': workflowPreferStepForEach,
   // result-*
   'result-no-floating': noFloatingResult,
   'result-require-handling': requireResultHandling,
@@ -76,6 +82,10 @@ const configs: Record<string, Linter.Config[]> = {
         'awaitly/result-no-direct-ok-err': 'error',
         'awaitly/workflow-no-callable-form': 'error',
         'awaitly/workflow-callback-shape': 'error',
+        // Diagrammability nudges: warn by default so the guidance is visible
+        // without failing builds on existing raw control flow.
+        'awaitly/workflow-prefer-step-if': 'warn',
+        'awaitly/workflow-prefer-step-foreach': 'warn',
         // 'awaitly/error-check-unexpected-first': 'warn',
         // ^ deliberately opt-in. The rule uses heuristic AST matching to
         //   flag `if (result.error._tag === ...)` without an
@@ -111,6 +121,9 @@ const configs: Record<string, Linter.Config[]> = {
         "awaitly/result-no-direct-ok-err": "error",
         "awaitly/workflow-no-callable-form": "error",
         "awaitly/workflow-callback-shape": "error",
+        // Strict = fully diagrammable: raw control flow with steps is an error.
+        "awaitly/workflow-prefer-step-if": "error",
+        "awaitly/workflow-prefer-step-foreach": "error",
         // error-check-unexpected-first is opt-in (see note in `recommended`).
       },
     },

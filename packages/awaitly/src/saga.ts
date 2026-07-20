@@ -11,7 +11,7 @@
  *
  * @example
  * ```typescript
- * import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/saga';
+ * import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/workflow';
  *
  * const checkout = createSagaWorkflow('checkout', {
  *   reserveInventory, releaseInventory,

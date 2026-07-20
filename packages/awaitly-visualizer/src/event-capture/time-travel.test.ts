@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { ok, type AsyncResult } from "awaitly/core";
+import { ok, type AsyncResult } from "awaitly";
 import { createWorkflow } from "awaitly/workflow";
 import { createTimeTravelController } from "../time-travel";
 

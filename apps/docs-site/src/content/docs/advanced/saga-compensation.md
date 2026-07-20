@@ -10,7 +10,7 @@ Define compensating actions for steps that need rollback on downstream failures.
 `saga.run(fn)` runs your callback. Each `step(id, op, { compensate })` records its compensation on success. If anything later fails, compensations run in reverse. That's it.
 
 ```typescript
-import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/saga';
+import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/workflow';
 
 const checkout = createSagaWorkflow('checkout', {
   reserveInventory, releaseInventory,
@@ -88,7 +88,7 @@ const result = await checkoutSaga.run(async ({ step, deps }) => {
 Use `step.try` to catch exceptions from external libraries:
 
 ```typescript
-import { runSaga } from 'awaitly/saga';
+import { runSaga } from 'awaitly/workflow';
 
 const result = await runSaga<OrderResult, OrderError>(async ({ step }) => {
   const reservation = await step(
@@ -116,7 +116,7 @@ const result = await runSaga<OrderResult, OrderError>(async ({ step }) => {
 For explicit error typing without deps-based inference:
 
 ```typescript
-import { runSaga } from 'awaitly/saga';
+import { runSaga } from 'awaitly/workflow';
 
 type CheckoutResult = { orderId: string; chargeId: string };
 type CheckoutError = 'INVENTORY_UNAVAILABLE' | 'PAYMENT_FAILED' | 'SEND_FAILED';
@@ -202,7 +202,7 @@ Compensations can fail for many reasons: network issues, service unavailable, bu
 ### Understanding compensation errors
 
 ```typescript
-import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/saga';
+import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/workflow';
 
 const result = await orderSaga.run(async ({ step, deps }) => {
   const reservation = await step(
@@ -258,7 +258,7 @@ Result: SagaCompensationError with compensationErrors: [{stepName: 'charge', err
 ### Alerting on compensation failures
 
 ```typescript
-import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/saga';
+import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/workflow';
 
 const orderSaga = createSagaWorkflow('saga', deps, {
   onEvent: async (event) => {

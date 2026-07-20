@@ -10,7 +10,7 @@ Control throughput for steps that hit rate-limited APIs or limited resources.
 Token bucket algorithm for requests-per-second limits:
 
 ```typescript
-import { createRateLimiter, rateLimiterPresets } from 'awaitly/ratelimit';
+import { createRateLimiter, rateLimiterPresets } from 'awaitly';
 
 // Custom config
 const rateLimiter = createRateLimiter('api-calls', {
@@ -37,7 +37,7 @@ const externalLimiter = createRateLimiter('partner-api', rateLimiterPresets.exte
 Limit parallel operations (for database connections, file handles, etc.):
 
 ```typescript
-import { createConcurrencyLimiter, rateLimiterPresets } from 'awaitly/ratelimit';
+import { createConcurrencyLimiter, rateLimiterPresets } from 'awaitly';
 
 const concurrencyLimiter = createConcurrencyLimiter('db-pool', {
   maxConcurrent: 5,        // Max 5 concurrent operations
@@ -59,7 +59,7 @@ const dbLimiter = createConcurrencyLimiter('database', rateLimiterPresets.databa
 Simpler alternative to token bucket. Resets at fixed intervals:
 
 ```typescript
-import { createFixedWindowLimiter } from 'awaitly/ratelimit';
+import { createFixedWindowLimiter } from 'awaitly';
 
 const limiter = createFixedWindowLimiter('api', {
   limit: 100,          // 100 requests
@@ -80,7 +80,7 @@ console.log(stats.remainingMs);   // Time until window reset
 Different operations can have different costs:
 
 ```typescript
-import { createCostBasedRateLimiter } from 'awaitly/ratelimit';
+import { createCostBasedRateLimiter } from 'awaitly';
 
 const limiter = createCostBasedRateLimiter('api', {
   tokensPerSecond: 100,  // 100 tokens/second refill
@@ -103,7 +103,7 @@ await limiter.execute(() => exportData(), 50);
 Apply both rate and concurrency limits:
 
 ```typescript
-import { createCombinedLimiter } from 'awaitly/ratelimit';
+import { createCombinedLimiter } from 'awaitly';
 
 const limiter = createCombinedLimiter('api', {
   rate: { maxPerSecond: 10 },

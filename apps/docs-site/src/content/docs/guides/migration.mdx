@@ -8,6 +8,65 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 This guide helps you migrate existing code to awaitly. Whether you're coming from try/catch, neverthrow, or rolling your own Result types, we've got you covered.
 
+## From awaitly v1
+
+awaitly v2 consolidates ~36 subpath exports into **four entry points**. Named imports only — no `Awaitly` namespace object.
+
+### Entry points
+
+| Entry | Import |
+|-------|--------|
+| Front door | `import { ok, err, run, retry, match, ... } from 'awaitly'` |
+| Minimal bundle | `import { ok, err, map, ... } from 'awaitly/result'` |
+| Production tier | `import { createWorkflow, durable, ... } from 'awaitly/workflow'` |
+| Testing | `import { createWorkflowHarness, ... } from 'awaitly/testing'` |
+
+### Import rewrite table
+
+| Removed subpath | New import |
+|-----------------|------------|
+| `awaitly/result`, `awaitly/run`, `awaitly/core`, `awaitly/errors`, `awaitly/tagged-error`, `awaitly/match`, `awaitly/duration`, `awaitly/circuit-breaker`, `awaitly/ratelimit`, `awaitly/cache`, `awaitly/singleflight`, `awaitly/policies`, `awaitly/conditional`, `awaitly/slugs` | `awaitly` |
+| `awaitly/durable`, `awaitly/persistence`, `awaitly/engine`, `awaitly/hitl`, `awaitly/saga`, `awaitly/streaming`, `awaitly/webhook`, `awaitly/resource`, `awaitly/batch`, `awaitly/workflow` | `awaitly/workflow` |
+
+Persistence adapter packages (`awaitly-postgres`, `awaitly-mongo`, `awaitly-libsql`) should import persistence and durable types from `awaitly/workflow`, not `awaitly/persistence` or `awaitly/durable`.
+
+### Removed APIs
+
+| v1 pattern | v2 replacement |
+|------------|----------------|
+| `import { Awaitly } from 'awaitly'` / `Awaitly.ok()` | Named imports: `import { ok, err } from 'awaitly'` |
+| `import { pipe, flow, compose } from 'awaitly'` | Plain function calls or `async/await` with `run()` |
+| `await workflow(async ({ step }) => ...)` | `await workflow.run(async ({ step }) => ...)` |
+| `createWorkflow(deps)` | `createWorkflow('name', deps)` — name is required |
+| `result.error._tag` for matching | Prefer `result.error.type` (`._tag` is a deprecated alias) |
+| Schedule combinators from `awaitly/retry` | Per-dep `retry()` / `timeout()` / `fallback()` from `awaitly` |
+| `awaitly/otel`, `awaitly/fetch`, `awaitly/adapters` | Deferred to future ecosystem packages — see [OpenTelemetry](/advanced/opentelemetry/) |
+| `awaitly/flow`, `awaitly/functional`, `awaitly/bind-deps`, `awaitly/resolver`, `awaitly/diagnostics`, `awaitly/reliability` | Removed — use `run()`, `withDeps()`, or plain async/await |
+
+### Quick before/after
+
+```typescript
+// v1
+import { Awaitly, pipe } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+
+const workflow = createWorkflow({ fetchUser });
+const result = await workflow(async ({ step }) => {
+  return await step('fetch', () => fetchUser('1'));
+});
+
+// v2
+import { run } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+
+const workflow = createWorkflow('fetchUser', { fetchUser });
+const result = await workflow.run(async ({ step, deps }) => {
+  return await step('fetch', () => deps.fetchUser('1'));
+});
+```
+
+See [Installation — import paths](/getting-started/installation/#import-paths) and [Result types — match](/foundations/result-types/#match---pattern-match) for the updated surface.
+
 ## From try/catch
 
 ### Basic pattern
@@ -727,9 +786,10 @@ const workflow = createWorkflow('workflow', { wrappedLegacy });
 
 ### Phase 3: Reliability
 
-1. **Add retries**: Use `step.retry()` for transient failures
-2. **Add timeouts**: Use `step.withTimeout()` for slow operations
-3. **Add caching**: Use step keys for idempotent operations
+1. **Add retries**: Use `step.retry()` for transient failures inside workflows, or per-dep `retry()` on dependencies — see [Policies](/advanced/policies/)
+2. **Add timeouts**: Use `step.withTimeout()` or per-dep `timeout()` wrappers
+3. **Add fallbacks**: Use per-dep `fallback()` where a default is acceptable
+4. **Add caching**: Use step keys for idempotent operations
 
 ### Phase 4: Testing
 

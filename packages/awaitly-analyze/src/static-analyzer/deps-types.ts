@@ -27,6 +27,11 @@ import {
 const POLICY_KINDS = new Set(["retry", "timeout", "fallback"] as const);
 type PolicyKind = "retry" | "timeout" | "fallback";
 
+interface AnalyzedPolicy {
+  policy: NonNullable<DependencyInfo["policies"]>[number];
+  fallbackErrorTypes?: string[];
+}
+
 /**
  * Unwrap per-dep policy calls in a deps-literal initializer:
  * `retry(timeout(fn, 5000), { attempts: 3 })` resolves to the base `fn`
@@ -35,9 +40,9 @@ type PolicyKind = "retry" | "timeout" | "fallback";
  */
 function unwrapPolicyCalls(
   init: Node
-): { base: Node; policies: NonNullable<DependencyInfo["policies"]> } | undefined {
+): { base: Node; analyzedPolicies: AnalyzedPolicy[] } | undefined {
   const { Node } = loadTsMorph();
-  const policies: NonNullable<DependencyInfo["policies"]> = [];
+  const analyzedPolicies: AnalyzedPolicy[] = [];
   let current: Node = init;
 
   while (Node.isCallExpression(current)) {
@@ -47,15 +52,24 @@ function unwrapPolicyCalls(
     }
     const [baseArg, optionsArg] = current.getArguments();
     if (!baseArg) break;
-    policies.unshift({
-      kind: callee.getText() as PolicyKind,
-      options: optionsArg?.getText(),
+    const kind = callee.getText() as PolicyKind;
+    let fallbackErrorTypes: string[] | undefined;
+    if (kind === "fallback" && optionsArg) {
+      try {
+        fallbackErrorTypes = inferErrorTypesFromSignature(optionsArg.getType().getText());
+      } catch {
+        // Type checker may be unavailable; an untyped fallback remains infallible in the IR.
+      }
+    }
+    analyzedPolicies.unshift({
+      policy: { kind, options: optionsArg?.getText() },
+      ...(fallbackErrorTypes ? { fallbackErrorTypes } : {}),
     });
     current = baseArg;
   }
 
-  if (policies.length === 0) return undefined;
-  return { base: current, policies };
+  if (analyzedPolicies.length === 0) return undefined;
+  return { base: current, analyzedPolicies };
 }
 
 export function extractDependencies(
@@ -74,6 +88,7 @@ export function extractDependencies(
     let typeSignature: string | undefined;
     let signature: DependencyInfo["signature"] = undefined;
     let policies: DependencyInfo["policies"];
+    let analyzedPolicies: AnalyzedPolicy[] | undefined;
 
     if (Node.isPropertyAssignment(prop)) {
       name = prop.getName();
@@ -85,7 +100,8 @@ export function extractDependencies(
       if (init) {
         const unwrapped = unwrapPolicyCalls(init);
         if (unwrapped) {
-          policies = unwrapped.policies;
+          analyzedPolicies = unwrapped.analyzedPolicies;
+          policies = analyzedPolicies.map(({ policy }) => policy);
           init = unwrapped.base;
         }
       }
@@ -118,15 +134,14 @@ export function extractDependencies(
     let errorTypes = inferErrorTypesFromSignature(typeSignature);
 
     // Apply policy error-union math (mirrors the runtime wrappers):
-    // retry preserves errors; timeout adds TimeoutError; fallback consumes
-    // the base union (only the handler's errors remain, which we cannot
-    // reliably extract from text — leave empty rather than guess).
-    if (policies) {
-      for (const policy of policies) {
+    // retry preserves errors; timeout adds TimeoutError; fallback replaces
+    // the current union with the handler's inferred errors.
+    if (analyzedPolicies) {
+      for (const { policy, fallbackErrorTypes } of analyzedPolicies) {
         if (policy.kind === "timeout" && !errorTypes.includes("TimeoutError")) {
           errorTypes = [...errorTypes, "TimeoutError"];
         } else if (policy.kind === "fallback") {
-          errorTypes = [];
+          errorTypes = fallbackErrorTypes ?? [];
         }
       }
     }

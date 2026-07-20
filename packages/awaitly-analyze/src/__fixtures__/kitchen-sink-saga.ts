@@ -8,7 +8,7 @@
  * - Destructured { step, tryStep } form
  */
 import { ok, type AsyncResult } from "awaitly";
-import { createSagaWorkflow } from "awaitly/saga";
+import { createSagaWorkflow } from "awaitly/workflow";
 
 // ---------------------------------------------------------------------------
 // Dependencies (all must return Result for createSagaWorkflow)
@@ -58,7 +58,7 @@ const sendNotification = async (
 };
 
 // ---------------------------------------------------------------------------
-// Non-destructured form: saga.step() / saga.tryStep()
+// Canonical form: workflow.run() with compensating steps
 // ---------------------------------------------------------------------------
 
 export const orderSaga = createSagaWorkflow("orderSaga", {
@@ -72,14 +72,14 @@ export const orderSaga = createSagaWorkflow("orderSaga", {
 });
 
 export async function placeOrder(cartId: string, amount: number) {
-  return await orderSaga(async ({ saga, deps }) => {
-    // saga.step with compensation (compensation returns void)
-    const order = await saga.step("Create Order", () => deps.createOrder(cartId), {
+  return await orderSaga.run(async ({ step, deps }) => {
+    // step with compensation (compensation returns void)
+    const order = await step("Create Order", () => deps.createOrder(cartId), {
       compensate: async (val) => { await deps.cancelOrder(val.orderId); },
     });
 
-    // saga.step with compensation
-    const charge = await saga.step(
+    // step with compensation
+    const charge = await step(
       "Charge Payment",
       () => deps.chargePayment(order.orderId, amount),
       {
@@ -87,8 +87,8 @@ export async function placeOrder(cartId: string, amount: number) {
       }
     );
 
-    // saga.step with compensation
-    const reservation = await saga.step(
+    // step with compensation
+    const reservation = await step(
       "Reserve Inventory",
       () => deps.reserveInventory(order.orderId),
       {
@@ -96,8 +96,8 @@ export async function placeOrder(cartId: string, amount: number) {
       }
     );
 
-    // saga.tryStep (error-mapped)
-    await saga.tryStep("Send Notification", () => {
+    // step.try (error-mapped)
+    await step.try("Send Notification", () => {
       return sendNotification(order.orderId);
     }, { error: "ORDER_FAILED" as const });
 
@@ -106,7 +106,7 @@ export async function placeOrder(cartId: string, amount: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Destructured form: { step, tryStep } = saga
+// Destructured form: { step, try } = workflow context
 // ---------------------------------------------------------------------------
 
 export const orderSagaDestructured = createSagaWorkflow("orderSagaDestructured", {
@@ -117,14 +117,13 @@ export const orderSagaDestructured = createSagaWorkflow("orderSagaDestructured",
 });
 
 export async function placeOrderDestructured(cartId: string, amount: number) {
-  return await orderSagaDestructured(async ({ saga, deps }) => {
-    const { step, tryStep } = saga;
+  return await orderSagaDestructured.run(async ({ step, deps }) => {
 
     const order = await step("Create Order", () => deps.createOrder(cartId), {
       compensate: async (val) => { await deps.cancelOrder(val.orderId); },
     });
 
-    await tryStep("Charge Payment", () => {
+    await step.try("Charge Payment", () => {
       return chargePayment(order.orderId, amount);
     }, { error: "CHARGE_FAILED" as const });
 

@@ -4,8 +4,12 @@
  * This file verifies that all code examples work correctly and pass type checking.
  */
 import { describe, it, expect, vi } from "vitest";
-import { Awaitly, type AsyncResult } from "./index";
-const { ok, err, isUnexpectedError } = Awaitly;
+import {
+  type AsyncResult,
+  ok,
+  isUnexpectedError,
+  err,
+} from "./index";
 import { createWorkflow } from "./workflow-entry";
 import { createApprovalStep, isPendingApproval } from "./hitl-entry";
 import { run } from "./workflow-entry";

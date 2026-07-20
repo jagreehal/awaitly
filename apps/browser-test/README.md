@@ -6,7 +6,7 @@ Browser compatibility test harness for `awaitly` and `awaitly-visualizer`. Catch
 
 | Test | Verifies |
 |------|----------|
-| Core imports | `ok`, `isOk` from `awaitly/core` load in the browser |
+| Core imports | `ok`, `isOk` from `awaitly` load in the browser |
 | createVisualizer | Workflow event simulation renders ASCII and Mermaid output |
 | createLiveVisualizer error | Node-only API throws a helpful "not available in browser" error |
 | Renderer exports | `asciiRenderer`, `mermaidRenderer`, `createIRBuilder` export correctly |

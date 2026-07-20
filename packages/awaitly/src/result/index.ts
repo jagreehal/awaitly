@@ -480,17 +480,60 @@ export function mapError<T, E, F, C>(
  *
  * @remarks When to use: Handle both Ok and Err in a single expression that returns a value.
  */
+/**
+ * The discriminant of an error value: the string itself for string-literal
+ * errors, or the `type` field for tagged objects and TaggedError instances
+ * (`_tag` accepted as a deprecated alias during migration).
+ */
+export type ErrorTypeOf<E> = E extends string
+  ? E
+  : E extends { type: infer K extends string }
+    ? K
+    : E extends { _tag: infer K extends string }
+      ? K
+      : never;
+
+/** Narrow an error union to the member(s) identified by a type string. */
+export type ErrorByType<E, K extends string> = Extract<
+  E,
+  K | { type: K } | { _tag: K }
+>;
+
+/**
+ * Exhaustive per-type match arms: one handler per member of the error
+ * union, keyed by its type string, plus the `ok` arm. Each handler
+ * receives the full narrowed error (string, tagged object, or TaggedError).
+ */
+export type MatchTypeHandlers<T, E, C, R> = { ok: (value: T) => R } & {
+  [K in ErrorTypeOf<E>]: (error: ErrorByType<E, K>, cause?: C) => R;
+};
+
+// Two-arm form (ok/err catch-all), curried and direct
 export function match<T, E, C, R>(handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): (r: Result<T, E, C>) => R;
 export function match<T, E, C, R>(r: Ok<T>, handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): R;
 export function match<T, E, C, R>(r: Err<E, C>, handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): R;
 export function match<T, E, C, R>(r: Result<T, E, C>, handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): R;
+// Exhaustive per-type form: match(result, { ok, USER_NOT_FOUND, CHARGE_DECLINED, ... })
+export function match<T, E, C, R>(r: Result<T, E, C>, handlers: MatchTypeHandlers<T, E, C, R>): R;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function match(r: any, handlers?: any): any {
   if (handlers === undefined) {
     const h = r;
     return (result: Result<unknown, unknown, unknown>) => match(result, h);
   }
-  return r.ok ? handlers.ok(r.value) : handlers.err(r.error, r.cause);
+  if (r.ok) return handlers.ok(r.value);
+  // Catch-all arm wins when present (the simple two-arm form)
+  if (typeof handlers.err === "function") return handlers.err(r.error, r.cause);
+  // Per-type dispatch: string errors match themselves; tagged errors match
+  // their `type` (or legacy `_tag`)
+  const e = r.error;
+  const key = typeof e === "string" ? e : (e?.type ?? e?._tag);
+  const handler = key === undefined ? undefined : handlers[key];
+  if (typeof handler === "function") return handler(e, r.cause);
+  throw new TypeError(
+    `match: no handler for error type "${String(key)}". ` +
+      `Add a handler for it, or use the { ok, err } form for a catch-all.`
+  );
 }
 
 /**
@@ -1070,6 +1113,6 @@ export function matchErrorPartial<E extends string, R>(
   return h ? h(error as E) : fallback(error);
 }
 
-// Retry helper is intentionally NOT re-exported here.
-// Import from the dedicated subpath to keep awaitly/result minimal:
-//   import { tryAsyncRetry } from 'awaitly/result/retry';
+// Retry helpers live in ./retry as internal building blocks and are
+// intentionally NOT re-exported here (keeps awaitly/result minimal).
+// The public retry surface is the `retry` policy on the root `awaitly` entry.

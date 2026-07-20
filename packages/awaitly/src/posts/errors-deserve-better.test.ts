@@ -1,11 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { Awaitly, type AsyncResult } from "../index";
+import {
+  type AsyncResult,
+  ok,
+  err,
+  TaggedError,
+} from "../index";
 import { run } from "../run-entry";
 import { tryAsyncBoundary } from "../result/retry";
 import { createWorkflow } from "../workflow-entry";
 import { createSagaWorkflow } from "../saga-entry";
 
-const { ok, err, TaggedError } = Awaitly;
 
 type BookingRequest = {
   hotelId: string;

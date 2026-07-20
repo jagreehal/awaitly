@@ -3,7 +3,7 @@
  * Run with: pnpm test src/features-smoke.test.ts
  */
 import { describe, it, expect } from "vitest";
-import { ok } from "awaitly/core";
+import { ok } from "awaitly";
 import { createWorkflow } from "awaitly/workflow";
 import {
   createVisualizer,

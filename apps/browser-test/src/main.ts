@@ -17,7 +17,7 @@ import {
   trackIf,
 } from 'awaitly-visualizer';
 
-import { ok, err, isOk } from 'awaitly/core';
+import { ok, err, isOk } from 'awaitly';
 
 const app = document.getElementById('app')!;
 

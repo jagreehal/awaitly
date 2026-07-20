@@ -5,7 +5,7 @@ description: Add resilience to workflow steps
 
 import { Aside, Tabs, TabItem, AnimatedWorkflowDiagram } from '~/components';
 
-Add retries and timeouts to individual steps without wrapping your entire workflow in try/catch. For retries **outside** workflows (plain async/Result code), use [tryAsyncRetry](/foundations/result-types/#retry-with-tryasyncretry) from `awaitly/result/retry`; see [API Reference - Result retry](/reference/api/#result-retry-awaitlyresultretry).
+Add retries and timeouts to individual steps without wrapping your entire workflow in try/catch. For retries **outside** workflows (plain async/Result code), use the [`retry` policy](/foundations/result-types/#retry-with-the-retry-policy) from `awaitly`. For policies declared on dependencies, see [deps-level policies](#deps-level-policies) below or the [Policies guide](/advanced/policies/).
 
 <AnimatedWorkflowDiagram
   steps={[
@@ -542,6 +542,36 @@ Output (immediate failure, no retries):
 | `maxDelay` | `number` | `undefined` | Maximum delay cap |
 | `jitter` | `boolean` | `false` | Add random variation |
 | `shouldRetry` | `(error) => boolean` | `() => true` | Condition for retry |
+
+## Deps-level policies
+
+Declare retry and timeout on dependencies so call sites stay clean and `awaitly-analyze` can read the policy chain from the deps literal:
+
+```typescript
+import { retry, timeout, tryAsync } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+
+const charge = tryAsync(
+  () => paymentGateway.charge(amount),
+  (cause) => ({ type: 'CHARGE_FAILED' as const, cause })
+);
+
+const checkout = createWorkflow('checkout', {
+  charge: retry(timeout(charge, 5000), {
+    attempts: 3,
+    backoff: 'exponential',
+    delay: 100,
+  }),
+});
+
+await checkout.run(async ({ deps }) => {
+  await deps.charge(amount); // auto-tracked step; retries + timeout applied
+});
+```
+
+Policies compose inside-out: `retry(timeout(fn, ms), opts)` times out each attempt, then retries on failure. See [Policies](/advanced/policies/) for `fallback`, error-union rules, and legacy StepOptions bundles.
+
+Inside a workflow body you can still use **`step.retry`** and **`step.withTimeout`** when retry or timeout is the primary verb for a one-off operation — see sections above.
 
 ## Next
 

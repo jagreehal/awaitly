@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
-import { ok, err, type AsyncResult } from "awaitly/core";
+import { ok, err, type AsyncResult } from "awaitly";
 import { createWorkflow } from "awaitly/workflow";
 import { createEventCollector, createVisualizer, type MermaidRenderOptions, defaultColorScheme } from "../index";
 import { mermaidRenderer } from "./mermaid";

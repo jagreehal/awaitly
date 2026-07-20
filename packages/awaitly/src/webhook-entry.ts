@@ -6,7 +6,7 @@
  *
  * @example
  * ```typescript
- * import { createWebhookHandler, createExpressHandler } from 'awaitly/webhook';
+ * import { createWebhookHandler, createExpressHandler } from 'awaitly/workflow';
  *
  * const handler = createWebhookHandler(workflow, async (req, run) => {
  *   const result = await run(async ({ step }) => {

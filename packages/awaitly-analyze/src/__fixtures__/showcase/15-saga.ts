@@ -1,9 +1,9 @@
 /**
- * Showcase: Saga workflow — createSagaWorkflow with saga.step() and saga.tryStep().
+ * Showcase: Saga workflow — createSagaWorkflow with compensating steps.
  * Renders as saga-step nodes with "(compensable)" and "(try)" in the diagram.
  */
 import { ok, type AsyncResult } from "awaitly";
-import { createSagaWorkflow } from "awaitly/saga";
+import { createSagaWorkflow } from "awaitly/workflow";
 
 const reserve = async (id: string): AsyncResult<{ reservationId: string }, "UNAVAILABLE"> =>
   ok({ reservationId: "res_1" });
@@ -21,14 +21,14 @@ export const orderSaga = createSagaWorkflow("orderSaga", {
 });
 
 export async function runOrderSaga(orderId: string, amount: number) {
-  return await orderSaga(async ({ saga, deps }) => {
-    const reservation = await saga.step("Reserve", () => deps.reserve(orderId), {
+  return await orderSaga.run(async ({ step, deps }) => {
+    const reservation = await step("Reserve", () => deps.reserve(orderId), {
       compensate: async (val) => {
         await deps.release(val.reservationId);
       },
     });
 
-    const payment = await saga.step(
+    const payment = await step(
       "Charge",
       () => deps.charge(orderId, amount),
       {
@@ -38,7 +38,7 @@ export async function runOrderSaga(orderId: string, amount: number) {
       }
     );
 
-    await saga.tryStep("Notify", () => deps.notify(orderId), {
+    await step.try("Notify", () => deps.notify(orderId), {
       error: "NOTIFY_FAILED" as const,
     });
 

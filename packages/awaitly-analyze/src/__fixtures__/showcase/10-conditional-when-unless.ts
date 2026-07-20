@@ -3,7 +3,7 @@
  * Renders as conditional nodes with true/false branches.
  */
 import { createWorkflow, ok, type AsyncResult } from "awaitly";
-import { when, unless, whenOr, unlessOr } from "awaitly/conditional";
+import { when, unless, whenOr, unlessOr } from "awaitly";
 
 const audit = async (): AsyncResult<boolean, "AUDIT_FAILED"> => ok(true);
 const compute = async (): AsyncResult<number, "COMPUTE_ERROR"> => ok(99);

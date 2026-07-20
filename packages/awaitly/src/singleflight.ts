@@ -6,7 +6,7 @@
  *
  * @example
  * ```typescript
- * import { singleflight } from 'awaitly/singleflight';
+ * import { singleflight } from 'awaitly';
  *
  * const fetchUserOnce = singleflight(
  *   (id: string) => fetchUser(id),
@@ -80,7 +80,7 @@ interface CacheEntry<T, E, C> {
  *
  * @example
  * ```typescript
- * import { singleflight } from 'awaitly/singleflight';
+ * import { singleflight } from 'awaitly';
  * import { ok, err, type AsyncResult } from 'awaitly';
  *
  * const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
@@ -174,7 +174,7 @@ export function singleflight<Args extends unknown[], T, E, C = unknown>(
  *
  * @example
  * ```typescript
- * import { createSingleflightGroup } from 'awaitly/singleflight';
+ * import { createSingleflightGroup } from 'awaitly';
  *
  * const group = createSingleflightGroup<User, 'NOT_FOUND'>();
  *

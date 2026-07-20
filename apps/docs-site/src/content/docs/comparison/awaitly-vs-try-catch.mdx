@@ -52,9 +52,9 @@ try/catch                           Result types
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { from } from 'awaitly';
 
-const parseJson = (str: string) => Awaitly.from(() => JSON.parse(str));
+const parseJson = (str: string) => from(() => JSON.parse(str));
 
 const result = parseJson('{"name": "Alice"}');
 
@@ -102,7 +102,7 @@ With try/catch, nothing in the type system tells you `parseJson` can fail. With 
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly, type AsyncResult } from 'awaitly';
+import { ok, err, type AsyncResult } from 'awaitly';
 
 type FetchError = 'NETWORK_ERROR' | 'NOT_FOUND' | 'SERVER_ERROR';
 
@@ -110,12 +110,12 @@ const fetchUser = async (id: string): AsyncResult<User, FetchError> => {
   try {
     const res = await fetch(`/api/users/${id}`);
     if (!res.ok) {
-      if (res.status === 404) return Awaitly.err('NOT_FOUND');
-      return Awaitly.err('SERVER_ERROR');
+      if (res.status === 404) return err('NOT_FOUND');
+      return err('SERVER_ERROR');
     }
-    return Awaitly.ok(await res.json());
+    return ok(await res.json());
   } catch {
-    return Awaitly.err('NETWORK_ERROR');
+    return err('NETWORK_ERROR');
   }
 };
 
@@ -225,7 +225,7 @@ awaitly does not prevent every runtime error, eliminate unexpected failures, or 
 <Tabs>
   <TabItem label="awaitly (run)">
 ```typescript
-import { run } from 'awaitly/run';
+import { run } from 'awaitly';
 import { type ErrorsOf } from 'awaitly';
 
 const deps = { fetchUser, validateAge, createAccount };
@@ -296,7 +296,7 @@ const createUserAccount = async (userId: string) => {
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { allSettled, partition } from 'awaitly';
 
 const results = await Promise.all([
   fetchUser('1'),
@@ -305,11 +305,11 @@ const results = await Promise.all([
 ]);
 
 // Collect all outcomes (successes and failures)
-const settled = Awaitly.allSettled(results);
-// See [Awaitly.allSettled](/reference/api/) for the exact return shape.
+const settled = allSettled(results);
+// See [allSettled](/reference/api/) for the exact return shape.
 
 // Partition into successes and failures
-const [successes, failures] = Awaitly.partition(results);
+const [successes, failures] = partition(results);
 console.log(`Found ${successes.length} users`);
 console.log(`Failed to find ${failures.length} users`);
 ```
@@ -343,17 +343,17 @@ console.log(`Failed to find ${failures.length} users`);
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { ok, err, map, andThen } from 'awaitly';
 
-const result = Awaitly.ok(5);
+const result = ok(5);
 
 // Transform the value
-const doubled = Awaitly.map(result, n => n * 2);
+const doubled = map(result, n => n * 2);
 // { ok: true, value: 10 }
 
 // Chain operations that might fail
-const validated = Awaitly.andThen(result, n =>
-  n > 0 ? Awaitly.ok(n) : Awaitly.err('NEGATIVE')
+const validated = andThen(result, n =>
+  n > 0 ? ok(n) : err('NEGATIVE')
 );
 ```
   </TabItem>
@@ -397,19 +397,19 @@ try {
 You don't have to rewrite everything. Wrap existing code:
 
 ```typescript
-import { Awaitly } from 'awaitly';
+import { from, fromPromise } from 'awaitly';
 
-// Sync: Awaitly.from(fn, onError)
-const result1 = Awaitly.from(() => JSON.parse(jsonString), () => 'PARSE_ERROR' as const);
+// Sync: from(fn, onError)
+const result1 = from(() => JSON.parse(jsonString), () => 'PARSE_ERROR' as const);
 
-// Async (outside workflows): Awaitly.fromPromise(promise, onError)
-const result2 = await Awaitly.fromPromise(
+// Async (outside workflows): fromPromise(promise, onError)
+const result2 = await fromPromise(
   fetch('/api/data').then(r => r.json()),
   () => 'FETCH_ERROR' as const
 );
 
 // With error context from the cause
-const result3 = Awaitly.from(
+const result3 = from(
   () => JSON.parse(data),
   (cause) => ({ type: 'PARSE_ERROR' as const, message: String(cause) })
 );
@@ -418,7 +418,7 @@ const result3 = Awaitly.from(
 ```
 
 <Aside type="tip" title="Gradual adoption">
-You can adopt Result types gradually. Wrap boundary code (API calls, user input) with `Awaitly.from` / `Awaitly.fromPromise`, and use `step.try` inside workflow callbacks.
+You can adopt Result types gradually. Wrap boundary code (API calls, user input) with `from` / `fromPromise`, and use `step.try` inside workflow callbacks.
 </Aside>
 
 ## Summary

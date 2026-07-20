@@ -5,7 +5,7 @@
  *
  * @example
  * ```typescript
- * import { Match } from 'awaitly/match';
+ * import { Match } from 'awaitly';
  *
  * type Event = { _tag: 'Click'; x: number } | { _tag: 'Scroll'; y: number };
  *

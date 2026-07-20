@@ -6,7 +6,7 @@
  *
  * @example
  * ```typescript
- * import { singleflight } from 'awaitly/singleflight';
+ * import { singleflight } from 'awaitly';
  * import { ok, type AsyncResult } from 'awaitly';
  *
  * const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>

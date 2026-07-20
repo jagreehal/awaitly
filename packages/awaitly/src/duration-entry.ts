@@ -5,7 +5,7 @@
  *
  * @example
  * ```typescript
- * import { Duration, millis, seconds, toMillis } from 'awaitly/duration';
+ * import { Duration, millis, seconds, toMillis } from 'awaitly';
  *
  * const timeout = Duration.seconds(30);
  * const delay = Duration.millis(100);

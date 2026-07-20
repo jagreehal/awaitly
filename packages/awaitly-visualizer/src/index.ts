@@ -21,7 +21,7 @@
  */
 
 import type { WorkflowEvent } from "awaitly/workflow";
-import type { UnexpectedError } from "awaitly/core";
+import type { UnexpectedError } from "awaitly";
 import type {
   OutputFormat,
   RenderOptions,

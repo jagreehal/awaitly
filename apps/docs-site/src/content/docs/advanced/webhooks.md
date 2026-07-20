@@ -16,7 +16,7 @@ import {
   createResultMapper,
   createExpressHandler,
   requireFields,
-} from 'awaitly/webhook';
+} from 'awaitly/workflow';
 
 // Create a webhook handler
 const handler = createWebhookHandler(
@@ -44,7 +44,7 @@ const handler = createWebhookHandler(
 
 ```typescript
 import express from 'express';
-import { createExpressHandler } from 'awaitly/webhook';
+import { createExpressHandler } from 'awaitly/workflow';
 
 const app = express();
 app.use(express.json());
@@ -72,7 +72,7 @@ Use built-in validators or write your own:
 
 ```typescript
 import { ok, err } from 'awaitly';
-import { requireFields, validationError } from 'awaitly/webhook';
+import { requireFields, validationError } from 'awaitly/workflow';
 
 // Built-in field checker
 const validate = requireFields(['amount', 'email', 'items']);
@@ -97,7 +97,7 @@ const validateInput = (req) => {
 Map workflow errors to HTTP responses:
 
 ```typescript
-import { createResultMapper } from 'awaitly/webhook';
+import { createResultMapper } from 'awaitly/workflow';
 
 const mapResult = createResultMapper([
   { error: 'NOT_FOUND', status: 404, message: 'Resource not found' },
@@ -114,7 +114,7 @@ const mapResult = createResultMapper([
 For message queues (SQS, RabbitMQ, etc.):
 
 ```typescript
-import { createEventHandler } from 'awaitly/webhook';
+import { createEventHandler } from 'awaitly/workflow';
 
 const handler = createEventHandler(
   checkoutWorkflow,
@@ -155,7 +155,7 @@ For straightforward use cases without workflow context:
 
 ```typescript
 import { ok } from 'awaitly';
-import { createSimpleHandler } from 'awaitly/webhook';
+import { createSimpleHandler } from 'awaitly/workflow';
 
 const handler = createSimpleHandler(
   async (input: { userId: string }) => {
@@ -246,7 +246,7 @@ const mapResult = (result) => ({
 
 ```typescript
 import Fastify from 'fastify';
-import { createWebhookHandler, createResultMapper } from 'awaitly/webhook';
+import { createWebhookHandler, createResultMapper } from 'awaitly/workflow';
 
 const fastify = Fastify();
 
@@ -303,7 +303,7 @@ fastify.post('/checkout', createFastifyHandler(handler));
 
 ```typescript
 import { Hono } from 'hono';
-import { createWebhookHandler, createResultMapper } from 'awaitly/webhook';
+import { createWebhookHandler, createResultMapper } from 'awaitly/workflow';
 
 const app = new Hono();
 
@@ -369,7 +369,7 @@ app.post('/orders', createHonoHandler(handler));
 ```typescript
 // app/api/checkout/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createWebhookHandler, createResultMapper } from 'awaitly/webhook';
+import { createWebhookHandler, createResultMapper } from 'awaitly/workflow';
 
 const handler = createWebhookHandler(
   checkoutWorkflow,
@@ -411,7 +411,7 @@ export async function POST(request: NextRequest) {
 
 ```typescript
 import { ok, err } from 'awaitly';
-import { createWebhookHandler, validationError } from 'awaitly/webhook';
+import { createWebhookHandler, validationError } from 'awaitly/workflow';
 
 const authenticateApiKey = (req: WebhookRequest) => {
   const apiKey = req.headers['x-api-key'];
@@ -561,7 +561,7 @@ const stripeWebhookHandler = createWebhookHandler(
 ```typescript
 import { z } from 'zod';
 import { ok, err } from 'awaitly';
-import { validationError } from 'awaitly/webhook';
+import { validationError } from 'awaitly/workflow';
 
 const CheckoutSchema = z.object({
   amount: z.number().positive(),

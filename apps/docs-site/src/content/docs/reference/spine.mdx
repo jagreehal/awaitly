@@ -33,11 +33,11 @@ Slugs are grouped by a single-word prefix:
 | `concurrency-*` | step.all / step.map / step.race vs Promise.* |
 | `runtime-*` | Failures observable at runtime: timeout, retry-exhausted, rate-limit, circuit-open, unexpected, ... |
 
-The full enumerated list lives in `awaitly/slugs` (see below). Adding a slug is non-breaking; renaming one is a major version bump.
+The full enumerated list lives in `AWAITLY_SLUGS` on the root `awaitly` entry (see below). Adding a slug is non-breaking; renaming one is a major version bump.
 
-## `awaitly/slugs` — source of truth
+## `AWAITLY_SLUGS` — source of truth
 
-Import from a dedicated sub-path so the slug namespace doesn't pull the rest of awaitly into your bundle:
+The slug namespace ships on the root entry. It's pure data plus helpers, so it tree-shakes out of your bundle when unused:
 
 ```typescript
 import {
@@ -48,17 +48,15 @@ import {
   slugCategory,
   slugDocsUrl,
   isAwaitlySlug,
-} from 'awaitly/slugs';
+} from 'awaitly';
 ```
-
-The same exports are also available on `awaitly/core`. The root `awaitly` entry re-exports the **types only** (`AwaitlySlug`, `AwaitlySlugCategory`) — the runtime helpers live at `awaitly/slugs` to keep the root bundle lean.
 
 ### `AwaitlySlug`
 
 A string-literal union of every canonical slug. Use it anywhere you want compile-time enforcement that a value is a known slug:
 
 ```typescript
-import { type AwaitlySlug } from 'awaitly/slugs';
+import { type AwaitlySlug } from 'awaitly';
 
 function logError(code: AwaitlySlug, message: string): void {
   console.error(`[${code}] ${message}`);
@@ -99,7 +97,7 @@ slugCategory('step-require-id');      // → 'step'
 A readonly array of every registered slug, useful for iteration or diagnostics:
 
 ```typescript
-import { ALL_SLUGS } from 'awaitly/slugs';
+import { ALL_SLUGS } from 'awaitly';
 
 for (const slug of ALL_SLUGS) {
   // populate a docs index, build a CLI menu, etc.
@@ -135,7 +133,7 @@ The six awaitly-system errors that participate in the spine are:
 User-domain errors (`ValidationError`, `NotFoundError`, `UnauthorizedError`, `NetworkError`) are **not** slugged — they represent your domain failures, not awaitly-internal ones. You can opt your own `TaggedError` subclasses into the spine by passing `slug` and `hint` to the factory:
 
 ```typescript
-import { TaggedError } from 'awaitly/tagged-error';
+import { TaggedError } from 'awaitly';
 
 class CheckoutFailed extends TaggedError('CheckoutFailed', {
   slug: 'runtime-saga-compensation',
@@ -151,7 +149,7 @@ When `slug` is set, `hint` is **required** — the factory throws `TypeError` at
 A discriminated union of the six spine-bearing classes. Use it when you want to distinguish "errors that carry the spine" from user-domain errors:
 
 ```typescript
-import { type AwaitlySystemError } from 'awaitly/errors';
+import { type AwaitlySystemError } from 'awaitly';
 
 function isAwaitlySystemError(e: unknown): e is AwaitlySystemError {
   return typeof (e as AwaitlySystemError).code === 'string'

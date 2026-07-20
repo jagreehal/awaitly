@@ -52,7 +52,7 @@ If you can write `async/await`, you already know awaitly. There is no generator 
   <TabItem label="awaitly">
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
-import { run } from 'awaitly/run';
+import { run } from 'awaitly';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
   id === '1' ? ok({ id, name: 'Ada' }) : err('NOT_FOUND');
@@ -85,19 +85,16 @@ const result = await Effect.runPromise(Effect.either(program));
   </TabItem>
 </Tabs>
 
-awaitly stays in `async/await`. In workflow-style APIs (`flow`, `createWorkflow`), errors are inferred from your dependency object — no manual annotations, no `Effect<A, E, R>` to thread through. When you're ready for more (retries, sagas, durable execution, dependency injection), you opt in module-by-module.
+awaitly stays in `async/await`. In workflow-style APIs (`run`, `createWorkflow`), errors are inferred from your dependency object — no manual annotations, no `Effect<A, E, R>` to thread through. When you're ready for more (retries, sagas, durable execution, dependency injection), you opt in as needed.
 
-## Closest Equivalent to `Effect.gen`: `flow()`
+## Closest Equivalent to `Effect.gen`: `run()` deps-first
 
-`flow()` gives you Effect-like sequential composition while staying in native async/await. The body is just async/await; each dep call is automatically a tracked step using its property name as the id, and errors are inferred from the deps' return types.
-
-See the dedicated guide: [flow()](/foundations/flow/).
+The deps-first form `run(deps, fn)` gives you Effect-like sequential composition while staying in native async/await. The body is just async/await; each dep call on the bound steps object is automatically a tracked step using its property name as the id, and errors are inferred from the deps' return types.
 
 <Tabs>
-  <TabItem label="awaitly/flow">
+  <TabItem label="awaitly">
 ```typescript
-import { flow } from 'awaitly/flow';
-import { ok, err, type AsyncResult } from 'awaitly';
+import { run, ok, err, type AsyncResult } from 'awaitly';
 
 type User = { id: string; name: string };
 type Post = { id: string; userId: string };
@@ -108,9 +105,9 @@ const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
 const getPosts = async (userId: string): AsyncResult<Post[], 'POSTS_FAILED'> =>
   ok([{ id: 'p1', userId }]);
 
-const result = await flow({ getUser, getPosts }, async (d) => {
-  const user = await d.getUser('1');
-  const posts = await d.getPosts(user.id);
+const result = await run({ getUser, getPosts }, async (s) => {
+  const user = await s.getUser('1');
+  const posts = await s.getPosts(user.id);
   return { user, posts };
 });
 
@@ -143,17 +140,17 @@ const result = await Effect.runPromise(Effect.either(program));
   </TabItem>
 </Tabs>
 
-### Optional: per-call escape hatch (`c`)
+### More control: explicit steps and parallel scopes
 
-When you need a custom step id (e.g. calling the same dep twice) or a named parallel scope, `flow()` passes an optional second argument — the flow context — with `c.key(id, fn)`, `c.all(name, ops)`, and `c.raw` (the un-wrapped original deps). For richer control (per-call retry/timeout/cache, `step.map`, `step.race`, resume) drop down to `run()` / `createWorkflow()`.
+When you need a custom step id (e.g. calling the same dep twice), parallel execution, or per-call retry/timeout/cache, use the explicit `step` API the callback also receives. `step.all` runs a named parallel scope; `step.map` / `step.race` and retry/timeout options are all available here. For dependency injection, testing overrides, and resume, graduate to `createWorkflow()`.
 
 ```typescript
-const result = await flow({ getUser, getPosts }, async (d, c) => {
-  const user = await c.key('user:primary', () => c.raw.getUser('1'));
+const result = await run({ getUser, getPosts }, async (s, { step }) => {
+  const user = await step('user:primary', () => getUser('1'));
 
-  const { posts, profile } = await c.all('fetchProfileBundle', {
-    posts: () => c.raw.getPosts(user.id),
-    profile: () => c.raw.getUser(user.id),
+  const { posts, profile } = await step.all('fetchProfileBundle', {
+    posts: () => getPosts(user.id),
+    profile: () => getUser(user.id),
   });
 
   return { user, posts, profile };
@@ -175,13 +172,13 @@ This table compares Effect core/stdlib with awaitly core plus optional awaitly m
 | Retry / scheduling | Config objects | Schedule combinators |
 | Concurrency | `step.all` / `step.map` / `step.race` (inside workflows) | Fibers |
 | Interruption / cancellation | Cooperative via `AbortSignal` | Structured fiber interruption |
-| Rate limiting | `awaitly/ratelimit` | `RateLimiter` |
-| Circuit breaker | `awaitly/circuit-breaker` | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
-| Saga / compensation | `awaitly/saga` | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
-| Durable execution | `awaitly/durable` | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
-| Human-in-the-loop | `awaitly/hitl` | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
-| Resource management | `awaitly/resource` (scoped cleanup) | `Scope` (runtime-integrated) |
-| Observability | Event-to-OTel adapter at step boundaries | Runtime-integrated spans/tracing APIs (OTel export requires SDK setup) |
+| Rate limiting | `awaitly` (`createRateLimiter`) | `RateLimiter` |
+| Circuit breaker | `awaitly` (`createCircuitBreaker`) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
+| Saga / compensation | `awaitly/workflow` (`createSagaWorkflow`) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
+| Durable execution | `awaitly/workflow` (`durable`) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
+| Human-in-the-loop | `awaitly/workflow` (approvals/hooks) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
+| Resource management | `awaitly/workflow` (`step.withResource`, scoped cleanup) | `Scope` (runtime-integrated) |
+| Observability | `onEvent` workflow event stream → OTel at step boundaries | Runtime-integrated spans/tracing APIs (OTel export requires SDK setup) |
 | Tagged errors | `TaggedError` with `_tag` + matching | `Data.TaggedEnum` / `_tag` |
 
 ## Step helpers
@@ -250,10 +247,10 @@ These helpers are not thin wrappers: they emit step events, support retry/timeou
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly, type Result } from 'awaitly';
+import { ok, err, type Result } from 'awaitly';
 
 const divide = (a: number, b: number): Result<number, 'DIVIDE_BY_ZERO'> =>
-  b === 0 ? Awaitly.err('DIVIDE_BY_ZERO') : Awaitly.ok(a / b);
+  b === 0 ? err('DIVIDE_BY_ZERO') : ok(a / b);
 
 const result = divide(10, 2);
 if (result.ok) {
@@ -309,7 +306,7 @@ Effect has a third type parameter for dependencies (Requirements). awaitly handl
 <Tabs>
   <TabItem label="awaitly (run)">
 ```typescript
-import { run } from 'awaitly/run';
+import { run } from 'awaitly';
 import { type ErrorsOf } from 'awaitly';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
@@ -535,7 +532,7 @@ const policy = Schedule.exponential('100 millis').pipe(
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createRateLimiter } from 'awaitly/ratelimit';
+import { createRateLimiter } from 'awaitly';
 
 const limiter = createRateLimiter('api', {
   maxPerSecond: 2,
@@ -719,7 +716,7 @@ Both libraries provide ways to combine multiple Results/Effects.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { allAsync } from 'awaitly';
 
 // In a workflow: step.all (named) or step.map (array)
 const { u1, u2, u3 } = await step.all('fetchUsers', {
@@ -729,7 +726,7 @@ const { u1, u2, u3 } = await step.all('fetchUsers', {
 });
 
 // Standalone: allAsync
-const users = await Awaitly.allAsync([
+const users = await allAsync([
   fetchUser('1'),
   fetchUser('2'),
   fetchUser('3'),
@@ -756,10 +753,10 @@ const result = await Effect.runPromise(program);
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { ok, err, allSettled, partition } from 'awaitly';
 
-const results = [Awaitly.ok(1), Awaitly.err('A'), Awaitly.ok(3), Awaitly.err('B')];
-const settled = Awaitly.allSettled(results);
+const results = [ok(1), err('A'), ok(3), err('B')];
+const settled = allSettled(results);
 /*
 Output (any Err present → Err with all errors collected):
 {
@@ -774,7 +771,7 @@ To keep both successes and failures, use `partition` instead.
 */
 
 // Keep both successes and failures with partition:
-const { values, errors } = Awaitly.partition(results);
+const { values, errors } = partition(results);
 // values: [1, 3], errors: ['A', 'B']
 ```
   </TabItem>
@@ -800,7 +797,7 @@ Both libraries provide scoped resource management with automatic cleanup in LIFO
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { withScope, createResource } from 'awaitly/resource';
+import { withScope, createResource } from 'awaitly/workflow';
 
 const dbResource = await createResource(
   () => new DatabaseClient().connect(),  // acquire
@@ -855,7 +852,7 @@ Both libraries support streaming data processing.
   <TabItem label="awaitly">
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
-import { createMemoryStreamStore, getStreamReader, toAsyncIterable, collect } from 'awaitly/streaming';
+import { createMemoryStreamStore, getStreamReader, toAsyncIterable, collect } from 'awaitly/workflow';
 
 const streamStore = createMemoryStreamStore();
 const workflow = createWorkflow('enrich', deps, { streamStore });
@@ -911,31 +908,31 @@ const result = await Effect.runPromise(
 Effect's Stream is more comprehensive (backpressure, chunking, advanced combinators). awaitly's streaming is store-based with transformers (`map`, `filter`, `chunk`, `collect`) and works through `step.getWritable` / `step.getReadable` in workflows. Choose based on your complexity needs.
 </Aside>
 
-## Functional Utilities
+## Functional Composition
 
-Both libraries provide functional composition utilities.
+Effect leans on `pipe`/`flow` to thread a value through combinators. awaitly deliberately has no `pipe`/`flow`: you compose Results with the plain combinator functions (`map`, `andThen`, `mapError`) or, more often, just stay in `async/await`.
 
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { ok, err, map, andThen, mapError, type Result } from 'awaitly';
 
-// pipe: Apply functions left-to-right to a value
-const result = Awaitly.pipe(
-  Awaitly.ok(5),
-  Awaitly.R.map(n => n * 2),
-  Awaitly.R.flatMap(n => n > 5 ? Awaitly.ok(n) : Awaitly.err('TOO_SMALL')),
-  Awaitly.R.mapError(e => ({ code: e }))
-);
+// Compose with the Result combinators — plain function calls, no pipe()
+const doubled = map(ok(5), (n) => n * 2);
+const checked = andThen(doubled, (n) => (n > 5 ? ok(n) : err('TOO_SMALL')));
+const result = mapError(checked, (e) => ({ code: e }));
 
-// flow: Create a new function from composed functions
-const processNumber = Awaitly.flow(
-  Awaitly.R.map((n: number) => n * 2),
-  Awaitly.R.flatMap(n => n > 5 ? Awaitly.ok(n) : Awaitly.err('TOO_SMALL')),
-  Awaitly.R.mapError(e => ({ code: e }))
-);
+// Wrap the sequence in a reusable function
+const processNumber = (input: Result<number, never>) =>
+  mapError(
+    andThen(
+      map(input, (n: number) => n * 2),
+      (n) => (n > 5 ? ok(n) : err('TOO_SMALL')),
+    ),
+    (e) => ({ code: e }),
+  );
 
-const result = processNumber(Awaitly.ok(5));
+const out = processNumber(ok(5));
 ```
   </TabItem>
   <TabItem label="Effect">
@@ -963,7 +960,7 @@ const result = processNumber(Effect.succeed(5));
 </Tabs>
 
 <Aside type="note">
-Both libraries use similar `pipe` and `flow` patterns. Effect's functional utilities are more extensive (includes `identity`, `constVoid`, `absurd`, etc.). awaitly's are focused on Result manipulation.
+Effect's functional toolkit is far more extensive (`pipe`, `flow`, `identity`, `constVoid`, `absurd`, etc.). awaitly intentionally ships none of them — it keeps a small set of Result combinators and leans on `async/await` + `run()` for sequencing, so there's no combinator vocabulary to learn.
 </Aside>
 
 ## Tagged Errors
@@ -973,7 +970,7 @@ Both use a `_tag` discriminant for pattern matching on error types.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { TaggedError } from 'awaitly/tagged-error';
+import { TaggedError } from 'awaitly';
 
 class NotFoundError extends TaggedError("NotFoundError")<{
   id: string;
@@ -1034,7 +1031,7 @@ awaitly includes a circuit breaker. Effect doesn't ship one as a core feature; y
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createCircuitBreaker } from 'awaitly/circuit-breaker';
+import { createCircuitBreaker } from 'awaitly';
 
 const apiBreaker = createCircuitBreaker('external-api', {
   failureThreshold: 5,    // open after 5 failures
@@ -1083,7 +1080,7 @@ When a multi-step operation fails partway through, you need to undo the steps th
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createSagaWorkflow } from 'awaitly/saga';
+import { createSagaWorkflow } from 'awaitly/workflow';
 
 const checkout = createSagaWorkflow('checkout', {
   reserveInventory, releaseInventory,
@@ -1160,7 +1157,7 @@ awaitly can checkpoint workflow state after each keyed step, so if the process c
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { durable } from 'awaitly/durable';
+import { durable } from 'awaitly/workflow';
 
 const result = await durable.run(
   { fetchUser, createOrder, sendEmail },
@@ -1205,7 +1202,7 @@ awaitly can pause a workflow mid-execution to wait for a human approval, then re
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createHITLOrchestrator, createMemoryApprovalStore, createMemoryWorkflowStateStore } from 'awaitly/hitl';
+import { createHITLOrchestrator, createMemoryApprovalStore, createMemoryWorkflowStateStore } from 'awaitly/workflow';
 
 const orchestrator = createHITLOrchestrator({
   approvalStore: createMemoryApprovalStore(),
@@ -1250,25 +1247,28 @@ const resumed = await orchestrator.resume(execution.runId, workflowFactory, fn);
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createAutotelAdapter } from 'awaitly/otel';
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow, type WorkflowEvent } from 'awaitly/workflow';
 
-const otel = createAutotelAdapter({
-  serviceName: 'checkout',
-  createStepSpans: true,
-  recordMetrics: true,
-});
+// Every workflow emits a typed event stream — build metrics/spans from it,
+// no awaitly-specific adapter required.
+const metrics = {
+  stepDurations: [] as { name?: string; durationMs: number; success: boolean }[],
+  retryCount: 0,
+  errorCount: 0,
+  cacheHits: 0,
+};
 
 const workflow = createWorkflow('checkout', deps, {
-  onEvent: otel.handleEvent,  // plug into the event system
+  onEvent: (event: WorkflowEvent) => {
+    if (event.type === 'step_success')
+      metrics.stepDurations.push({ name: event.name, durationMs: event.durationMs, success: true });
+    if (event.type === 'step_error') {
+      metrics.stepDurations.push({ name: event.name, durationMs: event.durationMs, success: false });
+      metrics.errorCount++;
+    }
+    if (event.type === 'step_cache_hit') metrics.cacheHits++;
+  },
 });
-
-// After execution, inspect metrics
-const metrics = otel.getMetrics();
-metrics.stepDurations;   // [{ name, durationMs, success }]
-metrics.retryCount;
-metrics.errorCount;
-metrics.cacheHits;
 ```
   </TabItem>
   <TabItem label="Effect">

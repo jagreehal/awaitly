@@ -28,7 +28,7 @@ neverthrow wraps results; awaitly models effects. neverthrow is a good fit for l
 | Result type | `Result<T, E>` | `Result<T, E>` |
 | Async result | `AsyncResult<T, E>` | `ResultAsync<T, E>` |
 | Method style | Functions | Methods |
-| Retry (standalone) | `tryAsyncRetry()` | Not included |
+| Retry | per-dep `retry()` policy | Not included |
 | Result serialization | `deserialize()` (typed errors) | Not included |
 | Flatten nested Results | `flatten()` | Not included |
 | Workflow orchestration | Built-in | Not included |
@@ -52,10 +52,10 @@ neverthrow is the smallest step from plain async/await if you only want Result t
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { ok, err } from 'awaitly';
 
 const divide = (a: number, b: number) =>
-  b === 0 ? Awaitly.err('DIVIDE_BY_ZERO') : Awaitly.ok(a / b);
+  b === 0 ? err('DIVIDE_BY_ZERO') : ok(a / b);
 
 const result = divide(10, 2);
 /*
@@ -81,7 +81,7 @@ Result { _value: 5 }
 </Tabs>
 
 <Aside type="note">
-Both libraries use the familiar Ok/Err pattern. neverthrow exports `ok`/`err` top-level; awaitly exports them via `Awaitly.ok`/`Awaitly.err` (and may also expose named exports from `'awaitly'`). The pattern is the same; the import style differs.
+Both libraries use the familiar Ok/Err pattern with named `ok`/`err` exports. The difference is downstream: neverthrow returns class instances with methods; awaitly returns plain objects you inspect with `result.ok`.
 </Aside>
 
 ## Checking Results
@@ -89,7 +89,7 @@ Both libraries use the familiar Ok/Err pattern. neverthrow exports `ok`/`err` to
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { isOk } from 'awaitly';
 
 const result = divide(10, 2);
 
@@ -99,7 +99,7 @@ if (result.ok) {
 }
 
 // Function-based
-if (Awaitly.isOk(result)) {
+if (isOk(result)) {
   console.log(result.value); // 5
 }
 ```
@@ -127,10 +127,10 @@ if (result.isErr()) {
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { ok, map } from 'awaitly';
 
-const result = Awaitly.ok(5);
-const doubled = Awaitly.map(result, n => n * 2);
+const result = ok(5);
+const doubled = map(result, n => n * 2);
 /*
 Output:
 { ok: true, value: 10 }
@@ -156,10 +156,10 @@ Result { _value: 10 }
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { err, mapError } from 'awaitly';
 
-const result = Awaitly.err('NOT_FOUND');
-const mapped = Awaitly.mapError(result, e => ({ code: e, status: 404 }));
+const result = err('NOT_FOUND');
+const mapped = mapError(result, e => ({ code: e, status: 404 }));
 /*
 Output:
 { ok: false, error: { code: 'NOT_FOUND', status: 404 } }
@@ -180,22 +180,19 @@ Result { _error: { code: 'NOT_FOUND', status: 404 } }
   </TabItem>
 </Tabs>
 
-### Pipeline style (awaitly)
+### No pipeline operator (awaitly)
 
-awaitly provides `Awaitly.pipe` and `Awaitly.R` for left-to-right composition. `Awaitly.R` exposes curried combinators that work inside `pipe`:
+awaitly deliberately ships no `pipe`. Short chains are plain function calls with the named combinators:
 
 ```typescript
-import { Awaitly } from 'awaitly';
+import { ok, map, mapError } from 'awaitly';
 
-const result = Awaitly.pipe(
-  Awaitly.ok(5),
-  Awaitly.R.map((n) => n * 2),
-  Awaitly.R.mapError((e) => e.toUpperCase())
-);
+const doubled = map(ok(5), (n) => n * 2);
+const result = mapError(doubled, (e) => e.toUpperCase());
 // { ok: true, value: 10 }
 ```
 
-See [Functional Utilities](/guides/functional-utilities/) for the full set of combinators and async helpers.
+For anything longer — especially async — the answer is not a pipeline at all. Plain async/await with `run()` gives sequencing, short-circuiting, and inferred error types without a second dialect (see [Generator-Based Composition](#generator-based-composition) below).
 
 ## Chaining Operations
 
@@ -204,15 +201,15 @@ See [Functional Utilities](/guides/functional-utilities/) for the full set of co
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { ok, err, andThen } from 'awaitly';
 
 const parseNumber = (s: string) => {
   const n = parseInt(s, 10);
-  return isNaN(n) ? Awaitly.err('PARSE_ERROR') : Awaitly.ok(n);
+  return isNaN(n) ? err('PARSE_ERROR') : ok(n);
 };
 
-const result = Awaitly.ok('42');
-const parsed = Awaitly.andThen(result, parseNumber);
+const result = ok('42');
+const parsed = andThen(result, parseNumber);
 /*
 Output:
 { ok: true, value: 42 }
@@ -243,14 +240,13 @@ Result { _value: 42 }
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { ok, match } from 'awaitly';
 
-const result = Awaitly.ok(42);
-const message = Awaitly.match(
-  result,
-  value => `Success: ${value}`,
-  error => `Error: ${error}`
-);
+const result = ok(42);
+const message = match(result, {
+  ok: value => `Success: ${value}`,
+  err: error => `Error: ${error}`,
+});
 /*
 Output:
 "Success: 42"
@@ -279,11 +275,11 @@ Output:
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly, type AsyncResult } from 'awaitly';
+import { ok, err, type AsyncResult } from 'awaitly';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
   const user = await db.find(id);
-  return user ? Awaitly.ok(user) : Awaitly.err('NOT_FOUND');
+  return user ? ok(user) : err('NOT_FOUND');
 };
 
 // Use with regular async/await
@@ -320,17 +316,17 @@ if (result.isOk()) {
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { ok, err, all } from 'awaitly';
 
-const results = [Awaitly.ok(1), Awaitly.ok(2), Awaitly.ok(3)];
-const combined = Awaitly.all(results);
+const results = [ok(1), ok(2), ok(3)];
+const combined = all(results);
 /*
 Output:
 { ok: true, value: [1, 2, 3] }
 */
 
-const withError = [Awaitly.ok(1), Awaitly.err('FAILED'), Awaitly.ok(3)];
-const failed = Awaitly.all(withError);
+const withError = [ok(1), err('FAILED'), ok(3)];
+const failed = all(withError);
 /*
 Output:
 { ok: false, error: 'FAILED' }
@@ -363,18 +359,18 @@ Result { _error: 'FAILED' }
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { ok, unwrap, unwrapOr, unwrapOrElse } from 'awaitly';
 
-const result = Awaitly.ok(42);
+const result = ok(42);
 
 // Throws if err
-const value1 = Awaitly.unwrap(result); // 42
+const value1 = unwrap(result); // 42
 
 // Default value (does not throw)
-const value2 = Awaitly.unwrapOr(result, 0); // 42
+const value2 = unwrapOr(result, 0); // 42
 
 // Computed default
-const value3 = Awaitly.unwrapOrElse(result, err => {
+const value3 = unwrapOrElse(result, err => {
   console.log('Failed:', err);
   return 0;
 }); // 42
@@ -412,23 +408,27 @@ Chain a sync Result into an async operation.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly, type AsyncResult } from 'awaitly';
+import { ok, err, run, type AsyncResult } from 'awaitly';
 
 const parseId = (s: string) => {
   const n = parseInt(s, 10);
-  return isNaN(n) ? Awaitly.err('PARSE_ERROR') : Awaitly.ok(n);
+  return isNaN(n) ? err('PARSE_ERROR') : ok(n);
 };
 
 const fetchUser = async (id: number): AsyncResult<User, 'NOT_FOUND'> => {
   const user = await db.find(id);
-  return user ? Awaitly.ok(user) : Awaitly.err('NOT_FOUND');
+  return user ? ok(user) : err('NOT_FOUND');
 };
 
-// Just use async function - awaitly handles sync→async naturally
-const result = await Awaitly.andThen(parseId('42'), fetchUser);
+// Sync and async deps mix freely — await handles both
+const result = await run({ parseId, fetchUser }, async (s) => {
+  const id = await s.parseId('42');
+  return s.fetchUser(id);
+});
 /*
 Output:
 { ok: true, value: { id: 42, name: 'Alice' } }
+result.error: 'PARSE_ERROR' | 'NOT_FOUND' | UnexpectedError — inferred
 */
 ```
   </TabItem>
@@ -455,7 +455,7 @@ Result { _value: { id: 42, name: 'Alice' } }
 </Tabs>
 
 <Aside type="note">
-In awaitly, `andThen` works with both sync and async functions. neverthrow has separate `andThen` (sync) and `asyncAndThen` (async) methods.
+In awaitly there is no sync/async split to remember: inside `run()` you just `await`, whether the dep is sync or async. neverthrow has separate `andThen` (sync) and `asyncAndThen` (async) methods.
 </Aside>
 
 ### asyncMap
@@ -465,15 +465,14 @@ Transform the success value with an async function.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { ok } from 'awaitly';
 
-const result = Awaitly.ok(42);
+const result = ok(42);
 
-// map works with async functions
-const enriched = await Awaitly.map(result, async (n) => {
-  const data = await fetchMetadata(n);
-  return { value: n, metadata: data };
-});
+// Plain async/await — no dedicated asyncMap combinator needed
+const enriched = result.ok
+  ? ok({ value: result.value, metadata: await fetchMetadata(result.value) })
+  : result;
 /*
 Output:
 { ok: true, value: { value: 42, metadata: {...} } }
@@ -508,17 +507,17 @@ Provide a fallback Result on failure.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { ok, err, orElse } from 'awaitly';
 
-const result = Awaitly.err('NOT_FOUND');
-const recovered = Awaitly.orElse(result, (e) => Awaitly.ok({ fallback: true, reason: e }));
+const result = err('NOT_FOUND');
+const recovered = orElse(result, (e) => ok({ fallback: true, reason: e }));
 /*
 Output:
 { ok: true, value: { fallback: true, reason: 'NOT_FOUND' } }
 */
 
 // Can also return a different error
-const retyped = Awaitly.orElse(result, () => Awaitly.err('FALLBACK_FAILED'));
+const retyped = orElse(result, () => err('FALLBACK_FAILED'));
 /*
 Output:
 { ok: false, error: 'FALLBACK_FAILED' }
@@ -555,15 +554,17 @@ Collect ALL errors instead of failing on the first one.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { ok, err, all, allSettled } from 'awaitly';
 
-const results = [Awaitly.ok(1), Awaitly.err('ERROR_A'), Awaitly.ok(3), Awaitly.err('ERROR_B')];
-const settled = Awaitly.allSettled(results);
-// Returns a Result with collected errors (and, depending on API, may include successes/failures).
-// See [Awaitly.allSettled](/reference/api/) for the exact return shape.
+const results = [ok(1), err('ERROR_A'), ok(3), err('ERROR_B')];
+const settled = allSettled(results);
+/*
+Output:
+{ ok: false, error: [{ error: 'ERROR_A' }, { error: 'ERROR_B' }] }
+*/
 
 // For fail-fast behavior, use all() instead
-const failFast = Awaitly.all(results);
+const failFast = all(results);
 /*
 Output:
 { ok: false, error: 'ERROR_A' }
@@ -592,7 +593,7 @@ Result { _error: 'ERROR_A' }
 </Tabs>
 
 <Aside type="note">
-awaitly can collect all errors; see [Awaitly.allSettled](/reference/api/) (or the functional `allSettled` / `allSettledAsync` entry points) for the exact return shape.
+awaitly collects all errors with `allSettled` (sync) and `allSettledAsync` (async); each collected entry is `{ error, cause? }`. See the [API Reference](/reference/api/) for the exact return shape.
 </Aside>
 
 ## Wrapping Throwing Functions
@@ -604,18 +605,18 @@ Safely wrap functions that might throw exceptions.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { from, fromPromise } from 'awaitly';
 
-// Sync: Awaitly.from(fn, onError)
+// Sync: from(fn, onError)
 const parseJson = (s: string) =>
-  Awaitly.from(
+  from(
     () => JSON.parse(s),
     (e) => ({ type: 'PARSE_ERROR' as const, message: String(e) })
   );
 
-// Async (outside workflows): Awaitly.fromPromise(promise, onError)
+// Async (outside workflows): fromPromise(promise, onError)
 const fetchSafe = (url: string) =>
-  Awaitly.fromPromise(fetch(url).then(r => r.json()), () => 'FETCH_ERROR' as const);
+  fromPromise(fetch(url).then(r => r.json()), () => 'FETCH_ERROR' as const);
 
 // Inside workflows: step.try('id', () => …, { error: 'MY_ERROR' })
 
@@ -644,7 +645,7 @@ const invalid = safeJsonParse('not json');
 </Tabs>
 
 <Aside type="note">
-awaitly: `Awaitly.from()` runs immediately and returns a Result; `Awaitly.fromPromise()` for existing Promises. Inside a workflow callback you can wrap throwing code with `step.try('id', () => …, { error })` so failures become typed errors. neverthrow: `Result.fromThrowable` returns a wrapped function; `ResultAsync.fromPromise` for Promises.
+awaitly: `from()` runs immediately and returns a Result; `fromPromise()` for existing Promises. Inside a workflow callback you can wrap throwing code with `step.try('id', () => …, { error })` so failures become typed errors. neverthrow: `Result.fromThrowable` returns a wrapped function; `ResultAsync.fromPromise` for Promises.
 </Aside>
 
 ## Generator-Based Composition
@@ -656,21 +657,18 @@ neverthrow provides `safeTry` for generator-based composition. awaitly uses stan
 <Tabs>
   <TabItem label="awaitly (run)">
 ```typescript
-import { run } from 'awaitly/run';
-import { type ErrorsOf } from 'awaitly';
+import { run } from 'awaitly';
 
 // awaitly uses familiar async/await — no generators needed
-const deps = { parseId, fetchUser, sendEmail };
-type Errors = ErrorsOf<typeof deps>;
-
-const result = await run<User, Errors>(async ({ step }) => {
-  const id = await step('parseId', () => parseId('42'));
-  const user = await step('fetchUser', () => fetchUser(id));
-  await step('sendEmail', () => sendEmail(user.email));
+const result = await run({ parseId, fetchUser, sendEmail }, async (s) => {
+  const id = await s.parseId('42');
+  const user = await s.fetchUser(id);
+  await s.sendEmail(user.email);
   return user;
 });
 
-// Errors short-circuit automatically, no special syntax required
+// Errors short-circuit automatically, no special syntax required,
+// and result.error is inferred from the deps
 ```
   </TabItem>
   <TabItem label="awaitly (workflow)">
@@ -719,23 +717,19 @@ neverthrow focuses on Result types. awaitly adds workflow orchestration and auto
 
 ### Automatic Error Type Inference
 
-With `run()`, group your deps and use `ErrorsOf` to derive the error union:
+With `run()`, pass your deps as the first argument — the error union is inferred, no type parameters needed:
 
 ```typescript
-import { type AsyncResult, type ErrorsOf } from 'awaitly';
-import { run } from 'awaitly/run';
+import { run, type AsyncResult } from 'awaitly';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
 const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
 const chargeCard = async (amount: number): AsyncResult<Receipt, 'PAYMENT_DECLINED'> => { /* ... */ };
 
-const deps = { fetchUser, sendEmail, chargeCard };
-type Errors = ErrorsOf<typeof deps>;
-
-const result = await run<User, Errors>(async ({ step }) => {
-  const user = await step('fetchUser', () => fetchUser('123'));
-  await step('chargeCard', () => chargeCard(99.99));
-  await step('sendEmail', () => sendEmail(user.email));
+const result = await run({ fetchUser, sendEmail, chargeCard }, async (s) => {
+  const user = await s.fetchUser('123');
+  await s.chargeCard(99.99);
+  await s.sendEmail(user.email);
   return user;
 });
 
@@ -847,17 +841,17 @@ import { ok } from 'neverthrow';
 const result = ok(5).map(n => n * 2).mapErr(e => e.toUpperCase());
 
 // awaitly: standalone functions (no special helpers required)
-import { Awaitly } from 'awaitly';
+import { ok, map, mapError } from 'awaitly';
 
-const base = Awaitly.ok(5);
-const doubled = Awaitly.map(base, (n) => n * 2);
-const result = Awaitly.mapError(doubled, (e) => e.toUpperCase());
+const base = ok(5);
+const doubled = map(base, (n) => n * 2);
+const result = mapError(doubled, (e) => e.toUpperCase());
 ```
 
-For pipeline style, use `Awaitly.pipe` and `Awaitly.R` as shown in [Pipeline style (awaitly)](#pipeline-style-awaitly) above, or a small `pipe` helper of your own to compose `Awaitly.map` / `Awaitly.mapError`.
+There is no pipeline operator to learn: intermediate values are ordinary `const` bindings, and multi-step async flows use `run()` (see [No pipeline operator (awaitly)](#no-pipeline-operator-awaitly) above).
 
 <Aside type="note">
-awaitly uses standalone functions instead of methods. This works well with tree-shaking and makes the control flow explicit. Pipeline style is supported via `Awaitly.pipe` and `Awaitly.R` (demonstrated above) and documented in [Functional Utilities](/guides/functional-utilities/).
+awaitly uses standalone functions instead of methods. This works well with tree-shaking and makes the control flow explicit. There is no pipeline operator: longer sequences are plain async/await with `run()`, or direct calls to the named combinators (see [No pipeline operator (awaitly)](#no-pipeline-operator-awaitly) above).
 </Aside>
 
 ## Next Steps

@@ -21,6 +21,7 @@ import {
   type StaticStreamNode,
   type StaticSagaStepNode,
 } from "../types";
+import type { WorkflowTrace } from "../trace";
 
 // =============================================================================
 // Options
@@ -222,6 +223,66 @@ function renderStaticMermaidInternal(
   }
 
   return { lines, context };
+}
+
+// =============================================================================
+// Runtime overlay
+// =============================================================================
+
+/** Mermaid style per executed-step status, appended over the static styles. */
+const TRACE_STYLES: Record<string, string> = {
+  success: "fill:#052e16,stroke:#22c55e,stroke-width:3px,color:#dcfce7",
+  error: "fill:#450a0a,stroke:#ef4444,stroke-width:3px,color:#fee2e2",
+  aborted: "fill:#431407,stroke:#f97316,stroke-width:3px,color:#ffedd5",
+  skipped: "fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,stroke-dasharray:4 3,color:#e0e7ff",
+  "cache-hit": "fill:#042f2e,stroke:#14b8a6,stroke-width:2px,color:#ccfbf1",
+  running: "fill:#422006,stroke:#eab308,stroke-width:3px,color:#fef9c3",
+};
+
+/**
+ * Render the static diagram with a runtime trace overlaid: every step the run
+ * touched is restyled by its status (success / error / aborted / skipped /
+ * cache-hit / running), and untouched steps stay in the base style — the
+ * XState-inspect view of "whole shape + the path this run took".
+ *
+ * Matching is exact when the workflow is diagrammable (literal step ids); a
+ * trace step whose id has no static node is reported via the returned
+ * `unmatched` list rather than silently dropped.
+ */
+export function renderStaticMermaidWithTrace(
+  ir: StaticWorkflowIR,
+  trace: WorkflowTrace,
+  options: MermaidOptions = {}
+): { mermaid: string; matched: string[]; unmatched: string[] } {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const { lines, context } = renderStaticMermaidInternal(ir, opts);
+
+  const usedStatuses = new Set<string>();
+  const overlay: string[] = [];
+  const matched: string[] = [];
+  const unmatched: string[] = [];
+
+  for (const step of trace.steps) {
+    const nodeId = context.stepIdMap.get(step.stepId);
+    if (!nodeId) {
+      unmatched.push(step.stepId);
+      continue;
+    }
+    matched.push(step.stepId);
+    usedStatuses.add(step.status);
+    // Appended last, so this class assignment wins over the base step style.
+    overlay.push(`  class ${nodeId} trace_${step.status}`);
+  }
+
+  if (overlay.length > 0) {
+    // classDefs first, then the (winning) class assignments.
+    for (const status of usedStatuses) {
+      lines.push(`  classDef trace_${status} ${TRACE_STYLES[status]}`);
+    }
+    lines.push(...overlay);
+  }
+
+  return { mermaid: lines.join("\n"), matched, unmatched };
 }
 
 /**

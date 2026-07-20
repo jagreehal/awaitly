@@ -324,7 +324,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 - Use `processInBatches` for large datasets
 
 ```typescript
-import { processInBatches } from 'awaitly/batch';
+import { processInBatches } from 'awaitly/workflow';
 
 // Instead of: await Promise.all(users.map(processUser))
 const result = await processInBatches(
@@ -339,7 +339,7 @@ const result = await processInBatches(
 Use singleflight to dedupe concurrent requests:
 
 ```typescript
-import { singleflight } from 'awaitly/singleflight';
+import { singleflight } from 'awaitly';
 
 const fetchUserOnce = singleflight(fetchUser, {
   key: (id) => `user:${id}`,

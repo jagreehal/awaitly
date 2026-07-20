@@ -78,7 +78,7 @@ interface ActiveStep {
   retryCount: number;
   timedOut: boolean;
   timeoutMs?: number;
-  metadata?: import("awaitly/core").StepMetadata;
+  metadata?: import("awaitly/workflow").StepMetadata;
 }
 
 interface ActiveScope {

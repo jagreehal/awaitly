@@ -16,7 +16,6 @@
     "baseUrl": ".",
     "paths": {
       "awaitly": ["../awaitly/src/index.ts"],
-      "awaitly/core": ["../awaitly/src/core-entry.ts"],
       "awaitly/workflow": ["../awaitly/src/workflow-entry.ts"]
     }
   },

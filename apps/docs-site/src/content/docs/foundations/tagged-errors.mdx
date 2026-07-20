@@ -194,9 +194,11 @@ const fetchUser = async (id: string): AsyncResult<User, NotFoundError | Unauthor
 
 ## Pattern matching with match()
 
-**WHAT**: Use `TaggedError.match` to handle each error variant with exhaustive type checking.
+**WHAT**: Use `match` (from `awaitly`) or `TaggedError.match` to handle each error variant with exhaustive type checking.
 
-**WHY**: TypeScript ensures you handle every error type - forget one and you get a compile error.
+**WHY**: TypeScript ensures you handle every error type — forget one and you get a compile error. Both forms dispatch on `.type` (string literals match themselves; class names match `TaggedError` instances).
+
+The root `match(result, { ok, NotFoundError, ... })` works on full Results. `TaggedError.match(error, { ... })` works on a single error value.
 
 `TaggedError.match` forces exhaustive handling:
 
@@ -266,21 +268,22 @@ type NotFound = ErrorByTag<AllErrors, 'NotFoundError'>;
 
 ## Runtime checks
 
-Tagged errors support `instanceof`:
+Tagged errors support `instanceof`. The canonical discriminant is `.type`; `._tag` is a deprecated alias with the same value during the migration window:
 
 ```typescript
 const error = new NotFoundError({ resource: 'User', id: '123' });
 
 console.log(error instanceof TaggedError);  // true
 console.log(error instanceof NotFoundError); // true
-console.log(error._tag);                     // 'NotFoundError'
+console.log(error.type);                     // 'NotFoundError'
+console.log(error._tag);                     // 'NotFoundError' (deprecated alias)
 console.log(error.resource);                 // 'User'
 console.log(error.message);                  // 'NotFoundError'
 ```
 
 ## Slug spine fields
 
-When you pass `slug` and `hint` to the `TaggedError` factory, instances carry three readonly fields populated automatically — `code`, `hint`, and `docsUrl` — alongside `_tag` and `message`. These fields participate in the [slug spine](/awaitly/reference/spine/) so the same canonical identifier appears on the runtime error, the lint rule that would catch a related mistake statically, the `awaitly-analyze --doctor` diagnostic, and the docs page.
+When you pass `slug` and `hint` to the `TaggedError` factory, instances carry three readonly fields populated automatically — `code`, `hint`, and `docsUrl` — alongside `type`, `message`, and the deprecated `_tag` alias. These fields participate in the [slug spine](/awaitly/reference/spine/) so the same canonical identifier appears on the runtime error, the lint rule that would catch a related mistake statically, the `awaitly-analyze --doctor` diagnostic, and the docs page.
 
 ```typescript
 class CheckoutFailed extends TaggedError('CheckoutFailed', {
@@ -381,7 +384,8 @@ These property names are reserved and cannot be used in props:
 
 | Key | Reason |
 |-----|--------|
-| `_tag` | Discriminant for pattern matching |
+| `type` | Canonical discriminant for pattern matching |
+| `_tag` | Deprecated alias of `type` (migration window) |
 | `name` | Error.name (stack traces) |
 | `message` | Error.message (logs) |
 | `stack` | Error.stack (stack trace) |

@@ -5,7 +5,7 @@
  *
  * @example
  * ```typescript
- * import { createRateLimiter, createConcurrencyLimiter } from 'awaitly/ratelimit';
+ * import { createRateLimiter, createConcurrencyLimiter } from 'awaitly';
  *
  * // 10 requests per second with burst capacity of 20
  * const rateLimiter = createRateLimiter('api', {

@@ -11,9 +11,10 @@
  */
 
 import { resolve, dirname, basename, extname, join } from "path";
-import { writeFileSync } from "fs";
+import { writeFileSync, readFileSync } from "fs";
 import { analyze } from "./analyze";
-import { renderStaticMermaid } from "./output/mermaid";
+import { renderStaticMermaid, renderStaticMermaidWithTrace } from "./output/mermaid";
+import { traceFromEvents } from "./trace";
 import { generateTestMatrix, formatTestMatrixAsCode } from "./output/test-matrix";
 import { generatePaths } from "./path-generator";
 import { renderMultipleStaticJSON } from "./output/json";
@@ -30,6 +31,7 @@ import { analyzeWorkflowSource } from "./static-analyzer";
 import { inferBestDiagramType } from "./auto-diagram";
 import { startWatch } from "./watch";
 import { formatDiagnostics, formatDiagnosticsJSON, validateStrict } from "./strict-diagnostics";
+import { computeDiagrammability, formatDiagrammability } from "./diagrammability";
 
 type Direction = "TB" | "TD" | "LR" | "BT" | "RL";
 type Format = "mermaid" | "json" | "markdown";
@@ -63,6 +65,8 @@ interface CliOptions {
   testRunner: TestRunner;
   errors: boolean;
   doctor: boolean;
+  assertDiagrammable: boolean;
+  trace: string;
 }
 
 function printHelp(): void {
@@ -100,6 +104,10 @@ Options:
   --test-runner=<runner> Test runner: vitest (default), jest, or mocha
   --errors / --no-errors Show error nodes in diagrams (default: on)
   --doctor              Print strict diagnostics with concrete fix guidance
+  --assert-diagrammable Exit non-zero if any workflow's diagram is not fully
+                        deterministic (CI gate); pairs with --format=json
+  --trace=<events.json> Overlay a recorded run's executed path onto the static
+                        diagram (JSON array of workflow events)
   --help, -h             Show this help message
 
 Auto-detection:
@@ -152,6 +160,8 @@ export function parseArgs(args: string[]): CliOptions {
     testRunner: "vitest",
     errors: true,
     doctor: false,
+    assertDiagrammable: false,
+    trace: "",
   };
 
   for (const arg of args) {
@@ -232,6 +242,15 @@ export function parseArgs(args: string[]): CliOptions {
       options.errors = arg === "--errors";
     } else if (arg === "--doctor") {
       options.doctor = true;
+    } else if (arg === "--assert-diagrammable") {
+      options.assertDiagrammable = true;
+    } else if (arg.startsWith("--trace=")) {
+      const value = arg.slice("--trace=".length).trim();
+      if (value.length === 0) {
+        console.error("Error: --trace requires a path to a JSON event stream.");
+        process.exit(1);
+      }
+      options.trace = value;
     } else if (!arg.startsWith("-")) {
       if (options.diff) {
         options.diffSources.push(arg);
@@ -467,6 +486,29 @@ function main(): void {
 /**
  * Determine whether to use railway for this workflow, considering auto-detection.
  */
+/** Load a recorded workflow event stream and reduce it to a trace. */
+function loadTrace(path: string): import("./trace").WorkflowTrace {
+  let raw: string;
+  try {
+    raw = readFileSync(resolve(path), "utf8");
+  } catch {
+    console.error(`Error: could not read trace file: ${path}`);
+    process.exit(1);
+  }
+  let events: unknown;
+  try {
+    events = JSON.parse(raw);
+  } catch {
+    console.error(`Error: trace file is not valid JSON: ${path}`);
+    process.exit(1);
+  }
+  if (!Array.isArray(events)) {
+    console.error(`Error: trace file must be a JSON array of workflow events: ${path}`);
+    process.exit(1);
+  }
+  return traceFromEvents(events as Parameters<typeof traceFromEvents>[0]);
+}
+
 function shouldUseRailway(options: CliOptions, ir: import("./types").StaticWorkflowIR): boolean {
   if (options.railway) return true;
   if (options.format === "json") return false;
@@ -487,15 +529,19 @@ function runAnalysis(options: CliOptions, filePath: string): void {
       const doctorResults: Array<{
         workflowName: string;
         diagnostics: ReturnType<typeof validateStrict>;
+        diagrammability: ReturnType<typeof computeDiagrammability>;
       }> = [];
       for (const ir of workflows) {
         const strict = validateStrict(ir);
+        const diagrammability = computeDiagrammability(ir);
         doctorResults.push({
           workflowName: ir.root.workflowName,
           diagnostics: strict,
+          diagrammability,
         });
         sections.push(`# ${ir.root.workflowName}`);
         sections.push(formatDiagnostics(strict));
+        sections.push(formatDiagrammability(diagrammability));
       }
       if (options.format === "json") {
         console.log(
@@ -503,6 +549,7 @@ function runAnalysis(options: CliOptions, filePath: string): void {
             doctorResults.map((r) => ({
               workflowName: r.workflowName,
               ...JSON.parse(formatDiagnosticsJSON(r.diagnostics)),
+              diagrammability: r.diagrammability,
             })),
             null,
             2
@@ -511,7 +558,29 @@ function runAnalysis(options: CliOptions, filePath: string): void {
       } else {
         console.log(sections.join("\n\n"));
       }
+      // Doctor also acts as a gate when asked to.
+      if (options.assertDiagrammable && doctorResults.some((r) => !r.diagrammability.deterministic)) {
+        process.exit(1);
+      }
       return;
+    }
+
+    if (options.assertDiagrammable) {
+      const reports = workflows.map((ir) => ({
+        workflowName: ir.root.workflowName,
+        report: computeDiagrammability(ir),
+      }));
+      const failing = reports.filter((r) => !r.report.deterministic);
+      if (options.format === "json") {
+        console.log(JSON.stringify(reports, null, 2));
+      } else {
+        for (const { workflowName, report } of reports) {
+          console.log(`# ${workflowName}`);
+          console.log(formatDiagrammability(report));
+          console.log("");
+        }
+      }
+      process.exit(failing.length > 0 ? 1 : 0);
     }
 
     // Generate interactive HTML if --html
@@ -585,6 +654,19 @@ function runAnalysis(options: CliOptions, filePath: string): void {
               includeInferredErrors: options.errors,
             })
           );
+        } else if (options.trace) {
+          const trace = loadTrace(options.trace);
+          const { mermaid, unmatched } = renderStaticMermaidWithTrace(ir, trace, {
+            direction,
+            showKeys: options.showKeys,
+            showInlineErrors: options.errors,
+          });
+          if (unmatched.length > 0) {
+            console.error(
+              `warning: ${unmatched.length} trace step(s) had no matching static node (dynamic ids?): ${unmatched.join(", ")}`
+            );
+          }
+          parts.push(mermaid);
         } else {
           parts.push(
             renderStaticMermaid(ir, {

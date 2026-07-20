@@ -57,7 +57,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 **Use when:** A downstream service is failing repeatedly and retrying makes things worse.
 
 ```typescript
-import { createCircuitBreaker, isCircuitOpenError } from 'awaitly/circuit-breaker';
+import { createCircuitBreaker, isCircuitOpenError } from 'awaitly';
 
 const paymentBreaker = createCircuitBreaker('payment-api', {
   failureThreshold: 5,     // Open after 5 failures
@@ -90,7 +90,7 @@ if (!result.ok && isCircuitOpenError(result.error)) {
 **Use when:** A multi-step operation fails partway through and you need to undo completed steps.
 
 ```typescript
-import { createSagaWorkflow } from 'awaitly/saga';
+import { createSagaWorkflow } from 'awaitly/workflow';
 
 const checkout = createSagaWorkflow('saga', deps);
 const result = await checkout.run(async ({ step, deps }) => {
@@ -241,9 +241,8 @@ Before choosing a pattern, ask:
 ## Example: Full Stack
 
 ```typescript
-import { createCircuitBreaker } from 'awaitly/circuit-breaker';
-import { createRateLimiter } from 'awaitly/ratelimit';
-import { createSagaWorkflow } from 'awaitly/saga';
+import { createCircuitBreaker, createRateLimiter } from 'awaitly';
+import { createSagaWorkflow } from 'awaitly/workflow';
 
 const paymentBreaker = createCircuitBreaker('payment-api', { failureThreshold: 5 });
 const paymentLimiter = createRateLimiter('payment-api', { maxRequests: 100, windowMs: 60000 });

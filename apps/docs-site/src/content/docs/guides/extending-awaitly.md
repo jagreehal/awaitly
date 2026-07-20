@@ -3,7 +3,7 @@ title: Extending Awaitly
 description: Build custom utilities that return Result types
 ---
 
-Build your own utilities that integrate seamlessly with awaitly workflows. This guide walks through the pattern using the built-in fetch helper as a real example.
+Build your own utilities that integrate seamlessly with awaitly workflows. This guide walks through the pattern by building a `fetchJson` helper as a worked example.
 
 ---
 
@@ -56,7 +56,7 @@ The key rules:
 
 ## Real Example: The Fetch Helper
 
-Let's walk through how `fetchJson` from `awaitly/fetch` is built. This is actual code from the library.
+Let's walk through building a `fetchJson` helper that wraps `fetch` and returns a typed Result. It's a great example because it exercises every part of the pattern.
 
 ### Step 1: Define Your Error Types
 
@@ -214,9 +214,9 @@ export function fetchText<TError = DefaultFetchError>(
 
 This DRY approach means bug fixes and improvements happen in one place.
 
-### Behavior of the awaitly/fetch module
+### Rounding out the fetch helper
 
-The real `awaitly/fetch` module (`fetchJson`, `fetchText`, `fetchBlob`, `fetchArrayBuffer`) follows the same pattern but uses typed errors and matches standard fetch semantics:
+A production-grade fetch helper (`fetchJson`, `fetchText`, `fetchBlob`, `fetchArrayBuffer`) follows the same pattern with typed errors and standard fetch semantics:
 
 **Typing**
 
@@ -238,7 +238,7 @@ So reading the success body (e.g. `response.text()`) never escapes as a thrown p
 
 **Resilience**
 
-- You can pass **`retry`** in options to get retries without using a step: same backoff and `shouldRetry` semantics as `step.retry`. Use a number for attempts only (`retry: 3`) or a full `RetryOptions` object (`retry: { attempts: 3, shouldRetry: (err) => ... }`). Default: no retry. So `import { fetchJson } from 'awaitly/fetch'` gives you a super-powered fetch (no throw, typed errors, timeout, signal, optional retry) in one place.
+- You can accept a **`retry`** option to get retries without using a step: mirror the backoff and `shouldRetry` semantics of `step.retry`. Use a number for attempts only (`retry: 3`) or a full `RetryOptions` object (`retry: { attempts: 3, shouldRetry: (err) => ... }`). Default: no retry. The result is a super-powered fetch (no throw, typed errors, timeout, signal, optional retry) in one place.
 - If you use workflows, you can still combine with `step.retry` when you want step-level retry; the fetch `retry` option is for when you’re not in a step.
 
 ### Step 6: Add to Build (Library Authors)

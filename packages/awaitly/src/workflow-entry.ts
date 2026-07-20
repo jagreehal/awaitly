@@ -7,7 +7,7 @@
  * @example
  * ```typescript
  * import { createWorkflow, run } from 'awaitly/workflow';
- * import { ok, err, type AsyncResult } from 'awaitly/core';
+ * import { ok, err, type AsyncResult } from 'awaitly';
  *
  * const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
  *   id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND');
@@ -28,6 +28,8 @@ export {
   // Types
   type RunStep,
   type StepOptions,
+  type StepMetadata,
+  type StepErrorDiagnostics,
   type WorkflowEvent,
   type ScopeType,
   type RunOptions,
@@ -172,3 +174,22 @@ export {
   toDays,
   isDuration,
 } from "./duration";
+
+// =============================================================================
+// Canonical core (v2): the production tier is one entry.
+//
+// Former sub-path entries for durable execution, persistence, human-in-the-
+// loop, sagas, streaming, webhooks, the engine, resources, and batching are
+// absorbed here. Explicit exports above win over these star re-exports on
+// any name clash; overlapping names (hitl approvals, snapshot validators,
+// cancellation guards) resolve to the same underlying declarations.
+// =============================================================================
+export * from "./durable-entry";
+export * from "./persistence-entry";
+export * from "./hitl-entry";
+export * from "./saga-entry";
+export * from "./streaming-entry";
+export * from "./webhook-entry";
+export * from "./engine-entry";
+export * from "./resource";
+export * from "./batch";

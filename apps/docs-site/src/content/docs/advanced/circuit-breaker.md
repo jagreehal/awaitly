@@ -13,7 +13,7 @@ import {
   createCircuitBreaker,
   isCircuitOpenError,
   circuitBreakerPresets,
-} from 'awaitly/circuit-breaker';
+} from 'awaitly';
 
 // Create a circuit breaker (name is required)
 const breaker = createCircuitBreaker('external-api', {
@@ -41,7 +41,7 @@ try {
 ## Using presets
 
 ```typescript
-import { createCircuitBreaker, circuitBreakerPresets } from 'awaitly/circuit-breaker';
+import { createCircuitBreaker, circuitBreakerPresets } from 'awaitly';
 
 // For critical services - opens quickly, recovers slowly
 const criticalBreaker = createCircuitBreaker(

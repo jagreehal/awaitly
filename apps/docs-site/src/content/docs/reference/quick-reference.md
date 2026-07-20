@@ -7,10 +7,10 @@ description: Decision guide for choosing the right awaitly APIs
 
 ### Handle errors without exceptions
 
-For minimal bundle use `awaitly/result`; for full API (Awaitly namespace, pipe, etc.) use `awaitly`.
+For minimal bundle use `awaitly/result`; for the full front-door API use `awaitly`. All imports are named.
 
 ```typescript
-// Minimal: from 'awaitly/result'. Or from 'awaitly' for full API (Awaitly, pipe, etc.)
+// Minimal: from 'awaitly/result'. Or from 'awaitly' for the full front-door API.
 import { ok, err, type AsyncResult } from 'awaitly';
 
 async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
@@ -101,7 +101,7 @@ const dashboard = andThen(
 ### Undo completed steps when one fails
 
 ```typescript
-import { createSagaWorkflow } from 'awaitly/saga';
+import { createSagaWorkflow } from 'awaitly/workflow';
 
 const saga = createSagaWorkflow('checkout', { charge, refund, reserve, release });
 const result = await saga.run(async ({ step, deps }) => {
@@ -119,7 +119,7 @@ const result = await saga.run(async ({ step, deps }) => {
 ### Wait for human approval
 
 ```typescript
-import { createApprovalStep, isPendingApproval } from 'awaitly/hitl';
+import { createApprovalStep, isPendingApproval } from 'awaitly/workflow';
 import { createResumeStateCollector } from 'awaitly/workflow';
 
 const approvalStep = createApprovalStep({
@@ -237,7 +237,7 @@ if (!result.ok && isWorkflowCancelled(result.cause)) {
 ### Dedupe concurrent requests
 
 ```typescript
-import { singleflight } from 'awaitly/singleflight';
+import { singleflight } from 'awaitly';
 
 const fetchUserOnce = singleflight(fetchUser, {
   key: (id) => `user:${id}`,
@@ -254,7 +254,7 @@ const [a, b, c] = await Promise.all([
 ### Process large datasets in batches
 
 ```typescript
-import { processInBatches, batchPresets } from 'awaitly/batch';
+import { processInBatches, batchPresets } from 'awaitly/workflow';
 
 const result = await processInBatches(
   users,
@@ -267,7 +267,7 @@ const result = await processInBatches(
 ### Prevent cascading failures
 
 ```typescript
-import { createCircuitBreaker, isCircuitOpenError } from 'awaitly/circuit-breaker';
+import { createCircuitBreaker, isCircuitOpenError } from 'awaitly';
 
 const breaker = createCircuitBreaker('payment-api', {
   failureThreshold: 5,
@@ -305,47 +305,44 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 
 ## Import Cheatsheet
 
+There are exactly four entry points. Everything is a **named import** — there is no namespace object.
+
 | Need | Import from |
 |------|-------------|
 | Result types only (minimal bundle) | `awaitly/result` |
-| Standalone retry for async/Result (no workflow) | `awaitly/result/retry` (`tryAsyncRetry`, `tryAsyncBoundary`) |
 | Result types + composition (`ok`, `err`, `isOk`, `isErr`, `map`, `mapError`, `andThen`, `tap`, `from`, `fromPromise`, `all`, `allAsync`, `partition`, `match`, `TaggedError`) | `awaitly` |
-| run() for step composition | `awaitly/run` |
-| Workflow engine (`createWorkflow`, `Duration`, `isStepComplete`, `createResumeStateCollector`, `isWorkflowCancelled`, step types, `ResumeState`) | `awaitly/workflow` |
-| Workflow instance (`.run(name?, fn, config?)`) | Returned by `createWorkflow` |
-| Saga pattern (`createSagaWorkflow`) | `awaitly/workflow` |
+| `run()` for step composition | `awaitly` |
 | Parallel ops (`allAsync`, `allSettledAsync`, `zip`, `zipAsync`) | `awaitly` |
-| HITL (`pendingApproval`, `createApprovalStep`, `gatedStep`, `injectApproval`, `isPendingApproval`) | `awaitly/hitl` |
-| Snapshot store types and validation (`SnapshotStore`, `WorkflowSnapshot`, `validateSnapshot`) | `awaitly/persistence` |
-| Batch processing (`processInBatches`) | `awaitly/batch` |
-| Circuit breaker | `awaitly/circuit-breaker` |
-| Rate limiting | `awaitly/ratelimit` |
-| Singleflight (`singleflight`, `createSingleflightGroup`) | `awaitly/singleflight` |
+| Retry policy for async/Result code (`retry`) | `awaitly` |
+| Circuit breaker (`createCircuitBreaker`, `isCircuitOpenError`) | `awaitly` |
+| Rate limiting | `awaitly` |
+| Singleflight (`singleflight`, `createSingleflightGroup`) | `awaitly` |
+| Duration helpers (`Duration`, `seconds`, `minutes`) | `awaitly` |
+| Tagged errors, pattern matching | `awaitly` |
+| Pre-built errors (`TimeoutError`, `RetryExhaustedError`, `RateLimitError`, etc.) | `awaitly` |
+| Conditionals (`when`, `unless`) | `awaitly` |
+| Workflow engine (`createWorkflow`, `isStepComplete`, `createResumeStateCollector`, `isWorkflowCancelled`, step types, `ResumeState`) | `awaitly/workflow` |
+| Workflow instance (`.run(name?, fn, config?)`) | Returned by `createWorkflow` |
+| Durable execution (`durable.run`) | `awaitly/workflow` |
+| Saga pattern (`createSagaWorkflow`) | `awaitly/workflow` |
+| HITL (`pendingApproval`, `createApprovalStep`, `gatedStep`, `injectApproval`, `isPendingApproval`) | `awaitly/workflow` |
+| Snapshot store types and validation (`SnapshotStore`, `WorkflowSnapshot`, `validateSnapshot`) | `awaitly/workflow` |
+| Streaming (`createMemoryStreamStore`, `toAsyncIterable`, transformers) | `awaitly/workflow` |
+| Webhooks (`createWebhookHandler`) | `awaitly/workflow` |
+| Batch processing (`processInBatches`) | `awaitly/workflow` |
 | Testing utilities | `awaitly/testing` |
-| Visualization | `awaitly-visualizer` (createVisualizer, Mermaid/ASCII/JSON); `awaitly-visualizer` (optional React UI) |
-| Duration helpers | `awaitly/workflow` |
-| Tagged errors | `awaitly` |
-| Pattern matching | `awaitly` |
-| Functional utilities (`pipe`, `flow`, `compose`, `R` namespace) | `awaitly/functional` |
-| Pre-built errors (`TimeoutError`, `RetryExhaustedError`, `RateLimitError`, etc.) | `awaitly/errors` |
+| Visualization | `awaitly-visualizer` (createVisualizer, Mermaid/ASCII/JSON; optional React UI) |
 
 ---
 
-## Module Sizes
-
-For optimal bundle size, import from specific entry points:
+## The four entry points
 
 | Entry Point | Use Case |
 |-------------|----------|
 | `awaitly/result` | Result types only (smallest bundle; sizes in docs are gzipped when given) |
-| `awaitly/result/retry` | Result retry: `tryAsyncRetry`, `tryAsyncBoundary` (no workflow engine) |
-| `awaitly` | Result types, transforms for composition |
-| `awaitly/run` | run() for step composition |
-| `awaitly/workflow` | Workflow engine (`createWorkflow`, `Duration`, etc.) |
-| `awaitly/functional` | Functional utilities (`pipe`, `flow`, `compose`, `R` namespace) |
-| `awaitly/hitl` | Human-in-the-loop (`createApprovalStep`, `isPendingApproval`, etc.) |
-| `awaitly/persistence` | Snapshot types, validation, `createMemoryCache` |
-| `awaitly/batch` | Batch processing only |
+| `awaitly` | The front door: Result types, `run()`, per-dep policies, reliability, pattern matching, durations, pre-built errors |
+| `awaitly/workflow` | Workflow engine (`createWorkflow`, `durable`, persistence, HITL, sagas, streaming, webhooks, batch) |
+| `awaitly/testing` | Test utilities |
 
 ---
 
@@ -364,7 +361,6 @@ For optimal bundle size, import from specific entry points:
 | Flaky external APIs | Circuit Breaker | `createCircuitBreaker()` |
 | Rate-limited APIs | Rate Limiter | `createRateLimiter()` |
 | Rich typed errors | Tagged Errors | `TaggedError()`, `TimeoutError`, etc. |
-| Functional composition | Pipe/Flow | `pipe()`, `flow()`, `R.map()`, etc. |
 
 ---
 
@@ -431,7 +427,7 @@ const message = match(result, {
 
 ```typescript
 import { TaggedError } from 'awaitly';
-import { TimeoutError, RetryExhaustedError, ValidationError, isAwaitlyError } from 'awaitly/errors';
+import { TimeoutError, RetryExhaustedError, ValidationError, isAwaitlyError } from 'awaitly';
 
 // Create typed errors
 const timeout = new TimeoutError({ operation: 'fetchUser', ms: 5000 });
@@ -446,7 +442,7 @@ const message = TaggedError.match(error, {
 
 // Type guard
 if (isAwaitlyError(error)) {
-  console.log('Awaitly error:', error._tag);
+  console.log('Awaitly error:', error.type);
 }
 ```
 
