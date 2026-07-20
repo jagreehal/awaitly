@@ -15,7 +15,7 @@ import {
   type AsyncResult,
 } from "awaitly";
 import { createWorkflow } from "awaitly/workflow";
-import { when, unless, whenOr, unlessOr } from "awaitly/conditional";
+import { when, unless, whenOr, unlessOr } from "awaitly";
 
 // ---------------------------------------------------------------------------
 // Dependencies
@@ -166,9 +166,9 @@ export async function runKitchenSink(userId: string) {
     );
 
     // -----------------------------------------------------------------------
-    // 8. step.parallel (object form)
+    // 8. step.all (object form)
     // -----------------------------------------------------------------------
-    await step.parallel("fetch-parallel", {
+    await step.all("fetch-parallel", {
       posts: () => deps.fetchPosts(user.id),
       friends: () => deps.fetchFriends(user.id),
     });

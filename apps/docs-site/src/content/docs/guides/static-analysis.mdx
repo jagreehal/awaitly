@@ -26,6 +26,20 @@ import FlowDiagram from '../../../components/docs/FlowDiagram.astro';
   ]}
 />
 
+## Deterministic diagrams from real code
+
+`awaitly-analyze` reads **executable TypeScript** and derives the diagram from the code that runs.
+
+Imperative control flow (`if`, `for`, computed step ids) produces diagrams with unstable structure. Use declarative control flow for steps that need stable diagram nodes:
+
+- Use `step.if`, `when`, or `unless` for branches that contain steps. Branches keep stable, labelled ids.
+- Use `step.forEach` for loops. Each iteration gets a structured id.
+- Use literal step ids and put dynamic parts in `key`. Each node keeps a stable identity.
+
+Workflows that use those constructs produce deterministic static diagrams. Run `--assert-diagrammable` in CI. The [`workflow-prefer-step-if`](/guides/eslint-plugin/#awaitlyworkflow-prefer-step-if) and [`workflow-prefer-step-foreach`](/guides/eslint-plugin/#awaitlyworkflow-prefer-step-foreach) rules flag raw control flow during development.
+
+See [Control flow and diagrammability](/foundations/control-flow/#stepif-for-labelled-branches) for the workflow authoring patterns.
+
 ## Fast start
 
 ```bash
@@ -43,6 +57,12 @@ npx awaitly-analyze --diff v1.ts v2.ts
 
 # Strict diagnostics
 npx awaitly-analyze ./src/workflows/checkout.ts --doctor
+
+# CI gate: fail if any workflow is not fully diagrammable
+npx awaitly-analyze ./src/workflows/checkout.ts --assert-diagrammable
+
+# Overlay a recorded run's executed path onto the static diagram
+npx awaitly-analyze ./src/workflows/checkout.ts --trace=./run-events.json
 ```
 
 ## What the analyzer reads
@@ -79,6 +99,13 @@ npx awaitly-analyze ./src/workflows/checkout.ts --doctor
 | `--dsl-output=<value>` | `off` | Write DSL output |
 | `--write-dsl` | off | Same as `--dsl-output=.awaitly` |
 | `--watch` | off | Re-analyze on source changes |
+
+### Diagrammability and trace
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--assert-diagrammable` | off | Exit non-zero if any workflow's diagram is not fully deterministic (CI gate) |
+| `--trace=<path>` | - | Overlay a recorded run's executed path onto the static Mermaid diagram |
 
 ## Interactive HTML artifact
 
@@ -117,6 +144,44 @@ const html = generateInteractiveHTML(mermaid, metadata, {
   title: 'Checkout Workflow',
   direction: 'TB',
 });
+```
+
+### Diagrammability
+
+Return a verdict on whether a workflow's diagram is fully deterministic, with each gap naming the first-class construct that closes it:
+
+```typescript
+import { analyze, computeDiagrammability } from 'awaitly-analyze';
+
+const ir = analyze('./src/workflows/checkout.ts').single();
+const report = computeDiagrammability(ir);
+
+report.deterministic; // true when there are no gaps
+report.score;         // 0-100, share of nodes with a stable identity
+report.issues;        // [{ kind, message, suggestion, location, nodeId }]
+// kinds: 'dynamic-step-id' | 'dynamic-decision-id' | 'raw-conditional'
+//        | 'raw-loop' | 'unbounded-loop' | 'unknown-node'
+```
+
+Use `--assert-diagrammable` on the CLI to turn this into a CI gate.
+
+### Runtime trace overlay
+
+Render the static skeleton and highlight the path a real run took. Record events via the workflow `onEvent` option, then overlay them onto the static diagram:
+
+```typescript
+import {
+  analyze,
+  traceFromEvents,
+  renderStaticMermaidWithTrace,
+} from 'awaitly-analyze';
+
+const ir = analyze('./src/workflows/checkout.ts').single();
+const trace = traceFromEvents(recordedEvents); // WorkflowEvent[] → per-step status
+
+const { mermaid, matched, unmatched } = renderStaticMermaidWithTrace(ir, trace);
+// `unmatched` lists trace steps with no static node; empty when the workflow
+// is fully diagrammable (literal step ids).
 ```
 
 ### Fluent selection helpers
@@ -261,6 +326,16 @@ Node categories:
       choice: '--doctor',
       bestFor: 'Strict diagnostics and policy enforcement.',
       tradeoff: 'Can surface warnings that require migration work.'
+    },
+    {
+      choice: '--assert-diagrammable',
+      bestFor: 'CI gate that blocks non-deterministic workflow diagrams.',
+      tradeoff: 'Requires declarative control flow (step.if, when, step.forEach).'
+    },
+    {
+      choice: '--trace',
+      bestFor: 'Highlight executed path on a static diagram from a recorded run.',
+      tradeoff: 'Requires capturing onEvent output and a diagrammable workflow.'
     }
   ]}
 />

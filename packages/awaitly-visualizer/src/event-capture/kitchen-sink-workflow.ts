@@ -6,10 +6,10 @@
  * trackIf, trackSwitch, step.retry, conditionals (when), and error paths.
  */
 
-import { ok, err, anyAsync, type AsyncResult } from "awaitly/core";
+import { ok, err, anyAsync, type AsyncResult } from "awaitly";
 import { createWorkflow } from "awaitly/workflow";
 import type { WorkflowEvent } from "awaitly/workflow";
-import { when } from "awaitly/conditional";
+import { when } from "awaitly";
 import {
   createVisualizer,
   createEventCollector,

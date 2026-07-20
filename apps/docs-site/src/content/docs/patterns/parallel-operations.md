@@ -152,7 +152,7 @@ if (result.ok) {
 For large sets, use `processInBatches`:
 
 ```typescript
-import { processInBatches } from 'awaitly/batch';
+import { processInBatches } from 'awaitly/workflow';
 
 const result = await processInBatches(
   userIds,

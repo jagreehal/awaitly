@@ -5,7 +5,7 @@
  *
  * @example
  * ```typescript
- * import { servicePolicies, withPolicy, mergePolicies } from 'awaitly/policies';
+ * import { servicePolicies, withPolicy, mergePolicies } from 'awaitly';
  *
  * // Pre-built policies for common services
  * const dbPolicy = servicePolicies.database();

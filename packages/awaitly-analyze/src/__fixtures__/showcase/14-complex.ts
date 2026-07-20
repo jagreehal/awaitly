@@ -1,5 +1,5 @@
 /**
- * Showcase: complex — parallel inside conditional, step.if, step.parallel, step.forEach.
+ * Showcase: complex — parallel inside conditional, step.if, step.all, step.forEach.
  * Renders as nested subgraphs and decision nodes.
  */
 import { createWorkflow, ok, type AsyncResult } from "awaitly";
@@ -15,7 +15,7 @@ export type ComplexResult = { a: string; b: string } | { a: string };
 export async function runComplex(doParallel: boolean, items: string[]): Promise<ComplexResult> {
   return await complexWorkflow.run(async ({ step, deps }): Promise<ComplexResult> => {
     if (step.if("choice", "doParallel", () => doParallel)) {
-      const { a, b } = await step.parallel("fetchBoth", {
+      const { a, b } = await step.all("fetchBoth", {
         a: () => deps.fetchA(),
         b: () => deps.fetchB(),
       });

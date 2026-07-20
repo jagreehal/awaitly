@@ -184,7 +184,7 @@ import {
   looksLikeWorkflowSnapshot,
   validateSnapshot,
   assertValidSnapshot,
-} from 'awaitly/persistence';
+} from 'awaitly/workflow';
 
 // Quick check
 if (looksLikeWorkflowSnapshot(obj)) {
@@ -208,7 +208,7 @@ const snapshot = assertValidSnapshot(obj); // throws SnapshotFormatError
 For incremental persistence:
 
 ```typescript
-import { mergeSnapshots } from 'awaitly/persistence';
+import { mergeSnapshots } from 'awaitly/workflow';
 
 const merged = mergeSnapshots(baseSnapshot, deltaSnapshot);
 // delta.steps overwrites base.steps

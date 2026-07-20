@@ -21,7 +21,7 @@
  * ```
  */
 
-import type { ResumeState, ResumeStateEntry } from "./workflow";
+import type { ResumeState, ResumeStateEntry } from "./workflow/types";
 import { ok, err, type Result } from "./core";
 
 // =============================================================================

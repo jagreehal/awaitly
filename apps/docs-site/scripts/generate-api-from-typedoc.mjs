@@ -42,24 +42,13 @@ const SECTION_MAP = {
   match: ["Transform", null],
   tap: ["Transform", null],
   tapError: ["Transform", null],
-  // Function Composition (main package now exports these from functional)
-  pipe: ["Function Composition", "pipe"],
-  flow: ["Function Composition", "flow"],
-  compose: ["Function Composition", "compose"],
-  identity: ["Function Composition", "identity"],
-  R: ["Function Composition", "R"],
-  recoverWith: ["Function Composition", "recoverWith"],
-  getOrElse: ["Function Composition", "getOrElse"],
-  getOrElseLazy: ["Function Composition", "getOrElseLazy"],
-  mapAsync: ["Function Composition", "mapAsync"],
-  flatMapAsync: ["Function Composition", "flatMapAsync"],
-  tapAsync: ["Function Composition", "tapAsync"],
-  tapErrorAsync: ["Function Composition", "tapErrorAsync"],
-  race: ["Function Composition", "race"],
-  traverse: ["Function Composition", "traverse"],
-  traverseAsync: ["Function Composition", "traverseAsync"],
-  traverseParallel: ["Function Composition", "traverseParallel"],
-  bindDeps: ["Function Composition", "bindDeps"],
+  // Recover
+  recover: ["Transform", null],
+  recoverAsync: ["Transform", null],
+  // Per-dep policies
+  retry: ["Policies", null],
+  timeout: ["Policies", null],
+  fallback: ["Policies", null],
 };
 
 function typeToString(t, refs = new Map()) {
@@ -158,7 +147,7 @@ function groupBySection(reflections) {
   return bySection;
 }
 
-/** Dedupe by short name (e.g. "pipe" and "Awaitly.pipe" → one "pipe"). Prefer root export (no dot in original name). */
+/** Dedupe by short name (e.g. a root export and a re-export under a class/namespace path → one entry). Prefer root export (no dot in original name). */
 function dedupeByName(items) {
   const byShort = new Map();
   for (const r of items) {
@@ -194,23 +183,7 @@ function generateMarkdown(project) {
     "Unwrap",
     "Wrap",
     "Transform",
-    "Function Composition::pipe",
-    "Function Composition::flow",
-    "Function Composition::compose",
-    "Function Composition::identity",
-    "Function Composition::R",
-    "Function Composition::recoverWith",
-    "Function Composition::getOrElse",
-    "Function Composition::getOrElseLazy",
-    "Function Composition::mapAsync",
-    "Function Composition::flatMapAsync",
-    "Function Composition::tapAsync",
-    "Function Composition::tapErrorAsync",
-    "Function Composition::race",
-    "Function Composition::traverse",
-    "Function Composition::traverseAsync",
-    "Function Composition::traverseParallel",
-    "Function Composition::bindDeps",
+    "Policies",
   ];
 
   const lines = [
@@ -221,23 +194,24 @@ function generateMarkdown(project) {
     "",
     "This page is generated from the awaitly package JSDoc and TypeScript types. For workflow and step options, see [Options reference](#options-reference) below.",
     "",
-    "## Import styles",
+    "## Entry points",
     "",
-    "You can use **named exports** (tree-shake friendly) or the **Awaitly** namespace. For **minimal bundle** (Result types only, no namespace), use `awaitly/result`:",
+    "The package has exactly four entry points. All imports are **named imports** (tree-shake friendly); there is no namespace object:",
     "",
     "```typescript",
-    "// Minimal bundle: Result types only",
+    "// The front door: Result primitives, run() + step engine, per-dep policies,",
+    "// TaggedError, pre-built errors, pattern matching, durations, reliability",
+    "import { ok, err, run, map, type AsyncResult } from 'awaitly';",
+    "",
+    "// The size guarantee: Result primitives only (minifies under ~10KB)",
     "import { ok, err, map, andThen, type AsyncResult } from 'awaitly/result';",
     "",
-    "// Result retry (standalone, no workflow engine)",
-    "import { tryAsyncRetry, type RetryConfig } from 'awaitly/result/retry';",
+    "// The production tier: createWorkflow, durable execution, persistence,",
+    "// human-in-the-loop, sagas, streaming, webhooks",
+    "import { createWorkflow } from 'awaitly/workflow';",
     "",
-    "// Full package: named exports",
-    "import { ok, err, pipe, map, type AsyncResult } from 'awaitly';",
-    "",
-    "// Full package: Awaitly namespace (Effect-style single object)",
-    "import { Awaitly } from 'awaitly';",
-    "Awaitly.ok(1); Awaitly.err('E'); Awaitly.pipe(2, (n) => n * 2);",
+    "// Test utilities",
+    "import { createWorkflowHarness } from 'awaitly/testing';",
     "```",
     "",
   ];
@@ -278,30 +252,6 @@ function generateMarkdown(project) {
     }
   }
 
-  // Result retry (awaitly/result/retry) - not in main TypeDoc entry
-  lines.push("## Result retry (awaitly/result/retry)");
-  lines.push("");
-  lines.push("Standalone retry for async operations without the full workflow engine. Import from `awaitly/result/retry`.");
-  lines.push("");
-  lines.push("### tryAsyncRetry");
-  lines.push("");
-  lines.push("Wraps an async function that might throw into an AsyncResult, with retry support.");
-  lines.push("");
-  lines.push("When to use: Wrap async work with retry logic for transient failures without needing the full workflow engine.");
-  lines.push("");
-  lines.push("```typescript");
-  lines.push("tryAsyncRetry(fn: () => Promise<T>, config: { retry: RetryConfig<unknown> }): AsyncResult<T, unknown>");
-  lines.push("tryAsyncRetry<T, E>(fn: () => Promise<T>, onError: (cause: unknown) => E, config: { retry: RetryConfig<E> }): AsyncResult<T, E>");
-  lines.push("```");
-  lines.push("");
-  lines.push("### RetryConfig");
-  lines.push("");
-  lines.push("Configuration for retry behavior: `times` (attempts), `delayMs`, `backoff` (`'constant' | 'linear' | 'exponential'`), optional `shouldRetry(error)` predicate.");
-  lines.push("");
-  lines.push("```typescript");
-  lines.push("type RetryConfig<E = unknown> = { times: number; delayMs: number; backoff?: 'constant' | 'linear' | 'exponential'; shouldRetry?: (error: E) => boolean }");
-  lines.push("```");
-  lines.push("");
   lines.push("## Options reference");
   lines.push("");
   lines.push("Single place for all workflow and step option keys (for docs and static analysis).");

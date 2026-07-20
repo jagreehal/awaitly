@@ -1,7 +1,9 @@
 /**
- * awaitly/result retry support
+ * Internal retry support for Result operations.
  *
- * Retry async operations with configurable backoff without the full workflow engine.
+ * Retry async operations with configurable backoff without the full workflow
+ * engine. Not a public entry point — the public retry surface is the `retry`
+ * policy exported from the root `awaitly` entry.
  */
 
 import type { AsyncResult } from "./index";

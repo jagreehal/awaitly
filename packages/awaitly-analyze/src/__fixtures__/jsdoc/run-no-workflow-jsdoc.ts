@@ -1,4 +1,4 @@
-import { run } from "awaitly/run";
+import { run } from "awaitly";
 
 async function execute() {
   return await run(async (step) => {

@@ -1,12 +1,11 @@
 /**
- * awaitly/core
- *
- * Result primitives and type utilities: the foundation for typed error handling.
+ * Core Result primitives and type utilities: the foundation for typed error
+ * handling. Absorbed into the root `awaitly` entry (formerly `awaitly/core`).
  * Use this when you need Result types without the full workflow engine.
  *
  * @example
  * ```typescript
- * import { ok, err, map, andThen, type AsyncResult } from 'awaitly/core';
+ * import { ok, err, map, andThen, type AsyncResult } from 'awaitly';
  *
  * const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
  *   id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND');

@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { ok, err, type AsyncResult } from "awaitly/core";
+import { ok, err, type AsyncResult } from "awaitly";
 import { createWorkflow } from "awaitly/workflow";
 import type { WorkflowEvent } from "awaitly/workflow";
 import {

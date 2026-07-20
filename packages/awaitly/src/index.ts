@@ -1,106 +1,49 @@
 /**
  * awaitly
  *
- * Result types for typed error handling without exceptions.
- * Optimized for serverless with minimal bundle size.
+ * Result types for typed error handling without exceptions — built for
+ * plain async/await, automatic error inference, and code that agents can
+ * write and humans can eyeball.
  *
  * ## Quick Start
  *
  * ```typescript
- * import { Awaitly, type AsyncResult } from 'awaitly';
- * import { run } from 'awaitly/run';
+ * import { ok, err, run, type AsyncResult } from 'awaitly';
  *
  * // Define Result-returning functions
  * async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
  *   const user = await db.find(id);
- *   return user ? Awaitly.ok(user) : Awaitly.err('NOT_FOUND');
+ *   return user ? ok(user) : err('NOT_FOUND');
  * }
  *
- * // Compose with run() - clean do-notation style
- * const result = await run(async ({ step }) => {
- *   const user = await step(getUser(id));
- *   const posts = await step(getPosts(user.id));
+ * // Deps-first composition: no type params, no step IDs, no thunks
+ * const result = await run({ getUser, getPosts }, async (s) => {
+ *   const user = await s.getUser(id);
+ *   const posts = await s.getPosts(user.id);
  *   return { user, posts };
  * });
  * ```
  *
- * ## Entry Points
+ * ## Entry Points (canonical: exactly four)
  *
- * **Core (this package):**
- * - `awaitly` - Awaitly namespace (Result types, transformers, tagged errors, pipe/flow)
- * - `awaitly/result` - Result types only (minimal bundle, no namespace)
- * - `awaitly/run` - run() function with step orchestration
- *
- * **Workflow Engine:**
- * - `awaitly/workflow` - createWorkflow, Duration, state management
- * - `awaitly/hitl` - Human-in-the-loop approval flows
- *
- * **Reliability:**
- * - `awaitly/retry` - Composable retry/backoff strategies
- * - `awaitly/circuit-breaker` - Circuit breaker pattern
- * - `awaitly/ratelimit` - Rate limiting
- * - `awaitly/saga` - Saga compensation pattern
- *
- * **Utilities:**
- * - `awaitly/duration` - Type-safe time durations
- * - `awaitly/match` - Pattern matching
- * - `awaitly/persistence` - State persistence
- * - `awaitly/durable` - Durable execution with automatic checkpointing
+ * - `awaitly` — the front door: Result primitives, run() + step engine,
+ *   per-dep policies (retry/timeout/fallback), TaggedError, errors,
+ *   pattern matching, durations, reliability instances
+ * - `awaitly/result` — the size guarantee: Result primitives only, whole
+ *   entry stays tiny with zero bundler trust required
+ * - `awaitly/workflow` — the production tier: createWorkflow, durable
+ *   execution, persistence, human-in-the-loop, sagas, streaming, webhooks
+ * - `awaitly/testing` — test utilities
  */
-
-import * as result from "./result";
-import { TaggedError } from "./tagged-error";
-import {
-  pipe,
-  flow,
-  compose,
-  identity,
-  R,
-  recoverWith,
-  getOrElse,
-  getOrElseLazy,
-  mapAsync,
-  flatMapAsync,
-  tapAsync,
-  tapErrorAsync,
-  race,
-  traverse,
-  traverseAsync,
-  traverseParallel,
-} from "./functional";
-
-// =============================================================================
-// Awaitly namespace (Effect-style single export)
-// =============================================================================
-
-const Awaitly = {
-  // Result (all value exports)
-  ...result,
-  // Tagged errors
-  TaggedError,
-  // Functional (non-clashing: pipe, flow, R, async helpers, etc.)
-  pipe,
-  flow,
-  compose,
-  identity,
-  R,
-  recoverWith,
-  getOrElse,
-  getOrElseLazy,
-  mapAsync,
-  flatMapAsync,
-  tapAsync,
-  tapErrorAsync,
-  race,
-  traverse,
-  traverseAsync,
-  traverseParallel,
-} as const;
-
-export { Awaitly };
 
 // =============================================================================
 // Named value exports (tree-shake friendly)
+//
+// Canonical core: there is no `Awaitly` namespace object and no pipe/flow
+// re-exports. One way to write it — named imports of the canonical
+// surface. A runtime namespace holding every export defeats tree-shaking
+// (the whole module graph gets materialized as getters) and is a second
+// dialect for every operation.
 // =============================================================================
 
 export {
@@ -164,25 +107,6 @@ export { withDeps } from "./di";
 
 export { TaggedError } from "./tagged-error";
 
-export {
-  pipe,
-  flow,
-  compose,
-  identity,
-  R,
-  recoverWith,
-  getOrElse,
-  getOrElseLazy,
-  mapAsync,
-  flatMapAsync,
-  tapAsync,
-  tapErrorAsync,
-  race,
-  traverse,
-  traverseAsync,
-  traverseParallel,
-} from "./functional";
-
 // =============================================================================
 // Type exports (cannot live on runtime object)
 // =============================================================================
@@ -232,7 +156,69 @@ export {
   type PolicyDelay,
 } from "./core/policies";
 
-// Slug Namespace — types only at the root to keep the bundle lean.
-// For runtime helpers (slugDocsUrl, isAwaitlySlug, AWAITLY_SLUGS, etc.),
-// import from "awaitly/slugs" or "awaitly/core".
+// Slug spine — type-only names surfaced here; the runtime helpers
+// (slugDocsUrl, isAwaitlySlug, AWAITLY_SLUGS, etc.) are re-exported from the
+// root entry below (`export * from "./slugs"`).
 export type { AwaitlySlug, AwaitlySlugCategory } from "./slugs";
+
+// =============================================================================
+// Canonical core (v2): the root entry is the front door.
+//
+// The exports map is four entries — `awaitly`, `awaitly/result`,
+// `awaitly/workflow`, `awaitly/testing`. Former sub-path entries are
+// absorbed here (explicit exports above always win over star re-exports,
+// so curated names take precedence on any clash). Consumers pay only for
+// what they import: the package ships unminified ESM with sideEffects:
+// false, so bundlers tree-shake.
+//
+// Dropped (not absorbed): flow, functional, bind-deps, resolver,
+// diagnostics (internal), otel / fetch / adapters (future ecosystem
+// packages), and the Schedule combinators from awaitly/retry (their
+// map/tap/andThen/once names clash with Result combinators; per-dep
+// policies cover retry/timeout).
+// =============================================================================
+
+// run() and the step engine surface (formerly awaitly/run, awaitly/core)
+export { run } from "./core";
+export {
+  type RunStep,
+  type StepOptions,
+  type RunOptions,
+  type RunOptionsWithCatch,
+  type RunOptionsWithoutCatch,
+  type WorkflowEvent,
+  type ScopeType,
+  type TimeoutOptions,
+  type StepTimeoutError,
+  type StepTimeoutMarkerMeta,
+  STEP_TIMEOUT_MARKER,
+  isStepTimeoutError,
+  getStepTimeoutMeta,
+  type EarlyExit,
+  type StepFailureMeta,
+  EARLY_EXIT_SYMBOL,
+  createEarlyExit,
+  isEarlyExit,
+} from "./core";
+
+// Pre-built error types (formerly awaitly/errors)
+export * from "./errors-entry";
+// Durations (formerly awaitly/duration)
+export * from "./duration-entry";
+// Pattern matching (formerly awaitly/match — clashing names ship pre-renamed:
+// matchTag, matchTags, matchOrElse)
+export * from "./match-entry";
+// Reliability instances (formerly awaitly/circuit-breaker, awaitly/ratelimit)
+export * from "./circuit-breaker-entry";
+export * from "./ratelimit-entry";
+// Caching + deduplication (formerly awaitly/cache, awaitly/singleflight)
+export * from "./cache-entry";
+export * from "./singleflight-entry";
+// Legacy StepOptions policy bundles (formerly awaitly/policies)
+export * from "./policies-entry";
+// Declarative conditionals (formerly awaitly/conditional) — when/unless are
+// first-class analyzable constructs: the analyzer renders them as branches.
+export * from "./conditional-entry";
+// AI-DX slug spine runtime (formerly awaitly/slugs) — needed by tooling
+// (analyzer, lint). Pure data + helpers; tree-shakes when unused.
+export * from "./slugs";

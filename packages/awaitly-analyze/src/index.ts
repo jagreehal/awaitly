@@ -120,6 +120,20 @@ export type {
 } from "./strict-diagnostics";
 
 // =============================================================================
+// Diagrammability (deterministic-diagram verdict + gate)
+// =============================================================================
+
+export {
+  computeDiagrammability,
+  formatDiagrammability,
+} from "./diagrammability";
+export type {
+  DiagrammabilityReport,
+  DiagrammabilityIssue,
+  DiagrammabilityIssueKind,
+} from "./diagrammability";
+
+// =============================================================================
 // Const Inliner
 // =============================================================================
 
@@ -202,9 +216,18 @@ export type {
 // Mermaid diagrams
 export {
   renderStaticMermaid,
+  renderStaticMermaidWithTrace,
   renderPathsMermaid,
   renderEnhancedMermaid,
 } from "./output/mermaid";
+
+// Runtime trace overlay (static skeleton + executed-path highlight)
+export { traceFromEvents } from "./trace";
+export type {
+  WorkflowTrace,
+  TraceStep,
+  StepStatus,
+} from "./trace";
 export type {
   MermaidOptions,
   MermaidStyles,

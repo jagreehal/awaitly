@@ -5,7 +5,7 @@
  *
  * @example
  * ```typescript
- * import { cached, cachedWithTTL, cachedFunction, once } from 'awaitly/cache';
+ * import { cached, cachedWithTTL, cachedFunction, once } from 'awaitly';
  *
  * // Compute once, reuse forever
  * const getConfig = cached(() => loadConfig());

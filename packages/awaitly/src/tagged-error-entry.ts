@@ -5,7 +5,7 @@
  *
  * @example
  * ```typescript
- * import { TaggedError, type TagOf, type PropsOf } from 'awaitly/tagged-error';
+ * import { TaggedError, type TagOf, type PropsOf } from 'awaitly';
  *
  * class UserNotFound extends TaggedError('UserNotFound')<{ userId: string }> {}
  * class InsufficientFunds extends TaggedError('InsufficientFunds', {

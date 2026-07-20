@@ -12,7 +12,7 @@ import type {
   SourceLocation,
 } from "./types";
 import { getStaticChildren } from "./types";
-import { type AwaitlySlug, slugDocsUrl } from "awaitly/slugs";
+import { type AwaitlySlug, slugDocsUrl } from "awaitly";
 
 // =============================================================================
 // Types
@@ -55,6 +55,7 @@ export type StrictRule =
   | "template-literal-id"
   | "imported-config"
   | "unlabelled-conditional"
+  | "unlabelled-loop"
   | "parallel-missing-errors"
   | "loop-missing-collect";
 
@@ -111,8 +112,10 @@ export const STRICT_RULE_TO_SLUG: Record<StrictRule, AwaitlySlug> = {
   "computed-property": "step-require-id",
   "template-literal-id": "step-require-id",
   "imported-config": "workflow-options-position",
-  // Conditionals containing steps need stable identity, same as step IDs.
-  "unlabelled-conditional": "step-require-id",
+  // A raw conditional/loop with steps has no first-class construct; each maps
+  // to its dedicated "declare more" slug (shared with the ESLint rule).
+  "unlabelled-conditional": "workflow-prefer-step-if",
+  "unlabelled-loop": "workflow-prefer-step-foreach",
   "parallel-missing-errors": "result-require-handling",
   // Missing `collect` is fundamentally a Result-handling gap inside a loop.
   "loop-missing-collect": "result-require-handling",
@@ -228,7 +231,7 @@ function validateNodes(
         // Native loops with steps
         if (hasSteps(node.body)) {
           diagnostics.push(createDiagnostic({
-            rule: "unlabelled-conditional",
+            rule: "unlabelled-loop",
             severity: "warning",
             message: "Loop containing steps should use step.forEach() for structured iteration",
             fix: "Use step.forEach('id', items, { run: (item) => ... }) instead of native loop",

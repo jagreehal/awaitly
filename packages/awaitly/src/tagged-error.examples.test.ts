@@ -4,8 +4,16 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { Awaitly, type AsyncResult, type Result, type TagOf, type ErrorByTag, type PropsOf } from "./index";
-const { TaggedError, ok, err } = Awaitly;
+import {
+  type AsyncResult,
+  type Result,
+  type TagOf,
+  type ErrorByTag,
+  type PropsOf,
+  ok,
+  err,
+  TaggedError,
+} from "./index";
 import { createWorkflow } from "./workflow-entry";
 
 // ============================================================================

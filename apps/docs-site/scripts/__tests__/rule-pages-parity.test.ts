@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ALL_SLUGS } from "awaitly/slugs";
+import { ALL_SLUGS } from "awaitly";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const RULES_DIR = join(__dirname, "..", "..", "src", "content", "docs", "rules");

@@ -22,6 +22,8 @@ const EXPECTED_LINT_SLUGS = new Set([
   'workflow-callback-shape',
   'workflow-no-callable-form',
   'workflow-no-dynamic-import',
+  'workflow-prefer-step-if',
+  'workflow-prefer-step-foreach',
   'result-no-floating',
   'result-require-handling',
   'result-no-double-wrap',
@@ -46,14 +48,15 @@ describe('spine cross-surface parity', () => {
     for (const code of analyzerCodes) {
       expect(isAwaitlySlug(code)).toBe(true);
     }
-    // After the strict-diagnostics slug remap, the analyzer's range is the
-    // three core spine slugs that genuinely apply to its diagnostics. The
-    // earlier mapping forced loop/conditional concepts onto
-    // `workflow-callback-shape`, which was a poor semantic fit.
+    // The analyzer's diagnostics map onto the core spine slugs plus the two
+    // dedicated "declare more" slugs shared with the ESLint rules: a raw
+    // conditional/loop with steps points at step.if / step.forEach.
     const expectedAnalyzerCodes = new Set([
       'step-require-id',
       'result-require-handling',
       'workflow-options-position',
+      'workflow-prefer-step-if',
+      'workflow-prefer-step-foreach',
     ]);
     expectSetEqual(analyzerCodes, expectedAnalyzerCodes, 'analyzer strict codes');
   });

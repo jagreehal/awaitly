@@ -32,11 +32,10 @@ This gives you:
 
 ## The `run()` function
 
-`run()` is the simplest way to compose multiple Result-returning operations:
+`run()` is the simplest way to compose multiple Result-returning operations. The **deps-first** form is recommended — pass dependencies as the first argument and call them on the bound steps object:
 
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
-import { run } from 'awaitly/run';
+import { ok, err, run, type AsyncResult } from 'awaitly';
 
 // Define operations that return Results
 const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
@@ -49,7 +48,17 @@ const getOrders = async (userId: string): AsyncResult<Order[], 'FETCH_ERROR'> =>
   return ok(orders);
 };
 
-// Compose them with run()
+// Deps-first: property names become step ids; errors inferred from deps
+const result = await run({ getUser, getOrders }, async (s) => {
+  const user = await s.getUser('123');
+  const orders = await s.getOrders(user.id);
+  return { user, orders };
+});
+```
+
+You can also use the step-callback form when you want explicit step ids in the callback:
+
+```typescript
 const result = await run(async ({ step }) => {
   const user = await step('getUser', () => getUser('123'));
   const orders = await step('getOrders', () => getOrders(user.id));
@@ -107,8 +116,7 @@ if (result.ok) {
 ## Complete example
 
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
-import { run } from 'awaitly/run';
+import { ok, err, run, type AsyncResult } from 'awaitly';
 
 type User = { id: string; name: string };
 type Order = { id: number; total: number };
@@ -119,9 +127,9 @@ const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
 const getOrders = async (userId: string): AsyncResult<Order[], 'FETCH_ERROR'> =>
   ok([{ id: 1, total: 99.99 }]);
 
-const result = await run(async ({ step }) => {
-  const user = await step('getUser', () => getUser('1'));
-  const orders = await step('getOrders', () => getOrders(user.id));
+const result = await run({ getUser, getOrders }, async (s) => {
+  const user = await s.getUser('1');
+  const orders = await s.getOrders(user.id);
   return { user, orders };
 });
 

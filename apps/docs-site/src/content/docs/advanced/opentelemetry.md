@@ -3,16 +3,19 @@ title: OpenTelemetry
 description: Observability with traces and metrics
 ---
 
-First-class OpenTelemetry metrics from the workflow event stream.
+Every workflow emits a typed event stream through the `onEvent` option. Wiring those events into OpenTelemetry gives you spans and metrics without any awaitly-specific adapter.
 
-## Autotel adapter
+:::note
+A first-class OpenTelemetry adapter is planned as a separate ecosystem package. Until it ships, the event stream shown below is the supported integration point.
+:::
 
-Create an adapter that tracks metrics and optionally creates spans:
+## The event stream
+
+`createWorkflow` accepts an `onEvent` callback that receives a `WorkflowEvent` for everything the engine does — workflow lifecycle, step lifecycle, retries, timeouts, and cache activity:
 
 ```typescript
 import { ok, err, type Result } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
-import { createAutotelAdapter } from 'awaitly/otel';
+import { createWorkflow, type WorkflowEvent } from 'awaitly/workflow';
 
 // Define your dependencies with Result-returning functions
 type UserNotFound = { type: 'USER_NOT_FOUND'; id: string };
@@ -31,20 +34,15 @@ const deps = {
   },
 };
 
-const autotel = createAutotelAdapter({
-  serviceName: 'checkout-service',
-  createStepSpans: true,        // Create spans for each step
-  recordMetrics: true,          // Record step metrics
-  recordRetryEvents: true,      // Record retry events
-  markErrorsOnSpan: true,       // Mark errors on spans
-  defaultAttributes: {          // Custom attributes for all spans
-    environment: 'production',
+const workflow = createWorkflow('checkout', deps, {
+  onEvent: (event) => {
+    if (event.type === 'step_start') {
+      console.log(`Step ${event.name ?? event.stepId} started`);
+    }
+    if (event.type === 'step_success') {
+      console.log(`Step ${event.name ?? event.stepId} took ${event.durationMs}ms`);
+    }
   },
-});
-
-// Use with workflow
-const workflow = createWorkflow('workflow', deps, {
-  onEvent: autotel.handleEvent,
 });
 
 await workflow.run(async ({ step, deps }) => {
@@ -54,121 +52,157 @@ await workflow.run(async ({ step, deps }) => {
 });
 ```
 
-## Access metrics
+## Spans from workflow events
+
+Map workflow and step events onto OpenTelemetry spans. Start a span on `step_start`, end it on `step_success`/`step_error`, and use `stepId` to correlate:
 
 ```typescript
-const metrics = autotel.getMetrics();
+import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
+import { createWorkflow, type WorkflowEvent } from 'awaitly/workflow';
 
-console.log(metrics.stepDurations);
-// [{ name: 'fetch-user', durationMs: 45, success: true }, ...]
+const tracer = trace.getTracer('checkout-service');
 
-console.log(metrics.retryCount);     // Total retry count
-console.log(metrics.errorCount);     // Total error count
-console.log(metrics.cacheHits);      // Cache hit count
-console.log(metrics.cacheMisses);    // Cache miss count
-```
+function createSpanHandler() {
+  let workflowSpan: Span | undefined;
+  const stepSpans = new Map<string, Span>();
 
-## Simple event handler
+  return (event: WorkflowEvent<unknown>) => {
+    switch (event.type) {
+      case 'workflow_start':
+        workflowSpan = tracer.startSpan(`workflow ${event.workflowName ?? event.workflowId}`);
+        break;
 
-For debug logging without full metrics collection:
+      case 'workflow_success':
+        workflowSpan?.setStatus({ code: SpanStatusCode.OK });
+        workflowSpan?.end();
+        break;
 
-```typescript
-import { createWorkflow } from 'awaitly/workflow';
-import { createAutotelEventHandler } from 'awaitly/otel';
+      case 'workflow_error':
+        workflowSpan?.setStatus({ code: SpanStatusCode.ERROR });
+        workflowSpan?.end();
+        break;
 
-const workflow = createWorkflow('workflow', deps, {
-  onEvent: createAutotelEventHandler({
-    serviceName: 'checkout',
-    includeStepDetails: true,
-  }),
-});
+      case 'step_start': {
+        const span = tracer.startSpan(`step ${event.name ?? event.stepId}`, {
+          attributes: {
+            'workflow.id': event.workflowId,
+            'workflow.step.id': event.stepId,
+            'workflow.step.key': event.stepKey,
+          },
+        });
+        stepSpans.set(event.stepId, span);
+        break;
+      }
 
-// Set AUTOTEL_DEBUG=true to see console output
-```
+      case 'step_success': {
+        const span = stepSpans.get(event.stepId);
+        span?.setAttribute('workflow.step.duration_ms', event.durationMs);
+        span?.setStatus({ code: SpanStatusCode.OK });
+        span?.end();
+        stepSpans.delete(event.stepId);
+        break;
+      }
 
-## With autotel tracing
-
-Wrap workflows with actual OpenTelemetry spans:
-
-```typescript
-import { withAutotelTracing } from 'awaitly/otel';
-import { trace } from 'autotel';
-
-const traced = withAutotelTracing(trace, { serviceName: 'checkout' });
-
-const result = await traced('process-order', async () => {
-  return workflow.run(async ({ step, deps }) => {
-    const user = await step('fetch-user', () => deps.fetchUser(id));
-    const charge = await step('charge', () => deps.chargeCard(100));
-    return { user, charge };
-  });
-}, { orderId: '123' }); // Optional attributes
-```
-
-## Configuration options
-
-```typescript
-{
-  serviceName: string;           // Required: identifies the service
-  createStepSpans?: boolean;     // Create spans for steps (default: false)
-  recordMetrics?: boolean;       // Collect metrics (default: true)
-  recordRetryEvents?: boolean;   // Track retries (default: true)
-  markErrorsOnSpan?: boolean;    // Mark errors on spans (default: true)
-  defaultAttributes?: Record<string, string>; // Added to all spans
+      case 'step_error': {
+        const span = stepSpans.get(event.stepId);
+        span?.setAttribute('workflow.step.duration_ms', event.durationMs);
+        span?.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: String(event.error),
+        });
+        span?.end();
+        stepSpans.delete(event.stepId);
+        break;
+      }
+    }
+  };
 }
+
+const workflow = createWorkflow('checkout', deps, {
+  onEvent: createSpanHandler(),
+});
 ```
 
-## Span attributes
+## Metrics from workflow events
 
-When `createStepSpans` is enabled, spans include:
-
-| Attribute | Description |
-|-----------|-------------|
-| `workflow.step.name` | Step name from options |
-| `workflow.step.key` | Step cache key (if set) |
-| `workflow.step.cached` | Whether result was cached |
-| `workflow.step.retry_count` | Number of retries |
-| `workflow.step.duration_ms` | Step duration |
-| `workflow.step.success` | Whether step succeeded |
-| `workflow.step.error` | Error type (if failed) |
-
-## Multiple workflows
-
-Create separate adapters for different workflows:
+The same stream drives counters and histograms. Retry and cache events are first-class, so you do not have to derive them:
 
 ```typescript
-const checkoutTelemetry = createAutotelAdapter({
-  serviceName: 'checkout-service',
-  defaultAttributes: { workflow: 'checkout' },
-});
+import { metrics } from '@opentelemetry/api';
+import { createWorkflow, type WorkflowEvent } from 'awaitly/workflow';
 
-const inventoryTelemetry = createAutotelAdapter({
-  serviceName: 'inventory-service',
-  defaultAttributes: { workflow: 'inventory' },
-});
+const meter = metrics.getMeter('checkout-service');
 
-const checkoutWorkflow = createWorkflow('checkout', checkoutDeps, {
-  onEvent: checkoutTelemetry.handleEvent,
-});
+const stepDuration = meter.createHistogram('workflow.step.duration', { unit: 'ms' });
+const stepErrors = meter.createCounter('workflow.step.errors');
+const stepRetries = meter.createCounter('workflow.step.retries');
+const cacheHits = meter.createCounter('workflow.step.cache_hits');
+const cacheMisses = meter.createCounter('workflow.step.cache_misses');
 
-const inventoryWorkflow = createWorkflow('inventory', inventoryDeps, {
-  onEvent: inventoryTelemetry.handleEvent,
+function recordMetrics(event: WorkflowEvent<unknown>) {
+  switch (event.type) {
+    case 'step_success':
+      stepDuration.record(event.durationMs, { step: event.name ?? event.stepId });
+      break;
+    case 'step_error':
+      stepDuration.record(event.durationMs, { step: event.name ?? event.stepId });
+      stepErrors.add(1, { step: event.name ?? event.stepId });
+      break;
+    case 'step_retry':
+      stepRetries.add(1, {
+        step: event.name ?? event.stepId,
+        attempt: event.attempt,
+      });
+      break;
+    case 'step_cache_hit':
+      cacheHits.add(1, { step: event.stepKey });
+      break;
+    case 'step_cache_miss':
+      cacheMisses.add(1, { step: event.stepKey });
+      break;
+  }
+}
+
+const workflow = createWorkflow('checkout', deps, {
+  onEvent: recordMetrics,
 });
 ```
+
+## Event reference
+
+The events most useful for observability:
+
+| Event `type` | When it fires | Key fields |
+|--------------|---------------|------------|
+| `workflow_start` | Run begins | `workflowId`, `workflowName`, `ts` |
+| `workflow_success` | Run returns `ok` | `durationMs` |
+| `workflow_error` | Run returns `err` | `durationMs`, `error` |
+| `step_start` | Step begins (once, before first attempt) | `stepId`, `stepKey`, `name` |
+| `step_success` | Step succeeds | `durationMs` |
+| `step_error` | Step fails | `durationMs`, `error`, `diagnostics` |
+| `step_retry` | Attempt failed, retry scheduled | `attempt`, `maxAttempts`, `delayMs`, `error` |
+| `step_retries_exhausted` | All attempts failed | `attempts`, `lastError` |
+| `step_timeout` | Step hit its timeout | `timeoutMs`, `attempt` |
+| `step_cache_hit` / `step_cache_miss` | Keyed step consulted the cache | `stepKey` |
+| `step_skipped` | Conditional step did not run | `reason` |
+
+All events carry `workflowId`, an optional `workflowName`, and a `ts` timestamp; discriminate on `event.type` and TypeScript narrows the rest.
 
 ## Combining with other event handlers
 
+`onEvent` is a single callback, so fan out to as many consumers as you need:
+
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
-import { createAutotelAdapter } from 'awaitly/otel';
 import { createVisualizer } from 'awaitly-visualizer';
 
-const autotel = createAutotelAdapter({ serviceName: 'checkout' });
+const spans = createSpanHandler();
 const viz = createVisualizer({ workflowName: 'checkout' });
 
-const workflow = createWorkflow('workflow', deps, {
+const workflow = createWorkflow('checkout', deps, {
   onEvent: (event) => {
-    autotel.handleEvent(event);
+    spans(event);
+    recordMetrics(event);
     viz.handleEvent(event);
   },
 });
@@ -176,47 +210,37 @@ const workflow = createWorkflow('workflow', deps, {
 
 ## Custom metrics
 
-Extend the adapter output with your own metrics:
+Anything else you want to track hangs off the same switch. For example, counting business-level failures by error type:
 
 ```typescript
-const autotel = createAutotelAdapter({ serviceName: 'checkout' });
+const declinedCards = meter.createCounter('checkout.card_declines');
 
-const workflow = createWorkflow('workflow', deps, {
+const workflow = createWorkflow('checkout', deps, {
   onEvent: (event) => {
-    autotel.handleEvent(event);
+    recordMetrics(event);
 
-    // Custom metric tracking
-    if (event.type === 'step_complete' && !event.result.ok) {
-      customMetrics.increment('checkout.step.failures', {
-        step: event.stepName,
-        error: String(event.result.error),
-      });
+    if (event.type === 'step_error' && (event.error as { type?: string }).type === 'CARD_DECLINED') {
+      declinedCards.add(1, { step: event.name ?? event.stepId });
     }
   },
 });
 ```
 
-## Environment variables
+## Exporting
 
-| Variable | Description |
-|----------|-------------|
-| `AUTOTEL_DEBUG` | Set to `true` for console output |
-| `OTEL_SERVICE_NAME` | Default service name (overridden by config) |
-
-## Integration with OTEL collectors
-
-The adapter works with standard OpenTelemetry collectors. Configure your collector endpoint:
+Span and metric export is standard OpenTelemetry SDK configuration — nothing awaitly-specific. Point your `NodeSDK` (or equivalent) at your collector and the handlers above feed it:
 
 ```typescript
-import { trace } from 'autotel';
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 
-// Configure your OTEL exporter
-trace.configure({
-  endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
-  headers: {
-    'api-key': process.env.OTEL_API_KEY,
-  },
+const sdk = new NodeSDK({
+  serviceName: 'checkout-service',
+  traceExporter: new OTLPTraceExporter({
+    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+    headers: { 'api-key': process.env.OTEL_API_KEY },
+  }),
 });
 
-const traced = withAutotelTracing(trace, { serviceName: 'checkout' });
+sdk.start();
 ```

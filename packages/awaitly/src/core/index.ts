@@ -1,7 +1,7 @@
 /**
- * awaitly/core
+ * Core module (internal): Result primitives and the run() function.
  *
- * Core Result primitives and run() function.
+ * Surfaced through the root `awaitly` entry (formerly `awaitly/core`).
  * Use this module for minimal bundle size when you don't need the full workflow capabilities
  * (like retries, timeout, or state persistence) provided by `createWorkflow`.
  *
@@ -42,7 +42,7 @@ function parseDurationString(input: string): DurationObject | undefined {
  *
  * @example
  * ```typescript
- * const success = Awaitly.ok(42);
+ * const success = ok(42);
  * // Type shown: Ok<number>
  * ```
  */
@@ -61,7 +61,7 @@ export type Ok<T> = {
  *
  * @example
  * ```typescript
- * const failure = Awaitly.err({ type: "NOT_FOUND", message: "User not found" });
+ * const failure = err({ type: "NOT_FOUND", message: "User not found" });
  * // Type shown: Err<{ type: string; message: string }>
  * ```
  */
@@ -186,12 +186,12 @@ export type MaybeAsyncResult<T, E, C = unknown> = Result<T, E, C> | Promise<Resu
  *
  * @example
  * ```typescript
- * const success = Awaitly.ok(42);
+ * const success = ok(42);
  * // Type: Ok<number>
  *
  * function divide(a: number, b: number): Result<number, string> {
- *   if (b === 0) return Awaitly.err("Division by zero");
- *   return Awaitly.ok(a / b);
+ *   if (b === 0) return err("Division by zero");
+ *   return ok(a / b);
  * }
  * ```
  */
@@ -211,11 +211,11 @@ export function ok<T>(value: T): Ok<T> {
  * @example
  * ```typescript
  * // Simple error
- * const r1 = Awaitly.err("NOT_FOUND");
+ * const r1 = err("NOT_FOUND");
  * // Type: Err<"NOT_FOUND">
  *
  * // Error with context (include in error object)
- * const r2 = Awaitly.err({ type: "PROCESSING_FAILED", cause: originalError });
+ * const r2 = err({ type: "PROCESSING_FAILED", cause: originalError });
  * // Type: Err<{ type: string; cause: Error }>
  * ```
  */
@@ -2701,7 +2701,7 @@ const DEFAULT_RETRY_CONFIG = {
 /**
  * run() with catchUnexpected: closed union Result<T, E>.
  */
-export function run<T, E, C = void>(
+function runFn<T, E, C = void>(
   fn: (context: { step: RunStep<E> }) => Promise<T> | T,
   options: RunOptionsWithCatch<E, C>
 ): AsyncResult<T, E, unknown>;
@@ -2712,7 +2712,7 @@ export function run<T, E, C = void>(
  * uncaught exceptions are possible. Step errors pass through as-is.
  * When E is never (default), step is RunStep<unknown> so any operation is allowed.
  */
-export function run<T, E = never, C = void>(
+function runFn<T, E = never, C = void>(
   fn: (context: {
     step: [E] extends [never] ? RunStep<unknown> : RunStep<E>;
   }) => Promise<T> | T,
@@ -2750,7 +2750,7 @@ export function run<T, E = never, C = void>(
  * // result.error: OrderNotFound | UserNotFound | ChargeDeclined | UnexpectedError
  * ```
  */
-export function run<const Deps extends Record<string, AnyFunction>, T, C = void>(
+function runFn<const Deps extends Record<string, AnyFunction>, T, C = void>(
   deps: Deps,
   fn: (
     steps: BoundSteps<Deps>,
@@ -2779,7 +2779,7 @@ export function run<const Deps extends Record<string, AnyFunction>, T, C = void>
 ): AsyncResult<T, ErrorsOf<Deps> | UnexpectedError, unknown>;
 
 // Implementation
-export async function run<T, E, C = void>(
+async function runFn<T, E, C = void>(
   fnOrDeps:
     | ((context: { step: RunStep<E> }) => Promise<T> | T)
     | Record<string, AnyFunction>,
@@ -2808,7 +2808,7 @@ export async function run<T, E, C = void>(
     }
     // Re-enter the implementation with the classic (fn, options) shape;
     // cast past the public overloads (same approach as runInternal).
-    const classicRun = run as unknown as (
+    const classicRun = runFn as unknown as (
       fn: (context: { step: RunStep<E> }) => Promise<T> | T,
       options?: RunOptions<E, C>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -4862,13 +4862,13 @@ export const runInternal: <T, E, U = UnexpectedError, C = void>(
     workflowName?: string;
     context?: C;
   }
-) => Promise<Result<T, E | U>> = run as never;
+) => Promise<Result<T, E | U>> = runFn as never;
 
 /**
  * Convenience for run() with catchUnexpected: closed union Result<T, E>.
  * You must provide catchUnexpected to map uncaught exceptions to E.
  */
-run.strict = <T, E, C = void>(
+const runStrict = <T, E, C = void>(
   fn: (context: { step: RunStep<E> }) => Promise<T> | T,
   options: {
     onError?: (error: E, stepName?: string, ctx?: C) => void;
@@ -4886,8 +4886,18 @@ run.strict = <T, E, C = void>(
     _workflowSignal?: AbortSignal;
   }
 ): AsyncResult<T, E, unknown> => {
-  return run<T, E, C>(fn, options);
+  return runFn<T, E, C>(fn, options);
 };
+
+/**
+ * The public run(): the engine with `.strict` attached.
+ *
+ * Assembled with a PURE-annotated Object.assign instead of a top-level
+ * `run.strict = ...` mutation — a top-level property assignment is a side
+ * effect that pins run (and the whole step engine) into every consumer
+ * bundle even when only Result primitives are imported.
+ */
+export const run = /* @__PURE__ */ Object.assign(runFn, { strict: runStrict });
 
 // =============================================================================
 // Unwrap Utilities
@@ -6162,13 +6172,13 @@ type AllResult<T extends readonly Result<unknown, unknown, unknown>[]> =
  * @example
  * ```typescript
  * // Combine multiple successful Results
- * const combined = all([Awaitly.ok(1), Awaitly.ok(2), Awaitly.ok(3)]);
+ * const combined = all([ok(1), ok(2), ok(3)]);
  * // combined: { ok: true, value: [1, 2, 3] }
  *
  * // Short-circuits on first error
- * const error = all([Awaitly.ok(1), Awaitly.err('ERROR'), Awaitly.ok(3)]);
+ * const error = all([ok(1), err('ERROR'), ok(3)]);
  * // error: { ok: false, error: 'ERROR' }
- * // Note: Awaitly.ok(3) is never evaluated
+ * // Note: ok(3) is never evaluated
  *
  * // Combine API responses
  * const data = all([

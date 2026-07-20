@@ -3,7 +3,7 @@ title: Errors Deserve Better in awaitly
 description: Saga-first handling for OTA-299 style booking failures, built on awaitly's existing async/await primitives
 ---
 
-This article focuses on one pattern: **`awaitly/saga`**.
+This article focuses on one pattern: **sagas** (`createSagaWorkflow`, from `awaitly/workflow`).
 
 The "Errors Deserve Better" scenario is not just about classifying failures. It is about safely handling a multi-step flow where side effects can partially succeed (charge captured) before a later step fails (reservation submit/persist).
 
@@ -25,7 +25,7 @@ Typed errors are necessary, but for this flow they are not sufficient. You also 
 
 | Use case | API | Why |
 |---|---|---|
-| Wrap one async SDK call at an edge with typed mapping (optional retry) | `tryAsyncBoundary` | Smallest edge-focused wrapper with `try/catch/retry` in one object |
+| Wrap one async SDK call at an edge with typed mapping (optional retry) | `tryAsync` + the `retry` policy | Convert a throwing call to a typed `Result`, then wrap it in retry — both from `awaitly` |
 | Wrap a throwing operation inside a workflow/saga step | `step.try('id', fn, { onError, retry?, timeout? })` | Throwing op with typed error mapping, retry, timeout, and compensation in one call |
 | Retry a step that already returns `Result`/`AsyncResult` | `step.retry` | Native step-level retry semantics and observability |
 | Multi-step flow with rollback/compensation needs | `createSagaWorkflow` | Typed errors plus reverse-order compensation on downstream failure |
@@ -34,16 +34,16 @@ Typed errors are necessary, but for this flow they are not sufficient. You also 
 
 This approach does not require a new execution model. It composes primitives awaitly already has:
 
-1. `tryAsync` / `tryAsyncRetry` (or `tryAsyncBoundary`) at vendor edges
+1. `tryAsync` (optionally wrapped in the `retry` policy) at vendor edges
 2. `TaggedError` for typed domain failures
 3. `step` semantics (early exit on `Err`) inside workflow/saga execution
 4. `saga` compensation for rollback of committed side effects
 
-`tryAsyncBoundary` is convenience syntax over the same underlying primitives, not a separate pattern.
+Inside a saga, `step.try` folds edge mapping, retry, and compensation into a single call over the same primitives.
 
-## Why `awaitly/saga` Is the Best Fit
+## Why Sagas Are the Best Fit
 
-`awaitly/saga` gives you both:
+A saga gives you both:
 
 1. Typed, explicit failure channels (`PaymentLimbo`, `RateChanged`, etc.)
 2. Built-in rollback semantics through compensations
@@ -51,11 +51,8 @@ This approach does not require a new execution model. It composes primitives awa
 That matches transactional booking behavior more closely than Result-only handling.
 
 ```ts
-import { createSagaWorkflow } from 'awaitly/saga';
-import { Awaitly } from 'awaitly';
-import { tryAsyncBoundary } from 'awaitly/result/retry';
-
-const { TaggedError } = Awaitly;
+import { createSagaWorkflow } from 'awaitly/workflow';
+import { TaggedError } from 'awaitly';
 
 class PaymentLimbo extends TaggedError('PaymentLimbo')<{
   reservationAttemptId: string;
@@ -85,25 +82,22 @@ const result = await reserveRoomSaga.run(async ({ step, deps }) => {
     deps.confirmAvailability(validated)
   );
 
-  const payment = await step(
+  const payment = await step.try(
     'authorizePayment',
-    () =>
-      tryAsyncBoundary({
-        try: () => deps.authorizePayment(validated),
-        catch: (cause) =>
-          isTimeoutAfterCapture(cause)
-            ? new PaymentLimbo({
-                reservationAttemptId: validated.attemptId,
-                cause,
-              })
-            : new TransientVendorError({ vendor: 'stripe', cause }),
-        retry: {
-          attempts: 4,
-          initialDelay: 25,
-          shouldRetry: (e) => e instanceof TransientVendorError,
-        },
-      }),
+    () => deps.authorizePayment(validated),
     {
+      onError: (cause) =>
+        isTimeoutAfterCapture(cause)
+          ? new PaymentLimbo({
+              reservationAttemptId: validated.attemptId,
+              cause,
+            })
+          : new TransientVendorError({ vendor: 'stripe', cause }),
+      retry: {
+        attempts: 4,
+        initialDelay: 25,
+        shouldRetry: (e) => e instanceof TransientVendorError,
+      },
       // Critical for this flow: if a later step fails, refund automatically.
       compensate: (txn) => deps.refundPayment(txn.id),
     }
@@ -121,27 +115,28 @@ const result = await reserveRoomSaga.run(async ({ step, deps }) => {
 
 If `submitReservation` or `persistConfirmation` fails after payment succeeded, saga runs compensation in reverse order and calls `refundPayment`.
 
-## Minimal Variant Without Convenience Wrapper
+## Minimal Variant With Core Primitives
 
-If you prefer only core primitives, the edge wrapper can be written directly with `tryAsyncRetry`:
+Outside a workflow, compose the same behavior from `tryAsync` (throw → typed `Result`) and the `retry` policy:
 
 ```ts
-import { tryAsyncRetry } from 'awaitly/result/retry';
+import { tryAsync, retry } from 'awaitly';
 
-const payment = await tryAsyncRetry(
-  () => deps.authorizePayment(validated),
-  (cause) =>
-    isTimeoutAfterCapture(cause)
-      ? new PaymentLimbo({ reservationAttemptId: validated.attemptId, cause })
-      : new TransientVendorError({ vendor: 'stripe', cause }),
-  {
-    retry: {
-      attempts: 4,
-      initialDelay: 25,
-      shouldRetry: (e) => e instanceof TransientVendorError,
-    },
-  }
-);
+const authorize = () =>
+  tryAsync(
+    () => deps.authorizePayment(validated),
+    (cause) =>
+      isTimeoutAfterCapture(cause)
+        ? new PaymentLimbo({ reservationAttemptId: validated.attemptId, cause })
+        : new TransientVendorError({ vendor: 'stripe', cause }),
+  );
+
+const payment = await retry(authorize, {
+  attempts: 4,
+  delay: 25,
+  backoff: 'exponential',
+  retryIf: (e) => e instanceof TransientVendorError,
+})();
 ```
 
 ## UX Mapping Still Stays Exhaustive
@@ -158,16 +153,16 @@ const ux = TaggedError.match(error, {
 
 Adding a new error variant forces a new handler at compile time.
 
-## `better-result` vs `awaitly/saga` for This Case
+## `better-result` vs awaitly sagas for This Case
 
 `better-result` is excellent for typed `Result` and exhaustive error matching.
 
-For this booking flow, `awaitly/saga` is clearer because it also models rollback for partial side effects. That is the decisive requirement in payment-plus-reservation orchestration.
+For this booking flow, an awaitly saga is clearer because it also models rollback for partial side effects. That is the decisive requirement in payment-plus-reservation orchestration.
 
 Two cases:
 
 1. If you only need typed edge classification, `better-result` is a strong fit.
-2. If you need typed classification plus rollback semantics in a multi-step transaction, `awaitly/saga` is the better fit.
+2. If you need typed classification plus rollback semantics in a multi-step transaction, an awaitly saga is the better fit.
 
 ## Runnable Proof
 

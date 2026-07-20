@@ -23,7 +23,7 @@ No exceptions for expected failures. No manual error unions.
 npm install awaitly
 ```
 
-For minimal bundle use `awaitly/result`; for Awaitly namespace and full API use `awaitly`.
+Four entry points: `awaitly` (the front door — Result primitives, `run()`, policies), `awaitly/result` (minimal bundle — Result primitives only), `awaitly/workflow` (durable workflows, persistence, sagas, streaming), and `awaitly/testing`.
 
 📚 **[Full Documentation](https://jagreehal.github.io/awaitly/)** - guides, API reference, and examples.
 
@@ -108,7 +108,7 @@ async function processOrder(orderId: string) {
 Pass your functions to `run()`. It hands you a steps object that mirrors them — each call unwraps the `ok` value and exits early on `err`:
 
 ```typescript
-import { run } from 'awaitly/run';
+import { run } from 'awaitly';
 
 const result = await run({ getOrder, getUser, charge }, async (s) => {
   const order = await s.getOrder(orderId); // unwraps ok, exits on err
@@ -132,8 +132,7 @@ Three things you get for free:
 When dependencies are dynamic or you're building abstractions, use the callback-only form and spell out (or derive) the error union yourself:
 
 ```typescript
-import { run } from 'awaitly/run';
-import { type ErrorOf, type Errors } from 'awaitly';
+import { run, type ErrorOf, type Errors } from 'awaitly';
 
 // Derive the union from your functions instead of writing it by hand
 type AllErrors = Errors<[typeof getOrder, typeof getUser, typeof charge]>;
@@ -463,30 +462,26 @@ Think of awaitly like this:
 
 ## Mapping errors at the boundary
 
-The final result maps cleanly to HTTP responses, job statuses, or CLI exit codes:
+The final result maps to HTTP responses, job statuses, or CLI exit codes in **one exhaustive expression** — every exit point of the railway, named once:
 
 ```typescript
-import { isUnexpectedError } from 'awaitly';
+import { match } from 'awaitly';
 
 // In an HTTP handler
-if (result.ok) {
-  return { statusCode: 200, body: result.value };
-}
-
-if (isUnexpectedError(result.error)) {
-  // Log the cause for debugging (it's the original thrown error)
-  console.error('Unexpected error:', result.error.cause);
-  return { statusCode: 500, body: { message: 'Internal error' } };
-}
-
-switch (result.error.type) {
-  case 'TASK_NOT_FOUND':
-    return { statusCode: 404, body: { message: 'Task not found' } };
-
-  default:
+return match(result, {
+  ok: (task) => ({ statusCode: 200, body: task }),
+  TASK_NOT_FOUND: (e) => ({ statusCode: 404, body: { message: `No task ${e.id}` } }),
+  TimeoutError: () => ({ statusCode: 504, body: { message: 'Upstream timeout' } }),
+  UnexpectedError: (e) => {
+    console.error('Unexpected error:', e.cause);
     return { statusCode: 500, body: { message: 'Internal error' } };
-}
+  },
+});
 ```
+
+TypeScript enforces the arms exhaustively from the inferred union — add a step that can fail a new way, and this `match` won't compile until the boundary handles it. One error model everywhere: string errors match themselves, tagged objects match on `type`, and awaitly's system errors (`TimeoutError`, `UnexpectedError`) are matched by the same key. The `{ ok, err }` two-arm form remains when you just want a catch-all.
+
+`if`/`switch` on `result.error.type` works too — `match` is the same thing with exhaustiveness checking.
 
 **Why `UnexpectedError`?**
 
@@ -572,11 +567,11 @@ const state = collector.getResumeState(); // Returns ResumeState
 **Step 2: Save to database**
 
 ```typescript
-import { parseState, stringifyState } from 'awaitly/persistence';
+import { serializeResumeState } from 'awaitly/workflow';
 
-// Serialize to JSON
+// Serialize to a JSON-safe object
 const workflowId = '123';
-const json = stringifyState(state, { workflowId, timestamp: Date.now() });
+const json = JSON.stringify(serializeResumeState(state));
 
 // Save to your database
 await db.workflowStates.create({
@@ -590,9 +585,11 @@ await db.workflowStates.create({
 
 ```typescript
 // Load from database
+import { deserializeResumeState } from 'awaitly/workflow';
+
 const workflowId = '123';
 const saved = await db.workflowStates.findUnique({ where: { id: workflowId } });
-const savedState = parseState(saved.state);
+const savedState = deserializeResumeState(JSON.parse(saved.state));
 
 // Resume workflow - cached steps skip execution
 const workflow = createWorkflow(
@@ -613,35 +610,29 @@ await workflow(async ({ step, deps }) => {
 });
 ```
 
-**With database adapter (Redis, DynamoDB, etc.)**
+**With a database adapter (Postgres, MongoDB, libSQL)**
+
+The adapter packages give you a ready-made store — pass it to `durable.run` and save/load/resume is handled for you:
 
 ```typescript
-import { createStatePersistence } from 'awaitly/persistence';
-import { createClient } from 'redis';
+import { durable } from 'awaitly/workflow';
+import { postgres } from 'awaitly-postgres'; // or awaitly-mongo, awaitly-libsql
 
-const redis = createClient();
-await redis.connect();
+const store = postgres(process.env.DATABASE_URL);
 
-// Create persistence adapter
-const persistence = createStatePersistence(
-  {
-    get: (key) => redis.get(key),
-    set: (key, value) => redis.set(key, value),
-    delete: (key) => redis.del(key).then((n) => n > 0),
-    exists: (key) => redis.exists(key).then((n) => n > 0),
-    keys: (pattern) => redis.keys(pattern),
+const result = await durable.run(
+  { fetchUser, fetchPosts },
+  async ({ step, deps }) => {
+    const user = await step('fetchUser', () => deps.fetchUser('1'), {
+      key: 'user:1',
+    });
+    const posts = await step('fetchPosts', () => deps.fetchPosts(user.id), {
+      key: `posts:${user.id}`,
+    });
+    return { user, posts };
   },
-  'workflow:state:',
+  { id: 'user-posts-123', store }, // same id + store = resume on re-run
 );
-
-// Save
-await persistence.save(runId, state, { metadata: { userId: 'user-1' } });
-
-// Load
-const savedState = await persistence.load(runId);
-
-// Resume
-const workflow = createWorkflow(deps, { resumeState: savedState });
 ```
 
 **Key points:**
@@ -853,7 +844,7 @@ See [full API reference](https://jagreehal.github.io/awaitly/reference/api/) for
 The deps-first form is the default — errors inferred, no type parameters:
 
 ```typescript
-import { run } from 'awaitly/run';
+import { run } from 'awaitly';
 
 const result = await run({ fetchUser }, async (s) => {
   return s.fetchUser(userId);

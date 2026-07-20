@@ -5,7 +5,7 @@
  *
  * @example
  * ```typescript
- * import { createCircuitBreaker, isCircuitOpenError } from 'awaitly/circuit-breaker';
+ * import { createCircuitBreaker, isCircuitOpenError } from 'awaitly';
  *
  * const breaker = createCircuitBreaker('payment-service', {
  *   failureThreshold: 5,

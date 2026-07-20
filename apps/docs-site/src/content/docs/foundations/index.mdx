@@ -26,11 +26,6 @@ Work through these topics in order. Each builds on concepts from the previous on
 
     [Learn workflows →](foundations/workflows-and-steps/)
   </Card>
-  <Card title="flow()" icon="branch">
-    Effect.gen-like composition using plain async/await, with inferred errors and lightweight step tracking.
-
-    [Learn flow() →](foundations/flow/)
-  </Card>
   <Card title="Control Flow" icon="random">
     Sequential, parallel, and race patterns. Run operations concurrently.
 
@@ -84,7 +79,7 @@ flowchart LR
 
   subgraph never [Never here]
     bad["workflow.run(fn, opts)"]
-    bad --> ignored[ignored, Awaitly warns]
+    bad --> ignored[ignored, awaitly warns]
   end
 
   subgraph durable [Durable]
@@ -108,7 +103,6 @@ flowchart LR
 | `ok(value)` | Create a success Result |
 | `err(error)` | Create a failure Result |
 | `step('id', fn)` | Execute operation, exit early on error |
-| `flow(deps, body)` | Effect.gen-like API with async/await and inferred errors |
 | `createWorkflow('workflow', deps)` | Create reusable workflow with error inference (deps optional: `createWorkflow('name')` for no deps) |
 | `allAsync([...])` | Run operations in parallel (fail-fast) |
 | `step.retry(id, fn, opts)` | Retry with backoff on failure |

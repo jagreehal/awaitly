@@ -66,9 +66,9 @@ export interface BaseNode {
   /** Timeout duration in ms (if timed out) */
   timeoutMs?: number;
   /** Agent metadata from step options (domain, intent, owner, etc.) */
-  metadata?: import("awaitly/core").StepMetadata;
+  metadata?: import("awaitly/workflow").StepMetadata;
   /** Error diagnostics (tag, classification, origin) */
-  errorDiagnostics?: import("awaitly/core").StepErrorDiagnostics;
+  errorDiagnostics?: import("awaitly/workflow").StepErrorDiagnostics;
 }
 
 /**
@@ -208,7 +208,7 @@ export interface WorkflowIR {
 // Re-export ScopeType from awaitly for consistency
 export type { ScopeType } from "awaitly/workflow";
 import type { ScopeType, WorkflowEvent, WorkflowOptions } from "awaitly/workflow";
-import type { UnexpectedError } from "awaitly/core";
+import type { UnexpectedError } from "awaitly";
 
 /**
  * Event emitted when entering a parallel/race scope.

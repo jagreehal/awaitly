@@ -7,8 +7,8 @@
  */
 
 import { Pool as PgPool } from "pg";
-import type { WorkflowSnapshot, SnapshotStore } from "awaitly/persistence";
-import type { WorkflowLock } from "awaitly/durable";
+import type { WorkflowSnapshot, SnapshotStore } from "awaitly/workflow";
+import type { WorkflowLock } from "awaitly/workflow";
 import {
   type ResumeState,
   type StoreSaveInput,
@@ -22,8 +22,8 @@ import {
 import { createPostgresLock, type PostgresLockOptions } from "./postgres-lock";
 
 // Re-export types for convenience
-export type { SnapshotStore, WorkflowSnapshot } from "awaitly/persistence";
-export type { WorkflowLock } from "awaitly/durable";
+export type { SnapshotStore, WorkflowSnapshot } from "awaitly/workflow";
+export type { WorkflowLock } from "awaitly/workflow";
 export type { PostgresLockOptions } from "./postgres-lock";
 export type { StoreSaveInput, StoreLoadResult } from "awaitly/workflow";
 

@@ -217,6 +217,23 @@ describe("deps-first form: run(deps, fn)", () => {
     ]);
   });
 
+  it("fallback policy replaces base errors with the handler error union", () => {
+    const source = `${PREAMBLE}
+      import { fallback } from 'awaitly';
+      type BackupUnavailable = 'BACKUP_UNAVAILABLE';
+      const backup = async (): AsyncResult<User, BackupUnavailable> =>
+        err('BACKUP_UNAVAILABLE');
+      await run(
+        { getUser: fallback(getUser, () => backup()) },
+        async (s) => s.getUser('u-1')
+      );
+    `;
+
+    const results = analyzeWorkflowSource(source);
+    const dep = results[0].root.dependencies[0];
+    expect(dep.errorTypes).toEqual(["BACKUP_UNAVAILABLE"]);
+  });
+
   it("keeps legacy run(cb) detection unchanged", () => {
     const source = `${PREAMBLE}
       await run(async ({ step }) => {

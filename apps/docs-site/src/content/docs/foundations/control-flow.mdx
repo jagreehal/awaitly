@@ -272,6 +272,30 @@ if (results.ok) {
 }
 ```
 
+### step.if for labelled branches
+
+When you need `if/else` with steps in both branches, use `step.if` so the analyzer can label the decision node deterministically:
+
+```typescript
+// ✅ Labelled branch — static diagram shows the decision id
+if (step.if('premium-check', 'user.isPremium', () => user.isPremium)) {
+  await step('sendPremiumEmail', () => deps.sendPremiumEmail(user));
+} else {
+  await step('sendStandardEmail', () => deps.sendStandardEmail(user));
+}
+
+// ❌ Raw if/else — branch has no stable identity in the diagram
+if (user.isPremium) {
+  await step('sendPremiumEmail', () => deps.sendPremiumEmail(user));
+}
+```
+
+For single guarded steps (no else branch), prefer [`when`](/guides/conditional-execution/) or [`unless`](/guides/conditional-execution/) — they emit skip events and integrate with the visualizer.
+
+<Aside type="tip" title="Diagrammability">
+Raw `if/else`, native loops, and computed step ids create gaps in static diagrams. Use `step.if`, `when`/`unless`, and `step.forEach` so [`awaitly-analyze`](/guides/static-analysis/) can produce deterministic diagrams and `--assert-diagrammable` passes in CI. The ESLint rules [`workflow-prefer-step-if`](/guides/eslint-plugin/#awaitlyworkflow-prefer-step-if) and [`workflow-prefer-step-foreach`](/guides/eslint-plugin/#awaitlyworkflow-prefer-step-foreach) flag raw control flow as you write it.
+</Aside>
+
 ### step.forEach for Static Analyzability
 
 For sequential processing where you need static analysis support (workflow diagrams, path enumeration), use `step.forEach()`:
@@ -319,7 +343,7 @@ const result = await allAsync([fetchUser('1'), fetchPosts('1')]);
 For large sets, limit concurrent operations:
 
 ```typescript
-import { processInBatches } from 'awaitly/batch';
+import { processInBatches } from 'awaitly/workflow';
 
 const result = await processInBatches(
   userIds,

@@ -5,7 +5,7 @@
  *
  * @example
  * ```typescript
- * import { when, unless } from 'awaitly/conditional';
+ * import { when, unless } from 'awaitly';
  *
  * const result = await workflow(async ({ step }) => {
  *   const user = await step(fetchUser(id));

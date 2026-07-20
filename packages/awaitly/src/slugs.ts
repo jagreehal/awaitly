@@ -31,6 +31,8 @@ export const AWAITLY_SLUGS = {
   "workflow-callback-shape": "workflow-callback-shape",
   "workflow-no-callable-form": "workflow-no-callable-form",
   "workflow-no-dynamic-import": "workflow-no-dynamic-import",
+  "workflow-prefer-step-if": "workflow-prefer-step-if",
+  "workflow-prefer-step-foreach": "workflow-prefer-step-foreach",
 
   // --- result-* ---
   "result-no-floating": "result-no-floating",

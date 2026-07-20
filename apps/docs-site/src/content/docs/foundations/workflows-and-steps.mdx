@@ -37,7 +37,7 @@ Workflows compose multiple Result-returning operations. The `step()` function un
 />
 
 ```typescript
-import { run } from 'awaitly/run';
+import { run } from 'awaitly';
 
 const result = await run(async ({ step }) => {
   // If fetchUser returns err('NOT_FOUND'), workflow exits here
@@ -80,8 +80,7 @@ Unlike try/catch where you need explicit return statements, `step()` automatical
 Use `run()` for simple, one-off workflows. Specify error types as type parameters to preserve them in the result:
 
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
-import { run } from 'awaitly/run';
+import { ok, err, run, type AsyncResult } from 'awaitly';
 
 const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
   const user = await db.find(id);
@@ -537,7 +536,7 @@ See [Persistence](/guides/persistence/) for details.
 Enable streaming within workflows:
 
 ```typescript
-import { createMemoryStreamStore } from 'awaitly/streaming';
+import { createMemoryStreamStore } from 'awaitly/workflow';
 
 const workflow = createWorkflow('workflow', deps, {
   streamStore: createMemoryStreamStore(),

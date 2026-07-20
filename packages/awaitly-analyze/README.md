@@ -2,6 +2,18 @@
 
 Static workflow analysis for [awaitly](https://github.com/jagreehal/awaitly). Analyze workflow source code to extract structure, calculate complexity metrics, and generate visualizations.
 
+## Deterministic diagrams from real code
+
+XState draws a perfect diagram because you hand-write the machine as data; the diagram is a serialization of that data, a second artifact you keep in sync with your implementation. awaitly diagrams the **real executable code**, so the diagram can't drift from behavior.
+
+The cost: imperative control flow (`if`, `for`, computed ids) isn't always deterministically drawable. awaitly closes that gap the way XState does, by making the load-bearing control flow **declarative** so there's nothing left to infer:
+
+- Write `step.if`, `when`, or `unless` instead of a raw `if`, and the branch gets a stable, labelled id.
+- Write `step.forEach` instead of a raw loop, and each iteration gets a structured id.
+- Use literal step ids (put the dynamic part in `key`), and every node has a stable identity.
+
+A workflow that stays on those constructs is **fully diagrammable**: its diagram is deterministic, and a runtime trace overlays onto it exactly. `--assert-diagrammable` (below) enforces that in CI, and `eslint-plugin-awaitly`'s `workflow-prefer-step-if` and `workflow-prefer-step-foreach` rules flag raw control flow as you write it.
+
 ## CLI Usage
 
 ```bash
@@ -37,6 +49,12 @@ awaitly-analyze ./src/workflows/checkout.ts --doctor
 
 # Doctor mode JSON for AI/tooling pipelines
 awaitly-analyze ./src/workflows/checkout.ts --doctor --format=json
+
+# CI gate: fail if any workflow's diagram is not fully deterministic
+awaitly-analyze ./src/workflows/checkout.ts --assert-diagrammable
+
+# Overlay a recorded run's executed path onto the static diagram
+awaitly-analyze ./src/workflows/checkout.ts --trace=./run-events.json
 ```
 
 ### CLI Options
@@ -53,7 +71,9 @@ awaitly-analyze ./src/workflows/checkout.ts --doctor --format=json
 | `--no-stdout` | - | Suppress stdout when writing to file (requires `-o` or `--html`) |
 | `--dsl-output=<value>` | `off` | Write DSL: `off`, `.awaitly`, or custom path (for visualization) |
 | `--write-dsl` | - | Shorthand for `--dsl-output=.awaitly` |
-| `--doctor` | - | Print strict diagnostics with fix suggestions |
+| `--doctor` | - | Print strict diagnostics with fix suggestions (includes the diagrammability verdict) |
+| `--assert-diagrammable` | - | Exit non-zero if any workflow's diagram is not fully deterministic (CI gate) |
+| `--trace=<events.json>` | - | Overlay a recorded run's executed path onto the static diagram (JSON array of workflow events) |
 | `--help`, `-h` | - | Show help message |
 
 ### Output File Naming
@@ -256,6 +276,53 @@ const paths = generatePaths(ir);
 const diagram = renderPathsMermaid(ir, paths.slice(0, 3));
 ```
 
+### Diagrammability
+
+#### `computeDiagrammability(ir)`
+
+Return a single verdict on whether a workflow's diagram is fully deterministic, with each gap naming the first-class construct that closes it.
+
+```typescript
+import { analyze, computeDiagrammability } from 'awaitly-analyze';
+
+const ir = analyze('./src/workflows/checkout.ts').single();
+const report = computeDiagrammability(ir);
+
+report.deterministic; // boolean, true when there are no gaps
+report.score;         // 0-100, share of nodes with a stable identity
+report.issues;        // [{ kind, message, suggestion, location, nodeId }]
+// kinds: 'dynamic-step-id' | 'dynamic-decision-id' | 'raw-conditional'
+//        | 'raw-loop' | 'unbounded-loop' | 'unknown-node'
+```
+
+Use `--assert-diagrammable` on the CLI to turn this into a CI gate.
+
+### Runtime Trace Overlay
+
+Render the static skeleton and highlight the path a real run took, the view XState's inspector gives, on the real executable code (so the diagram can't drift from behavior).
+
+#### `traceFromEvents(events)`
+
+Reduce an awaitly workflow event stream (captured via the `onEvent` option) into a per-step trace.
+
+```typescript
+import { traceFromEvents, renderStaticMermaidWithTrace, analyze } from 'awaitly-analyze';
+
+const trace = traceFromEvents(recordedEvents); // WorkflowEvent[] → per-step status
+```
+
+#### `renderStaticMermaidWithTrace(ir, trace, options?)`
+
+Overlay the trace onto the static diagram: each executed step is restyled by its status (success / error / aborted / skipped / cache-hit / running); untouched steps stay in the base style.
+
+```typescript
+const ir = analyze('./src/workflows/checkout.ts').single();
+const { mermaid, matched, unmatched } = renderStaticMermaidWithTrace(ir, trace);
+// `unmatched` lists trace steps with no static node; empty when the workflow
+// is diagrammable (literal step ids), which is why the two features reinforce
+// each other.
+```
+
 ### Test Matrix
 
 #### `generateTestMatrix(paths)`
@@ -418,19 +485,13 @@ The analyzer supports various import styles:
 
 ```typescript
 // Named imports
-import { createWorkflow, run } from 'awaitly';
+import { createWorkflow, run } from 'awaitly/workflow';
 
 // Aliased imports
-import { createWorkflow as cw } from 'awaitly';
-
-// Namespace imports
-import * as Awaitly from 'awaitly';
-Awaitly.createWorkflow('workflow', { fetchUser: async () => ({ id: '1' }) });
-
-// Default imports
-import Awaitly from 'awaitly';
-Awaitly.run(async ({ step }) => {...});
+import { createWorkflow as cw } from 'awaitly/workflow';
 ```
+
+Namespace imports (`import * as X from 'awaitly'`) and default imports from older awaitly versions are also recognized, so the analyzer keeps working on codebases that have not migrated to named imports yet.
 
 ## Types
 

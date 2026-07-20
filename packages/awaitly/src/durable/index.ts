@@ -488,7 +488,7 @@ export const durable = {
    *
    * @example
    * ```typescript
-   * import { durable } from 'awaitly/durable';
+   * import { durable } from 'awaitly/workflow';
    *
    * // Zero-config: uses in-memory store (per process)
    * const result = await durable.run(
@@ -502,9 +502,9 @@ export const durable = {
    *   { id: 'checkout-123' }
    * );
    *
-   * // Override: pass a store for persistence across restarts
-   * import { createMemoryStatePersistence } from 'awaitly/persistence';
-   * const store = createMemoryStatePersistence();
+   * // Persistence across restarts: pass a store adapter
+   * import { postgres } from 'awaitly-postgres'; // or awaitly-mongo, awaitly-libsql
+   * const store = postgres(process.env.DATABASE_URL);
    * await durable.run(deps, fn, { id: 'checkout-123', store });
    *
    * if (result.ok) {

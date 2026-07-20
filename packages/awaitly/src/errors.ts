@@ -6,7 +6,7 @@
  *
  * @example
  * ```typescript
- * import { TimeoutError, RetryExhaustedError, RateLimitError, CircuitBreakerOpenError } from 'awaitly/errors';
+ * import { TimeoutError, RetryExhaustedError, RateLimitError, CircuitBreakerOpenError } from 'awaitly';
  *
  * // Create errors
  * const timeout = new TimeoutError({ operation: 'fetchUser', ms: 5000 });
@@ -98,7 +98,7 @@ export function makeError<Tag extends string>(
  * console.log(error.message); // "TimeoutError: fetchUser timed out after 5000ms"
  * ```
  */
-export class TimeoutError extends TaggedError("TimeoutError", {
+export class TimeoutError extends /* @__PURE__ */ TaggedError("TimeoutError", {
   slug: "runtime-step-timeout",
   hint: "Increase the step's timeout option, or check why the upstream operation is slow.",
   message: (p: {
@@ -125,7 +125,7 @@ export class TimeoutError extends TaggedError("TimeoutError", {
  * console.log(error.message); // "RetryExhaustedError: sendEmail failed after 3 attempts"
  * ```
  */
-export class RetryExhaustedError extends TaggedError("RetryExhaustedError", {
+export class RetryExhaustedError extends /* @__PURE__ */ TaggedError("RetryExhaustedError", {
   slug: "runtime-retry-exhausted",
   hint: "All retry attempts failed. Inspect lastError and decide whether to surface it or compensate.",
   message: (p: {
@@ -153,7 +153,7 @@ export class RetryExhaustedError extends TaggedError("RetryExhaustedError", {
  * console.log(error.message); // "RateLimitError: Rate limit exceeded for api-calls"
  * ```
  */
-export class RateLimitError extends TaggedError("RateLimitError", {
+export class RateLimitError extends /* @__PURE__ */ TaggedError("RateLimitError", {
   slug: "runtime-rate-limit",
   hint: "Wait retryAfterMs before retrying, or apply step.cache to deduplicate calls.",
   message: (p: {
@@ -180,7 +180,7 @@ export class RateLimitError extends TaggedError("RateLimitError", {
  * console.log(error.message); // "CircuitBreakerOpenError: Circuit payment-api is OPEN"
  * ```
  */
-export class CircuitBreakerOpenError extends TaggedError(
+export class CircuitBreakerOpenError extends /* @__PURE__ */ TaggedError(
   "CircuitBreakerOpenError",
   {
     slug: "runtime-circuit-open",
@@ -209,7 +209,7 @@ export class CircuitBreakerOpenError extends TaggedError(
  * console.log(error.message); // "ValidationError: Invalid email - Invalid email format"
  * ```
  */
-export class ValidationError extends TaggedError("ValidationError", {
+export class ValidationError extends /* @__PURE__ */ TaggedError("ValidationError", {
   message: (p: {
     /** Field that failed validation */
     field: string;
@@ -232,7 +232,7 @@ export class ValidationError extends TaggedError("ValidationError", {
  * console.log(error.message); // "NotFoundError: User with id 123 not found"
  * ```
  */
-export class NotFoundError extends TaggedError("NotFoundError", {
+export class NotFoundError extends /* @__PURE__ */ TaggedError("NotFoundError", {
   message: (p: {
     /** Type of resource that was not found */
     resource: string;
@@ -256,7 +256,7 @@ export class NotFoundError extends TaggedError("NotFoundError", {
  * console.log(error.message); // "UnauthorizedError: Not authorized to delete User"
  * ```
  */
-export class UnauthorizedError extends TaggedError("UnauthorizedError", {
+export class UnauthorizedError extends /* @__PURE__ */ TaggedError("UnauthorizedError", {
   message: (p: {
     /** Action that was attempted */
     action?: string;
@@ -284,7 +284,7 @@ export class UnauthorizedError extends TaggedError("UnauthorizedError", {
  * });
  * ```
  */
-export class NetworkError extends TaggedError("NetworkError", {
+export class NetworkError extends /* @__PURE__ */ TaggedError("NetworkError", {
   message: (p: {
     /** URL that was being accessed */
     url?: string;
@@ -312,7 +312,7 @@ export class NetworkError extends TaggedError("NetworkError", {
  * });
  * ```
  */
-export class CompensationError extends TaggedError("CompensationError", {
+export class CompensationError extends /* @__PURE__ */ TaggedError("CompensationError", {
   slug: "runtime-saga-compensation",
   hint: "A saga compensation step failed. Inspect compensationError and ensure compensation is idempotent.",
   message: (p: {
@@ -344,7 +344,7 @@ export class CompensationError extends TaggedError("CompensationError", {
  * });
  * ```
  */
-export class UnexpectedError extends TaggedError("UnexpectedError", {
+export class UnexpectedError extends /* @__PURE__ */ TaggedError("UnexpectedError", {
   slug: "runtime-unexpected",
   hint: "An unexpected exception escaped a step. Inspect cause; consider returning a typed Result instead of throwing.",
   message: (p: {

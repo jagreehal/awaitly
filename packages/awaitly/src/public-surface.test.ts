@@ -24,11 +24,13 @@ describe("public surface re-exports", () => {
     expect(core.ALL_SLUGS).toContain("runtime-step-timeout");
   });
 
-  it("awaitly root deliberately re-exports types only (runtime helpers live at /slugs or /core)", () => {
-    // Type-only export means these are not present on the runtime module object.
-    expect((awaitly as Record<string, unknown>).AWAITLY_SLUGS).toBeUndefined();
-    expect((awaitly as Record<string, unknown>).slugDocsUrl).toBeUndefined();
-    expect((awaitly as Record<string, unknown>).isAwaitlySlug).toBeUndefined();
+  it("awaitly root exposes the slug runtime (canonical: tooling imports from the root)", () => {
+    // Canonical core: awaitly/slugs is absorbed into the root. Pure data +
+    // helpers that tree-shake when unused; the analyzer and lint preset
+    // consume them from 'awaitly'.
+    expect((awaitly as Record<string, unknown>).AWAITLY_SLUGS).toBeDefined();
+    expect(typeof (awaitly as Record<string, unknown>).slugDocsUrl).toBe("function");
+    expect(typeof (awaitly as Record<string, unknown>).isAwaitlySlug).toBe("function");
   });
 
   it("type-only exports compile correctly through the root entry", () => {

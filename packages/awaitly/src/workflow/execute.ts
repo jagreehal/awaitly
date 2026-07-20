@@ -587,10 +587,10 @@ export function createWorkflow<
         console.warn(
           `awaitly: resumeState.steps is not a Map (got ${typeof resumeState.steps}). ` +
             `This usually happens when state is serialized with JSON.stringify() directly.\n` +
-            `Use stringifyState() and parseState() from 'awaitly/persistence' instead:\n` +
-            `  import { stringifyState, parseState } from 'awaitly/persistence';\n` +
-            `  const json = stringifyState(state);  // Save this\n` +
-            `  const restored = parseState(json);   // Load this`
+            `Use serializeResumeState() and deserializeResumeState() from 'awaitly/workflow' instead:\n` +
+            `  import { serializeResumeState, deserializeResumeState } from 'awaitly/workflow';\n` +
+            `  const json = JSON.stringify(serializeResumeState(state));  // Save this\n` +
+            `  const restored = deserializeResumeState(JSON.parse(json)); // Load this`
         );
         // Try to recover by converting plain object to Map
         if (typeof resumeState.steps === "object" && resumeState.steps !== null) {

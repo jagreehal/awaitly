@@ -23,7 +23,7 @@ const [user1, user2, user3] = await Promise.all([
 With singleflight, concurrent calls with the same key share one in-flight request:
 
 ```typescript
-import { singleflight } from 'awaitly/singleflight';
+import { singleflight } from 'awaitly';
 import { ok, err, type AsyncResult } from 'awaitly';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
@@ -130,7 +130,7 @@ const user3 = await fetchUserCached('1');  // Fetches again
 For more control, use `createSingleflightGroup`:
 
 ```typescript
-import { createSingleflightGroup } from 'awaitly/singleflight';
+import { createSingleflightGroup } from 'awaitly';
 
 const group = createSingleflightGroup<User, 'NOT_FOUND'>();
 
@@ -256,7 +256,7 @@ await slowOp(); // Fetches again
 ### Manual invalidation with groups
 
 ```typescript
-import { createSingleflightGroup } from 'awaitly/singleflight';
+import { createSingleflightGroup } from 'awaitly';
 
 const userCache = createSingleflightGroup<User, 'NOT_FOUND'>();
 

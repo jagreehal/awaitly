@@ -8,7 +8,8 @@ Manage resources (database connections, file handles, API clients) with guarante
 ## Basic usage
 
 ```typescript
-import { withScope, createResource, ok } from 'awaitly/resource';
+import { ok } from 'awaitly';
+import { withScope, createResource } from 'awaitly/workflow';
 
 const result = await withScope(async (scope) => {
   // Resources are tracked for automatic cleanup
@@ -29,7 +30,7 @@ const result = await withScope(async (scope) => {
 Use `createResource` to wrap acquire/release logic:
 
 ```typescript
-import { createResource } from 'awaitly/resource';
+import { createResource } from 'awaitly/workflow';
 
 const createDbResource = async (connectionString: string) =>
   createResource(
@@ -60,7 +61,8 @@ const createFileResource = async (path: string, mode: string) =>
 ## Use in workflows
 
 ```typescript
-import { withScope, createResource, ok, err } from 'awaitly/resource';
+import { ok, err } from 'awaitly';
+import { withScope, createResource } from 'awaitly/workflow';
 
 const result = await withScope(async (scope) => {
   const db = scope.add(await createDbResource(process.env.DATABASE_URL));
@@ -155,7 +157,7 @@ const result = await withScope(async (outer) => {
 For cases where you need explicit control:
 
 ```typescript
-import { createResourceScope } from 'awaitly/resource';
+import { createResourceScope } from 'awaitly/workflow';
 
 const scope = createResourceScope();
 
@@ -174,7 +176,7 @@ try {
 If cleanup fails, you get a `ResourceCleanupError`:
 
 ```typescript
-import { isResourceCleanupError } from 'awaitly/resource';
+import { isResourceCleanupError } from 'awaitly/workflow';
 
 const result = await withScope(async (scope) => {
   const db = scope.add(await createDbResource());
@@ -323,7 +325,7 @@ const result = await withScope(async (scope) => {
 ### Collecting cleanup errors
 
 ```typescript
-import { withScope, isResourceCleanupError } from 'awaitly/resource';
+import { withScope, isResourceCleanupError } from 'awaitly/workflow';
 
 const result = await withScope(async (scope) => {
   const db = scope.add(await createDbResource());

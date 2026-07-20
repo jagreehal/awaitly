@@ -62,8 +62,15 @@ export interface TaggedErrorCreateOptions<Props extends Record<string, unknown>>
 
 /**
  * Base interface for all tagged errors.
+ *
+ * `type` is the canonical discriminant (the same key plain tagged-object
+ * errors use, so one `match` works across shapes). `_tag` is a deprecated
+ * alias kept through the migration window.
  */
 export interface TaggedErrorBase extends Error {
+  /** Canonical discriminant — matches the tag passed to TaggedError(tag). */
+  readonly type: string;
+  /** @deprecated Use `type`. Effect-style alias retained for migration. */
   readonly _tag: string;
   /** Canonical slug for awaitly-system errors. Undefined for user errors that opt out. */
   readonly code?: AwaitlySlug;
@@ -79,6 +86,8 @@ export interface TaggedErrorBase extends Error {
  * @internal
  */
 class InternalTaggedErrorBase extends Error implements TaggedErrorBase {
+  readonly type!: string;
+  /** @deprecated Use `type`. */
   readonly _tag!: string;
 }
 
@@ -86,6 +95,8 @@ class InternalTaggedErrorBase extends Error implements TaggedErrorBase {
  * Instance type for factory-created TaggedErrors.
  */
 type TaggedErrorInstance<Tag extends string, Props> = TaggedErrorBase & {
+  readonly type: Tag;
+  /** @deprecated Use `type`. */
   readonly _tag: Tag;
 } & Readonly<Props>;
 
@@ -188,6 +199,8 @@ function TaggedError<Tag extends string, Props extends Record<string, unknown>>(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): any {
   return class extends InternalTaggedErrorBase {
+    override readonly type: Tag = tag;
+    /** @deprecated Use `type`. */
     override readonly _tag: Tag = tag;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -229,7 +242,7 @@ function TaggedError<Tag extends string, Props extends Record<string, unknown>>(
       Object.setPrototypeOf(this, new.target.prototype);
 
       // Assign props to instance, stripping reserved keys:
-      // - _tag: discriminant for pattern matching (cannot be forged)
+      // - type/_tag: discriminants for pattern matching (cannot be forged)
       // - name, message, stack: Error internals (preserve for logging/debugging)
       // - code, hint, docsUrl: spine fields stripped when slug is set, to prevent
       //   Object.assign from clobbering the non-configurable/non-writable own props
@@ -239,6 +252,7 @@ function TaggedError<Tag extends string, Props extends Record<string, unknown>>(
         if (options?.slug !== undefined) {
           const {
             _tag: _,
+            type: _t,
             name: _n,
             message: _m,
             stack: _s,
@@ -251,6 +265,7 @@ function TaggedError<Tag extends string, Props extends Record<string, unknown>>(
         } else {
           const {
             _tag: _,
+            type: _t,
             name: _n,
             message: _m,
             stack: _s,

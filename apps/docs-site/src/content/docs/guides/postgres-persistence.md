@@ -137,7 +137,7 @@ Use the same `postgres()` store with `durable.run`:
 
 ```typescript
 import { postgres } from 'awaitly-postgres';
-import { durable } from 'awaitly/durable';
+import { durable } from 'awaitly/workflow';
 
 const store = postgres(process.env.DATABASE_URL!);
 

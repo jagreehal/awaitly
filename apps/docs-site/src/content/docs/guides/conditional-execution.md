@@ -8,8 +8,8 @@ Execute steps only when certain conditions are met, with automatic event emissio
 ## Basic usage
 
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
-import { when, unless, createWorkflow } from 'awaitly/workflow';
+import { ok, err, when, unless, type AsyncResult } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
   // ...
@@ -169,7 +169,7 @@ const result = await workflow.run(async ({ step, deps, args, ctx }) => {
 When using `run()`, pass context manually:
 
 ```typescript
-import { run } from 'awaitly/run';
+import { run } from 'awaitly';
 import { createConditionalHelpers } from 'awaitly/workflow';
 
 const result = await run(async ({ step }) => {

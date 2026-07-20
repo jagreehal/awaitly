@@ -8,12 +8,12 @@ user-invocable: true
 
 **This document defines the supported patterns for using awaitly. Avoid inventing alternatives.** awaitly stays in `async/await` — no generators, no method chains, no DSL.
 
-Workflows are sequential unless explicitly composed using step concurrency helpers (`step.all`, `step.map`, `step.race`). `Awaitly.allAsync()` is the underlying Result combinator and should typically be executed inside a step.
+Workflows are sequential unless explicitly composed using step concurrency helpers (`step.all`, `step.map`, `step.race`). `allAsync()` is the underlying Result combinator and should typically be executed inside a step.
 
 **Execution is only via `workflow.run()`.** There is no callable form (`workflow(fn)` or `workflow(args, fn)`). Use closures for workflow input (e.g. `userId` in scope).
 
 **Callback shape:** Workflow callbacks receive a single destructured object:
-- `run()` (from `awaitly/run`): `async ({ step }) => { ... }` — deps via closures.
+- `run()` (from `awaitly`): `async ({ step }) => { ... }` — deps via closures.
 - `createWorkflow('name', deps)` → **execute with** `workflow.run(fn)`: `async ({ step, deps }) => { ... }`. Optional `ctx` when `createContext` is set: `async ({ step, deps, ctx }) => { ... }`.
 
 **Call form (mechanical):**
@@ -53,7 +53,7 @@ Use this as a checklist when generating or editing awaitly code. Satisfy every i
 ### Workflow callback invariants
 Inside a workflow callback:
 - **MUST** return raw values (not `Result`).
-- **MUST NOT** call `Awaitly.ok()` or `Awaitly.err()` directly.
+- **MUST NOT** call `ok()` or `err()` directly.
 - **MUST NOT** manually propagate `Result` objects (e.g. `return userResult`).
 - **MUST NOT** call `return step(...)` directly from inside conditionals without awaiting it.
 - `step()` always returns the unwrapped Ok value.
@@ -64,15 +64,6 @@ Inside a workflow callback:
 - **MUST NOT** assume undocumented overloads.
 - **MUST NOT** assume `step()` is globally available outside workflow callbacks.
 - If a helper is not listed here, consult package types before using it.
-
-### flow() specifics (only when using `awaitly/flow`)
-- **MUST** execute via `await flow(deps, body, options?)`. **MUST NOT** call `flow.run(...)` — there is no such method.
-- The body signature is `(d, c?) => …`. **MUST NOT** call `step()` inside a `flow()` body — it isn't passed in. Use `d.*` (auto-step) or `c.key` / `c.all` (explicit context).
-- Calls through `d.*` use the **deps-object key** as the step id. If you call the same dep twice in one flow, both calls share that id — **MUST** use `c.key('custom-id', () => c.raw.dep(args))` when you need distinct trace/cache identity.
-- Inside `c.key` / `c.all` callbacks, **MUST** call deps through `c.raw.*` (which returns `Result`/`AsyncResult`). **MUST NOT** call `d.*` inside those callbacks — `d.*` already auto-steps and would create a nested step boundary.
-- `c.all(name, ops)` runs ops in parallel under one **scope name**. Within that scope, each op is already disambiguated by its object key for the **returned shape** and for the scope's child trace — you do **not** need `c.key` to disambiguate ops within the same `c.all`. The "same dep called twice → use `c.key`" rule applies to repeated **top-level** `d.*` calls in the body, not to two ops inside one `c.all` (which are already in different trace positions).
-- If you need parallel **and** per-op step ids that participate in the engine's cache/retry identity (not just trace position), drop to `run()` / `createWorkflow()` and use `step.all` / `step.map` with explicit `key`s. **MUST NOT** nest `c.key` inside `c.all` ops — untested, and it mixes unwrapped-Promise (from `c.key`) with Result return shapes (what `c.all` ops expect).
-- **MUST NOT** invent helpers on `c` (no `c.retry`, `c.timeout`, `c.try`, `c.map`, `c.race`, `c.forEach`). Only `c.key`, `c.all`, and `c.raw` exist. For anything else, use `run()` / `createWorkflow()`.
 
 ---
 
@@ -253,17 +244,6 @@ If you need per-item error handling in a loop, use `step.forEach()` with error c
 | `throw` in deps | Return `err()` instead, or wrap with `step.try(id, fn, { error: 'TYPED_ERROR' })`. |
 | `try/catch` around step() | Remove try/catch; errors propagate to workflow result. Use `step.try()` only for converting throws to typed errors. |
 
-### Inside `flow()` bodies
-| MUST NOT | Replacement |
-|----------|-------------|
-| `flow.run(...)` | `await flow(deps, body, options?)` — `flow` itself is the executor. |
-| `step(...)` inside a `flow()` body | Use `d.*` (auto-step) or `c.key('id', () => c.raw.fn())`. `step` is not passed to `flow` bodies. |
-| `d.*` inside a `c.key` / `c.all` callback (e.g. `c.key('id', () => d.fn())`) | Use `c.raw.*`: `c.key('id', () => c.raw.fn())`. `c.raw.*` returns `Result`; `d.*` already auto-steps and would nest. |
-| Same dep called twice in one flow with no override (both share one step id) | Wrap one (or both) in `c.key('distinct-id', () => c.raw.dep(args))`. |
-| `c.retry`, `c.timeout`, `c.try`, `c.map`, `c.race`, `c.forEach`, etc. | Those don't exist on `c`. Drop to `run()` / `createWorkflow()` for retry/timeout/cache/race/map/try. |
-| `c.key` nested inside a `c.all` op (untested mix of unwrapped-Promise and Result return shapes) | If you need parallel **and** per-op step ids, use `run()` + `step.all` / `step.map` with explicit `key`s. |
-| Returning a `Result` from a `flow()` body | Return the raw value. On Err, `flow()` short-circuits automatically and the outer call resolves to that Err. |
-
 Synchronous computation and pure logic are allowed inside workflows. Only async operations require `step()`.
 
 ---
@@ -275,7 +255,7 @@ When you see these patterns, apply the rewrite:
 | See | Rewrite to |
 |-----|------------|
 | `workflow(async ...)` or `workflow(args, async ...)` | `workflow.run(async ...)`. Use closures for args. |
-| `Promise.all([...])` inside a workflow callback | `step.all('name', { a: () => opA(), b: () => opB() })` or array form `step.all('name', () => Awaitly.allAsync([...]))`. |
+| `Promise.all([...])` inside a workflow callback | `step.all('name', { a: () => opA(), b: () => opB() })` or array form `step.all('name', () => allAsync([...]))`. |
 | `try { await step(...) } catch (e) { ... }` | Remove try/catch; handle errors at boundary. If converting throws: `step.try('id', fn, { error: 'ERR' })`. |
 | `const x = await deps.fn()` (no step) | `const x = await step('id', () => deps.fn())`. |
 | Options object as first argument to `workflow.run(...)` | Move options to second argument: `workflow.run(fn, options)`. |
@@ -286,20 +266,19 @@ When you see these patterns, apply the rewrite:
 ## Choosing Your Pattern
 
 **Canonical signatures:**
-- `run(callback, options?)` — `import { run } from 'awaitly/run'` (standalone; no workflow object).
+- `run(callback, options?)` — `import { run } from 'awaitly'` (standalone; no workflow object). Also supports the deps-first form `run(deps, callback)` with automatic error inference.
 - `createWorkflow('name', deps, options?)` returns a workflow object; **execute only via** `workflow.run(fn)`, `workflow.run(fn, config)`, `workflow.run(name, fn)`, or `workflow.run(name, fn, config)` — `import { createWorkflow } from 'awaitly/workflow'`.
-- `flow(deps, body, options?)` — `import { flow } from 'awaitly/flow'`. Smallest API; dep calls become tracked steps **automatically** using the deps-object key as the step id. **No callable form**, no `.run()` method — `flow()` itself is the executor.
 
-| Aspect | `run()` | `createWorkflow('name', deps)` | `flow(deps, body)` |
-|--------|---------|-------------------------------|--------------------|
-| Import | `awaitly/run` | `awaitly/workflow` | `awaitly/flow` |
-| Execute | `run(fn)` or `run(fn, options)` | `workflow.run(fn)` or `workflow.run(fn, config)` or `workflow.run(name, fn)` or `workflow.run(name, fn, config)` — **no callable** | `await flow(deps, fn, options?)` — no `.run()` method |
-| Step syntax | `step('id', () => deps.fn(args))` (explicit) | `step('id', () => deps.fn(args))` (explicit) | `await d.fn(args)` — **implicit step** with id = property name |
-| Deps | Closures | Injected at creation; override per run with `workflow.run(fn, { deps: partialOverride })` | Passed as first arg to `flow()`; available as wrapped `d` and raw `c.raw` inside body |
-| Error types | **Recommended:** `run<T, ErrorOf<typeof dep>>(fn)` (single dep), `run<T, Errors<[typeof d1, typeof d2]>>(fn)` (tuple deps), or `run<T, ErrorsOf<typeof deps>>(fn)` (deps object). Or manual `E`; or `catchUnexpected` for custom unexpected. `UnexpectedError` always included. | Auto-inferred from deps (includes `UnexpectedError`) | Auto-inferred from deps (`FlowErrors<D> \| UnexpectedError`); `catchUnexpected` to replace `UnexpectedError` with `U` |
-| Features | Basic step execution | Retries, timeout, state persistence, caching | Auto-step + `c.key` (custom step id) + `c.all` (named parallel scope). **No** per-call retry/timeout/cache/resume |
-| Bundle | Smaller | Larger | Smallest |
-| Best for | Single-use, wrapping throwing APIs | Shared deps, DI, testing (deps override), typed errors (best DX) | Effect.gen-style ergonomics; reads like ordinary async/await |
+| Aspect | `run()` | `createWorkflow('name', deps)` |
+|--------|---------|-------------------------------|
+| Import | `awaitly` | `awaitly/workflow` |
+| Execute | `run(fn)` or `run(fn, options)` | `workflow.run(fn)` or `workflow.run(fn, config)` or `workflow.run(name, fn)` or `workflow.run(name, fn, config)` — **no callable** |
+| Step syntax | `step('id', () => deps.fn(args))` (explicit) | `step('id', () => deps.fn(args))` (explicit) |
+| Deps | Closures | Injected at creation; override per run with `workflow.run(fn, { deps: partialOverride })` |
+| Error types | **Recommended:** `run<T, ErrorOf<typeof dep>>(fn)` (single dep), `run<T, Errors<[typeof d1, typeof d2]>>(fn)` (tuple deps), or `run<T, ErrorsOf<typeof deps>>(fn)` (deps object). Or manual `E`; or `catchUnexpected` for custom unexpected. `UnexpectedError` always included. | Auto-inferred from deps (includes `UnexpectedError`) |
+| Features | Basic step execution | Retries, timeout, state persistence, caching |
+| Bundle | Smaller | Larger |
+| Best for | Single-use, wrapping throwing APIs | Shared deps, DI, testing (deps override), typed errors (best DX) |
 
 ### Use `run()` when:
 - Single-use workflow (not reused across files)
@@ -313,13 +292,7 @@ When you see these patterns, apply the rewrite:
 - Deps already return `AsyncResult`
 - Need retries, timeout, or state persistence
 
-### Use `flow(deps, body)` when:
-- You want the body to read like ordinary `async/await` — no `step('id', ...)` ceremony at each call
-- Your workflow is linear dep calls (optionally with one or two `c.all` scopes)
-- You don't need per-call retry, timeout, cache, or resume — those are unavailable here
-- The deps-object key is a good step id for each call (override with `c.key` when not)
-
-**Deps and throwing:** Prefer deps that return Results and never throw. If you can't control a dep (e.g. third-party), wrap it with `step.try()` or convert at the boundary. (`step.try()` lives in `run()` / `createWorkflow()` — not exposed inside `flow()`.)
+**Deps and throwing:** Prefer deps that return Results and never throw. If you can't control a dep (e.g. third-party), wrap it with `step.try()` or convert at the boundary.
 
 ---
 
@@ -329,8 +302,7 @@ Agents: use these as the single canonical style for each entrypoint.
 
 ### run() canonical
 ```typescript
-import { run } from 'awaitly/run';
-import { type ErrorOf } from 'awaitly';
+import { run, type ErrorOf } from 'awaitly';
 
 type RunErrors = ErrorOf<typeof fetchUser>;
 const result = await run<Value, RunErrors>(async ({ step }) => {
@@ -347,31 +319,6 @@ const workflow = createWorkflow('myWorkflow', deps);
 const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('getUser', () => deps.getUser(id));
   return user;
-});
-```
-
-### flow() canonical (auto-step; no callable form, no `.run()`)
-```typescript
-import { flow } from 'awaitly/flow';
-
-// Simple: dep calls become tracked steps with the property name as id
-const result = await flow({ getUser, createOrder }, async (d) => {
-  const user = await d.getUser(userId);
-  const order = await d.createOrder(user);
-  return order;
-});
-
-// With context: c.key for distinct ids, c.all for parallel scope
-const bundle = await flow({ getUser, getPosts }, async (d, c) => {
-  const user = await d.getUser(userId);              // step id: 'getUser'
-  const fresh = await c.key('getUser:fresh', () =>   // step id: 'getUser:fresh'
-    c.raw.getUser(userId)
-  );
-  const { posts, profile } = await c.all('userBundle', {
-    posts: () => c.raw.getPosts(user.id),
-    profile: () => c.raw.getUser(user.id),
-  });
-  return { user, fresh, posts, profile };
 });
 ```
 
@@ -407,11 +354,11 @@ async function getUser(id: string): Promise<User | null> {
 }
 
 // AFTER
-import { Awaitly, type AsyncResult } from 'awaitly';
+import { ok, err, type AsyncResult } from 'awaitly';
 
 async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
   const user = await db.find(id);
-  return user ? Awaitly.ok(user) : Awaitly.err('NOT_FOUND');
+  return user ? ok(user) : err('NOT_FOUND');
 }
 ```
 
@@ -422,9 +369,7 @@ For single-use workflows where deps are available via closures.
 **Recommended pattern for `run()`:** Derive the error type with `ErrorOf<typeof dep>` (single dep), `Errors<[...]>` (tuple deps), or `ErrorsOf<typeof deps>` (deps object), and pass it as the second type parameter to `run<T, RunErrors>()`. This gives typed `result.error` (your errors plus `UnexpectedError`) without manual unions.
 
 ```typescript
-import { run } from 'awaitly/run';
-import { ok, type AsyncResult } from 'awaitly';
-import { type ErrorOf } from 'awaitly';
+import { run, ok, type AsyncResult, type ErrorOf } from 'awaitly';
 
 type User = { id: string; name: string };
 
@@ -443,8 +388,7 @@ const result = await run<User, RunErrors>(async ({ step }) => {
 **Multiple deps:** Use `Errors<[typeof dep1, typeof dep2, ...]>` for tuple-style deps, or `ErrorsOf<typeof deps>` when deps are already in an object:
 
 ```typescript
-import { run } from 'awaitly/run';
-import { type ErrorOf, type Errors, type ErrorsOf } from 'awaitly';
+import { run, type ErrorOf, type Errors, type ErrorsOf } from 'awaitly';
 
 // Single dep: ErrorOf<typeof fn>
 type RunErrors = ErrorOf<typeof getUser>;
@@ -547,7 +491,7 @@ const result = await processOrder.run(async ({ step, deps }) => {
 | Throwing fn → typed error | `step.try(id, fn, opts)` | `step.try('parse', () => JSON.parse(s), { error: 'PARSE_ERROR' })` — also accepts `retry`, `timeout`, `compensate` |
 | Parallel (named results) | `step.all(name, shape, opts?)` | `step.all('fetchAll', { user: () => deps.getUser(id), posts: () => deps.getPosts(id) })` |
 | Parallel over array | `step.map(id, items, mapper, opts?)` | `step.map('fetchUsers', ids, (id) => deps.getUser(id))` |
-| First-to-succeed | `step.race(name, callback)` | `step.race('fastest', () => Awaitly.anyAsync([primary(), fallback()]))` |
+| First-to-succeed | `step.race(name, callback)` | `step.race('fastest', () => anyAsync([primary(), fallback()]))` |
 | Sleep/delay | `step.sleep(id, duration, opts?)` | `step.sleep('rate-limit', '1s')` |
 
 **Specialized** — when you need them:
@@ -641,8 +585,8 @@ Manual `for` loops with dynamic keys like `${item.id}`:
 
 1. **`step.all(name, { key: () => op(), ... })`** — object form, named keys.
 2. **`step.map(id, items, mapper)`** — parallel over array.
-3. **`step.all(name, () => Awaitly.allAsync([...]))`** — array form when you need a tuple of heterogeneous results.
-4. **`Awaitly.allAsync([...])`** — ONLY inside a step callback.
+3. **`step.all(name, () => allAsync([...]))`** — array form when you need a tuple of heterogeneous results.
+4. **`allAsync([...])`** — ONLY inside a step callback.
 
 **MUST NOT** use `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows. Replace with `step.all`, `step.map`, or `step.race`.
 
@@ -655,13 +599,13 @@ const { user, posts } = await step.all('fetchAll', {
 });
 ```
 
-**Array form** (wraps Awaitly.allAsync):
+**Array form** (wraps allAsync):
 
 ```typescript
-import { Awaitly } from 'awaitly';
+import { allAsync } from 'awaitly';
 
 const [user1, user2] = await step.all('Fetch users', () =>
-  Awaitly.allAsync([deps.getUser('1'), deps.getUser('2')])
+  allAsync([deps.getUser('1'), deps.getUser('2')])
 );
 ```
 
@@ -682,67 +626,67 @@ These utilities work on Result values **outside workflows** (at boundaries, in d
 ### Default values
 
 ```typescript
-import { Awaitly } from 'awaitly';
+import { unwrapOr, unwrapOrElse } from 'awaitly';
 
 // Static default
-const name = Awaitly.unwrapOr(result, 'Anonymous');
+const name = unwrapOr(result, 'Anonymous');
 
 // Computed default (only called on Err)
-const user = Awaitly.unwrapOrElse(result, () => createGuestUser());
+const user = unwrapOrElse(result, () => createGuestUser());
 ```
 
 ### Transform values
 
 ```typescript
-import { Awaitly } from 'awaitly';
+import { map, mapError } from 'awaitly';
 
 // Transform Ok value
-const upperName = Awaitly.map(result, user => user.name.toUpperCase());
+const upperName = map(result, user => user.name.toUpperCase());
 
 // Transform Err value
-const httpError = Awaitly.mapError(result, e => ({ code: 404, message: e }));
+const httpError = mapError(result, e => ({ code: 404, message: e }));
 ```
 
 ### Chain operations
 
 ```typescript
-import { Awaitly } from 'awaitly';
+import { andThen } from 'awaitly';
 
 // Chain Result-returning functions (flatMap)
-const orderResult = Awaitly.andThen(userResult, user => createOrder(user));
+const orderResult = andThen(userResult, user => createOrder(user));
 ```
 
 ### Fallback on error
 
 ```typescript
-import { Awaitly } from 'awaitly';
+import { orElse } from 'awaitly';
 
 // Try alternative on Err
-const result = Awaitly.orElse(primaryResult, () => fallbackResult);
+const result = orElse(primaryResult, () => fallbackResult);
 ```
 
 ### Convert nullable to Result
 
 ```typescript
-import { Awaitly } from 'awaitly';
+import { fromNullable } from 'awaitly';
 
 // null/undefined → Err, value → Ok
-const result = Awaitly.fromNullable(maybeUser, () => 'NOT_FOUND');
+const result = fromNullable(maybeUser, () => 'NOT_FOUND');
 ```
 
 ### Wrap throwing code (outside workflows)
 
 ```typescript
-import { Awaitly } from 'awaitly';
+import { from, fromPromise } from 'awaitly';
 
 // Sync throwing code → Result
-const parsed = Awaitly.from(() => JSON.parse(data), () => 'PARSE_ERROR');
+const parsed = from(() => JSON.parse(data), () => 'PARSE_ERROR');
 
 // Async throwing code → AsyncResult
-const response = await Awaitly.fromPromise(fetch(url), () => 'FETCH_ERROR');
+const response = await fromPromise(fetch(url), () => 'FETCH_ERROR');
 
 // With error context from the cause
-const detailed = Awaitly.from(
+const detailed = from(
   () => JSON.parse(data),
   (cause) => ({ type: 'PARSE_ERROR', message: String(cause) })
 );
@@ -751,13 +695,13 @@ const detailed = Awaitly.from(
 ### Type guards
 
 ```typescript
-import { Awaitly } from 'awaitly';
+import { isOk, isErr } from 'awaitly';
 
-if (Awaitly.isOk(result)) {
+if (isOk(result)) {
   console.log(result.value);  // TypeScript knows it's Ok
 }
 
-if (Awaitly.isErr(result)) {
+if (isErr(result)) {
   console.log(result.error);  // TypeScript knows it's Err
 }
 ```
@@ -765,30 +709,25 @@ if (Awaitly.isErr(result)) {
 ### Side effects without changing Result
 
 ```typescript
-import { Awaitly } from 'awaitly';
+import { tap, tapError } from 'awaitly';
 
 // Log success without changing result
-const logged = Awaitly.tap(result, user => console.log('Got user:', user.id));
+const logged = tap(result, user => console.log('Got user:', user.id));
 
 // Log error without changing result
-const loggedErr = Awaitly.tapError(result, e => console.error('Failed:', e));
+const loggedErr = tapError(result, e => console.error('Failed:', e));
 ```
 
-### Partial application at composition boundaries
+### Overriding workflow deps
 
 ```typescript
-import { bindDeps } from 'awaitly/bind-deps';
+import { withDeps } from 'awaitly';
 
-// Core function: explicit fn(args, deps) for testing
-const notify = (args: { name: string }, deps: { send: SendFn }) =>
-  deps.send(args.name);
-
-// At composition root: bind deps once
-const notifySlack = bindDeps(notify)(slackDeps);
-const notifyEmail = bindDeps(notify)(emailDeps);
-
-// Call sites are clean
-await notifySlack({ name: 'Alice' });
+// Derive a workflow with some deps replaced (e.g. mocks in tests)
+const testWorkflow = withDeps(processOrder, { sendEmail: mockSendEmail });
+const result = await testWorkflow.run(async ({ step, deps }) => {
+  // deps.sendEmail is the mock; other deps are creation-time
+});
 ```
 
 ---
@@ -812,13 +751,12 @@ Start with strings. Migrate to objects when you need context.
 **Recommended:** Use `ErrorOf<typeof dep>` (single dep), `Errors<[typeof d1, typeof d2, ...]>` (tuple deps), or `ErrorsOf<typeof deps>` (deps object) to derive the error type and pass it to `run<T, RunErrors>()`. `UnexpectedError` is always included automatically.
 
 ```typescript
-import { Awaitly, isUnexpectedError, type AsyncResult, type ErrorsOf } from 'awaitly';
-import { run } from 'awaitly/run';
+import { run, ok, err, isUnexpectedError, type AsyncResult, type ErrorsOf } from 'awaitly';
 
 // deps return Results, never throw
 async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
   const user = await db.find(id);
-  return user ? Awaitly.ok(user) : Awaitly.err('NOT_FOUND');
+  return user ? ok(user) : err('NOT_FOUND');
 }
 
 async function createOrder(user: User): AsyncResult<Order, 'ORDER_FAILED'> {
@@ -891,14 +829,14 @@ if (!result.ok) {
 ### Full: createWorkflow('name', deps) with DI — execute only via .run()
 
 ```typescript
-import { Awaitly, isUnexpectedError, type AsyncResult } from 'awaitly';
+import { ok, err, isUnexpectedError, type AsyncResult } from 'awaitly';
 import { createWorkflow } from 'awaitly/workflow';
 
 // 1. deps return Results, never throw (see "Deps and throwing" above)
 const deps = {
   getUser: async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
     const user = await db.find(id);
-    return user ? Awaitly.ok(user) : Awaitly.err('NOT_FOUND');
+    return user ? ok(user) : err('NOT_FOUND');
   },
   createOrder: async (user: User): AsyncResult<Order, 'ORDER_FAILED'> => {
     // ...
@@ -962,15 +900,15 @@ Test workflows by creating the workflow with deps and calling **`workflow.run(as
 
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
-import { Awaitly } from 'awaitly';
+import { ok, err } from 'awaitly';
 import { unwrapOk, unwrapErr } from 'awaitly/testing';
 
 it('completes order flow', async () => {
   const deps = {
     getUser: async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
-      id === '1' ? Awaitly.ok({ id, name: 'Alice' }) : Awaitly.err('NOT_FOUND'),
+      id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND'),
     createOrder: async (user: User): AsyncResult<Order, 'ORDER_FAILED'> =>
-      Awaitly.ok({ orderId: '123' }),
+      ok({ orderId: '123' }),
   };
 
   const workflow = createWorkflow('orderFlow', deps);
@@ -985,8 +923,8 @@ it('completes order flow', async () => {
 
 it('returns NOT_FOUND for unknown user', async () => {
   const deps = {
-    getUser: async (id: string): AsyncResult<User, 'NOT_FOUND'> => Awaitly.err('NOT_FOUND'),
-    createOrder: async (user: User): AsyncResult<Order, 'ORDER_FAILED'> => Awaitly.ok({ orderId: '123' }),
+    getUser: async (id: string): AsyncResult<User, 'NOT_FOUND'> => err('NOT_FOUND'),
+    createOrder: async (user: User): AsyncResult<Order, 'ORDER_FAILED'> => ok({ orderId: '123' }),
   };
 
   const workflow = createWorkflow('orderFlow', deps);
@@ -1017,7 +955,7 @@ it('run(fn, { deps }) overrides creation-time deps for that run only', async () 
 
   // Second run: override fetchUser with a mock for this run only
   const mockFetchUser = vi.fn(async (id: string) =>
-    Awaitly.ok({ id, name: 'Mock User', email: 'mock@test.com' })
+    ok({ id, name: 'Mock User', email: 'mock@test.com' })
   );
   const result2 = await getPosts.run(
     async ({ step, deps }) => {
@@ -1040,7 +978,7 @@ it('run(fn, { deps }) overrides creation-time deps for that run only', async () 
 it('partial deps override merges with creation-time deps', async () => {
   const getPosts = createWorkflow('getPosts', { fetchUser, fetchPosts });
   const mockFetchUser = vi.fn(async (id: string) =>
-    Awaitly.ok({ id, name: 'Overridden', email: 'o@test.com' })
+    ok({ id, name: 'Overridden', email: 'o@test.com' })
   );
 
   // Override only fetchUser; fetchPosts stays from creation-time
@@ -1066,8 +1004,8 @@ it('retries on failure', async () => {
   const deps = {
     fetchData: async (): AsyncResult<{ data: string }, 'NETWORK_ERROR'> => {
       attempts++;
-      if (attempts < 3) return Awaitly.err('NETWORK_ERROR');
-      return Awaitly.ok({ data: 'success' });
+      if (attempts < 3) return err('NETWORK_ERROR');
+      return ok({ data: 'success' });
     },
   };
 
@@ -1133,41 +1071,13 @@ Full structure is documented in awaitly-analyze README (“JSON output shape”)
 
 ## Imports
 
-**Recommended:** Use the `Awaitly` namespace for a clean, organized API surface:
+There are exactly four entry points, and all imports are **named imports** — there is no `Awaitly` namespace object:
 
 ```typescript
-// Core - All-in-one namespace (recommended)
-import { Awaitly, type AsyncResult, type Result } from 'awaitly';
-
-// Access everything via Awaitly:
-Awaitly.ok(value)
-Awaitly.err(error)
-Awaitly.map(result, fn)
-Awaitly.allAsync([])
-Awaitly.isUnexpectedError(e)
-
-// Simple workflow (closures, no DI)
-import { run } from 'awaitly/run';
-
-// Full workflow (DI, retries, timeout)
-import { createWorkflow } from 'awaitly/workflow';
-
-// Smallest workflow API (auto-step from deps-object key)
-import { flow, type Flowed, type FlowOptions } from 'awaitly/flow';
-// Note: FlowContext and FlowErrors are internal — derive via Parameters/ReturnType if you need them.
-
-// Partial application
-import { bindDeps } from 'awaitly/bind-deps';
-
-// Testing
-import { unwrapOk, unwrapErr } from 'awaitly/testing';
-```
-
-**Alternative:** Named imports (backwards compatible):
-
-```typescript
-// Core - Named imports (still supported)
+// Core (the front door) — Result primitives, run(), policies, TaggedError,
+// pattern matching, durations, circuit breaker, rate limiting, cache
 import {
+  run,                               // simple workflow (closures, no DI)
   ok, err,                           // constructors
   type AsyncResult, type Result,     // types
   type ErrorOf, type Errors, type ErrorsOf, // type helpers
@@ -1180,12 +1090,18 @@ import {
   tap, tapError,                     // side effects
   allAsync,                          // parallel
 } from 'awaitly';
+
+// Full workflow (DI, retries, timeout, persistence, durable, sagas, streaming)
+import { createWorkflow, durable } from 'awaitly/workflow';
+
+// Testing
+import { unwrapOk, unwrapErr } from 'awaitly/testing';
 ```
 
 **Tree-shaking:** For minimal bundle size, use the `awaitly/result` entry point:
 
 ```typescript
-// Result types only (minimal bundle, no namespace)
+// Result types only (minimal bundle)
 import { ok, err, type AsyncResult } from 'awaitly/result';
 ```
 
@@ -1196,7 +1112,7 @@ import { ok, err, type AsyncResult } from 'awaitly/result';
 `createEngine()` provides a polling background engine for durable workflow orchestration.
 
 ```typescript
-import { createEngine } from 'awaitly/engine';
+import { createEngine } from 'awaitly/workflow';
 
 const engine = createEngine({
   store,
@@ -1220,7 +1136,7 @@ await engine.start();
 await engine.stop();
 ```
 
-**Import:** `'awaitly/engine'` — exports `createEngine`, `Engine`, `EngineOptions`, `EngineEvent`, `EnqueueOptions`, `ScheduleOptions`, `WorkflowRegistration`.
+**Import:** `'awaitly/workflow'` — exports `createEngine`, `Engine`, `EngineOptions`, `EngineEvent`, `EnqueueOptions`, `ScheduleOptions`, `WorkflowRegistration`.
 
 ---
 
@@ -1280,7 +1196,7 @@ console.log(`Took ${result.durationMs}ms`);
 Returned when a workflow's lock lease expires mid-execution.
 
 ```typescript
-import { isLeaseExpired } from 'awaitly/durable';
+import { isLeaseExpired } from 'awaitly/workflow';
 
 if (isLeaseExpired(error)) {
   console.warn(`Lease lost for workflow ${error.workflowId}`);
@@ -1292,7 +1208,7 @@ if (isLeaseExpired(error)) {
 Returned when an idempotency key is reused with different input.
 
 ```typescript
-import { isIdempotencyConflict } from 'awaitly/durable';
+import { isIdempotencyConflict } from 'awaitly/workflow';
 
 if (isIdempotencyConflict(error)) {
   console.warn(`Duplicate key ${error.idempotencyKey} for ${error.workflowId}`);
@@ -1305,7 +1221,9 @@ Optional lease renewal. When a store implements `renew`, `durable.run` starts a 
 
 ```typescript
 // Store implementations (libsql, mongo, postgres) now support renew()
-const result = await durable.run('my-workflow', store, deps, fn, {
+const result = await durable.run(deps, fn, {
+  id: 'my-workflow',
+  store,
   lockTtlMs: 30_000,
   heartbeatIntervalMs: 10_000,
 });

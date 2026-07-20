@@ -53,14 +53,14 @@ Promise + try/catch               AsyncResult
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly, type AsyncResult } from 'awaitly';
+import { ok, err, type AsyncResult } from 'awaitly';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND' | 'DB_ERROR'> => {
   try {
     const user = await db.find(id);
-    return user ? Awaitly.ok(user) : Awaitly.err('NOT_FOUND');
+    return user ? ok(user) : err('NOT_FOUND');
   } catch {
-    return Awaitly.err('DB_ERROR');
+    return err('DB_ERROR');
   }
 };
 
@@ -148,7 +148,7 @@ try {
 <Tabs>
   <TabItem label="awaitly (run)">
 ```typescript
-import { run } from 'awaitly/run';
+import { run } from 'awaitly';
 import { type ErrorsOf } from 'awaitly';
 
 const deps = { fetchUser, validateOrder, chargeCard };
@@ -210,10 +210,10 @@ const processOrder = async () => {
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { allAsync, allSettledAsync } from 'awaitly';
 
 // Fail-fast: stops on first error
-const result = await Awaitly.allAsync([
+const result = await allAsync([
   fetchUser('1'),
   fetchUser('2'),
   fetchUser('3'),
@@ -224,13 +224,13 @@ if (result.ok) {
 }
 
 // Collect all results (including errors)
-const settled = await Awaitly.allSettledAsync([
+const settled = await allSettledAsync([
   fetchUser('1'),
   fetchUser('2'),
   fetchUser('3'),
 ]);
 // Returns a Result with collected outcomes
-// See [Awaitly.allSettledAsync](/reference/api/) for the exact return shape.
+// See [allSettledAsync](/reference/api/) for the exact return shape.
 ```
   </TabItem>
   <TabItem label="Promise">
@@ -266,12 +266,12 @@ const successes = results
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { Awaitly } from 'awaitly';
+import { mapError } from 'awaitly';
 
 const result = await fetchUser('123');
 
 // Transform error to API response format
-const apiResult = Awaitly.mapError(result, (e) => ({
+const apiResult = mapError(result, (e) => ({
   code: e,
   message: e === 'NOT_FOUND' ? 'User not found' : 'Database error',
   timestamp: Date.now(),
@@ -370,27 +370,27 @@ const result = await withRetry(() => withTimeout(fetchData, 5000), 3, 100);
 You can adopt awaitly incrementally. Here's how to wrap existing Promise-based code:
 
 ```typescript
-import { Awaitly, type AsyncResult } from 'awaitly';
+import { ok, err, from, fromPromise, type AsyncResult } from 'awaitly';
 
 // Wrap an existing async function manually
 const safeFetchUser = async (id: string): AsyncResult<User, 'FETCH_ERROR'> => {
   try {
     const user = await legacyFetchUser(id); // existing Promise function
-    return Awaitly.ok(user);
+    return ok(user);
   } catch {
-    return Awaitly.err('FETCH_ERROR');
+    return err('FETCH_ERROR');
   }
 };
 
-// Or use Awaitly.fromPromise to wrap a Promise directly
-const safeResult = await Awaitly.fromPromise(
+// Or use fromPromise to wrap a Promise directly
+const safeResult = await fromPromise(
   legacyFetchUser('123'),
   () => 'FETCH_ERROR' as const
 );
 
-// Sync: Awaitly.from(fn, onError) for throwing functions
+// Sync: from(fn, onError) for throwing functions
 const safeJsonParse = (s: string) =>
-  Awaitly.from(
+  from(
     () => JSON.parse(s),
     () => 'PARSE_ERROR' as const
   );

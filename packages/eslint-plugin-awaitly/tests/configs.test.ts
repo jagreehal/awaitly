@@ -26,6 +26,8 @@ describe('plugin configs', () => {
       'concurrency-no-promise-race',
       'concurrency-no-promise-allsettled',
       'error-check-unexpected-first',
+      'workflow-prefer-step-if',
+      'workflow-prefer-step-foreach',
     ];
     for (const key of canonical) {
       expect(keys).toContain(key);

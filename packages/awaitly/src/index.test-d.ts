@@ -9,18 +9,6 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 import { expectType } from "tsd";
 import {
-  Awaitly,
-  type Ok,
-  type Err,
-  type Result,
-  type AsyncResult,
-  type Errors,
-  type ErrorOf,
-  type TagOf,
-  type ErrorByTag,
-  type UnexpectedError,
-} from "./index";
-const {
   ok,
   err,
   TaggedError,
@@ -36,7 +24,16 @@ const {
   all,
   any,
   allSettled,
-} = Awaitly;
+  type Ok,
+  type Err,
+  type Result,
+  type AsyncResult,
+  type Errors,
+  type ErrorOf,
+  type TagOf,
+  type ErrorByTag,
+  type UnexpectedError,
+} from "./index";
 import { run, type WorkflowEvent } from "./run-entry";
 import { createWorkflow, ErrorsOfDeps, withDeps } from "./workflow-entry";
 import { pendingApproval } from "./hitl-entry";
@@ -45,7 +42,6 @@ import { Duration, type DurationType } from "./duration";
 // We import from source here because tsd can't resolve self-referencing package imports.
 // The public exports are validated by the build process (tsup generates .d.ts from these sources).
 import { Match } from "./match";
-import { Schedule } from "./schedule";
 import { CircuitOpenError } from "./circuit-breaker";
 import { matchError as matchErrorCore, type MatchErrorHandlers as MatchErrorHandlersCore } from "./core-entry";
 import { createWebhookHandler } from "./webhook-entry";
@@ -1928,53 +1924,6 @@ function _test49MatchTypeGuards() {
     // event should be UserCreated | UserUpdated
     expectType<string>(event.userId);
   }
-}
-
-// =============================================================================
-// TEST 50: Schedule.spaced().pipe() chain works
-// =============================================================================
-
-function _test50SchedulePipeChain() {
-  // Schedule.spaced returns PipedSchedule with working pipe method
-  const schedule = Schedule.spaced(Duration.millis(100))
-    .pipe(Schedule.upTo(5))
-    .pipe(Schedule.jittered(0.2))
-    .pipe(Schedule.maxDelay(Duration.seconds(30)));
-
-  // The schedule should still be usable
-  const runner = Schedule.run(schedule);
-  const step = runner.next(undefined);
-
-  if (!step.done) {
-    // Output should be number (from spaced)
-    expectType<number>(step.value.output);
-  }
-}
-
-function _test50ScheduleExponentialPipeChain() {
-  const schedule = Schedule.exponential(Duration.millis(100))
-    .pipe(Schedule.upTo(3))
-    .pipe(Schedule.andThen(Schedule.spaced(Duration.seconds(1))));
-
-  const runner = Schedule.run(schedule);
-  const step = runner.next(undefined);
-
-  if (!step.done) {
-    // Duration type should be preserved
-    expectType<DurationType>(step.value.delay);
-  }
-}
-
-// =============================================================================
-// TEST 51: Schedule.delays helper returns correct type
-// =============================================================================
-
-function _test51ScheduleDelays() {
-  const schedule = Schedule.fibonacci(Duration.millis(100)).pipe(Schedule.upTo(5));
-  const delays = Schedule.delays(schedule);
-
-  // delays should be array of Duration
-  expectType<DurationType[]>(delays);
 }
 
 // =============================================================================

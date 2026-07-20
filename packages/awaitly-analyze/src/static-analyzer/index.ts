@@ -1108,6 +1108,9 @@ function analyzeCallExpression(
       if (sagaParam.stepAlias && callee === sagaParam.stepAlias) {
         return analyzeSagaStepCall(node, args, false, opts, warnings, stats);
       }
+      if (sagaParam.stepAlias && callee === `${sagaParam.stepAlias}.try`) {
+        return analyzeSagaStepCall(node, args, true, opts, warnings, stats);
+      }
       if (sagaParam.tryStepAlias && callee === sagaParam.tryStepAlias) {
         return analyzeSagaStepCall(node, args, true, opts, warnings, stats);
       }
@@ -3496,4 +3499,3 @@ function createEmptyStats(): AnalysisStats {
     compensatedStepCount: 0,
   };
 }
-

@@ -7,10 +7,13 @@ Best practices for running awaitly in production: observability, error tracking,
 
 ## Observability with OpenTelemetry
 
+Workflows expose everything they do through the `onEvent` option — wire those events to OpenTelemetry spans and metrics directly. See the [OpenTelemetry guide](/advanced/opentelemetry/) for the full event reference. A first-class OTel adapter is planned as a separate ecosystem package.
+
 ### Basic setup
 
 ```typescript
-import { createAutotelAdapter } from 'awaitly/otel';
+import { createWorkflow, type WorkflowEvent } from 'awaitly/workflow';
+import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 
@@ -23,39 +26,59 @@ const sdk = new NodeSDK({
 });
 sdk.start();
 
-// Create awaitly adapter
-const otel = createAutotelAdapter({ serviceName: 'checkout-service' });
+// Hand-wire workflow events to spans
+const tracer = trace.getTracer('checkout-service');
+const stepSpans = new Map<string, Span>();
+
+function handleOtelEvent(event: WorkflowEvent<unknown>) {
+  if (event.type === 'step_start') {
+    stepSpans.set(event.stepId, tracer.startSpan(`step ${event.name ?? event.stepId}`));
+  }
+
+  if (event.type === 'step_success' || event.type === 'step_error') {
+    const span = stepSpans.get(event.stepId);
+    if (event.type === 'step_error') {
+      span?.setStatus({ code: SpanStatusCode.ERROR, message: String(event.error) });
+    }
+    span?.end();
+    stepSpans.delete(event.stepId);
+  }
+}
 
 // Use in workflow
 const workflow = createWorkflow('workflow', deps, {
-  onEvent: otel.handleEvent,
+  onEvent: handleOtelEvent,
 });
 ```
 
 ### Custom span attributes
 
 ```typescript
-import { createAutotelAdapter } from 'awaitly/otel';
+function handleOtelEvent(event: WorkflowEvent<unknown>) {
+  // Add custom attributes based on event type
+  if (event.type === 'step_start') {
+    const span = tracer.startSpan(`step ${event.name ?? event.stepId}`);
+    span.setAttribute('step.name', event.name ?? 'unnamed');
+    span.setAttribute('step.key', event.stepKey ?? '');
+    stepSpans.set(event.stepId, span);
+  }
 
-const otel = createAutotelAdapter({
-  serviceName: 'checkout-service',
-  enrichSpan: (span, event) => {
-    // Add custom attributes based on event type
-    if (event.type === 'step_start') {
-      span.setAttribute('step.name', event.name ?? 'unnamed');
-      span.setAttribute('step.key', event.stepKey ?? '');
-    }
+  if (event.type === 'step_success') {
+    const span = stepSpans.get(event.stepId);
+    span?.setAttribute('step.duration_ms', event.durationMs);
+    span?.end();
+    stepSpans.delete(event.stepId);
+  }
 
-    if (event.type === 'step_complete') {
-      span.setAttribute('step.duration_ms', event.durationMs ?? 0);
-      span.setAttribute('step.cached', event.cached ?? false);
-    }
-
-    if (event.type === 'step_error') {
-      span.setAttribute('error.type', typeof event.error === 'string' ? event.error : 'object');
-    }
-  },
-});
+  if (event.type === 'step_error') {
+    const span = stepSpans.get(event.stepId);
+    span?.setAttribute('step.duration_ms', event.durationMs);
+    span?.setAttribute('error.type', typeof event.error === 'string' ? event.error : 'object');
+    span?.setStatus({ code: SpanStatusCode.ERROR });
+    span?.end();
+    stepSpans.delete(event.stepId);
+  }
+}
 ```
 
 ### Datadog integration
@@ -98,10 +121,10 @@ const workflowDuration = meter.createHistogram('workflow_duration_ms');
 const stepErrors = meter.createCounter('step_errors_total');
 
 // Custom event handler with metrics
-function handleWorkflowEvent(event: WorkflowEvent) {
-  otel.handleEvent(event);
+function handleWorkflowEvent(event: WorkflowEvent<unknown>) {
+  handleOtelEvent(event);
 
-  if (event.type === 'workflow_complete') {
+  if (event.type === 'workflow_success') {
     workflowDuration.record(event.durationMs, {
       workflow: event.workflowName ?? 'unknown',
       status: 'success',
@@ -140,7 +163,7 @@ Sentry.init({
   environment: process.env.NODE_ENV,
 });
 
-function handleWorkflowEvent(event: WorkflowEvent) {
+function handleWorkflowEvent(event: WorkflowEvent<unknown>) {
   // Report unexpected errors to Sentry
   if (event.type === 'workflow_error') {
     const error = event.error;
@@ -239,10 +262,10 @@ See [Persistence](/guides/persistence/) and [PostgreSQL](/guides/postgres-persis
 
 ### Redis (custom SnapshotStore)
 
-Implement the `SnapshotStore` interface from `awaitly/persistence`:
+Implement the `SnapshotStore` interface from `awaitly/workflow`:
 
 ```typescript
-import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/workflow';
 import { createClient } from 'redis';
 
 const redis = createClient({ url: process.env.REDIS_URL });
@@ -278,7 +301,7 @@ await workflow.run(/* same workflow fn */, { resumeState: savedState ?? undefine
 If you need a custom table, implement `SnapshotStore` and store `WorkflowSnapshot` as JSONB:
 
 ```typescript
-import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/workflow';
 import { Pool } from 'pg';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -318,7 +341,7 @@ const store: SnapshotStore = {
 Implement `SnapshotStore` and store `WorkflowSnapshot` as JSON:
 
 ```typescript
-import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/workflow';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 
@@ -450,8 +473,8 @@ function createHealthTracker() {
   };
 
   return {
-    handleEvent(event: WorkflowEvent) {
-      if (event.type === 'workflow_complete') {
+    handleEvent(event: WorkflowEvent<unknown>) {
+      if (event.type === 'workflow_success') {
         stats.total++;
         stats.successful++;
         stats.avgDuration = (stats.avgDuration * (stats.total - 1) + (event.durationMs ?? 0)) / stats.total;
@@ -478,7 +501,7 @@ const healthTracker = createHealthTracker();
 const workflow = createWorkflow('workflow', deps, {
   onEvent: (event) => {
     healthTracker.handleEvent(event);
-    otel.handleEvent(event);
+    handleOtelEvent(event);
   },
 });
 
@@ -557,7 +580,7 @@ async function startDistributedWorkflow(workflowId: string, input: WorkflowInput
 ### Rate limiting for external APIs
 
 ```typescript
-import { createRateLimiter } from 'awaitly/ratelimit';
+import { createRateLimiter } from 'awaitly';
 
 // Limit Stripe API calls
 const stripeLimit = createRateLimiter('stripe', {
@@ -595,7 +618,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 ### Circuit breaker for unreliable dependencies
 
 ```typescript
-import { createCircuitBreaker } from 'awaitly/circuit-breaker';
+import { createCircuitBreaker } from 'awaitly';
 
 // Protect against cascading failures
 const paymentBreaker = createCircuitBreaker('payment-service', {
@@ -670,7 +693,7 @@ const featureFlags = {
 };
 
 const workflow = createWorkflow('workflow', deps, {
-  onEvent: featureFlags.enableCircuitBreakers ? otel.handleEvent : undefined,
+  onEvent: featureFlags.enableCircuitBreakers ? handleOtelEvent : undefined,
 });
 
 const result = await workflow.run(async ({ step, deps }) => {

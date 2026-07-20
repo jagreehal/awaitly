@@ -185,7 +185,9 @@ const failed = andThen(negative, (n) =>
 
 ### match - Pattern Match
 
-Handle both cases in one expression:
+Handle both cases in one expression. The discriminant is `type` everywhere — string errors match themselves, tagged objects match on `type`, and `TaggedError` instances expose `.type` as the canonical field (`._tag` remains as a deprecated alias).
+
+**Two-arm catch-all:**
 
 ```typescript
 import { match } from 'awaitly';
@@ -197,6 +199,25 @@ const message = match(result, {
 });
 // "Success: 5"
 ```
+
+**Exhaustive per-type arms** — dispatch across string literals, tagged objects, and `TaggedError` classes in one call:
+
+```typescript
+import { match, ok, err, type AsyncResult } from 'awaitly';
+
+type FetchUserError = 'USER_NOT_FOUND' | TimeoutError | UnexpectedError;
+
+const result: AsyncResult<User, FetchUserError> = await fetchUser('123');
+
+const response = match(result, {
+  ok: (user) => ({ status: 200, body: user }),
+  USER_NOT_FOUND: () => ({ status: 404, body: { error: 'not_found' } }),
+  TimeoutError: (e) => ({ status: 504, body: { error: 'timeout', ms: e.ms } }),
+  UnexpectedError: (e) => ({ status: 500, body: { error: 'internal', cause: e.cause } }),
+});
+```
+
+TypeScript errors if you omit a variant from the inferred union. See [Tagged Errors](/foundations/tagged-errors/) for `TaggedError`-specific helpers.
 
 ## Unwrapping
 
@@ -401,72 +422,131 @@ if (!invalid.ok && invalid.error.type === DESERIALIZATION_ERROR) {
 }
 ```
 
-## Edge Wrapping with tryAsyncBoundary
+## Edge Wrapping at SDK Boundaries
 
-Use object-style config when wrapping SDK/vendor edges so classification and retry policy stay together:
+Wrap SDK/vendor edges with `tryAsync` so error classification lives at the boundary, then add the `retry` policy where the function is declared so classification and retry policy stay together:
 
 ```typescript
-import { tryAsyncBoundary } from 'awaitly/result/retry';
+import { tryAsync, retry } from 'awaitly';
 
-const result = await tryAsyncBoundary({
-  try: () => paymentProvider.authorize(card, total),
-  catch: (cause) =>
-    isTimeoutAfterCapture(cause)
-      ? new PaymentLimbo({ attemptId, cause })
-      : new TransientVendorError({ vendor: 'stripe', cause }),
-  retry: {
-    attempts: 4,
-    initialDelay: 100,
-    shouldRetry: (e) => e instanceof TransientVendorError,
-  },
-});
+const authorize = () =>
+  tryAsync(
+    () => paymentProvider.authorize(card, total),
+    (cause) =>
+      isTimeoutAfterCapture(cause)
+        ? new PaymentLimbo({ attemptId, cause })
+        : new TransientVendorError({ vendor: 'stripe', cause })
+  );
+
+const result = await retry(authorize, {
+  attempts: 4,
+  delay: 100,
+  retryIf: (e) => e instanceof TransientVendorError,
+})();
 ```
 
 ### Boundary Cookbook (Copy/Paste)
 
 ```typescript
 // 1) Timeout-after-capture: classify as do-not-retry
-const payment = await tryAsyncBoundary({
-  try: () => gateway.authorize(card, total),
-  catch: (cause) =>
-    isTimeoutAfterCapture(cause)
-      ? new PaymentLimbo({ attemptId, cause })
-      : new TransientVendorError({ vendor: 'stripe', cause }),
-  retry: {
-    attempts: 3,
-    initialDelay: 100,
-    backoff: 'fixed',
-    shouldRetry: (e) => e instanceof TransientVendorError,
-  },
-});
+const authorizePayment = () =>
+  tryAsync(
+    () => gateway.authorize(card, total),
+    (cause) =>
+      isTimeoutAfterCapture(cause)
+        ? new PaymentLimbo({ attemptId, cause })
+        : new TransientVendorError({ vendor: 'stripe', cause })
+  );
+
+const payment = await retry(authorizePayment, {
+  attempts: 3,
+  delay: 100,
+  backoff: 'fixed',
+  retryIf: (e) => e instanceof TransientVendorError,
+})();
 
 // 2) Validation boundary mapping
-const parsed = await tryAsyncBoundary({
-  try: () => Promise.resolve(schema.parse(input)),
-  catch: (cause) => new ValidationError({ field: 'input', reason: String(cause) }),
-});
-```
-
-## Retry with tryAsyncRetry
-
-Retry async operations without the full workflow engine:
-
-```typescript
-import { tryAsyncRetry } from 'awaitly/result/retry';
-
-const result = await tryAsyncRetry(
-  () => fetch('/api/data').then(r => r.json()),
-  (cause) => ({ type: 'FETCH_FAILED' as const, cause }),
-  {
-    retry: {
-      attempts: 4,
-      initialDelay: 100,
-      backoff: 'exponential',
-      shouldRetry: (e) => e.type === 'FETCH_FAILED',
-    },
-  }
+const parsed = await tryAsync(
+  () => Promise.resolve(schema.parse(input)),
+  (cause) => new ValidationError({ field: 'input', reason: String(cause) })
 );
 ```
+
+## Retry with the `retry` Policy
+
+Retry async operations without the full workflow engine. `retry` wraps any Result-returning (or plain) function and keeps its error union unchanged — if all attempts fail, the last failure propagates:
+
+```typescript
+import { tryAsync, retry } from 'awaitly';
+
+const fetchData = () =>
+  tryAsync(
+    () => fetch('/api/data').then(r => r.json()),
+    (cause) => ({ type: 'FETCH_FAILED' as const, cause })
+  );
+
+const result = await retry(fetchData, {
+  attempts: 4,
+  delay: 100,
+  backoff: 'exponential',
+})();
+```
+
+The same wrapped function drops straight into a `run()` deps object, so the policy is visible where the dependency is declared.
+
+## Timeout with the `timeout` Policy
+
+Bound a dependency's execution time. On timeout, resolves to `err(TimeoutError)` — adding `TimeoutError` to the error union:
+
+```typescript
+import { tryAsync, timeout } from 'awaitly';
+
+const fetchData = () =>
+  tryAsync(
+    () => fetch('/api/data').then(r => r.json()),
+    (cause) => ({ type: 'FETCH_FAILED' as const, cause })
+  );
+
+const result = await timeout(fetchData, 5000)();
+// result.error may be 'FETCH_FAILED' | TimeoutError
+```
+
+Accepts milliseconds or duration strings (`'5s'`, `'500ms'`).
+
+## Fallback with the `fallback` Policy
+
+Recover from a dependency's failure. The handler receives the failure plus original arguments; base errors are consumed and only handler errors remain in the union:
+
+```typescript
+import { ok, fallback, tryAsync } from 'awaitly';
+
+const fetchPrimary = () =>
+  tryAsync(
+    () => primaryCache.get(key),
+    () => ({ type: 'CACHE_MISS' as const })
+  );
+
+const result = await fallback(fetchPrimary, () => ok({ value: 'default' }))();
+// On CACHE_MISS, returns ok({ value: 'default' }) — no typed errors left
+```
+
+## Composing policies
+
+Policies nest inside-out. Timeout applies per attempt when wrapped by retry:
+
+```typescript
+import { retry, timeout } from 'awaitly';
+
+const deps = {
+  charge: retry(timeout(charge, 5000), {
+    attempts: 3,
+    backoff: 'exponential',
+    delay: 100,
+  }),
+};
+```
+
+`awaitly-analyze` reads policy chains from the deps literal and records them on `DependencyInfo.policies` for diagrams and diagnostics.
 
 ## Summary
 
@@ -477,14 +557,16 @@ const result = await tryAsyncRetry(
 | `map(result, fn)` | Transform success value |
 | `mapError(result, fn)` | Transform error |
 | `andThen(result, fn)` | Chain operations |
-| `match(result, { ok, err })` | Pattern match |
+| `match(result, { ok, err })` | Two-arm pattern match |
+| `match(result, { ok, Variant, ... })` | Exhaustive per-type match |
 | `unwrap(result)` | Get value or throw |
 | `unwrapOr(result, default)` | Get value or default |
 | `from(fn)` | Wrap sync throwing code |
 | `fromPromise(promise)` | Wrap async throwing code |
 | `tryAsync(fn, mapError)` | Wrap with custom error |
-| `tryAsyncBoundary({ try, catch, retry? })` | Edge-first async wrapper with optional retry policy |
-| `tryAsyncRetry(fn, config)` | Wrap with retry support |
+| `retry(fn, options)` | Per-dep retry policy (also works standalone) |
+| `timeout(fn, ms)` | Per-dep timeout policy; adds `TimeoutError` |
+| `fallback(fn, handler)` | Per-dep fallback; consumes base errors |
 | `all(results)` | Combine, fail on first error |
 | `partition(results)` | Separate successes/failures |
 | `flatten(nested)` | Unwrap nested Results |

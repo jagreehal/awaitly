@@ -295,10 +295,10 @@ Operations inside `anyAsync()` must be wrapped with `step()` individually to app
 
 ## Conditional execution
 
-`when()` from `awaitly/conditional` skips steps with a `step_skipped` event, rendered as `⊘` in diagrams.
+`when()` from `awaitly` skips steps with a `step_skipped` event, rendered as `⊘` in diagrams.
 
 ```typescript
-import { when } from 'awaitly/conditional';
+import { when } from 'awaitly';
 
 const discount = await when(
   user.isPremium,
@@ -319,7 +319,7 @@ In Mermaid output, skipped steps get a `:::skipped` class with a dashed border.
 To avoid passing `ctx` every time, use `createConditionalHelpers`:
 
 ```typescript
-import { createConditionalHelpers } from 'awaitly/conditional';
+import { createConditionalHelpers } from 'awaitly';
 
 const { when, unless } = createConditionalHelpers({
   workflowId: ctx.workflowId,
@@ -751,7 +751,32 @@ const mermaid = viz.renderAs('mermaid');
 fs.writeFileSync('artifacts/workflow-diagram.md', `\\`\\`\\`mermaid\\n${mermaid}\\n\\`\\`\\``);
 ```
 
+## Static analysis vs runtime visualization
+
+Use the right tool for the job:
+
+| Tool | Input | Output | Best for |
+|------|-------|--------|----------|
+| **`awaitly-visualizer`** | Live `onEvent` stream during a run | ASCII, Mermaid, JSON from runtime IR | Debugging a specific execution, dashboards, dev tools |
+| **`awaitly-analyze`** | Source TypeScript (no execution) | Static Mermaid, JSON, HTML | Architecture docs, PR diffs, CI gates |
+| **`awaitly-analyze --trace`** | Static IR + recorded `onEvent` JSON | Mermaid with executed path highlighted | Post-mortems, run reports on diagrammable workflows |
+
+**Runtime visualizer** builds an IR from workflow events. Its diagram shows one execution.
+
+**Static analysis** extracts structure from source code. Its diagram represents the code path rather than one execution. Workflows using declarative constructs (`step.if`, `when`/`unless`, `step.forEach`, literal step ids) are [fully diagrammable](/guides/static-analysis/#deterministic-diagrams-from-real-code). Use `--trace` or [`renderStaticMermaidWithTrace`](/guides/static-analysis/#runtime-trace-overlay) to add a recorded event trace to that diagram.
+
+Typical workflow: generate static diagrams in CI with `awaitly-analyze`, capture `onEvent` output in production or tests, then overlay traces for incident review:
+
+```bash
+# CI: enforce deterministic diagrams
+npx awaitly-analyze ./src/workflows/checkout.ts --assert-diagrammable
+
+# After a run: overlay the executed path
+npx awaitly-analyze ./src/workflows/checkout.ts --trace=./run-events.json
+```
+
+See [Static Analysis →](/guides/static-analysis/) for the full CLI and programmatic API.
+
 ## Next
 
 [Learn about Testing →](/guides/testing/)
-

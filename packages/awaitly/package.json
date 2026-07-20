@@ -13,185 +13,20 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
-    "./core": {
-      "types": "./dist/core.d.ts",
-      "import": "./dist/core.js",
-      "require": "./dist/core.cjs"
-    },
-    "./run": {
-      "types": "./dist/run.d.ts",
-      "import": "./dist/run.js",
-      "require": "./dist/run.cjs"
-    },
     "./result": {
       "types": "./dist/result.d.ts",
       "import": "./dist/result.js",
       "require": "./dist/result.cjs"
-    },
-    "./result/retry": {
-      "types": "./dist/result/retry.d.ts",
-      "import": "./dist/result/retry.js",
-      "require": "./dist/result/retry.cjs"
     },
     "./workflow": {
       "types": "./dist/workflow.d.ts",
       "import": "./dist/workflow.js",
       "require": "./dist/workflow.cjs"
     },
-    "./batch": {
-      "types": "./dist/batch.d.ts",
-      "import": "./dist/batch.js",
-      "require": "./dist/batch.cjs"
-    },
-    "./resource": {
-      "types": "./dist/resource.d.ts",
-      "import": "./dist/resource.js",
-      "require": "./dist/resource.cjs"
-    },
-    "./retry": {
-      "types": "./dist/retry.d.ts",
-      "import": "./dist/retry.js",
-      "require": "./dist/retry.cjs"
-    },
-    "./reliability": {
-      "types": "./dist/reliability.d.ts",
-      "import": "./dist/reliability.js",
-      "require": "./dist/reliability.cjs"
-    },
-    "./circuit-breaker": {
-      "types": "./dist/circuit-breaker.d.ts",
-      "import": "./dist/circuit-breaker.js",
-      "require": "./dist/circuit-breaker.cjs"
-    },
-    "./ratelimit": {
-      "types": "./dist/ratelimit.d.ts",
-      "import": "./dist/ratelimit.js",
-      "require": "./dist/ratelimit.cjs"
-    },
-    "./saga": {
-      "types": "./dist/saga.d.ts",
-      "import": "./dist/saga.js",
-      "require": "./dist/saga.cjs"
-    },
-    "./policies": {
-      "types": "./dist/policies.d.ts",
-      "import": "./dist/policies.js",
-      "require": "./dist/policies.cjs"
-    },
-    "./persistence": {
-      "types": "./dist/persistence.d.ts",
-      "import": "./dist/persistence.js",
-      "require": "./dist/persistence.cjs"
-    },
-    "./hitl": {
-      "types": "./dist/hitl.d.ts",
-      "import": "./dist/hitl.js",
-      "require": "./dist/hitl.cjs"
-    },
-    "./webhook": {
-      "types": "./dist/webhook.d.ts",
-      "import": "./dist/webhook.js",
-      "require": "./dist/webhook.cjs"
-    },
-    "./otel": {
-      "types": "./dist/otel.d.ts",
-      "import": "./dist/otel.js",
-      "require": "./dist/otel.cjs"
-    },
     "./testing": {
       "types": "./dist/testing.d.ts",
       "import": "./dist/testing.js",
       "require": "./dist/testing.cjs"
-    },
-    "./conditional": {
-      "types": "./dist/conditional.d.ts",
-      "import": "./dist/conditional.js",
-      "require": "./dist/conditional.cjs"
-    },
-    "./duration": {
-      "types": "./dist/duration.d.ts",
-      "import": "./dist/duration.js",
-      "require": "./dist/duration.cjs"
-    },
-    "./match": {
-      "types": "./dist/match.d.ts",
-      "import": "./dist/match.js",
-      "require": "./dist/match.cjs"
-    },
-    "./slugs": {
-      "types": "./dist/slugs.d.ts",
-      "import": "./dist/slugs.js",
-      "require": "./dist/slugs.cjs"
-    },
-    "./tagged-error": {
-      "types": "./dist/tagged-error.d.ts",
-      "import": "./dist/tagged-error.js",
-      "require": "./dist/tagged-error.cjs"
-    },
-    "./errors": {
-      "types": "./dist/errors.d.ts",
-      "import": "./dist/errors.js",
-      "require": "./dist/errors.cjs"
-    },
-    "./cache": {
-      "types": "./dist/cache.d.ts",
-      "import": "./dist/cache.js",
-      "require": "./dist/cache.cjs"
-    },
-    "./bind-deps": {
-      "types": "./dist/bind-deps.d.ts",
-      "import": "./dist/bind-deps.js",
-      "require": "./dist/bind-deps.cjs"
-    },
-    "./flow": {
-      "types": "./dist/flow.d.ts",
-      "import": "./dist/flow.js",
-      "require": "./dist/flow.cjs"
-    },
-    "./fetch": {
-      "types": "./dist/fetch.d.ts",
-      "import": "./dist/fetch.js",
-      "require": "./dist/fetch.cjs"
-    },
-    "./singleflight": {
-      "types": "./dist/singleflight.d.ts",
-      "import": "./dist/singleflight.js",
-      "require": "./dist/singleflight.cjs"
-    },
-    "./adapters": {
-      "types": "./dist/adapters.d.ts",
-      "import": "./dist/adapters.js",
-      "require": "./dist/adapters.cjs"
-    },
-    "./durable": {
-      "types": "./dist/durable.d.ts",
-      "import": "./dist/durable.js",
-      "require": "./dist/durable.cjs"
-    },
-    "./engine": {
-      "types": "./dist/engine.d.ts",
-      "import": "./dist/engine.js",
-      "require": "./dist/engine.cjs"
-    },
-    "./streaming": {
-      "types": "./dist/streaming.d.ts",
-      "import": "./dist/streaming.js",
-      "require": "./dist/streaming.cjs"
-    },
-    "./functional": {
-      "types": "./dist/functional.d.ts",
-      "import": "./dist/functional.js",
-      "require": "./dist/functional.cjs"
-    },
-    "./resolver": {
-      "types": "./dist/resolver.d.ts",
-      "import": "./dist/resolver.js",
-      "require": "./dist/resolver.cjs"
-    },
-    "./diagnostics": {
-      "types": "./dist/diagnostics.d.ts",
-      "import": "./dist/diagnostics.js",
-      "require": "./dist/diagnostics.cjs"
     }
   },
   "files": [

@@ -5,13 +5,6 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  Awaitly,
-  type AsyncResult,
-  type Result,
-  type ErrorOf,
-  type Errors,
-} from "./index";
-const {
   ok,
   err,
   unwrapOr,
@@ -29,11 +22,14 @@ const {
   tap,
   tapError,
   isUnexpectedError,
-} = Awaitly;
+  type AsyncResult,
+  type Result,
+  type ErrorOf,
+  type Errors,
+} from "./index";
 import { run } from "./run-entry";
 import { createWorkflow } from "./workflow-entry";
 import { unwrapOk, unwrapErr } from "./testing";
-import { bindDeps } from "./bind-deps-entry";
 
 describe("Skill Examples", () => {
   describe("R1: step() requires explicit ID", () => {
@@ -777,17 +773,6 @@ describe("Skill Examples", () => {
       if (result.ok) expect(result.value.id).toBe("1");
       expect(resumeState).toBeDefined();
       expect(typeof resumeState.steps).toBe("object");
-    });
-  });
-
-  describe("bindDeps (partial application)", () => {
-    it("bindDeps(notify)(deps) then call with args", async () => {
-      type SendFn = (name: string) => Promise<void>;
-      const slackDeps = { send: async (name: string) => { /* noop */ } };
-      const notify = (args: { name: string }, deps: { send: SendFn }) => deps.send(args.name);
-
-      const notifySlack = bindDeps(notify)(slackDeps);
-      await notifySlack({ name: "Alice" });
     });
   });
 

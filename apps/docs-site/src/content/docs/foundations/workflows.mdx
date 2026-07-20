@@ -101,8 +101,7 @@ For one-off workflows where you specify error types manually:
 <Tabs>
   <TabItem label="With ErrorsOf (best DX)">
 ```typescript
-import { run } from 'awaitly/run';
-import { type ErrorsOf } from 'awaitly';
+import { run, type ErrorsOf } from 'awaitly';
 
 const deps = { fetchUser, sendEmail };
 type RunErrors = ErrorsOf<typeof deps>;
@@ -119,7 +118,7 @@ const result = await run<User, RunErrors>(
   </TabItem>
   <TabItem label="With catchUnexpected (custom)">
 ```typescript
-import { run } from 'awaitly/run';
+import { run } from 'awaitly';
 
 const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED'>(
   async ({ step }) => {
@@ -134,7 +133,7 @@ const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED'>(
   </TabItem>
   <TabItem label="Without type params">
 ```typescript
-import { run } from 'awaitly/run';
+import { run } from 'awaitly';
 
 const result = await run(async ({ step }) => {
   const user = await step('fetchUser', () => fetchUser('1'));
@@ -237,7 +236,7 @@ See [Persistence](/guides/persistence/) for details.
 Enable streaming within workflows:
 
 ```typescript
-import { createMemoryStreamStore } from 'awaitly/streaming';
+import { createMemoryStreamStore } from 'awaitly/workflow';
 
 const workflow = createWorkflow('workflow', deps, {
   streamStore: createMemoryStreamStore(),

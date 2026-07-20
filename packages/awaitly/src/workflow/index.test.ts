@@ -3,8 +3,17 @@
  * Tests for workflow.ts - createWorkflow, run, step functions
  */
 import { describe, it, expect, vi } from "vitest";
-import { Awaitly, ErrorOf, type AsyncResult, type Result, UnexpectedError } from "../index";
-const { err, isErr, isOk, isUnexpectedError, ok } = Awaitly;
+import {
+  ErrorOf,
+  type AsyncResult,
+  type Result,
+  UnexpectedError,
+  ok,
+  isUnexpectedError,
+  isOk,
+  isErr,
+  err,
+} from "../index";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   createWorkflow,
@@ -3397,8 +3406,8 @@ describe("resumeState", () => {
     // Should have warned about the Map issue
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy.mock.calls[0][0]).toContain("resumeState.steps is not a Map");
-    expect(warnSpy.mock.calls[0][0]).toContain("stringifyState");
-    expect(warnSpy.mock.calls[0][0]).toContain("parseState");
+    expect(warnSpy.mock.calls[0][0]).toContain("serializeResumeState");
+    expect(warnSpy.mock.calls[0][0]).toContain("deserializeResumeState");
 
     // Should have recovered and used the cached value
     expect(result.ok).toBe(true);

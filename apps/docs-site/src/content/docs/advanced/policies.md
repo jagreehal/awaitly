@@ -1,16 +1,73 @@
 ---
 title: Policies
-description: Reusable bundles of step options
+description: Per-dependency retry, timeout, and fallback wrappers plus StepOptions bundles
 ---
 
-Reusable bundles of `StepOptions` (retry, timeout, cache keys) that can be composed and applied per-workflow or per-step.
+Policies control retries, timeouts, and fallbacks. awaitly offers two patterns:
 
-## Using service policies
+1. **Per-dep policies (recommended):** declare `retry`, `timeout`, and `fallback` wrappers in the deps object. Call sites stay clean, and the analyzer reads policy chains from the deps literal.
+2. **StepOptions bundles (legacy):** apply `withPolicy` or `servicePolicies` per step through options.
+
+## Per-dep policies
+
+Wrap dependencies at declaration site. Policies compose inside-out. `retry(timeout(fn, 5000), { attempts: 3 })` applies the timeout before each retry.
+
+```typescript
+import { ok, run, retry, timeout, fallback, tryAsync } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
+
+const charge = tryAsync(
+  () => paymentGateway.charge(amount),
+  (cause) => ({ type: 'CHARGE_FAILED' as const, cause })
+);
+
+const sendEmail = tryAsync(
+  () => emailService.send(to),
+  (cause) => ({ type: 'SEND_FAILED' as const, cause })
+);
+
+// Standalone composition with run()
+const result = await run(
+  {
+    charge: retry(timeout(charge, 5000), { attempts: 3 }),
+    notify: fallback(sendEmail, () => ok(undefined)),
+  },
+  async (s) => {
+    await s.charge(amount);
+    await s.notify(to);
+    return ok(undefined);
+  }
+);
+
+// Same wrappers in a workflow deps object
+const checkout = createWorkflow('checkout', {
+  charge: retry(timeout(charge, 5000), { attempts: 3 }),
+  notify: fallback(sendEmail, () => ok(undefined)),
+});
+```
+
+### Error-union behavior
+
+| Wrapper | Effect on error union |
+|---------|----------------------|
+| `retry(fn, opts)` | Preserves the base union. The last failure propagates. |
+| `timeout(fn, ms)` | Adds `TimeoutError` to the union |
+| `fallback(fn, handler)` | Consumes base errors; only handler errors remain |
+
+Plain (non-Result) functions are valid inputs: return values normalize to `ok()`, throws surface as `UnexpectedError` at the run/workflow layer. Wrappers preserve the base function's name so events and diagrams keep showing the dep name.
+
+See [Result types: policies](/foundations/result-types/#retry-with-the-retry-policy) and [Retries & Timeouts: deps-level policies](/guides/retries-timeouts/#deps-level-policies).
+
+## StepOptions bundles (legacy)
+
+Reusable bundles of `StepOptions` (retry, timeout, cache keys) applied per step via `withPolicy` and related helpers.
+
+### Using service policies
 
 Apply pre-built policies for common scenarios:
 
 ```typescript
-import { withPolicy, servicePolicies } from 'awaitly/policies';
+import { withPolicy, servicePolicies } from 'awaitly';
 
 const result = await workflow.run(async ({ step }) => {
   // HTTP API: 5s timeout, 3 retries
@@ -40,7 +97,7 @@ const result = await workflow.run(async ({ step }) => {
 Merge multiple policies together:
 
 ```typescript
-import { withPolicies, timeoutPolicies, retryPolicies } from 'awaitly/policies';
+import { withPolicies, timeoutPolicies, retryPolicies } from 'awaitly';
 
 const data = await step(
   () => fetchData(),
@@ -53,7 +110,7 @@ const data = await step(
 Create a reusable applier for consistent defaults:
 
 ```typescript
-import { createPolicyApplier, timeoutPolicies, retryPolicies } from 'awaitly/policies';
+import { createPolicyApplier, timeoutPolicies, retryPolicies } from 'awaitly';
 
 const applyPolicy = createPolicyApplier(
   timeoutPolicies.api,
@@ -71,7 +128,7 @@ const result = await step(
 Build step options with a fluent API:
 
 ```typescript
-import { stepOptions } from 'awaitly/policies';
+import { stepOptions } from 'awaitly';
 
 const options = stepOptions()
   .name('fetch-user')
@@ -88,7 +145,7 @@ const user = await step('fetchUser', () => fetchUser('123'), options);
 Create organization-wide policy standards:
 
 ```typescript
-import { createPolicyRegistry, servicePolicies } from 'awaitly/policies';
+import { createPolicyRegistry, servicePolicies } from 'awaitly';
 
 const registry = createPolicyRegistry();
 registry.register('api', servicePolicies.httpApi);
@@ -113,7 +170,7 @@ const data = await step(
 ### Retry policies
 
 ```typescript
-import { retryPolicies } from 'awaitly/policies';
+import { retryPolicies } from 'awaitly';
 
 retryPolicies.none           // No retry
 retryPolicies.transient      // 3 attempts, fast backoff
@@ -126,7 +183,7 @@ retryPolicies.linear(3, 100) // 3 attempts, linear backoff
 ### Timeout policies
 
 ```typescript
-import { timeoutPolicies } from 'awaitly/policies';
+import { timeoutPolicies } from 'awaitly';
 
 timeoutPolicies.fast         // 1 second
 timeoutPolicies.api          // 5 seconds
@@ -140,7 +197,7 @@ timeoutPolicies.ms(3000)     // Custom milliseconds
 Combined retry + timeout for specific scenarios:
 
 ```typescript
-import { servicePolicies } from 'awaitly/policies';
+import { servicePolicies } from 'awaitly';
 
 servicePolicies.httpApi      // 5s timeout, 3 retries
 servicePolicies.database     // 30s timeout, 2 retries
@@ -155,7 +212,7 @@ servicePolicies.rateLimited  // 10s timeout, 5 linear retries
 Create your own policies:
 
 ```typescript
-import { mergePolicies } from 'awaitly/policies';
+import { mergePolicies } from 'awaitly';
 
 const myApiPolicy = {
   timeout: { ms: 10000 },
@@ -200,7 +257,7 @@ const criticalApiPolicy = mergePolicies(
 
 ```typescript
 import { describe, it, expect } from 'vitest';
-import { servicePolicies, mergePolicies } from 'awaitly/policies';
+import { servicePolicies, mergePolicies } from 'awaitly';
 
 describe('custom policies', () => {
   it('merges correctly with base policies', () => {
@@ -228,7 +285,7 @@ describe('custom policies', () => {
 
 ```typescript
 import { createWorkflowHarness, okOutcome, errOutcome } from 'awaitly/testing';
-import { withPolicy, servicePolicies } from 'awaitly/policies';
+import { withPolicy, servicePolicies } from 'awaitly';
 
 describe('workflow with policies', () => {
   it('retries on transient failure', async () => {

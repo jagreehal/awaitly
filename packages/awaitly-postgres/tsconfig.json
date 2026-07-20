@@ -15,7 +15,6 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
-      "awaitly/persistence": ["../awaitly/src/persistence-entry.ts"]
     }
   },
   "include": ["src/**/*.ts"],
