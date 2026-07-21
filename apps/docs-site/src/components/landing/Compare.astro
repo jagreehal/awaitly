@@ -19,7 +19,7 @@ const rows: { label: string; cells: Record<string, Cell> }[] = [
     },
   },
   {
-    label: 'errors typed automatically',
+    label: 'errors typed from deps',
     cells: {
       awaitly: { kind: 'yes' },
       trycatch: { kind: 'no', text: 'unknown' },
@@ -60,14 +60,15 @@ const rows: { label: string; cells: Record<string, Cell> }[] = [
 <section class="landing-section compare" aria-labelledby="compare-heading">
   <div class="landing-inner">
     <header class="compare__header">
-      <span class="landing-eyebrow">04 · Where it fits</span>
+      <span class="landing-eyebrow">05 · Where it fits</span>
       <h2 class="landing-h2" id="compare-heading">
-        Honest <em>about the trade-offs.</em>
+        Where <em>awaitly fits.</em>
       </h2>
       <p class="landing-lead">
-        Effect is excellent. neverthrow is excellent. <code>try/catch</code> works
-        fine when types don't matter. awaitly sits in the middle: typed errors, async/await,
-        no DSL to learn.
+        awaitly sits between <code>try/catch</code> and heavier FP runtimes:
+        typed errors, <code>async/await</code>, no DSL to learn. Effect and
+        neverthrow cover adjacent ground; pick the tool that matches how you
+        already write TypeScript.
       </p>
     </header>
 

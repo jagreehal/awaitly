@@ -18,6 +18,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "validate",
         "inputType": undefined,
+        "key": "validate",
         "label": "<missing> (dep: validateToken)",
         "location": {
           "column": 29,
@@ -44,6 +45,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "refresh",
         "inputType": undefined,
+        "key": "refresh",
         "label": "<missing> (dep: refreshToken)",
         "location": {
           "column": 30,
@@ -110,6 +112,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "user",
         "inputType": undefined,
+        "key": "user",
         "label": "<missing> (dep: fetchUser)",
         "location": {
           "column": 23,
@@ -136,6 +139,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "audit",
         "inputType": undefined,
+        "key": "audit",
         "label": "<missing> (dep: auditAdmin)",
         "location": {
           "column": 6,
@@ -213,11 +217,41 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
         "outputType": "any",
         "type": "step",
       },
+      {
+        "id": "unknown_1",
+        "label": "Unknown: awaited call not recognized...",
+        "type": "step",
+      },
+      {
+        "id": "unknown_2",
+        "label": "Unknown: awaited call not recognized...",
+        "type": "step",
+      },
+      {
+        "id": "unknown_3",
+        "label": "Unknown: awaited call not recognized...",
+        "type": "step",
+      },
     ],
     "terminalStateIds": [
       "end",
     ],
     "transitions": [
+      {
+        "event": "done",
+        "fromStateId": "<missing>",
+        "toStateId": "unknown_1",
+      },
+      {
+        "event": "done",
+        "fromStateId": "unknown_1",
+        "toStateId": "unknown_2",
+      },
+      {
+        "event": "done",
+        "fromStateId": "unknown_2",
+        "toStateId": "unknown_3",
+      },
       {
         "event": "start",
         "fromStateId": "start",
@@ -225,7 +259,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       },
       {
         "event": "done",
-        "fromStateId": "<missing>",
+        "fromStateId": "unknown_3",
         "toStateId": "end",
       },
     ],
@@ -265,6 +299,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "user-data",
         "inputType": undefined,
+        "key": "user-data",
         "label": "<missing> (dep: fetchUserData)",
         "location": {
           "column": 27,
@@ -279,6 +314,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "notify",
         "inputType": undefined,
+        "key": "notify",
         "label": "<missing> (dep: sendNotification)",
         "location": {
           "column": 10,
@@ -340,6 +376,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "user",
         "inputType": undefined,
+        "key": "user",
         "label": "<missing> (dep: fetchUser)",
         "location": {
           "column": 23,
@@ -454,6 +491,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "user",
         "inputType": undefined,
+        "key": "user",
         "label": "<missing> (dep: fetchUser)",
         "location": {
           "column": 23,
@@ -590,8 +628,9 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
         "type": "terminal",
       },
       {
-        "id": "user",
+        "id": "Fetch User",
         "inputType": undefined,
+        "key": "user",
         "label": "Fetch User (dep: fetchUser)",
         "location": {
           "column": 23,
@@ -616,8 +655,9 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
         "type": "decision",
       },
       {
-        "id": "discount",
+        "id": "Apply Discount",
         "inputType": undefined,
+        "key": "discount",
         "label": "Apply Discount (dep: applyDiscount)",
         "location": {
           "column": 12,
@@ -630,8 +670,9 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
         "type": "step",
       },
       {
-        "id": "posts",
+        "id": "Fetch Posts",
         "inputType": undefined,
+        "key": "posts",
         "label": "Fetch Posts (dep: fetchPosts)",
         "location": {
           "column": 24,
@@ -651,31 +692,31 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "event": "true",
         "fromStateId": "decision_1",
-        "toStateId": "discount",
+        "toStateId": "Apply Discount",
       },
       {
         "event": "done",
-        "fromStateId": "user",
+        "fromStateId": "Fetch User",
         "toStateId": "decision_1",
       },
       {
         "event": "done",
-        "fromStateId": "discount",
-        "toStateId": "posts",
+        "fromStateId": "Apply Discount",
+        "toStateId": "Fetch Posts",
       },
       {
         "event": "done",
         "fromStateId": "decision_1",
-        "toStateId": "posts",
+        "toStateId": "Fetch Posts",
       },
       {
         "event": "start",
         "fromStateId": "start",
-        "toStateId": "user",
+        "toStateId": "Fetch User",
       },
       {
         "event": "done",
-        "fromStateId": "posts",
+        "fromStateId": "Fetch Posts",
         "toStateId": "end",
       },
     ],
@@ -703,6 +744,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       {
         "id": "user",
         "inputType": undefined,
+        "key": "user",
         "label": "<missing> (dep: fetchUser)",
         "location": {
           "column": 6,

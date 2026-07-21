@@ -179,7 +179,7 @@ This table compares Effect core/stdlib with awaitly core plus optional awaitly m
 | Human-in-the-loop | `awaitly/workflow` (approvals/hooks) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
 | Resource management | `awaitly/workflow` (`step.withResource`, scoped cleanup) | `Scope` (runtime-integrated) |
 | Observability | `onEvent` workflow event stream → OTel at step boundaries | Runtime-integrated spans/tracing APIs (OTel export requires SDK setup) |
-| Tagged errors | `TaggedError` with `_tag` + matching | `Data.TaggedEnum` / `_tag` |
+| Tagged errors | `TaggedError` with `type` + matching | `Data.TaggedEnum` / `_tag` |
 
 ## Step helpers
 
@@ -965,7 +965,7 @@ Effect's functional toolkit is far more extensive (`pipe`, `flow`, `identity`, `
 
 ## Tagged Errors
 
-Both use a `_tag` discriminant for pattern matching on error types.
+awaitly dispatches on `.type`; Effect uses `_tag`.
 
 <Tabs>
   <TabItem label="awaitly">
@@ -983,7 +983,7 @@ class ValidationError extends TaggedError("ValidationError", {
 
 // Instances are real Error objects with instanceof support
 const err = new NotFoundError({ id: '123', resource: 'User' });
-err._tag;       // "NotFoundError"
+err.type;            // "NotFoundError"
 err instanceof Error; // true
 
 // Exhaustive matching: compiler errors if you miss a case
@@ -1021,7 +1021,7 @@ const handled = program.pipe(
 </Tabs>
 
 <Aside type="note">
-Both approaches give you `_tag`-based discrimination. awaitly's `TaggedError` adds `instanceof` support and a standalone `match` function that works outside of pipes. Effect's tagged errors are designed for use within the Effect pipe/generator ecosystem.
+awaitly's `TaggedError` uses `.type` as the canonical discriminant (`._tag` is a deprecated alias). Effect uses `_tag`. awaitly adds `instanceof` support and a standalone `match` function that works outside of pipes.
 </Aside>
 
 ## Circuit Breaker

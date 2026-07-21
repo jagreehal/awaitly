@@ -264,7 +264,7 @@ const sendNotification = async (
 
 const notifyUsers = createWorkflow('workflow', { fetchUser, sendNotification });
 
-const result = await notifyUsers(async ({ step }) => {
+const result = await notifyUsers.run(async ({ step }) => {
   const userIds = ['1', '2', '3', '4', '5'];
 
   // Fetch all users in parallel

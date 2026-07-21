@@ -292,6 +292,8 @@ if (user.isPremium) {
 
 For single guarded steps (no else branch), prefer [`when`](/guides/conditional-execution/) or [`unless`](/guides/conditional-execution/) — they emit skip events and integrate with the visualizer.
 
+`step.if` emits a `decision` event on each evaluation. The visualizer and `awaitly-analyze` consume it automatically; no `trackIf` wiring needed. See [Visualization →](/guides/visualization/#decision-tracking).
+
 <Aside type="tip" title="Diagrammability">
 Raw `if/else`, native loops, and computed step ids create gaps in static diagrams. Use `step.if`, `when`/`unless`, and `step.forEach` so [`awaitly-analyze`](/guides/static-analysis/) can produce deterministic diagrams and `--assert-diagrammable` passes in CI. The ESLint rules [`workflow-prefer-step-if`](/guides/eslint-plugin/#awaitlyworkflow-prefer-step-if) and [`workflow-prefer-step-foreach`](/guides/eslint-plugin/#awaitlyworkflow-prefer-step-foreach) flag raw control flow as you write it.
 </Aside>
@@ -395,7 +397,7 @@ const sendNotification = async (
 
 const notifyUsers = createWorkflow('workflow', { fetchUser, sendNotification });
 
-const result = await notifyUsers(async ({ step, deps }) => {
+const result = await notifyUsers.run(async ({ step, deps }) => {
   const userIds = ['1', '2', '3', '4', '5'];
 
   // Fetch all users in parallel

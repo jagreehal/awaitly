@@ -379,6 +379,50 @@
   }
 
 
+/* ===== Foundation ===== */
+.foundation {
+    padding-block: clamp(4rem, 8vw, 7rem);
+  }
+
+  .foundation__header {
+    max-width: 64ch;
+    margin-bottom: clamp(2.5rem, 5vw, 4rem);
+  }
+  .foundation__header code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    color: var(--cream);
+    background: var(--ink-2);
+    padding: 0.05em 0.35em;
+    border-radius: 3px;
+    border: 1px solid var(--line-soft);
+  }
+
+  .foundation__panel {
+    background: var(--ink-2);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 40px -20px oklch(0 0 0 / 0.5);
+    max-width: 48rem;
+  }
+
+  .foundation__code {
+    background: var(--ink);
+  }
+
+  .foundation__foot {
+    border-top: 1px solid var(--line-soft);
+    padding: 1rem 1.125rem 1.125rem;
+    background: oklch(from var(--ink) l c h / 0.6);
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+
+
 /* ===== CodeDiff ===== */
 .diff {
     padding-block: clamp(4rem, 8vw, 7rem);

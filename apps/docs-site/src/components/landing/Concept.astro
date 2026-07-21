@@ -1,5 +1,5 @@
 ---
-// "How it works" — a single visual that shows step() unwrapping Results and short-circuiting.
+// "How it works": a single visual that shows step() unwrapping Results and short-circuiting.
 // Built with semantic HTML + CSS; no images, no chart libs.
 const steps = [
   { id: 'getOrder', errors: ['ORDER_NOT_FOUND'] },
@@ -16,12 +16,10 @@ const steps = [
         Steps <em>unwrap</em>. Errors <em>short-circuit</em>.
       </h2>
       <p class="landing-lead">
-        Every dependency that can fail returns a <code>Result</code>. <code
-          >step()</code
-        >
-        either hands you the value and continues, or exits the workflow with the error.
-        Your happy path stays linear. The error union grows, automatically, with each
-        step you add.
+        Every dependency that can fail returns a <code>Result</code>.
+        <code>step()</code> hands you the value and continues, or exits the
+        workflow with the error. Your happy path stays linear. Each step you add
+        widens the error union.
       </p>
     </header>
 
@@ -93,11 +91,9 @@ const steps = [
     </div>
 
     <p class="concept__caption">
-      Add <code>step.retry()</code>, <code>step.withTimeout()</code>, or <code
-        >{`step('id', fn, { key })`}</code
-      >
-      and the same shape carries — TypeScript still tracks every error your dependencies
-      can produce.
+      Add <code>step.retry()</code>, <code>step.withTimeout()</code>, or
+      <code>{`step('id', fn, { key })`}</code> and the same shape holds.
+      TypeScript still tracks every error your dependencies can produce.
     </p>
   </div>
 </section>

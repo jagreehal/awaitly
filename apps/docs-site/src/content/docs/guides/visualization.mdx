@@ -80,6 +80,29 @@ If you wrap the workflow in a library (e.g. `processOnePayment(batch, payment, d
 
 If the diagram is empty or only shows "workflow_start", check that (1) `onEvent` is passed and (2) the workflow actually runs steps (so `step_start` / `step_complete` events are emitted). For an optional file-based capture (e.g. writing the last run to a `cursor_events` folder), see [event-capture in the awaitly-visualizer package](https://github.com/jagreehal/awaitly/tree/main/packages/awaitly-visualizer/src/event-capture) in the repo.
 
+## Live inspector
+
+Stream runs into the `awaitly-analyze --dev` inspector while you develop:
+
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+import { devEvents } from 'awaitly-visualizer';
+
+const workflow = createWorkflow('checkout', deps, {
+  onEvent: devEvents('http://localhost:4747'),
+});
+
+await workflow.run(async ({ step, deps }) => { /* ... */ });
+```
+
+Start the inspector in another terminal:
+
+```bash
+npx awaitly-analyze ./src/workflows/checkout.ts --dev
+```
+
+`devEvents` batches events per microtask and POSTs them fire-and-forget. A dead or absent inspector never affects the workflow. See [Static Analysis →](/guides/static-analysis/#live-inspector) for `--dev` and `--port`.
+
 ## Library workflows
 
 When your workflow is created inside a library (e.g. a payment or checkout module), callers need a way to pass visualization (or other) options. Expose an optional options argument and forward it to `createWorkflow`:
@@ -335,46 +358,56 @@ const discount = await when(
 ```
 
 <Aside type="note">
-`when()` emits a single `step_skipped` event. For full branching visualization with multiple paths, use `trackIf`/`trackSwitch` (below).
+`when()` emits a single `step_skipped` event. For full branching visualization with multiple paths, use `step.if` or `step.branch` (they emit `decision` events automatically).
 </Aside>
 
 ## Decision tracking
 
-Track conditional logic (if/switch) to visualize branching in your workflows:
+`step.if` and `step.branch` emit `decision` events automatically. The visualizer builds `DecisionNode`s from `onEvent` alone; no tracker wiring needed.
 
-### Basic decision tracking
+### step.if (automatic)
 
 ```typescript
-import { trackDecision } from 'awaitly-visualizer';
+import { createWorkflow } from 'awaitly/workflow';
+import { createVisualizer } from 'awaitly-visualizer';
 
-const viz = createVisualizer();
-const workflow = createWorkflow('workflow', deps, {
-  onEvent: viz.handleEvent,
-});
+const viz = createVisualizer({ workflowName: 'checkout' });
+const workflow = createWorkflow('checkout', deps, { onEvent: viz.handleEvent });
 
 await workflow.run(async ({ step, deps }) => {
-  const user = await step('Fetch user', () => deps.fetchUser('1'));
+  const user = await step('fetchUser', () => deps.fetchUser('1'));
 
-  // Track a decision point
-  const decision = trackDecision('check-role', {
-    condition: \"user.role === 'admin'\",
-    value: user.role,
-    emit: viz.handleDecisionEvent,
-  });
-
-  if (user.role === 'admin') {
-    decision.takeBranch('admin', true);
-    await step('Admin dashboard', () => adminDashboard(user));
+  if (step.if('premium-check', 'user.isPremium', () => user.isPremium)) {
+    await step('sendPremiumEmail', () => deps.sendPremiumEmail(user));
   } else {
-    decision.takeBranch('user', true);
-    await step('User dashboard', () => userDashboard(user));
+    await step('sendStandardEmail', () => deps.sendStandardEmail(user));
   }
+});
 
-  decision.end();
+console.log(viz.renderAs('mermaid')); // decision node shows premium-check, branch taken
+```
+
+Use `step.if('id', 'label', () => condition)` so the analyzer and visualizer get a stable decision id. See [Control flow →](/foundations/control-flow/#stepif-for-labelled-branches).
+
+### step.branch (automatic)
+
+For branches that return values, `step.branch` emits scoped decision events (`phase: 'start'` / `'end'`) with `conditionLabel`:
+
+```typescript
+const tier = await step.branch('route', {
+  conditionLabel: 'amount > 100',
+  condition: () => order.total > 100,
+  then: () => 'premium',
+  else: () => 'standard',
 });
 ```
 
-### trackIf - Simple if/else
+### Legacy manual tracking
+
+Before `step.if` / `step.branch`, you wired `trackIf`, `trackSwitch`, or `trackDecision` from `awaitly-visualizer` and passed `emit: viz.handleDecisionEvent`. Prefer `step.if` / `step.branch` for new code; keep manual trackers only when you cannot refactor the branch.
+
+<details>
+<summary>trackIf / trackSwitch / trackDecision (legacy)</summary>
 
 ```typescript
 import { trackIf } from 'awaitly-visualizer';
@@ -395,67 +428,9 @@ if (decision.condition) {
 decision.end();
 ```
 
-### trackSwitch - Switch statements
+`trackSwitch` and `trackDecision` follow the same `emit` pattern. See package types for full signatures.
 
-```typescript
-import { trackSwitch } from 'awaitly-visualizer';
-
-const decision = trackSwitch('process-by-role', user.role, {
-  condition: 'switch(user.role)',
-  emit: viz.handleDecisionEvent,
-});
-
-switch (user.role) {
-  case 'admin':
-    decision.case('admin', true);
-    await step('processAdmin', () => processAdmin(user));
-    break;
-  case 'moderator':
-    decision.case('moderator', true);
-    await step('processModerator', () => processModerator(user));
-    break;
-  default:
-    decision.default(true);
-    await step('processUser', () => processUser(user));
-}
-
-decision.end();
-```
-
-### With event collector
-
-```typescript
-import { createEventCollector, trackIf } from 'awaitly-visualizer';
-
-const collector = createEventCollector({ workflowName: 'Role Check' });
-const workflow = createWorkflow('workflow', deps, {
-  onEvent: collector.handleEvent,
-});
-
-await workflow.run(async ({ step, deps }) => {
-  const user = await step('Fetch user', () => deps.fetchUser('1'));
-
-  const decision = trackIf('check-role', user.role === 'admin', {
-    condition: \"user.role === 'admin'\",
-    value: user.role,
-    emit: collector.handleDecisionEvent,
-  });
-
-  if (decision.condition) {
-    decision.then();
-    await step('processAdmin', () => processAdmin(user));
-  } else {
-    decision.else();
-    await step('processUser', () => processUser(user));
-  }
-  decision.end();
-
-  return user;
-});
-
-// Visualize with decision tracking
-console.log(collector.visualize());
-```
+</details>
 
 ## Post-execution visualization
 
@@ -539,7 +514,7 @@ console.log(ir.metadata);        // { createdAt, lastUpdatedAt }
 | Step | `StepNode` | `step()`, `step.retry()` | `state`, `durationMs`, `retryCount?`, `timedOut?` |
 | Parallel | `ParallelNode` | `step.all()` | `children`, `mode: "all" \| "allSettled"` |
 | Race | `RaceNode` | `step.race()` | `children`, `winnerId?` |
-| Decision | `DecisionNode` | `trackIf`, `trackSwitch` | `branches`, `branchTaken?` |
+| Decision | `DecisionNode` | `step.if`, `step.branch` | `branches`, `branchTaken?` |
 | Stream | `StreamNode` | streaming ops | `namespace`, `writeCount`, `readCount` |
 
 ### Step states
@@ -760,6 +735,7 @@ Use the right tool for the job:
 | **`awaitly-visualizer`** | Live `onEvent` stream during a run | ASCII, Mermaid, JSON from runtime IR | Debugging a specific execution, dashboards, dev tools |
 | **`awaitly-analyze`** | Source TypeScript (no execution) | Static Mermaid, JSON, HTML | Architecture docs, PR diffs, CI gates |
 | **`awaitly-analyze --trace`** | Static IR + recorded `onEvent` JSON | Mermaid with executed path highlighted | Post-mortems, run reports on diagrammable workflows |
+| **`awaitly-analyze --dev`** | Static IR + live `onEvent` stream | Browser inspector with runtime trace overlay | Local development; pair with `devEvents` |
 
 **Runtime visualizer** builds an IR from workflow events. Its diagram shows one execution.
 

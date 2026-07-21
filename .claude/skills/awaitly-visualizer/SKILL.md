@@ -50,8 +50,12 @@ Step events may include optional metadata (`domain`, `intent`, `owner`, etc.) wh
 - SVG/PNG may use other providers only when supported by types.
 
 ### Decision trackers
-- When using `trackIf` / `trackSwitch`, agents **MUST** pass `emit: viz.handleDecisionEvent` (or collector equivalent) to capture decisions.
+- **Prefer `step.if` / `step.branch` in the workflow** — core emits `decision` events for them automatically and the visualizer builds DecisionNodes (with the untaken branch visible) from `onEvent` alone; no tracker wiring needed.
+- When using the legacy `trackIf` / `trackSwitch` helpers, agents **MUST** pass `emit: viz.handleDecisionEvent` (or collector equivalent) to capture decisions.
 - Agents **MUST NOT** call decision trackers without `emit` when expecting visualization output.
+
+### Dev inspector streaming
+- To stream runs into the `awaitly-analyze --dev` inspector, wire `onEvent: devEvents("http://localhost:4747")` (import `devEvents` from `awaitly-visualizer`). It batches per microtask and POSTs fire-and-forget; a missing inspector never affects the workflow.
 
 ---
 

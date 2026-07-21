@@ -3,7 +3,7 @@ const pillars = [
   {
     n: '01',
     title: 'Errors as data.',
-    body: 'Functions that fail return Result types — never thrown exceptions for expected failures. The compiler tracks every variant.',
+    body: 'Functions that fail return Result types for expected failures. The compiler tracks every variant.',
     code: [
       { kind: 'cm', text: '// expected failures become typed values' },
       { kind: 'kw', text: 'return ' },
@@ -47,14 +47,14 @@ const pillars = [
       { kind: 'pun', text: '(user.id));' },
       { kind: 'br' },
       { kind: 'kw', text: 'return ' },
-      { kind: 'fn', text: 'fulfil' },
-      { kind: 'pun', text: '(order);' },
+      { kind: 'id', text: 'order' },
+      { kind: 'pun', text: ';' },
     ],
   },
   {
     n: '03',
     title: 'Reliability built in.',
-    body: 'Retries, timeouts, idempotency keys, save & resume — primitives, not afterthoughts. Add them where you need them, leave the rest untouched.',
+    body: 'Retries, timeouts, idempotency keys, save and resume ship as primitives. Add them where you need them; leave the rest untouched.',
     code: [
       { kind: 'kw', text: 'await ' },
       { kind: 'fn', text: 'step.retry' },
@@ -93,9 +93,9 @@ const pillars = [
 >
   <div class="landing-inner">
     <header class="pillars__header">
-      <span class="landing-eyebrow">03 · Why awaitly</span>
+      <span class="landing-eyebrow">04 · Why awaitly</span>
       <h2 class="landing-h2" id="pillars-heading">
-        Three ideas. <em>That's the whole library.</em>
+        The whole library is <em>three ideas.</em>
       </h2>
     </header>
 

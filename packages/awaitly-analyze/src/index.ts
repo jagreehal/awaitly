@@ -223,9 +223,12 @@ export {
 
 // Runtime trace overlay (static skeleton + executed-path highlight)
 export { traceFromEvents } from "./trace";
+export { startDevServer } from "./dev-server";
+export type { DevServer, DevServerOptions } from "./dev-server";
 export type {
   WorkflowTrace,
   TraceStep,
+  TraceDecision,
   StepStatus,
 } from "./trace";
 export type {

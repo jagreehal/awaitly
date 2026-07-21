@@ -679,6 +679,10 @@ function analyzeCallback(
   return analyzeNode(body, opts, warnings, stats, sagaContext, context);
 }
 
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
 function analyzeNode(
   node: Node,
   opts: Required<AnalyzerOptions>,
@@ -705,7 +709,33 @@ function analyzeNode(
 
   // Handle await expression
   if (Node.isAwaitExpression(node)) {
-    return analyzeNode(node.getExpression(), opts, warnings, stats, sagaContext, context);
+    const awaited = analyzeNode(node.getExpression(), opts, warnings, stats, sagaContext, context);
+    // An awaited call inside a workflow callback that produced no nodes is
+    // async work the analyzer can't model (e.g. a helper function containing
+    // steps, or a bare dep call). Surface it as an unknown node instead of
+    // silently dropping it — an incomplete diagram must say it's incomplete.
+    let inner: Node = node.getExpression();
+    while (Node.isParenthesizedExpression(inner)) {
+      inner = inner.getExpression();
+    }
+    if (awaited.length === 0 && context.isInWorkflowCallback && Node.isCallExpression(inner)) {
+      const sourceCode = inner.getText();
+      warnings.push({
+        code: "UNANALYZED_AWAIT",
+        message: `Awaited call "${truncate(sourceCode, 60)}" is not visible to static analysis. Wrap async work in step() (or a step helper) so it appears in the workflow graph.`,
+        location: getLocation(node),
+      });
+      return [
+        {
+          type: "unknown",
+          id: generateId(),
+          reason: "awaited call not recognized by static analysis",
+          sourceCode,
+          location: opts.includeLocations ? getLocation(node) : undefined,
+        },
+      ];
+    }
+    return awaited;
   }
 
   // Handle parenthesized expression (e.g., (step(...)))
@@ -2960,8 +2990,13 @@ function analyzeIfStatement(
     stats.conditionalCount++;
   }
 
+  // An explicit step.if()/step.label() decision always produces a node, even
+  // when its branches contain no steps — the author labeled it, and the
+  // runtime emits a decision event for it, so the diagram must show it.
+  const stepIfInfo = extractStepIfInfo(conditionExpr, context);
+
   // Only create conditional node if there are step calls inside
-  if (consequent.length === 0 && (!alternate || alternate.length === 0)) {
+  if (!stepIfInfo && consequent.length === 0 && (!alternate || alternate.length === 0)) {
     return undefined;
   }
 
@@ -2973,9 +3008,6 @@ function analyzeIfStatement(
   } catch {
     // ignore
   }
-
-  // Check if condition is a step.if() call - create StaticDecisionNode
-  const stepIfInfo = extractStepIfInfo(conditionExpr, context);
   if (stepIfInfo) {
     return {
       id: generateId(),

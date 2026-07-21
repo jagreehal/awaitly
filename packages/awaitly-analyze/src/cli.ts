@@ -67,6 +67,8 @@ interface CliOptions {
   doctor: boolean;
   assertDiagrammable: boolean;
   trace: string;
+  dev: boolean;
+  devPort: number;
 }
 
 function printHelp(): void {
@@ -81,6 +83,8 @@ Arguments:
 
 Options:
   --format=<format>     Output format: mermaid (default) or json
+  --dev                 Start the live inspector dev server (static graph + run traces)
+  --port=<n>            Dev server port (default: 4747)
   --html                Generate interactive HTML file (Mermaid CDN + click-to-inspect)
   --html-output=<path>  Output path for HTML file (default: <basename>.html)
   --keys                Show step cache keys in diagram
@@ -162,11 +166,22 @@ export function parseArgs(args: string[]): CliOptions {
     doctor: false,
     assertDiagrammable: false,
     trace: "",
+    dev: false,
+    devPort: 4747,
   };
 
   for (const arg of args) {
     if (arg === "--help" || arg === "-h") {
       options.help = true;
+    } else if (arg === "--dev") {
+      options.dev = true;
+    } else if (arg.startsWith("--port=")) {
+      const port = Number(arg.slice("--port=".length));
+      if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+        console.error("Error: --port requires an integer between 1 and 65535.");
+        process.exit(1);
+      }
+      options.devPort = port;
     } else if (arg === "--html") {
       options.html = true;
     } else if (arg.startsWith("--html-output=")) {
@@ -457,6 +472,21 @@ function main(): void {
   }
 
   const filePath = resolve(options.filePath);
+
+  if (options.dev) {
+    void import("./dev-server").then(async ({ startDevServer }) => {
+      const { port } = await startDevServer({
+        file: filePath,
+        port: options.devPort,
+        onAnalyze: (count) => {
+          console.error(`[awaitly dev] analyzed ${options.filePath} (${count} workflow${count === 1 ? "" : "s"})`);
+        },
+      });
+      console.error(`[awaitly dev] inspector running at http://localhost:${port}`);
+      console.error(`[awaitly dev] stream runs into it with: onEvent: devEvents("http://localhost:${port}") from awaitly-visualizer`);
+    });
+    return;
+  }
 
   if (options.watch) {
     const rebuild = () => {

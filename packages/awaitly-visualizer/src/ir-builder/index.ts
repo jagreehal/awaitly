@@ -471,6 +471,87 @@ export function createIRBuilder(options: IRBuilderOptions = {}) {
         break;
       }
 
+      // Core decision event (emitted automatically by step.if / step.branch).
+      case "decision": {
+        const e = event as unknown as {
+          decisionId: string;
+          label?: string;
+          branch: string;
+          value: unknown;
+          phase?: "start" | "end";
+          durationMs?: number;
+          ts: number;
+        };
+
+        // step.branch owns arm execution and emits a scoped decision
+        // (phase start/end). Route it through the decision machinery so the
+        // arm's steps nest inside the taken branch, exactly like trackIf.
+        if (e.phase === "start") {
+          handleDecisionEvent({
+            type: "decision_start",
+            workflowId: (event as { workflowId: string }).workflowId,
+            decisionId: e.decisionId,
+            name: e.label ?? e.decisionId,
+            condition: e.label,
+            decisionValue: e.value,
+            ts: e.ts,
+          });
+          handleDecisionEvent({
+            type: "decision_branch",
+            workflowId: (event as { workflowId: string }).workflowId,
+            decisionId: e.decisionId,
+            branchLabel: "then",
+            condition: e.label,
+            taken: e.branch === "then",
+            ts: e.ts,
+          });
+          handleDecisionEvent({
+            type: "decision_branch",
+            workflowId: (event as { workflowId: string }).workflowId,
+            decisionId: e.decisionId,
+            branchLabel: "else",
+            taken: e.branch === "else",
+            ts: e.ts,
+          });
+          break;
+        }
+        if (e.phase === "end") {
+          handleDecisionEvent({
+            type: "decision_end",
+            workflowId: (event as { workflowId: string }).workflowId,
+            decisionId: e.decisionId,
+            branchTaken: e.branch,
+            ts: e.ts,
+            durationMs: e.durationMs ?? 0,
+          });
+          break;
+        }
+
+        // step.if is instantaneous — core cannot see the extent of a raw
+        // `if` block, so this is a decision marker: the branch taken is
+        // recorded, but steps executed inside the branch appear as siblings
+        // (the static graph carries the nesting).
+        const node: DecisionNode = {
+          type: "decision",
+          id: e.decisionId,
+          name: e.label ?? e.decisionId,
+          state: "success",
+          startTs: e.ts,
+          endTs: e.ts,
+          durationMs: 0,
+          condition: e.label,
+          decisionValue: e.value,
+          branchTaken: e.branch,
+          branches: [
+            { label: "then", condition: e.label, taken: e.branch === "then", children: [] },
+            { label: "else", taken: e.branch === "else", children: [] },
+          ],
+        };
+        addNode(node);
+        lastUpdatedAt = Date.now();
+        break;
+      }
+
       // Hook events
       case "hook_should_run": {
         const hookExec: HookExecution = {

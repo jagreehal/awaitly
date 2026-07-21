@@ -1,0 +1,47 @@
+---
+// The atom: one function returns a Result. TypeScript knows the error.
+// Reuses .diff__code token classes for syntax highlighting.
+---
+
+<section class="landing-section foundation" aria-labelledby="foundation-heading">
+  <div class="landing-inner">
+    <header class="foundation__header">
+      <span class="landing-eyebrow">01 · The atom</span>
+      <h2 class="landing-h2" id="foundation-heading">
+        One function. <em>A typed error.</em>
+      </h2>
+      <p class="landing-lead">
+        Expected failures return <code>ok</code> or <code>err</code>. TypeScript
+        tracks the error as part of the return type, so you handle
+        <code>'NOT_FOUND'</code> the same way you handle the value.
+      </p>
+    </header>
+
+    <article class="foundation__panel">
+      <pre
+        class="diff__code foundation__code"
+        is:raw
+      ><code><span class="kw">import</span> { <span class="fn">ok</span>, <span class="fn">err</span>, <span class="kw">type</span> <span class="ty">AsyncResult</span> } <span class="kw">from</span> <span class="str">'awaitly'</span>;
+
+<span class="kw">async function</span> <span class="fn">getUser</span>(<span class="id">id</span>: <span class="ty">string</span>): <span class="ty">AsyncResult</span>&lt;<span class="ty">User</span>, <span class="str ok">'NOT_FOUND'</span>&gt; {
+  <span class="kw">const</span> <span class="id">user</span> = <span class="kw">await</span> <span class="id">db</span>.<span class="fn">find</span>(<span class="id">id</span>);
+  <span class="kw">return</span> <span class="id">user</span> ? <span class="fn">ok</span>(<span class="id">user</span>) : <span class="fn">err</span>(<span class="str ok">'NOT_FOUND'</span>);
+}
+
+<span class="kw">const</span> <span class="id">result</span> = <span class="kw">await</span> <span class="fn">getUser</span>(<span class="str">'123'</span>);
+<span class="kw">if</span> (<span class="id">result</span>.<span class="id">ok</span>) <span class="fn">use</span>(<span class="id">result</span>.<span class="id">value</span>);
+<span class="kw">else</span> <span class="id">result</span>.<span class="id">error</span>; <span class="cm">// 'NOT_FOUND', typed</span></code></pre>
+      <footer class="foundation__foot">
+        <span class="diff__inferred diff__inferred--amber">
+          <span class="diff__inferred-label">TypeScript sees</span>
+          <span class="diff__inferred-type"
+            >{'AsyncResult<User, \'NOT_FOUND\'>'}</span
+          >
+        </span>
+        <p class="diff__note">
+          No throw. No <code>unknown</code>. The error name is in the type.
+        </p>
+      </footer>
+    </article>
+  </div>
+</section>

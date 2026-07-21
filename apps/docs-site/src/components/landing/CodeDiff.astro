@@ -7,14 +7,14 @@
 <section class="landing-section diff" aria-labelledby="diff-heading">
   <div class="landing-inner">
     <header class="diff__header">
-      <span class="landing-eyebrow">01 · The diff</span>
+      <span class="landing-eyebrow">03 · The diff</span>
       <h2 class="landing-h2" id="diff-heading">
         Same handler. <em>One returns <code>unknown</code>.</em>
       </h2>
       <p class="landing-lead">
-        Both versions handle a money transfer that can fail four different ways.
-        On the left, every error funnels to <code>error: unknown</code> — TypeScript
-        can't help. On the right, every error is named, typed, and unionised by inference.
+        Both versions handle a money transfer that can fail four ways. On the
+        left, every error collapses to <code>error: unknown</code>. On the right,
+        inference names each error and unions them.
       </p>
     </header>
 
@@ -36,7 +36,7 @@
 
     <span class="kw">return</span> <span class="kw">await</span> <span class="fn">charge</span>(<span class="id">user</span>, <span class="id">amt</span>);
   } <span class="kw">catch</span> (<span class="id err">e</span>) {
-    <span class="cm">// e: unknown — network? db? sdk crash?</span>
+    <span class="cm">// e: unknown. Network? db? sdk crash?</span>
     <span class="kw">return</span> { <span class="id">error</span>: <span class="fn">String</span>(<span class="id err">e</span>) };
   }
 }</code></pre>
@@ -62,20 +62,24 @@
         </header>
         <pre
           class="diff__code"
-          is:raw><code><span class="kw">const</span> <span class="id">transfer</span> = <span class="fn">createWorkflow</span>({ <span class="id">getUser</span>, <span class="id">charge</span>, <span class="id">checkFunds</span> });
+          is:raw><code><span class="kw">import</span> { <span class="fn">createWorkflow</span> } <span class="kw">from</span> <span class="str">'awaitly/workflow'</span>;
+<span class="kw">import</span> { <span class="fn">isUnexpectedError</span> } <span class="kw">from</span> <span class="str">'awaitly'</span>;
 
-<span class="kw">const</span> <span class="id">result</span> = <span class="kw">await</span> <span class="fn">transfer</span>(<span class="kw">async</span> ({ <span class="id">step</span>, <span class="id">deps</span> }) =&gt; {
+<span class="kw">const</span> <span class="id">transfer</span> = <span class="fn">createWorkflow</span>(<span class="str">'transfer'</span>, { <span class="id">getUser</span>, <span class="id">charge</span>, <span class="id">checkFunds</span> });
+
+<span class="kw">const</span> <span class="id">result</span> = <span class="kw">await</span> <span class="id">transfer</span>.<span class="fn">run</span>(<span class="kw">async</span> ({ <span class="id">step</span>, <span class="id">deps</span> }) =&gt; {
   <span class="kw">const</span> <span class="id">user</span>  = <span class="kw">await</span> <span class="fn">step</span>(<span class="str">'getUser'</span>,    () =&gt; <span class="id">deps</span>.<span class="fn">getUser</span>(<span class="id">id</span>));
   <span class="kw">await</span>             <span class="fn">step</span>(<span class="str">'checkFunds'</span>, () =&gt; <span class="id">deps</span>.<span class="fn">checkFunds</span>(<span class="id">user</span>, <span class="id">amt</span>));
   <span class="kw">return</span> <span class="kw">await</span>     <span class="fn">step</span>(<span class="str">'charge'</span>,     () =&gt; <span class="id">deps</span>.<span class="fn">charge</span>(<span class="id">user</span>, <span class="id">amt</span>));
 });
 
 <span class="kw">if</span> (!<span class="id">result</span>.<span class="id">ok</span>) {
-  <span class="kw">switch</span> (<span class="id">result</span>.<span class="id">error</span>.<span class="id">type</span>) {
+  <span class="kw">if</span> (<span class="fn">isUnexpectedError</span>(<span class="id">result</span>.<span class="id">error</span>)) <span class="kw">return</span> <span class="num">500</span>;
+  <span class="kw">switch</span> (<span class="id">result</span>.<span class="id">error</span>.<span class="id">type</span> ?? <span class="id">result</span>.<span class="id">error</span>) {
     <span class="kw">case</span> <span class="str ok">'USER_NOT_FOUND'</span>:    <span class="kw">return</span> <span class="num">404</span>;
     <span class="kw">case</span> <span class="str ok">'INSUFFICIENT_FUNDS'</span>: <span class="kw">return</span> <span class="num">400</span>;
     <span class="kw">case</span> <span class="str ok">'CHARGE_DECLINED'</span>:   <span class="kw">return</span> <span class="num">402</span>;
-  } <span class="cm">// exhaustive — TS errors if you miss one</span>
+  }
 }</code></pre>
         <footer class="diff__foot">
           <span class="diff__inferred diff__inferred--amber">
@@ -87,8 +91,8 @@
             >
           </span>
           <p class="diff__note">
-            Add a step? The error union widens automatically. Remove one? It
-            narrows. The compiler keeps it honest.
+            Add a step and the error union widens. Remove one and it narrows.
+            TypeScript updates the type as you edit.
           </p>
         </footer>
       </article>

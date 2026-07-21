@@ -59,6 +59,35 @@ describe("traceFromEvents", () => {
       { stepId: "fetchUser", status: "success", durationMs: 3 },
     ]);
   });
+
+  it("captures decision events with the branch taken (last evaluation wins)", () => {
+    const trace = traceFromEvents([
+      {
+        type: "decision",
+        workflowId: "wf",
+        ts: 0,
+        decisionId: "premium-check",
+        label: "user.premium",
+        branch: "then",
+        value: true,
+      } as unknown as AnyEvent,
+    ]);
+    expect(trace.decisions).toEqual([
+      { decisionId: "premium-check", branch: "then", label: "user.premium" },
+    ]);
+  });
+
+  it("counts retries on the step", () => {
+    const trace = traceFromEvents([
+      ev("step_start", "flaky"),
+      ev("step_retry", "flaky", { attempt: 1 }),
+      ev("step_retry", "flaky", { attempt: 2 }),
+      ev("step_success", "flaky", { durationMs: 9 }),
+    ]);
+    expect(trace.steps).toEqual([
+      { stepId: "flaky", status: "success", durationMs: 9, retries: 2 },
+    ]);
+  });
 });
 
 describe("renderStaticMermaidWithTrace", () => {
@@ -108,5 +137,32 @@ describe("renderStaticMermaidWithTrace", () => {
     const [ir] = analyzeWorkflowSource(source);
     const { mermaid } = renderStaticMermaidWithTrace(ir, { steps: [] });
     expect(mermaid).not.toContain("classDef trace_");
+  });
+
+  it("overlays evaluated decisions on the decision diamond", () => {
+    const decisionSource = `
+      import { createWorkflow } from "awaitly";
+      const wf = createWorkflow("wf", { fetchUser });
+      export async function runIt() {
+        return await wf.run(async ({ step, deps }) => {
+          const user = await step("fetchUser", () => deps.fetchUser("1"));
+          if (step.if("premium-check", "user.premium", () => user.premium)) {
+            return "premium";
+          }
+          return "basic";
+        });
+      }
+      declare const fetchUser: (id: string) => Promise<any>;
+    `;
+    const [ir] = analyzeWorkflowSource(decisionSource);
+    const trace: WorkflowTrace = {
+      steps: [{ stepId: "fetchUser", status: "success" }],
+      decisions: [{ decisionId: "premium-check", branch: "then" }],
+    };
+    const { mermaid, matched, unmatched } = renderStaticMermaidWithTrace(ir, trace);
+    expect(unmatched).toEqual([]);
+    expect(matched).toContain("premium-check");
+    expect(mermaid).toContain("classDef trace_decision");
+    expect(mermaid).toMatch(/class decision_\d+ trace_decision/);
   });
 });

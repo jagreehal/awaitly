@@ -63,6 +63,10 @@ npx awaitly-analyze ./src/workflows/checkout.ts --assert-diagrammable
 
 # Overlay a recorded run's executed path onto the static diagram
 npx awaitly-analyze ./src/workflows/checkout.ts --trace=./run-events.json
+
+# Live inspector: static graph + runtime trace overlay in the browser
+npx awaitly-analyze ./src/workflows/checkout.ts --dev
+npx awaitly-analyze ./src/workflows/checkout.ts --dev --port=5000
 ```
 
 ## What the analyzer reads
@@ -106,6 +110,40 @@ npx awaitly-analyze ./src/workflows/checkout.ts --trace=./run-events.json
 |------|---------|-------------|
 | `--assert-diagrammable` | off | Exit non-zero if any workflow's diagram is not fully deterministic (CI gate) |
 | `--trace=<path>` | - | Overlay a recorded run's executed path onto the static Mermaid diagram |
+| `--dev` | off | Serve a live workflow inspector at `http://localhost:4747` (SSE + runtime trace overlay) |
+| `--port=<n>` | `4747` | Port for `--dev` (use with `--dev`) |
+
+## Live inspector
+
+`--dev` starts a local HTTP server that serves the static workflow diagram for a file, watches the source for changes, and accepts runtime event streams from running workflows. Each run's trace is overlaid on the static graph: the full shape stays visible while live runs paint their path.
+
+```bash
+npx awaitly-analyze ./src/workflows/checkout.ts --dev
+# → http://localhost:4747
+
+npx awaitly-analyze ./src/workflows/checkout.ts --dev --port=5000
+```
+
+Wire `onEvent` to stream runs into the inspector. Use `devEvents` from `awaitly-visualizer` (see [Visualization →](/guides/visualization/#live-inspector)) or POST events yourself to `/events`. Updates use Server-Sent Events; no WebSocket server required.
+
+## Lock the diagram to reality
+
+Pass a declared `graph` at workflow creation or per run so every step and decision id must appear in the graph. Any runtime id not in the graph fails the workflow immediately, so the static diagram and execution stay aligned.
+
+```typescript
+import { createWorkflow } from 'awaitly/workflow';
+
+const workflow = createWorkflow('checkout', deps, {
+  graph: ['fetchUser', 'chargeCard', 'premium-check'],
+});
+
+// Plain id list or WorkflowDiagramDSL from awaitly-analyze
+await run(async ({ step }) => { /* ... */ }, {
+  graph: ['fetchUser', 'item-{i}'], // {placeholder} matches item-0, item-1, ...
+});
+```
+
+Pair with `--assert-diagrammable` in CI: the analyzer checks that source is diagrammable; `graph` enforces that runtime matches the declared shape. See [Workflow options →](/foundations/workflows/#graph).
 
 ## Interactive HTML artifact
 
@@ -336,6 +374,11 @@ Node categories:
       choice: '--trace',
       bestFor: 'Highlight executed path on a static diagram from a recorded run.',
       tradeoff: 'Requires capturing onEvent output and a diagrammable workflow.'
+    },
+    {
+      choice: '--dev',
+      bestFor: 'Local live inspector: static graph + runtime trace overlay in the browser.',
+      tradeoff: 'Dev-only; wire onEvent (e.g. devEvents) to stream runs.'
     }
   ]}
 />
@@ -344,6 +387,7 @@ Node categories:
 
 - Dynamic step IDs can appear as `<dynamic>`.
 - External workflow references are only resolved when analyzable in context.
+- An awaited call inside a workflow callback that static analysis cannot model (helper function, bare `await deps.fn()`) surfaces as an `unknown` node with an `UNANALYZED_AWAIT` warning in `--doctor` output rather than being dropped. Wrap the async work in `step()` to close the gap.
 
 ## Next
 

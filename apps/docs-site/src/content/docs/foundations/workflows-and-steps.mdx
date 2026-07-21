@@ -815,7 +815,7 @@ const sendWelcome = async (email: string): AsyncResult<void, 'EMAIL_FAILED'> =>
 
 const onboardUser = createWorkflow('workflow', { fetchUser, fetchPosts, sendWelcome });
 
-const result = await onboardUser(async ({ step, deps }) => {
+const result = await onboardUser.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'));
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));
   await step('sendWelcome', () => deps.sendWelcome(user.email));
