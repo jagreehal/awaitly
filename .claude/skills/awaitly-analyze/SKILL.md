@@ -303,6 +303,12 @@ npx awaitly-analyze --diff v1.ts v2.ts --regression
 # Diff output formats
 npx awaitly-analyze --diff v1.ts v2.ts --format json
 npx awaitly-analyze --diff v1.ts v2.ts --format mermaid --direction LR
+
+# Live inspector: static graph + runtime trace overlay in the browser
+npx awaitly-analyze ./workflow.ts --dev            # serves http://localhost:4747
+npx awaitly-analyze ./workflow.ts --dev --port=5000
+# Stream real runs into it by wiring the workflow with
+# onEvent: devEvents("http://localhost:4747") from awaitly-visualizer.
 ```
 
 Do not invent CLI flags; consult package CLI help or README for supported options.
@@ -311,4 +317,4 @@ Do not invent CLI flags; consult package CLI help or README for supported option
 
 ## IR node types (reference)
 
-The analyzer produces a static IR tree. **Common** node types include: `workflow`, `step`, `saga-step`, `sequence`, `parallel`, `race`, `conditional`, `decision`, `switch`, `loop`, `stream`, `workflow-ref` (non-exhaustive; consult package types). Step nodes have a string step ID (or `<missing>` if legacy form). When step options include metadata, step nodes may also have optional fields: `intent`, `domain`, `owner`, `tags`, `stateChanges`, `emits`, `calls`, `errorMeta` (see schema). **MUST NOT** assume presence or shape of a `.type` string at runtime; consult types for the current schema.
+The analyzer produces a static IR tree. **Common** node types include: `workflow`, `step`, `saga-step`, `sequence`, `parallel`, `race`, `conditional`, `decision`, `switch`, `loop`, `stream`, `workflow-ref`, `unknown` (non-exhaustive; consult package types). An `unknown` node marks an awaited call inside a workflow callback that static analysis cannot model (e.g. a helper function or bare dep call) — it is surfaced in diagrams and via an `UNANALYZED_AWAIT` warning rather than silently dropped; fix by wrapping the async work in `step()`. Explicit `step.if()` decisions always produce a `decision` node, even when their branches contain no steps. Step nodes have a string step ID (or `<missing>` if legacy form). When step options include metadata, step nodes may also have optional fields: `intent`, `domain`, `owner`, `tags`, `stateChanges`, `emits`, `calls`, `errorMeta` (see schema). **MUST NOT** assume presence or shape of a `.type` string at runtime; consult types for the current schema.

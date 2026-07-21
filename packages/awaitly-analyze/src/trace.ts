@@ -35,11 +35,24 @@ export interface TraceStep {
   status: StepStatus;
   /** Wall-clock duration in ms, when the event carried one */
   durationMs?: number;
+  /** Number of retry attempts observed (absent when the step never retried) */
+  retries?: number;
+}
+
+export interface TraceDecision {
+  /** Literal decision id — matches the static IR decisionId */
+  decisionId: string;
+  /** Branch the run took ("then" / "else") */
+  branch: string;
+  /** Condition label, when the event carried one */
+  label?: string;
 }
 
 export interface WorkflowTrace {
   /** Steps in first-seen order, each with its final status */
   steps: TraceStep[];
+  /** Decisions in first-seen order, each with the branch the run took */
+  decisions?: TraceDecision[];
 }
 
 // =============================================================================
@@ -87,18 +100,40 @@ export function traceFromEvents(events: readonly AnyWorkflowEvent[]): WorkflowTr
     Object.assign(entry, patch);
   };
 
+  const decisionOrder: string[] = [];
+  const decisionsById = new Map<string, TraceDecision>();
+
   for (const event of events) {
     const e = event as AnyWorkflowEvent & {
       stepId?: string;
       stepKey?: string;
       name?: string;
       durationMs?: number;
+      decisionId?: string;
+      branch?: string;
+      label?: string;
     };
+
+    if (e.type === "decision" && e.decisionId && e.branch) {
+      if (!decisionsById.has(e.decisionId)) decisionOrder.push(e.decisionId);
+      decisionsById.set(e.decisionId, {
+        decisionId: e.decisionId,
+        branch: e.branch,
+        ...(e.label ? { label: e.label } : {}),
+      });
+      continue;
+    }
+
     const key = stepKeyOf(e);
     if (!key) continue;
 
     if (e.type === "step_start") {
       upsert(key, { status: "running" });
+      continue;
+    }
+    if (e.type === "step_retry") {
+      const entry = byId.get(key);
+      upsert(key, { retries: (entry?.retries ?? 0) + 1 });
       continue;
     }
     const terminal = TERMINAL[e.type];
@@ -110,5 +145,8 @@ export function traceFromEvents(events: readonly AnyWorkflowEvent[]): WorkflowTr
     }
   }
 
-  return { steps: order.map((id) => byId.get(id)!) };
+  return {
+    steps: order.map((id) => byId.get(id)!),
+    decisions: decisionOrder.map((id) => decisionsById.get(id)!),
+  };
 }

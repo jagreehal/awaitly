@@ -390,6 +390,10 @@ export function createWorkflow<
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const catchUnexpected = (optionsActual as any)?.catchUnexpected ?? defaultCatchUnexpected;
 
+    // Declared graph for strict runtime validation (config overrides options)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const declaredGraph = config?.graph ?? (optionsActual as any)?.graph;
+
     // Create workflow data store for step outputs
     const workflowData: Record<string, unknown> = {};
 
@@ -1839,6 +1843,7 @@ export function createWorkflow<
         workflowId,
         workflowName,
         context,
+        graph: declaredGraph,
         _workflowSignal: workflowSignal,
       });
     } finally {

@@ -253,6 +253,26 @@ const result = await workflow.run(async ({ step, deps }) => {
 
 See [Streaming](/guides/streaming/) for details.
 
+### graph
+
+Declare the step and decision ids your workflow may execute. Any runtime id not in the graph fails the run immediately, so static diagrams and execution stay aligned. Accepts a plain string array or a `WorkflowDiagramDSL` from `awaitly-analyze`. Placeholder segments like `item-{i}` match any value in that slot (`item-0`, `item-1`, …).
+
+```typescript
+const workflow = createWorkflow('checkout', deps, {
+  graph: ['fetchUser', 'chargeCard', 'premium-check'],
+});
+
+// Per-run override
+await workflow.run(async ({ step, deps }) => { /* ... */ }, {
+  graph: ['fetchUser', 'item-{i}'],
+});
+
+// run() accepts graph too
+await run(async ({ step }) => { /* ... */ }, { graph: ['fetchUser'] });
+```
+
+Pair with [`awaitly-analyze --assert-diagrammable`](/guides/static-analysis/#lock-the-diagram-to-reality) in CI. See [Static Analysis →](/guides/static-analysis/#lock-the-diagram-to-reality).
+
 ### onEvent
 
 Subscribe to workflow events for logging, visualization, or debugging:
@@ -469,6 +489,7 @@ await workflow.run(fn);  // Uses handlerA, signalA
 | `onBeforeStart` | Pre-start hook |
 | `onAfterStep` | Post-step hook for checkpointing |
 | `streamStore` | Stream store for this run |
+| `graph` | Declared workflow graph for this run (overrides creation-time) |
 
 <Aside type="note">
 Options like `cache` and `catchUnexpected` are **creation-time only**. They define the workflow's fundamental behavior and cannot be changed per-run.

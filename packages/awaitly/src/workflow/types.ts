@@ -13,6 +13,7 @@ import type {
   RunStep,
   AsyncResult,
   BoundSteps,
+  DeclaredGraph,
 } from "../core";
 import type { JSONValue, WorkflowSnapshot } from "../persistence";
 import type { StreamStore } from "../streaming/types";
@@ -211,6 +212,12 @@ export type ExecutionOptions<E, U = UnexpectedError, C = void> = {
    */
   strict?: boolean;
   /**
+   * Declared workflow graph for strict runtime validation.
+   * Undeclared step/decision ids fail the run immediately.
+   * Overrides `graph` from creation-time options.
+   */
+  graph?: DeclaredGraph;
+  /**
    * Enable development warnings for this run.
    * Only active when NODE_ENV !== 'production'.
    */
@@ -300,6 +307,14 @@ export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends reado
   ) => void | Promise<void>;
   shouldRun?: (workflowId: string, context: C) => boolean | Promise<boolean>;
   streamStore?: StreamStore;
+  /**
+   * Declared workflow graph for strict runtime validation.
+   * When provided, any runtime step/decision id not present in the graph
+   * fails the workflow immediately, guaranteeing the static diagram matches
+   * what actually runs. Produce it with awaitly-analyze's renderWorkflowDSL,
+   * or pass a plain list of ids.
+   */
+  graph?: DeclaredGraph;
   /**
    * Enable development warnings.
    * Only active when NODE_ENV !== 'production'.

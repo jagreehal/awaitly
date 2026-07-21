@@ -113,6 +113,7 @@ function renderStaticMermaidInternal(
     subgraphs: [],
     styleClasses: new Map(),
     stepIdMap: new Map(),
+    decisionIdMap: new Map(),
     stepLabelAnnotations,
     domainNodes: new Map(),
   };
@@ -237,6 +238,7 @@ const TRACE_STYLES: Record<string, string> = {
   skipped: "fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,stroke-dasharray:4 3,color:#e0e7ff",
   "cache-hit": "fill:#042f2e,stroke:#14b8a6,stroke-width:2px,color:#ccfbf1",
   running: "fill:#422006,stroke:#eab308,stroke-width:3px,color:#fef9c3",
+  decision: "fill:#1e3a5f,stroke:#38bdf8,stroke-width:3px,color:#e0f2fe",
 };
 
 /**
@@ -274,10 +276,26 @@ export function renderStaticMermaidWithTrace(
     overlay.push(`  class ${nodeId} trace_${step.status}`);
   }
 
+  // Decisions: mark evaluated decision diamonds by the branch the run took.
+  let decisionTaken = false;
+  for (const decision of trace.decisions ?? []) {
+    const nodeId = context.decisionIdMap.get(decision.decisionId);
+    if (!nodeId) {
+      unmatched.push(decision.decisionId);
+      continue;
+    }
+    matched.push(decision.decisionId);
+    decisionTaken = true;
+    overlay.push(`  class ${nodeId} trace_decision`);
+  }
+
   if (overlay.length > 0) {
     // classDefs first, then the (winning) class assignments.
     for (const status of usedStatuses) {
       lines.push(`  classDef trace_${status} ${TRACE_STYLES[status]}`);
+    }
+    if (decisionTaken) {
+      lines.push(`  classDef trace_decision ${TRACE_STYLES.decision}`);
     }
     lines.push(...overlay);
   }
@@ -309,6 +327,8 @@ interface RenderContext {
   styleClasses: Map<string, string>;
   /** Map from IR stepId to mermaid node ID (for overlay features) */
   stepIdMap: Map<string, string>;
+  /** Map from IR decisionId to mermaid node ID (for overlay features) */
+  decisionIdMap: Map<string, string>;
   /** Optional label annotations appended to step labels (stepId -> annotation lines) */
   stepLabelAnnotations?: Map<string, string[]>;
   /** When rendering inside a loop, annotate step labels as per-iteration */
@@ -800,6 +820,9 @@ function renderDecisionNode(
   const label = node.conditionLabel || truncate(node.condition, 30);
   lines.push(`  ${nodeId}{"${escapeLabel(label)}"}`);
   context.styleClasses.set(nodeId, "conditionalStyle");
+  if (node.decisionId && node.decisionId !== "<dynamic>") {
+    context.decisionIdMap.set(node.decisionId, nodeId);
+  }
 
   const lastNodeIds: string[] = [];
 

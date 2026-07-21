@@ -5,15 +5,18 @@
  * used for visualization (e.g. xstate-style diagrams). Defined in awaitly so that
  * analyzer, visualizer, and any UI can import the same types.
  *
- * ## Snapshot alignment (current step highlighting)
+ * ## Identity contract (graph validation + highlighting)
  *
- * When a workflow is running, `WorkflowSnapshot.execution.currentStepId` holds the
- * step key of the currently executing step. For the diagram to highlight the correct
- * node, **DSL step state ids must match this value**. The analyzer emits step states
- * with `id` equal to the step key when present (otherwise stepId), so that
- * `snapshot.execution.currentStepId` can be used directly to find the corresponding
- * state in the DSL. Runtime and live execution state are the domain of
- * awaitly-visualizer / awaitly-visualizer; the DSL is static structure only.
+ * DSL state ids normally use the **semantic ids authored in the code**. When a
+ * collision requires a unique diagram id, `semanticId` preserves the authored
+ * identity used by runtime graph validation, so a DSL from awaitly-analyze can
+ * still be passed directly as `graph`. For snapshot
+ * highlighting, `WorkflowSnapshot.execution.currentStepId` holds the step key
+ * (key ?? authored id), so match it against
+ * `state.key ?? state.semanticId ?? state.id` — literal keys are carried on
+ * `state.key`; dynamic per-run keys can't exist in a static graph
+ * (match via event `name` instead). Runtime and live execution state are the
+ * domain of awaitly-visualizer; the DSL is static structure only.
  */
 
 // =============================================================================
@@ -50,8 +53,20 @@ export interface WorkflowDiagramSourceLocation {
  * A state (node) in the workflow diagram.
  */
 export interface WorkflowDiagramState {
-  /** Stable id; for steps use step key so it matches snapshot.currentStepId */
+  /**
+   * Unique diagram-node id, normally the semantic id authored in the code.
+   * A collision with another node is resolved with a `#2`, `#3`, ... suffix.
+   */
   id: string;
+  /** Authored id when `id` needed a collision suffix; graph validation uses this. */
+  semanticId?: string;
+  /**
+   * Literal cache key when the step declares one (step options `key`).
+   * Snapshot-driven highlighting should match
+   * `snapshot.execution.currentStepId === (state.key ?? state.semanticId ?? state.id)`.
+   * Dynamic keys (computed per run) are not representable statically.
+   */
+  key?: string;
   /** Human-readable label for the node */
   label: string;
   /** Node kind for layout and styling */

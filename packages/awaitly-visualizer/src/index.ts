@@ -51,6 +51,7 @@ export type { LoggerOutput, LoggerRenderOptions, StepLog, HookLog, WorkflowSumma
 export { htmlRenderer, renderToHTML } from "./renderers/html";
 export { detectParallelGroups, createParallelDetector, type ParallelDetectorOptions } from "./parallel-detector";
 export { createLiveVisualizer, type LiveVisualizer } from "./live-visualizer";
+export { devEvents } from "./dev-events";
 export { trackDecision, trackIf, trackSwitch, type DecisionTracker, type IfTracker, type SwitchTracker } from "./decision-tracker";
 
 // Time-travel debugging

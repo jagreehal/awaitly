@@ -439,7 +439,7 @@ await writeDSLToAwaitlyDir(dsl, { rootDir: process.cwd() });
 // Custom folder: await writeDSLToAwaitlyDir(dsl, { rootDir: process.cwd(), outputDir: 'dist/dsl' });
 ```
 
-**Snapshot alignment:** When a workflow is running, `WorkflowSnapshot.execution.currentStepId` holds the step key. DSL step state ids use the same step key so a visualizer can highlight the current node. See `awaitly/workflow` diagram-dsl types for details.
+**Identity contract:** DSL state ids normally use the semantic ids authored in the code (step()'s literal first argument, step.if()'s decision id). If a collision requires a suffixed diagram id, `state.semanticId` preserves the authored identity used by runtime graph validation, so the DSL remains directly usable as the `graph` option. Literal cache keys are carried on `state.key`. For current-node highlighting, `WorkflowSnapshot.execution.currentStepId` holds the step key — match it against `state.key ?? state.semanticId ?? state.id`. See `awaitly/workflow` diagram-dsl types for details.
 
 ### JSON Output
 

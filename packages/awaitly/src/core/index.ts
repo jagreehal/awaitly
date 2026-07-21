@@ -2037,6 +2037,7 @@ export type WorkflowEvent<E, C = unknown> =
   | { type: "step_cache_hit"; workflowId: string; workflowName?: string; stepKey: string; name?: string; ts: number; metadata?: StepMetadata; context?: C }
   | { type: "step_cache_miss"; workflowId: string; workflowName?: string; stepKey: string; name?: string; ts: number; metadata?: StepMetadata; context?: C }
   | { type: "step_skipped"; workflowId: string; workflowName?: string; stepKey?: string; name?: string; reason?: string; decisionId?: string; ts: number; metadata?: StepMetadata; context?: C }
+  | { type: "decision"; workflowId: string; workflowName?: string; decisionId: string; label?: string; branch: string; value: unknown; phase?: "start" | "end"; durationMs?: number; ts: number; context?: C }
   | { type: "scope_start"; workflowId: string; workflowName?: string; scopeId: string; scopeType: ScopeType; name?: string; ts: number; context?: C }
   | { type: "scope_end"; workflowId: string; workflowName?: string; scopeId: string; ts: number; durationMs: number; winnerId?: string; context?: C }
   // Retry events
@@ -2218,6 +2219,26 @@ export type WorkflowEvent<E, C = unknown> =
 // Run Options
 // =============================================================================
 
+/**
+ * A declared workflow graph for strict runtime validation.
+ *
+ * Pass either a list of step/decision ids or a WorkflowDiagramDSL-shaped
+ * object (`{ states: [{ id }] }`, as produced by awaitly-analyze).
+ * When provided, any runtime step or decision id not present in the graph
+ * fails the workflow immediately — so the static diagram is guaranteed to
+ * match what actually runs. Ids containing `{...}` placeholders
+ * (e.g. "item-{i}") match any value in that position.
+ */
+export type DeclaredGraph =
+  | readonly string[]
+  | {
+      readonly states: ReadonlyArray<{
+        readonly id: string;
+        /** Authored id when the unique diagram id needed a collision suffix. */
+        readonly semanticId?: string;
+      }>;
+    };
+
 export type RunOptionsWithCatch<E, C = void> = {
   /**
    * Handler for expected errors.
@@ -2254,6 +2275,11 @@ export type RunOptionsWithCatch<E, C = void> = {
    */
   context?: C;
   /**
+   * Declared workflow graph for strict runtime validation.
+   * Undeclared step/decision ids fail the workflow immediately.
+   */
+  graph?: DeclaredGraph;
+  /**
    * @internal External signal for workflow-level cancellation.
    * Used by createWorkflow() to pass the workflow signal to steps.
    */
@@ -2281,6 +2307,11 @@ export type RunOptionsWithoutCatch<E, C = void> = {
    */
   workflowName?: string;
   context?: C;
+  /**
+   * Declared workflow graph for strict runtime validation.
+   * Undeclared step/decision ids fail the workflow immediately.
+   */
+  graph?: DeclaredGraph;
   /**
    * @internal External signal for workflow-level cancellation.
    * Used by createWorkflow() to pass the workflow signal to steps.
@@ -2722,6 +2753,7 @@ function runFn<T, E = never, C = void>(
     workflowId?: string;
     workflowName?: string;
     context?: C;
+    graph?: DeclaredGraph;
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
   }
@@ -2773,6 +2805,7 @@ function runFn<const Deps extends Record<string, AnyFunction>, T, C = void>(
     workflowId?: string;
     workflowName?: string;
     context?: C;
+    graph?: DeclaredGraph;
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
   }
@@ -2828,12 +2861,45 @@ async function runFn<T, E, C = void>(
     workflowId: providedWorkflowId,
     workflowName,
     context,
+    graph,
     _workflowSignal,
   } = options && typeof options === "object"
     ? (options as RunOptions<E, C>)
     : ({} as RunOptions<E, C>);
 
   const workflowId = providedWorkflowId ?? crypto.randomUUID();
+
+  // Strict graph validation: when a declared graph is provided, every runtime
+  // step/decision id must be one of its state ids. Ids with {placeholder}
+  // segments (e.g. step.forEach's "item-{i}") match any value in that slot.
+  const declaredIds = graph
+    ? new Set(
+        Array.isArray(graph)
+          ? (graph as readonly string[])
+          : (graph as {
+              states: ReadonlyArray<{ id: string; semanticId?: string }>;
+            }).states.map((state) => state.semanticId ?? state.id)
+      )
+    : undefined;
+  const declaredPatterns = declaredIds
+    ? [...declaredIds]
+        .filter((id) => id.includes("{"))
+        .map(
+          (id) =>
+            new RegExp(
+              `^${id.replaceAll(/[.*+?^$()[\]\\|]/g, String.raw`\$&`).replaceAll(/\{[^}]*\}/g, ".+")}$`
+            )
+        )
+    : undefined;
+  const assertDeclared = (id: string, kind: "step" | "decision"): void => {
+    if (!declaredIds || declaredIds.has(id)) return;
+    if (declaredPatterns?.some((re) => re.test(id))) return;
+    throw new Error(
+      `[awaitly] ${kind} id "${id}" is not in the declared workflow graph. ` +
+        `Declared ids: ${[...declaredIds].join(", ")}. ` +
+        `Either add it to the graph or remove the graph option.`
+    );
+  };
   const effectiveCatchUnexpected = catchUnexpected ?? defaultCatchUnexpected;
 
   // Track active scopes as a stack for proper nesting
@@ -2921,6 +2987,7 @@ async function runFn<T, E, C = void>(
             'Example: step("fetchUser", () => fetchUser(id))'
           );
         }
+        assertDeclared(id, "step");
 
         const parsedOptions: StepOptions = stepOptions ?? {};
         const stepMetadata = extractStepMetadata(parsedOptions);
@@ -3375,6 +3442,7 @@ async function runFn<T, E, C = void>(
           'Example: step.try("parse", () => JSON.parse(str), { error: "PARSE_ERROR" })'
         );
       }
+      assertDeclared(id, "step");
 
       const mapToError = "error" in opts ? () => opts.error : opts.onError;
 
@@ -3491,6 +3559,7 @@ async function runFn<T, E, C = void>(
           'Example: step.fromResult("callProvider", () => callProvider(input), { onError: (e) => ({ type: "FAILED" }) })'
         );
       }
+      assertDeclared(id, "step");
 
       const stepKey = opts.key ?? id; // Use id as key if not provided
       const stepName = id; // Name is always the id
@@ -4001,14 +4070,26 @@ async function runFn<T, E, C = void>(
     };
 
     // step.if: Mark a conditional for static analysis
-    // Runtime: just executes the condition and returns the result
+    // Runtime: executes the condition and emits a decision event so
+    // visualizers see which branch fired without manual instrumentation
     // Analyzer: extracts the id and conditionLabel for DecisionNode
     stepFn.if = <T extends boolean>(
-      _id: string,
-      _conditionLabel: string,
+      id: string,
+      conditionLabel: string,
       condition: () => T
     ): T => {
-      return condition();
+      assertDeclared(id, "decision");
+      const value = condition();
+      emitEvent({
+        type: "decision",
+        workflowId,
+        decisionId: id,
+        label: conditionLabel,
+        branch: value ? "then" : "else",
+        value,
+        ts: Date.now(),
+      });
+      return value;
     };
 
     // step.label: Alias for step.if - mark a conditional for static analysis
@@ -4024,17 +4105,50 @@ async function runFn<T, E, C = void>(
       const ElseErrs extends readonly string[] = readonly [],
       const Out extends string | undefined = undefined,
     >(
-      _id: string,
+      id: string,
       options: BranchOptions<T, ThenErrs, ElseErrs, Out>
     ): Promise<T> => {
       const { condition, then: thenFn, else: elseFn } = options;
+      assertDeclared(id, "decision");
       const conditionResult = condition();
-      if (conditionResult) {
-        return await thenFn();
-      } else if (elseFn) {
-        return await elseFn();
+      const branch = conditionResult ? "then" : "else";
+      const startTime = performance.now();
+      // step.branch owns arm execution, so the decision is a real scope:
+      // phase "start" before the arm runs, phase "end" after it settles.
+      // Visualizers nest the arm's steps inside the taken branch.
+      emitEvent({
+        type: "decision",
+        workflowId,
+        decisionId: id,
+        label: options.conditionLabel,
+        branch,
+        value: conditionResult,
+        phase: "start",
+        ts: Date.now(),
+      });
+      const emitEnd = () => {
+        emitEvent({
+          type: "decision",
+          workflowId,
+          decisionId: id,
+          label: options.conditionLabel,
+          branch,
+          value: conditionResult,
+          phase: "end",
+          durationMs: performance.now() - startTime,
+          ts: Date.now(),
+        });
+      };
+      try {
+        if (conditionResult) {
+          return await thenFn();
+        } else if (elseFn) {
+          return await elseFn();
+        }
+        return undefined as T;
+      } finally {
+        emitEnd();
       }
-      return undefined as T;
     };
 
     // step.arm: Create an arm definition for use with step.branch
@@ -4173,6 +4287,7 @@ async function runFn<T, E, C = void>(
           'Example: step.withFallback("getUser", () => fetchUser(id), { fallback: () => fetchFromCache(id) })'
         );
       }
+      assertDeclared(id, "step");
 
       const stepKey = options.key ?? id;
       const stepName = id;
@@ -4553,6 +4668,7 @@ async function runFn<T, E, C = void>(
           'Example: step.withResource("useDb", { acquire: () => connect(), use: (db) => query(db), release: (db) => db.close() })'
         );
       }
+      assertDeclared(id, "step");
 
       const stepKey = id;
       const stepName = id;

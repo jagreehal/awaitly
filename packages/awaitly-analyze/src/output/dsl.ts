@@ -2,8 +2,10 @@
  * Workflow Diagram DSL renderer.
  *
  * Converts StaticWorkflowIR to WorkflowDiagramDSL (types from awaitly/workflow)
- * for xstate-style visualization. Step state ids use step key when present
- * so they align with WorkflowSnapshot.execution.currentStepId.
+ * for xstate-style visualization. State ids are the semantic ids authored in
+ * the code (step()'s first argument, step.if()'s decision id) so the DSL works
+ * directly as the runtime `graph` option; literal cache keys are carried on
+ * `state.key` for snapshot alignment (`currentStepId === state.key ?? state.id`).
  */
 
 import type {
@@ -48,11 +50,36 @@ function mapLocation(loc?: SourceLocation): WorkflowDiagramSourceLocation | unde
   };
 }
 
-/** Step state id: use key when present for snapshot alignment, else stepId (steps) or id (saga). */
+/**
+ * Step state id: the semantic step id (the literal first argument to step()).
+ * This is the identity runtime graph validation checks and runtime events
+ * carry as `name`, so DSL graphs work directly as the `graph` option.
+ * Keys are per-instance cache identity (often dynamic) — not graph identity.
+ * Falls back to key, then internal id, when the semantic id is unusable.
+ */
 function stepStateId(step: StaticStepNode | StaticSagaStepNode): string {
+  if (step.type === "step" && step.stepId && step.stepId !== "<missing>" && step.stepId !== "<dynamic>") {
+    return step.stepId;
+  }
+  if (step.type === "saga-step" && step.name && step.name !== "<dynamic>") {
+    return step.name;
+  }
   if (step.key) return step.key;
   if (step.type === "step") return step.stepId ?? step.id;
   return step.id;
+}
+
+/** Reserve a unique state id: exact id first, `#2`, `#3`… suffix on collision. */
+function uniqueStateId(ctx: DSLContext, id: string): string {
+  if (!ctx.usedStateIds.has(id)) {
+    ctx.usedStateIds.add(id);
+    return id;
+  }
+  let n = 2;
+  while (ctx.usedStateIds.has(`${id}#${n}`)) n++;
+  const unique = `${id}#${n}`;
+  ctx.usedStateIds.add(unique);
+  return unique;
 }
 
 function truncate(str: string, max: number): string {
@@ -69,6 +96,7 @@ interface DSLContext {
   transitions: WorkflowDiagramTransition[];
   nodeCounter: number;
   lastNodeIds: string[];
+  usedStateIds: Set<string>;
 }
 
 function addState(
@@ -181,7 +209,8 @@ function getDSLStepKindSuffix(node: StaticStepNode): string {
 }
 
 function processStep(node: StaticStepNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
-  const id = stepStateId(node);
+  const authoredId = stepStateId(node);
+  const id = uniqueStateId(ctx, authoredId);
   let label = node.name ?? (node.callee ? extractFunctionName(node.callee) : "step");
 
   const kindSuffix = getDSLStepKindSuffix(node);
@@ -204,6 +233,10 @@ function processStep(node: StaticStepNode, ctx: DSLContext): { firstId: string |
   }
 
   addState(ctx, id, label, "step", {
+    ...(id !== authoredId ? { semanticId: authoredId } : {}),
+    // Literal cache key for snapshot alignment
+    // (currentStepId === key ?? semanticId ?? id).
+    ...(node.key && node.key !== "<dynamic>" ? { key: node.key } : {}),
     outputType: (node as StaticStepNode & { outputType?: string }).outputType,
     inputType: (node as StaticStepNode & { inputType?: string }).inputType,
     location: mapLocation(node.location),
@@ -212,14 +245,19 @@ function processStep(node: StaticStepNode, ctx: DSLContext): { firstId: string |
 }
 
 function processSagaStep(node: StaticSagaStepNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
-  const id = stepStateId(node);
+  const authoredId = stepStateId(node);
+  const id = uniqueStateId(ctx, authoredId);
   const label = node.name ?? (node.callee ? extractFunctionName(node.callee) : "saga-step");
-  addState(ctx, id, label, "step", { location: mapLocation(node.location) });
+  addState(ctx, id, label, "step", {
+    ...(id !== authoredId ? { semanticId: authoredId } : {}),
+    ...(node.key && node.key !== "<dynamic>" && node.key !== id ? { key: node.key } : {}),
+    location: mapLocation(node.location),
+  });
   return { firstId: id, lastIds: [id] };
 }
 
 function processStream(node: StaticStreamNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
-  const id = `stream_${++ctx.nodeCounter}`;
+  const id = uniqueStateId(ctx, `stream_${++ctx.nodeCounter}`);
   const label = node.namespace ? `stream:${node.namespace}` : `stream:${node.streamType}`;
   addState(ctx, id, label, "step", { location: mapLocation(node.location) });
   return { firstId: id, lastIds: [id] };
@@ -230,8 +268,8 @@ function processSequence(node: StaticSequenceNode, ctx: DSLContext): { firstId: 
 }
 
 function processParallel(node: StaticParallelNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
-  const forkId = `parallel_fork_${++ctx.nodeCounter}`;
-  const joinId = `parallel_join_${++ctx.nodeCounter}`;
+  const forkId = uniqueStateId(ctx, `parallel_fork_${++ctx.nodeCounter}`);
+  const joinId = uniqueStateId(ctx, `parallel_join_${++ctx.nodeCounter}`);
   const modeLabel = node.mode === "allSettled" ? "AllSettled" : node.mode;
   const label = node.name ? `${node.name} (${modeLabel})` : `Parallel (${modeLabel})`;
   addState(ctx, forkId, label, "decision");
@@ -252,8 +290,8 @@ function processParallel(node: StaticParallelNode, ctx: DSLContext): { firstId: 
 }
 
 function processRace(node: StaticRaceNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
-  const forkId = `race_fork_${++ctx.nodeCounter}`;
-  const joinId = `race_join_${++ctx.nodeCounter}`;
+  const forkId = uniqueStateId(ctx, `race_fork_${++ctx.nodeCounter}`);
+  const joinId = uniqueStateId(ctx, `race_join_${++ctx.nodeCounter}`);
   addState(ctx, forkId, "Race", "decision");
   addState(ctx, joinId, "Winner", "join");
 
@@ -270,7 +308,7 @@ function processRace(node: StaticRaceNode, ctx: DSLContext): { firstId: string |
 }
 
 function processConditional(node: StaticConditionalNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
-  const decisionId = `decision_${++ctx.nodeCounter}`;
+  const decisionId = uniqueStateId(ctx, `decision_${++ctx.nodeCounter}`);
   const condLabel = truncate(node.condition, 40);
   addState(ctx, decisionId, condLabel, "decision", { location: mapLocation(node.location) });
 
@@ -296,9 +334,19 @@ function processConditional(node: StaticConditionalNode, ctx: DSLContext): { fir
 }
 
 function processDecision(node: StaticDecisionNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
-  const decisionId = `decision_${++ctx.nodeCounter}`;
+  // Explicit step.if decisions keep their authored id — it's the identity the
+  // runtime emits decision events under and graph validation checks.
+  const decisionId =
+    node.decisionId && node.decisionId !== "<dynamic>"
+      ? uniqueStateId(ctx, node.decisionId)
+      : uniqueStateId(ctx, `decision_${++ctx.nodeCounter}`);
   const label = node.conditionLabel || truncate(node.condition, 40);
-  addState(ctx, decisionId, label, "decision", { location: mapLocation(node.location) });
+  addState(ctx, decisionId, label, "decision", {
+    ...(node.decisionId !== "<dynamic>" && decisionId !== node.decisionId
+      ? { semanticId: node.decisionId }
+      : {}),
+    location: mapLocation(node.location),
+  });
 
   // Use semantic edge labels from conditionLabel when available
   const hasSemanticLabel =
@@ -330,7 +378,7 @@ function processDecision(node: StaticDecisionNode, ctx: DSLContext): { firstId: 
 }
 
 function processSwitch(node: StaticSwitchNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
-  const switchId = `switch_${++ctx.nodeCounter}`;
+  const switchId = uniqueStateId(ctx, `switch_${++ctx.nodeCounter}`);
   const label = truncate(`switch: ${node.expression}`, 40);
   addState(ctx, switchId, label, "decision", { location: mapLocation(node.location) });
 
@@ -351,7 +399,7 @@ function processSwitch(node: StaticSwitchNode, ctx: DSLContext): { firstId: stri
 }
 
 function processLoop(node: StaticLoopNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
-  const entryId = `loop_entry_${++ctx.nodeCounter}`;
+  const entryId = uniqueStateId(ctx, `loop_entry_${++ctx.nodeCounter}`);
   const label = node.iterSource ? `${node.loopType}: ${truncate(node.iterSource, 20)}` : node.loopType;
   addState(ctx, entryId, label, "decision", { location: mapLocation(node.location) });
 
@@ -365,7 +413,7 @@ function processLoop(node: StaticLoopNode, ctx: DSLContext): { firstId: string |
     link(ctx, lastId, entryId, "next");
   }
 
-  const exitId = `loop_exit_${++ctx.nodeCounter}`;
+  const exitId = uniqueStateId(ctx, `loop_exit_${++ctx.nodeCounter}`);
   addState(ctx, exitId, "Loop done", "join");
   link(ctx, entryId, exitId, "done");
 
@@ -373,13 +421,13 @@ function processLoop(node: StaticLoopNode, ctx: DSLContext): { firstId: string |
 }
 
 function processWorkflowRef(node: StaticWorkflowRefNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
-  const id = `workflow_ref_${++ctx.nodeCounter}`;
+  const id = uniqueStateId(ctx, `workflow_ref_${++ctx.nodeCounter}`);
   addState(ctx, id, `[[${node.workflowName}]]`, "step", { location: mapLocation(node.location) });
   return { firstId: id, lastIds: [id] };
 }
 
 function processUnknown(node: StaticUnknownNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
-  const id = `unknown_${++ctx.nodeCounter}`;
+  const id = uniqueStateId(ctx, `unknown_${++ctx.nodeCounter}`);
   addState(ctx, id, `Unknown: ${truncate(node.reason, 30)}`, "step");
   return { firstId: id, lastIds: [id] };
 }
@@ -393,8 +441,10 @@ const TERMINAL_ID = "end";
 
 /**
  * Convert static workflow IR to WorkflowDiagramDSL for visualization.
- * Step state ids use step key when present so they align with
- * WorkflowSnapshot.execution.currentStepId.
+ * Step and decision state ids are the semantic ids authored in the code
+ * (step()'s first argument, step.if()'s decision id), so the DSL works
+ * directly as the runtime `graph` option and matches runtime event `name`s.
+ * Un-keyed steps also align with WorkflowSnapshot.execution.currentStepId.
  */
 export function renderWorkflowDSL(ir: StaticWorkflowIR): WorkflowDiagramDSL {
   const ctx: DSLContext = {
@@ -402,6 +452,9 @@ export function renderWorkflowDSL(ir: StaticWorkflowIR): WorkflowDiagramDSL {
     transitions: [],
     nodeCounter: 0,
     lastNodeIds: [],
+    // Reserve the fixed initial/terminal ids so a step authored as
+    // "start"/"end" gets a suffixed state id instead of colliding.
+    usedStateIds: new Set([INITIAL_ID, TERMINAL_ID]),
   };
 
   addState(ctx, INITIAL_ID, "Start", "initial");

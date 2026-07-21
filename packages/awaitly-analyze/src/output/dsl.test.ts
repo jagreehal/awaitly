@@ -46,13 +46,13 @@ describe("renderWorkflowDSL", () => {
     expect(dsl.states.some((s) => s.id === "end" && s.type === "terminal")).toBe(true);
   });
 
-  it("uses step key as step state id when present (snapshot alignment)", () => {
+  it("keeps semantic id and cache key distinct for snapshot alignment", () => {
     const source = `
       import { createWorkflow, ok } from "awaitly";
       const w = createWorkflow("w", { fetch: async () => ok({}) });
       export async function run() {
         return await w(async ({ step }) => {
-          await step('getBatch', () => fetch(), { key: "getBatch", name: "Get batch" });
+          await step('getBatch', () => fetch(), { key: "batch-123" });
           return {};
         });
       }
@@ -61,8 +61,9 @@ describe("renderWorkflowDSL", () => {
     const dsl = renderWorkflowDSL(results[0]!);
     const stepState = dsl.states.find((s) => s.type === "step");
     expect(stepState).toBeDefined();
-    // State id must be step key for snapshot.currentStepId alignment
     expect(stepState!.id).toBe("getBatch");
+    expect(stepState!.key).toBe("batch-123");
+    expect((stepState!.key ?? stepState!.id)).toBe("batch-123");
     expect(stepState!.label.length).toBeGreaterThan(0);
   });
 
