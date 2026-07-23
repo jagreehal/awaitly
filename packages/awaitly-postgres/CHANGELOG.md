@@ -1,5 +1,16 @@
 # awaitly-postgres
 
+## 27.0.0
+
+### Major Changes
+
+- 327f227: Replace the workflow production umbrella with task-shaped `run`, `reliability`, `durable`, `persistence`, `saga`, `hitl`, `streaming`, `webhook`, and `engine` entry points. Persistence adapters now consume the dedicated persistence contract instead of the workflow runtime.
+
+### Patch Changes
+
+- Updated dependencies [327f227]
+  - awaitly@3.0.0
+
 ## 26.0.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "eslint-plugin-awaitly",
-  "version": "1.1.1",
+  "version": "2.0.0",
   "type": "module",
   "description": "ESLint rules for awaitly workflow patterns - catch common mistakes like immediate execution and unstable cache keys",
   "main": "./dist/index.cjs",
