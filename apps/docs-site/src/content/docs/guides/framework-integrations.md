@@ -329,7 +329,7 @@ export default router;
 
 ```typescript
 // routes/transfer.ts
-import { createSagaWorkflow } from 'awaitly/workflow';
+import { createSagaWorkflow } from 'awaitly/saga';
 
 const transferWorkflow = createSagaWorkflow('saga', { debitAccount: async (accountId: string, amount: number) => {
     return await accountService.debit(accountId, amount);

@@ -151,7 +151,6 @@ export default defineConfig({
               label: 'Extending',
               items: [
                 { label: 'Extending Awaitly', slug: 'guides/extending-awaitly' },
-                { label: 'Migration Guide', slug: 'guides/migration' },
               ],
             },
           ],

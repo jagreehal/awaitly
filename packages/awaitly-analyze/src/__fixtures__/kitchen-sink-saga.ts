@@ -8,7 +8,7 @@
  * - Destructured { step, tryStep } form
  */
 import { ok, type AsyncResult } from "awaitly";
-import { createSagaWorkflow } from "awaitly/workflow";
+import { createSagaWorkflow } from "awaitly/saga";
 
 // ---------------------------------------------------------------------------
 // Dependencies (all must return Result for createSagaWorkflow)

@@ -20,7 +20,7 @@ yarn add awaitly-libsql @libsql/client
 
 ```ts
 import { libsql } from "awaitly-libsql";
-import { durable } from "awaitly/workflow";
+import { durable } from "awaitly/durable";
 
 // Local file database (good for dev)
 const store = libsql("file:./awaitly.db");

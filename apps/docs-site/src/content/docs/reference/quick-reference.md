@@ -101,7 +101,7 @@ const dashboard = andThen(
 ### Undo completed steps when one fails
 
 ```typescript
-import { createSagaWorkflow } from 'awaitly/workflow';
+import { createSagaWorkflow } from 'awaitly/saga';
 
 const saga = createSagaWorkflow('checkout', { charge, refund, reserve, release });
 const result = await saga.run(async ({ step, deps }) => {
@@ -119,7 +119,7 @@ const result = await saga.run(async ({ step, deps }) => {
 ### Wait for human approval
 
 ```typescript
-import { createApprovalStep, isPendingApproval } from 'awaitly/workflow';
+import { createApprovalStep, isPendingApproval } from 'awaitly/hitl';
 import { createResumeStateCollector } from 'awaitly/workflow';
 
 const approvalStep = createApprovalStep({
@@ -305,43 +305,53 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 
 ## Import Cheatsheet
 
-There are exactly four entry points. Everything is a **named import** — there is no namespace object.
+Use the task-shaped entry point for the capability you need. Everything is a **named import** — there is no namespace object.
 
 | Need | Import from |
 |------|-------------|
 | Result types only (minimal bundle) | `awaitly/result` |
 | Result types + composition (`ok`, `err`, `isOk`, `isErr`, `map`, `mapError`, `andThen`, `tap`, `from`, `fromPromise`, `all`, `allAsync`, `partition`, `match`, `TaggedError`) | `awaitly` |
-| `run()` for step composition | `awaitly` |
+| `run()` for step composition | `awaitly/run` (or `awaitly`) |
 | Parallel ops (`allAsync`, `allSettledAsync`, `zip`, `zipAsync`) | `awaitly` |
-| Retry policy for async/Result code (`retry`) | `awaitly` |
-| Circuit breaker (`createCircuitBreaker`, `isCircuitOpenError`) | `awaitly` |
-| Rate limiting | `awaitly` |
-| Singleflight (`singleflight`, `createSingleflightGroup`) | `awaitly` |
+| Retry policy for async/Result code (`retry`) | `awaitly/reliability` (or `awaitly`) |
+| Circuit breaker (`createCircuitBreaker`, `isCircuitOpenError`) | `awaitly/reliability` (or `awaitly`) |
+| Rate limiting | `awaitly/reliability` (or `awaitly`) |
+| Singleflight (`singleflight`, `createSingleflightGroup`) | `awaitly/reliability` (or `awaitly`) |
 | Duration helpers (`Duration`, `seconds`, `minutes`) | `awaitly` |
 | Tagged errors, pattern matching | `awaitly` |
 | Pre-built errors (`TimeoutError`, `RetryExhaustedError`, `RateLimitError`, etc.) | `awaitly` |
 | Conditionals (`when`, `unless`) | `awaitly` |
 | Workflow engine (`createWorkflow`, `isStepComplete`, `createResumeStateCollector`, `isWorkflowCancelled`, step types, `ResumeState`) | `awaitly/workflow` |
 | Workflow instance (`.run(name?, fn, config?)`) | Returned by `createWorkflow` |
-| Durable execution (`durable.run`) | `awaitly/workflow` |
-| Saga pattern (`createSagaWorkflow`) | `awaitly/workflow` |
-| HITL (`pendingApproval`, `createApprovalStep`, `gatedStep`, `injectApproval`, `isPendingApproval`) | `awaitly/workflow` |
-| Snapshot store types and validation (`SnapshotStore`, `WorkflowSnapshot`, `validateSnapshot`) | `awaitly/workflow` |
-| Streaming (`createMemoryStreamStore`, `toAsyncIterable`, transformers) | `awaitly/workflow` |
-| Webhooks (`createWebhookHandler`) | `awaitly/workflow` |
+| Durable execution (`durable.run`) | `awaitly/durable` |
+| Saga pattern (`createSagaWorkflow`) | `awaitly/saga` |
+| HITL (`pendingApproval`, `createApprovalStep`, `gatedStep`, `injectApproval`, `isPendingApproval`) | `awaitly/hitl` |
+| Snapshot store types and validation (`SnapshotStore`, `WorkflowSnapshot`, `validateSnapshot`) | `awaitly/persistence` |
+| Streaming (`createMemoryStreamStore`, `toAsyncIterable`, transformers) | `awaitly/streaming` |
+| Webhooks (`createWebhookHandler`) | `awaitly/webhook` |
+| Runtime engine (`createEngine`) | `awaitly/engine` |
 | Batch processing (`processInBatches`) | `awaitly/workflow` |
 | Testing utilities | `awaitly/testing` |
 | Visualization | `awaitly-visualizer` (createVisualizer, Mermaid/ASCII/JSON; optional React UI) |
 
 ---
 
-## The four entry points
+## Entry points
 
 | Entry Point | Use Case |
 |-------------|----------|
 | `awaitly/result` | Result types only (smallest bundle; sizes in docs are gzipped when given) |
 | `awaitly` | The front door: Result types, `run()`, per-dep policies, reliability, pattern matching, durations, pre-built errors |
-| `awaitly/workflow` | Workflow engine (`createWorkflow`, `durable`, persistence, HITL, sagas, streaming, webhooks, batch) |
+| `awaitly/run` | Async step composition without the rest of the root entry |
+| `awaitly/reliability` | Policies, circuit breakers, rate limiting, caching, and singleflight |
+| `awaitly/workflow` | Workflow composition, resources, and batching |
+| `awaitly/durable` | Durable workflow execution |
+| `awaitly/persistence` | Store contracts, snapshots, serialization, and migrations |
+| `awaitly/saga` | Compensating workflows |
+| `awaitly/hitl` | Human approval and orchestration |
+| `awaitly/streaming` | Stream stores and transforms |
+| `awaitly/webhook` | HTTP webhook adapters and result mapping |
+| `awaitly/engine` | Queue-backed workflow runtime |
 | `awaitly/testing` | Test utilities |
 
 ---

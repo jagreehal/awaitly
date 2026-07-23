@@ -7,8 +7,8 @@
  */
 
 import { createClient, type Client } from "@libsql/client";
-import type { WorkflowSnapshot, SnapshotStore } from "awaitly/workflow";
-import type { WorkflowLock } from "awaitly/workflow";
+import type { WorkflowSnapshot, SnapshotStore } from "awaitly/persistence";
+import type { WorkflowLock } from "awaitly/persistence";
 import {
   type ResumeState,
   type StoreSaveInput,
@@ -18,14 +18,14 @@ import {
   isSerializedResumeState,
   serializeResumeState,
   deserializeResumeState,
-} from "awaitly/workflow";
+} from "awaitly/persistence";
 import { createLibSqlLock, type LibSqlLockOptions } from "./libsql-lock";
 
 // Re-export types for convenience
-export type { SnapshotStore, WorkflowSnapshot } from "awaitly/workflow";
-export type { WorkflowLock } from "awaitly/workflow";
+export type { SnapshotStore, WorkflowSnapshot } from "awaitly/persistence";
+export type { WorkflowLock } from "awaitly/persistence";
 export type { LibSqlLockOptions } from "./libsql-lock";
-export type { StoreSaveInput, StoreLoadResult } from "awaitly/workflow";
+export type { StoreSaveInput, StoreLoadResult } from "awaitly/persistence";
 
 // =============================================================================
 // LibSqlOptions

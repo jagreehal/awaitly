@@ -8,8 +8,8 @@
 
 import type { Db, MongoClientOptions } from "mongodb";
 import { MongoClient as MongoClientImpl } from "mongodb";
-import type { WorkflowSnapshot, SnapshotStore } from "awaitly/workflow";
-import type { WorkflowLock } from "awaitly/workflow";
+import type { WorkflowSnapshot, SnapshotStore } from "awaitly/persistence";
+import type { WorkflowLock } from "awaitly/persistence";
 import {
   type ResumeState,
   type StoreSaveInput,
@@ -19,21 +19,21 @@ import {
   isSerializedResumeState,
   serializeResumeState,
   deserializeResumeState,
-} from "awaitly/workflow";
+} from "awaitly/persistence";
 import { createMongoLock, type MongoLockOptions } from "./mongo-lock";
 
 /** Document shape for the snapshots collection (string _id). */
 interface SnapshotDoc {
   _id: string;
-  snapshot: WorkflowSnapshot | import("awaitly/workflow").SerializedResumeState;
+  snapshot: WorkflowSnapshot | import("awaitly/persistence").SerializedResumeState;
   updatedAt: Date;
 }
 
 // Re-export types for convenience
-export type { SnapshotStore, WorkflowSnapshot } from "awaitly/workflow";
-export type { WorkflowLock } from "awaitly/workflow";
+export type { SnapshotStore, WorkflowSnapshot } from "awaitly/persistence";
+export type { WorkflowLock } from "awaitly/persistence";
 export type { MongoLockOptions } from "./mongo-lock";
-export type { StoreSaveInput, StoreLoadResult } from "awaitly/workflow";
+export type { StoreSaveInput, StoreLoadResult } from "awaitly/persistence";
 
 // =============================================================================
 // MongoOptions

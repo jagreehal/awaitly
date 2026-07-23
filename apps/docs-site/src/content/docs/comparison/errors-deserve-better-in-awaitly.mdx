@@ -3,7 +3,7 @@ title: Errors Deserve Better in awaitly
 description: Saga-first handling for OTA-299 style booking failures, built on awaitly's existing async/await primitives
 ---
 
-This article focuses on one pattern: **sagas** (`createSagaWorkflow`, from `awaitly/workflow`).
+This article focuses on one pattern: **sagas** (`createSagaWorkflow`, from `awaitly/saga`).
 
 The "Errors Deserve Better" scenario is not just about classifying failures. It is about safely handling a multi-step flow where side effects can partially succeed (charge captured) before a later step fails (reservation submit/persist).
 
@@ -51,7 +51,7 @@ A saga gives you both:
 That matches transactional booking behavior more closely than Result-only handling.
 
 ```ts
-import { createSagaWorkflow } from 'awaitly/workflow';
+import { createSagaWorkflow } from 'awaitly/saga';
 import { TaggedError } from 'awaitly';
 
 class PaymentLimbo extends TaggedError('PaymentLimbo')<{

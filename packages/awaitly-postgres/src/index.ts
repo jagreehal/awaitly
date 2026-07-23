@@ -7,8 +7,8 @@
  */
 
 import { Pool as PgPool } from "pg";
-import type { WorkflowSnapshot, SnapshotStore } from "awaitly/workflow";
-import type { WorkflowLock } from "awaitly/workflow";
+import type { WorkflowSnapshot, SnapshotStore } from "awaitly/persistence";
+import type { WorkflowLock } from "awaitly/persistence";
 import {
   type ResumeState,
   type StoreSaveInput,
@@ -18,14 +18,14 @@ import {
   isSerializedResumeState,
   serializeResumeState,
   deserializeResumeState,
-} from "awaitly/workflow";
+} from "awaitly/persistence";
 import { createPostgresLock, type PostgresLockOptions } from "./postgres-lock";
 
 // Re-export types for convenience
-export type { SnapshotStore, WorkflowSnapshot } from "awaitly/workflow";
-export type { WorkflowLock } from "awaitly/workflow";
+export type { SnapshotStore, WorkflowSnapshot } from "awaitly/persistence";
+export type { WorkflowLock } from "awaitly/persistence";
 export type { PostgresLockOptions } from "./postgres-lock";
-export type { StoreSaveInput, StoreLoadResult } from "awaitly/workflow";
+export type { StoreSaveInput, StoreLoadResult } from "awaitly/persistence";
 
 // =============================================================================
 // PostgresOptions
@@ -63,7 +63,8 @@ const SAFE_TABLE_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * @example
  * ```typescript
  * import { postgres } from 'awaitly-postgres';
- * import { createWorkflow, toResumeState } from 'awaitly/workflow';
+ * import { createWorkflow } from 'awaitly/workflow';
+ * import { toResumeState } from 'awaitly/persistence';
  *
  * const store = postgres('postgresql://localhost/mydb');
  * const workflow = createWorkflow(deps);

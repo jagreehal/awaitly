@@ -31,7 +31,7 @@ The library requires TypeScript 4.7 or later. Enable strict mode for best result
 
 ## Import paths
 
-awaitly has exactly four entry points, all named exports:
+awaitly uses task-shaped entry points, all with named exports:
 
 ```typescript
 // The front door: Result primitives, run(), policies, errors, matching
@@ -40,9 +40,21 @@ import { ok, err, run, type AsyncResult } from 'awaitly';
 // Minimal: Result types only (smallest bundle)
 import { ok, err, map, andThen, type AsyncResult } from 'awaitly/result';
 
-// The production tier: workflows, durable execution, persistence,
-// sagas, streaming, human-in-the-loop, batching, resources
+// Focused composition and reliability entries
+import { run } from 'awaitly/run';
+import { retry, createCircuitBreaker } from 'awaitly/reliability';
+
+// Workflow composition, batching, and resources
 import { createWorkflow, processInBatches, withScope, createResource } from 'awaitly/workflow';
+
+// Load production capabilities independently
+import { durable } from 'awaitly/durable';
+import { type SnapshotStore } from 'awaitly/persistence';
+import { createSagaWorkflow } from 'awaitly/saga';
+import { createApprovalStep } from 'awaitly/hitl';
+import { createMemoryStreamStore } from 'awaitly/streaming';
+import { createWebhookHandler } from 'awaitly/webhook';
+import { createEngine } from 'awaitly/engine';
 
 // Test utilities
 import { createWorkflowHarness } from 'awaitly/testing';

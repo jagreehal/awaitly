@@ -8,7 +8,7 @@
  * @example Basic usage
  * ```typescript
  * import { createWorkflow } from 'awaitly/workflow';
- * import { createMemoryStreamStore } from 'awaitly/workflow';
+ * import { createMemoryStreamStore } from 'awaitly/streaming';
  *
  * const streamStore = createMemoryStreamStore();
  * const workflow = createWorkflow(deps, { streamStore });
@@ -27,7 +27,7 @@
  *
  * @example Consuming a stream
  * ```typescript
- * import { toAsyncIterable } from 'awaitly/workflow';
+ * import { toAsyncIterable } from 'awaitly/streaming';
  *
  * const reader = step.getReadable<string>({ namespace: 'tokens' });
  *
@@ -38,7 +38,7 @@
  *
  * @example Stream transformations
  * ```typescript
- * import { map, filter, chunk, collect } from 'awaitly/workflow';
+ * import { map, filter, chunk, collect } from 'awaitly/streaming';
  *
  * const reader = step.getReadable<number>({ namespace: 'numbers' });
  *

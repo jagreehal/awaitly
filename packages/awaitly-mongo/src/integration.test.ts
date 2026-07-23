@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { mongo } from "./index";
 import { MongoClient as MongoClientImpl } from "mongodb";
-import { durable } from "awaitly/workflow";
+import { durable } from "awaitly/durable";
 import { ok, err, type AsyncResult } from "awaitly";
 
 const TEST_CONNECTION_STRING = process.env.TEST_MONGODB_URI ??

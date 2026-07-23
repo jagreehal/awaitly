@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 /**
- * Bundle budgets for the canonical entries.
+ * Bundle budgets for the public entries.
  *
  * Two size contracts, enforced against what a consumer's bundler keeps
  * (dist is shipped UNMINIFIED so consumer bundlers can tree-shake —
@@ -19,8 +19,9 @@ import { join, resolve } from "node:path";
  *    must tree-shake to a few KB; the engine itself has a ceiling.
  */
 describe("bundle budgets", () => {
-  const rootDist = resolve(__dirname, "../dist/index.js");
-  const resultDist = resolve(__dirname, "../dist/result.js");
+  const distEntry = (name: string) => resolve(__dirname, `../dist/${name}.js`);
+  const rootDist = distEntry("index");
+  const resultDist = distEntry("result");
   const esbuildBin = resolve(__dirname, "../node_modules/.bin/esbuild");
 
   const built = () => existsSync(rootDist) && existsSync(resultDist) && existsSync(esbuildBin);
@@ -31,7 +32,7 @@ describe("bundle budgets", () => {
       const entry = join(dir, "entry.mjs");
       const out = join(dir, "out.mjs");
       writeFileSync(entry, entrySource);
-      execFileSync(esbuildBin, [entry, "--bundle", "--minify", "--format=esm", `--outfile=${out}`]);
+      execFileSync(esbuildBin, [entry, "--bundle", "--minify", "--platform=node", "--format=esm", `--outfile=${out}`]);
       return statSync(out).size;
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -64,10 +65,37 @@ describe("bundle budgets", () => {
     ).toBeLessThan(40_000);
   });
 
+  it("keeps each task-shaped entry within its whole-entry budget", () => {
+    if (!built()) return;
+
+    const budgets = {
+      run: 36_000,
+      workflow: 70_000,
+      reliability: 22_000,
+      durable: 72_000,
+      persistence: 10_000,
+      saga: 58_000,
+      hitl: 12_000,
+      streaming: 13_000,
+      webhook: 9_000,
+      engine: 70_000,
+      testing: 65_000,
+    } as const;
+
+    for (const [name, budget] of Object.entries(budgets)) {
+      const entry = distEntry(name);
+      expect(existsSync(entry), `missing dist/${name}.js`).toBe(true);
+      expect(
+        minifiedSize(`export * from ${JSON.stringify(entry)};\n`),
+        `${name} exceeded its ${budget}-byte whole-entry budget`,
+      ).toBeLessThan(budget);
+    }
+  });
+
   it("keeps the raw root entry below the absorbed-core ceiling", () => {
     if (!existsSync(rootDist)) return;
     // Unminified raw ceiling: catches accidental absorption of the
-    // production tier (streaming, engine, durable belong to awaitly/workflow).
+    // focused production capabilities belong to their own entry points.
     expect(statSync(rootDist).size).toBeLessThan(150_000);
   });
 });

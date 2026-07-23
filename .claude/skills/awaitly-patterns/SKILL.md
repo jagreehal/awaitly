@@ -13,7 +13,7 @@ Workflows are sequential unless explicitly composed using step concurrency helpe
 **Execution is only via `workflow.run()`.** There is no callable form (`workflow(fn)` or `workflow(args, fn)`). Use closures for workflow input (e.g. `userId` in scope).
 
 **Callback shape:** Workflow callbacks receive a single destructured object:
-- `run()` (from `awaitly`): `async ({ step }) => { ... }` — deps via closures.
+- `run()` (prefer `awaitly/run`; also available from `awaitly`): `async ({ step }) => { ... }` — deps via closures.
 - `createWorkflow('name', deps)` → **execute with** `workflow.run(fn)`: `async ({ step, deps }) => { ... }`. Optional `ctx` when `createContext` is set: `async ({ step, deps, ctx }) => { ... }`.
 
 **Call form (mechanical):**
@@ -266,12 +266,12 @@ When you see these patterns, apply the rewrite:
 ## Choosing Your Pattern
 
 **Canonical signatures:**
-- `run(callback, options?)` — `import { run } from 'awaitly'` (standalone; no workflow object). Also supports the deps-first form `run(deps, callback)` with automatic error inference.
+- `run(callback, options?)` — prefer `import { run } from 'awaitly/run'` (also available from `awaitly`; standalone, no workflow object). Also supports the deps-first form `run(deps, callback)` with automatic error inference.
 - `createWorkflow('name', deps, options?)` returns a workflow object; **execute only via** `workflow.run(fn)`, `workflow.run(fn, config)`, `workflow.run(name, fn)`, or `workflow.run(name, fn, config)` — `import { createWorkflow } from 'awaitly/workflow'`.
 
 | Aspect | `run()` | `createWorkflow('name', deps)` |
 |--------|---------|-------------------------------|
-| Import | `awaitly` | `awaitly/workflow` |
+| Import | `awaitly/run` | `awaitly/workflow` |
 | Execute | `run(fn)` or `run(fn, options)` | `workflow.run(fn)` or `workflow.run(fn, config)` or `workflow.run(name, fn)` or `workflow.run(name, fn, config)` — **no callable** |
 | Step syntax | `step('id', () => deps.fn(args))` (explicit) | `step('id', () => deps.fn(args))` (explicit) |
 | Deps | Closures | Injected at creation; override per run with `workflow.run(fn, { deps: partialOverride })` |
@@ -1071,13 +1071,11 @@ Full structure is documented in awaitly-analyze README (“JSON output shape”)
 
 ## Imports
 
-There are exactly four entry points, and all imports are **named imports** — there is no `Awaitly` namespace object:
+Use the task-shaped entry point for the capability being implemented. All imports are **named imports** — there is no `Awaitly` namespace object:
 
 ```typescript
-// Core (the front door) — Result primitives, run(), policies, TaggedError,
-// pattern matching, durations, circuit breaker, rate limiting, cache
+// Core front door — Result primitives, TaggedError, matching, and durations
 import {
-  run,                               // simple workflow (closures, no DI)
   ok, err,                           // constructors
   type AsyncResult, type Result,     // types
   type ErrorOf, type Errors, type ErrorsOf, // type helpers
@@ -1091,8 +1089,21 @@ import {
   allAsync,                          // parallel
 } from 'awaitly';
 
-// Full workflow (DI, retries, timeout, persistence, durable, sagas, streaming)
-import { createWorkflow, durable } from 'awaitly/workflow';
+// Lightweight step composition and dependency protection
+import { run } from 'awaitly/run';
+import { retry, timeout, createCircuitBreaker } from 'awaitly/reliability';
+
+// Workflow composition
+import { createWorkflow } from 'awaitly/workflow';
+
+// Independent production capabilities
+import { durable } from 'awaitly/durable';
+import { type SnapshotStore, serializeResumeState } from 'awaitly/persistence';
+import { createSagaWorkflow } from 'awaitly/saga';
+import { createApprovalStep } from 'awaitly/hitl';
+import { createMemoryStreamStore } from 'awaitly/streaming';
+import { createWebhookHandler } from 'awaitly/webhook';
+import { createEngine } from 'awaitly/engine';
 
 // Testing
 import { unwrapOk, unwrapErr } from 'awaitly/testing';
@@ -1112,7 +1123,7 @@ import { ok, err, type AsyncResult } from 'awaitly/result';
 `createEngine()` provides a polling background engine for durable workflow orchestration.
 
 ```typescript
-import { createEngine } from 'awaitly/workflow';
+import { createEngine } from 'awaitly/engine';
 
 const engine = createEngine({
   store,
@@ -1136,7 +1147,7 @@ await engine.start();
 await engine.stop();
 ```
 
-**Import:** `'awaitly/workflow'` — exports `createEngine`, `Engine`, `EngineOptions`, `EngineEvent`, `EnqueueOptions`, `ScheduleOptions`, `WorkflowRegistration`.
+**Import:** `'awaitly/engine'` — exports `createEngine`, `Engine`, `EngineOptions`, `EngineEvent`, `EnqueueOptions`, `ScheduleOptions`, `WorkflowRegistration`.
 
 ---
 
@@ -1196,7 +1207,7 @@ console.log(`Took ${result.durationMs}ms`);
 Returned when a workflow's lock lease expires mid-execution.
 
 ```typescript
-import { isLeaseExpired } from 'awaitly/workflow';
+import { isLeaseExpired } from 'awaitly/durable';
 
 if (isLeaseExpired(error)) {
   console.warn(`Lease lost for workflow ${error.workflowId}`);
@@ -1208,7 +1219,7 @@ if (isLeaseExpired(error)) {
 Returned when an idempotency key is reused with different input.
 
 ```typescript
-import { isIdempotencyConflict } from 'awaitly/workflow';
+import { isIdempotencyConflict } from 'awaitly/durable';
 
 if (isIdempotencyConflict(error)) {
   console.warn(`Duplicate key ${error.idempotencyKey} for ${error.workflowId}`);

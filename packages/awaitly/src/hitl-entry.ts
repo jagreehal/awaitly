@@ -6,7 +6,7 @@
  *
  * @example
  * ```typescript
- * import { createApprovalStep, isPendingApproval, injectApproval } from 'awaitly/workflow';
+ * import { createApprovalStep, isPendingApproval, injectApproval } from 'awaitly/hitl';
  *
  * const requireApproval = createApprovalStep({
  *   key: 'approve:refund',

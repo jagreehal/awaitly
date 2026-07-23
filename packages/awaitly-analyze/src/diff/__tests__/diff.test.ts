@@ -408,7 +408,7 @@ describe("Workflow Diff", () => {
 
     it("styles added saga steps using saga_step node ids", () => {
       const sourceV1 = `
-        import { createSagaWorkflow, ok } from "awaitly/workflow";
+        import { createSagaWorkflow, ok } from "awaitly/saga";
 
         const workflow = createSagaWorkflow("saga", {
           reserve: async () => ok({}),
@@ -423,7 +423,7 @@ describe("Workflow Diff", () => {
       `;
 
       const sourceV2 = `
-        import { createSagaWorkflow, ok } from "awaitly/workflow";
+        import { createSagaWorkflow, ok } from "awaitly/saga";
 
         const workflow = createSagaWorkflow("saga", {
           reserve: async () => ok({}),

@@ -24,15 +24,20 @@
  * });
  * ```
  *
- * ## Entry Points (canonical: exactly four)
+ * ## Entry Points
  *
  * - `awaitly` — the front door: Result primitives, run() + step engine,
  *   per-dep policies (retry/timeout/fallback), TaggedError, errors,
  *   pattern matching, durations, reliability instances
  * - `awaitly/result` — the size guarantee: Result primitives only, whole
  *   entry stays tiny with zero bundler trust required
- * - `awaitly/workflow` — the production tier: createWorkflow, durable
- *   execution, persistence, human-in-the-loop, sagas, streaming, webhooks
+ * - `awaitly/run` — async step composition without the rest of the root
+ * - `awaitly/reliability` — policies, circuit breakers, rate limiting,
+ *   caching, and singleflight
+ * - `awaitly/workflow` — workflow composition, resources, and batching
+ * - focused production entries: `awaitly/durable`, `awaitly/persistence`,
+ *   `awaitly/saga`, `awaitly/hitl`, `awaitly/streaming`, `awaitly/webhook`,
+ *   and `awaitly/engine`
  * - `awaitly/testing` — test utilities
  */
 

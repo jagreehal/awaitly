@@ -488,7 +488,7 @@ export const durable = {
    *
    * @example
    * ```typescript
-   * import { durable } from 'awaitly/workflow';
+   * import { durable } from 'awaitly/durable';
    *
    * // Zero-config: uses in-memory store (per process)
    * const result = await durable.run(

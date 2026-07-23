@@ -67,7 +67,7 @@ See also: [Where options go/persistence/#where-options-go-creation-vs-per-run) (
 If you omit `store`, Awaitly uses an in-memory store (per process). This supports resume/retry within the same Node process, but state is lost on restart.
 
 ```typescript
-import { durable } from 'awaitly/workflow';
+import { durable } from 'awaitly/durable';
 
 const result = await durable.run(
   { fetchUser, createOrder, sendEmail },
@@ -88,7 +88,7 @@ When using the default in-memory store, workflow IDs must be unique within the p
 To persist across restarts or share state across processes, pass a **SnapshotStore** (e.g. from `postgres()`, `mongo()`, or `libsql()`):
 
 ```typescript
-import { durable } from 'awaitly/workflow';
+import { durable } from 'awaitly/durable';
 import { postgres } from 'awaitly-postgres';
 
 const store = postgres('postgresql://localhost/mydb');
@@ -163,10 +163,10 @@ const result = await durable.run(deps, workflowFn, { id: 'checkout-123', store }
 
 ### Custom store
 
-Implement the **SnapshotStore** interface from `awaitly/workflow`:
+Implement the **SnapshotStore** interface from `awaitly/persistence`:
 
 ```typescript
-import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/workflow';
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
 
 const store: SnapshotStore = {
   async save(id, snapshot) {
@@ -436,7 +436,7 @@ await step('create', () => ok({ user, connection: dbConn }), { key: 'create' });
 
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
-import { durable, isWorkflowCancelled } from 'awaitly/workflow';
+import { durable, isWorkflowCancelled } from 'awaitly/durable';
 
 // Define Result-returning functions
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {

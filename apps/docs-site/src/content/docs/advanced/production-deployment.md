@@ -262,10 +262,10 @@ See [Persistence](/guides/persistence/) and [PostgreSQL](/guides/postgres-persis
 
 ### Redis (custom SnapshotStore)
 
-Implement the `SnapshotStore` interface from `awaitly/workflow`:
+Implement the `SnapshotStore` interface from `awaitly/persistence`:
 
 ```typescript
-import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/workflow';
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
 import { createClient } from 'redis';
 
 const redis = createClient({ url: process.env.REDIS_URL });
@@ -301,7 +301,7 @@ await workflow.run(/* same workflow fn */, { resumeState: savedState ?? undefine
 If you need a custom table, implement `SnapshotStore` and store `WorkflowSnapshot` as JSONB:
 
 ```typescript
-import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/workflow';
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
 import { Pool } from 'pg';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -341,7 +341,7 @@ const store: SnapshotStore = {
 Implement `SnapshotStore` and store `WorkflowSnapshot` as JSON:
 
 ```typescript
-import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/workflow';
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 

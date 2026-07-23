@@ -44,7 +44,8 @@ For **streaming items inside a step** (AI tokens, progressive output), use a sep
 **Preferred:** Use `runWithState` to run and get resume state in one call, then persist. Restore with `store.loadResumeState(id)` or `toResumeState(await store.load(id))` and pass to `workflow.run(fn, { resumeState })`.
 
 ```typescript
-import { createWorkflow, toResumeState } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly/workflow';
+import { toResumeState } from 'awaitly/persistence';
 import { postgres } from 'awaitly-postgres';
 
 const store = postgres('postgresql://localhost/mydb');
@@ -184,7 +185,7 @@ import {
   looksLikeWorkflowSnapshot,
   validateSnapshot,
   assertValidSnapshot,
-} from 'awaitly/workflow';
+} from 'awaitly/persistence';
 
 // Quick check
 if (looksLikeWorkflowSnapshot(obj)) {
@@ -208,7 +209,7 @@ const snapshot = assertValidSnapshot(obj); // throws SnapshotFormatError
 For incremental persistence:
 
 ```typescript
-import { mergeSnapshots } from 'awaitly/workflow';
+import { mergeSnapshots } from 'awaitly/persistence';
 
 const merged = mergeSnapshots(baseSnapshot, deltaSnapshot);
 // delta.steps overwrites base.steps
