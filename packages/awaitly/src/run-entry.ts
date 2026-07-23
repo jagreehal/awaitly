@@ -7,7 +7,7 @@
  * @example
  * ```typescript
  * import { ok, err, type AsyncResult } from 'awaitly';
- * import { run } from 'awaitly';
+ * import { run } from 'awaitly/run';
  *
  * async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
  *   const user = await db.find(id);

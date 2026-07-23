@@ -3,7 +3,7 @@
  * Renders as saga-step nodes with "(compensable)" and "(try)" in the diagram.
  */
 import { ok, type AsyncResult } from "awaitly";
-import { createSagaWorkflow } from "awaitly/workflow";
+import { createSagaWorkflow } from "awaitly/saga";
 
 const reserve = async (id: string): AsyncResult<{ reservationId: string }, "UNAVAILABLE"> =>
   ok({ reservationId: "res_1" });

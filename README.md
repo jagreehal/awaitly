@@ -23,7 +23,7 @@ No exceptions for expected failures. No manual error unions.
 npm install awaitly
 ```
 
-Four entry points: `awaitly` (the front door — Result primitives, `run()`, policies), `awaitly/result` (minimal bundle — Result primitives only), `awaitly/workflow` (durable workflows, persistence, sagas, streaming), and `awaitly/testing`.
+Import from the capability you use. The small everyday entries are `awaitly/result`, `awaitly/run`, and `awaitly/reliability`; production capabilities have focused entries such as `awaitly/workflow`, `awaitly/durable`, `awaitly/persistence`, `awaitly/saga`, `awaitly/hitl`, `awaitly/streaming`, `awaitly/webhook`, and `awaitly/engine`. Test helpers live at `awaitly/testing`. The root `awaitly` entry remains the convenient front door for Result, `run()`, and reliability APIs.
 
 📚 **[Full Documentation](https://jagreehal.github.io/awaitly/)** - guides, API reference, and examples.
 
@@ -567,7 +567,7 @@ const state = collector.getResumeState(); // Returns ResumeState
 **Step 2: Save to database**
 
 ```typescript
-import { serializeResumeState } from 'awaitly/workflow';
+import { serializeResumeState } from 'awaitly/persistence';
 
 // Serialize to a JSON-safe object
 const workflowId = '123';
@@ -585,7 +585,7 @@ await db.workflowStates.create({
 
 ```typescript
 // Load from database
-import { deserializeResumeState } from 'awaitly/workflow';
+import { deserializeResumeState } from 'awaitly/persistence';
 
 const workflowId = '123';
 const saved = await db.workflowStates.findUnique({ where: { id: workflowId } });
@@ -615,7 +615,7 @@ await workflow(async ({ step, deps }) => {
 The adapter packages give you a ready-made store — pass it to `durable.run` and save/load/resume is handled for you:
 
 ```typescript
-import { durable } from 'awaitly/workflow';
+import { durable } from 'awaitly/durable';
 import { postgres } from 'awaitly-postgres'; // or awaitly-mongo, awaitly-libsql
 
 const store = postgres(process.env.DATABASE_URL);

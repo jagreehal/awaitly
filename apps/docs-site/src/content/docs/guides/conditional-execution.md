@@ -133,7 +133,8 @@ const workflow = createWorkflow('workflow', { fetchUser }, {
 Use `createConditionalHelpers` to bind helpers to workflow context for automatic event emission:
 
 ```typescript
-import { createConditionalHelpers, createWorkflow } from 'awaitly/workflow';
+import { createConditionalHelpers } from 'awaitly';
+import { createWorkflow } from 'awaitly/workflow';
 
 const workflow = createWorkflow('workflow', { fetchUser }, {
   onEvent: (event, ctx) => {
@@ -169,8 +170,7 @@ const result = await workflow.run(async ({ step, deps, args, ctx }) => {
 When using `run()`, pass context manually:
 
 ```typescript
-import { run } from 'awaitly';
-import { createConditionalHelpers } from 'awaitly/workflow';
+import { run, createConditionalHelpers } from 'awaitly';
 
 const result = await run(async ({ step }) => {
   const ctx = {

@@ -18,10 +18,55 @@
       "import": "./dist/result.js",
       "require": "./dist/result.cjs"
     },
+    "./run": {
+      "types": "./dist/run.d.ts",
+      "import": "./dist/run.js",
+      "require": "./dist/run.cjs"
+    },
     "./workflow": {
       "types": "./dist/workflow.d.ts",
       "import": "./dist/workflow.js",
       "require": "./dist/workflow.cjs"
+    },
+    "./reliability": {
+      "types": "./dist/reliability.d.ts",
+      "import": "./dist/reliability.js",
+      "require": "./dist/reliability.cjs"
+    },
+    "./durable": {
+      "types": "./dist/durable.d.ts",
+      "import": "./dist/durable.js",
+      "require": "./dist/durable.cjs"
+    },
+    "./persistence": {
+      "types": "./dist/persistence.d.ts",
+      "import": "./dist/persistence.js",
+      "require": "./dist/persistence.cjs"
+    },
+    "./saga": {
+      "types": "./dist/saga.d.ts",
+      "import": "./dist/saga.js",
+      "require": "./dist/saga.cjs"
+    },
+    "./hitl": {
+      "types": "./dist/hitl.d.ts",
+      "import": "./dist/hitl.js",
+      "require": "./dist/hitl.cjs"
+    },
+    "./streaming": {
+      "types": "./dist/streaming.d.ts",
+      "import": "./dist/streaming.js",
+      "require": "./dist/streaming.cjs"
+    },
+    "./webhook": {
+      "types": "./dist/webhook.d.ts",
+      "import": "./dist/webhook.js",
+      "require": "./dist/webhook.cjs"
+    },
+    "./engine": {
+      "types": "./dist/engine.d.ts",
+      "import": "./dist/engine.js",
+      "require": "./dist/engine.cjs"
     },
     "./testing": {
       "types": "./dist/testing.d.ts",

@@ -2,7 +2,7 @@
  * awaitly/durable
  *
  * Durable execution with automatic state persistence.
- * Re-exports from the main durable module.
+ * Durable execution plus the persistence contracts needed to configure it.
  */
 
 export {
@@ -37,3 +37,8 @@ export {
   // Re-exports from persistence (new snapshot API)
   type SnapshotStore,
 } from "./durable";
+
+// Snapshot stores, validation, serialization, and state migrations are part
+// of the durable interface. Adapter authors can import the smaller
+// `awaitly/persistence` entry when they do not need the durable runtime.
+export * from "./persistence-entry";

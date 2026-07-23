@@ -35,7 +35,7 @@ Pause workflows for human approval (large transfers, deployments, refunds) and r
 />
 
 ```typescript
-import { createApprovalStep, isPendingApproval } from 'awaitly/workflow';
+import { createApprovalStep, isPendingApproval } from 'awaitly/hitl';
 
 const requireApproval = createApprovalStep({
   key: 'approve:refund',
@@ -101,7 +101,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 ## Handle rejection
 
 ```typescript
-import { isApprovalRejected } from 'awaitly/workflow';
+import { isApprovalRejected } from 'awaitly/hitl';
 
 if (!result.ok && isApprovalRejected(result.error)) {
   console.log('Rejected:', result.error.reason);
@@ -112,7 +112,7 @@ if (!result.ok && isApprovalRejected(result.error)) {
 ## List pending approvals
 
 ```typescript
-import { getPendingApprovals } from 'awaitly/workflow';
+import { getPendingApprovals } from 'awaitly/hitl';
 
 // From in-memory collector (during same run)
 const state = collector.getResumeState();
@@ -129,7 +129,7 @@ import {
   createHITLOrchestrator,
   createMemoryApprovalStore,
   createMemoryWorkflowStateStore,
-} from 'awaitly/workflow';
+} from 'awaitly/hitl';
 
 const orchestrator = createHITLOrchestrator({
   approvalStore: createMemoryApprovalStore(),
@@ -160,7 +160,7 @@ const finalResult = await orchestrator.resume(runId);
 Expose an HTTP endpoint for approvals:
 
 ```typescript
-import { createApprovalWebhookHandler, createMemoryApprovalStore } from 'awaitly/workflow';
+import { createApprovalWebhookHandler, createMemoryApprovalStore } from 'awaitly/hitl';
 
 const approvalStore = createMemoryApprovalStore();
 const handler = createApprovalWebhookHandler(approvalStore);
@@ -189,7 +189,7 @@ import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
 import {
   createApprovalStep,
   isPendingApproval,
-} from 'awaitly/workflow';
+} from 'awaitly/hitl';
 
 // Define approval step
 const requireManagerApproval = createApprovalStep({
@@ -227,7 +227,7 @@ if (!result.ok && isPendingApproval(result.error)) {
 Push notifications when approvals are needed:
 
 ```typescript
-import { createHITLOrchestrator, NotificationChannel } from 'awaitly/workflow';
+import { createHITLOrchestrator, NotificationChannel } from 'awaitly/hitl';
 
 const slackChannel: NotificationChannel = {
   async onApprovalNeeded(ctx) {
@@ -291,7 +291,7 @@ if (status.status === 'edited') {
 Gate operations *before* they execute, showing args for approval:
 
 ```typescript
-import { gatedStep, isPendingApproval } from 'awaitly/workflow';
+import { gatedStep, isPendingApproval } from 'awaitly/hitl';
 
 // Gate external email sends
 const gatedSendEmail = gatedStep(
@@ -344,7 +344,7 @@ const gatedDelete = gatedStep(
 For workflows requiring multiple approvers (e.g., manager → finance → CEO):
 
 ```typescript
-import { createApprovalStep, isPendingApproval } from 'awaitly/workflow';
+import { createApprovalStep, isPendingApproval } from 'awaitly/hitl';
 
 // Define approval stages
 const managerApproval = createApprovalStep({
@@ -411,7 +411,7 @@ const result = await expenseWorkflow.run(async ({ step }) => {
 ### Track approval progress
 
 ```typescript
-import { getPendingApprovals } from 'awaitly/workflow';
+import { getPendingApprovals } from 'awaitly/hitl';
 
 const state = collector.getResumeState();
 const pending = getPendingApprovals(state);
@@ -432,7 +432,7 @@ console.log(`Waiting for: ${current}`);
 Handle approvals that take too long:
 
 ```typescript
-import { createApprovalStep, isPendingApproval } from 'awaitly/workflow';
+import { createApprovalStep, isPendingApproval } from 'awaitly/hitl';
 
 // Approval with built-in timeout check
 const timedApproval = createApprovalStep({
@@ -520,7 +520,7 @@ import {
   createHITLOrchestrator,
   createMemoryApprovalStore,
   createMemoryWorkflowStateStore,
-} from 'awaitly/workflow';
+} from 'awaitly/hitl';
 
 // Use persistent stores instead of memory
 const approvalStore = createRedisApprovalStore(redis);

@@ -206,7 +206,7 @@ const createUser = async (rawInput: unknown) => {
 Use awaitly's saga pattern for transactions that need compensation:
 
 ```typescript
-import { createSagaWorkflow } from 'awaitly/workflow';
+import { createSagaWorkflow } from 'awaitly/saga';
 
 const transferFunds = createSagaWorkflow('saga', { debitAccount: async (accountId: string, amount: number) => {
     return prismaToResult(() =>

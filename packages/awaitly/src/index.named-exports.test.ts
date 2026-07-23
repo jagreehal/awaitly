@@ -2,6 +2,15 @@ import { describe, expect, it } from "vitest";
 import * as root from "./index";
 import * as resultEntry from "./result";
 import * as workflowEntry from "./workflow-entry";
+import * as runEntry from "./run-entry";
+import * as reliabilityEntry from "./reliability-entry";
+import * as durableEntry from "./durable-entry";
+import * as persistenceEntry from "./persistence-entry";
+import * as sagaEntry from "./saga-entry";
+import * as hitlEntry from "./hitl-entry";
+import * as streamingEntry from "./streaming-entry";
+import * as webhookEntry from "./webhook-entry";
+import * as engineEntry from "./engine-entry";
 
 /**
  * Canonical surface contract.
@@ -67,13 +76,41 @@ describe("canonical root exports", () => {
     const wf = workflowEntry as Record<string, unknown>;
     for (const name of [
       "createWorkflow",
-      "durable",
-      "createSagaWorkflow",
       "isPendingApproval",
       "injectApproval",
       "validateSnapshot",
+      "processInBatches",
+      "withScope",
     ]) {
       expect(wf[name], name).toBeDefined();
     }
+
+    for (const name of ["durable", "createSagaWorkflow", "createEngine", "createMemoryStreamStore"]) {
+      expect(wf[name], name).toBeUndefined();
+    }
+  });
+
+  it("gives each production module a focused public seam", () => {
+    expect(runEntry.run).toBe(root.run);
+
+    expect(typeof reliabilityEntry.retry).toBe("function");
+    expect(typeof reliabilityEntry.createCircuitBreaker).toBe("function");
+    expect(typeof reliabilityEntry.createRateLimiter).toBe("function");
+    expect(typeof reliabilityEntry.createCache).toBe("function");
+    expect(typeof reliabilityEntry.singleflight).toBe("function");
+
+    expect(typeof durableEntry.durable).toBe("object");
+    expect(typeof durableEntry.validateSnapshot).toBe("function");
+    expect(typeof durableEntry.createVersionedState).toBe("function");
+
+    expect(typeof persistenceEntry.validateSnapshot).toBe("function");
+    expect(typeof persistenceEntry.createVersionedState).toBe("function");
+    expect((persistenceEntry as Record<string, unknown>).durable).toBeUndefined();
+
+    expect(typeof sagaEntry.createSagaWorkflow).toBe("function");
+    expect(typeof hitlEntry.createHITLOrchestrator).toBe("function");
+    expect(typeof streamingEntry.createMemoryStreamStore).toBe("function");
+    expect(typeof webhookEntry.createWebhookHandler).toBe("function");
+    expect(typeof engineEntry.createEngine).toBe("function");
   });
 });

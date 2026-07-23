@@ -174,8 +174,8 @@ This table compares Effect core/stdlib with awaitly core plus optional awaitly m
 | Interruption / cancellation | Cooperative via `AbortSignal` | Structured fiber interruption |
 | Rate limiting | `awaitly` (`createRateLimiter`) | `RateLimiter` |
 | Circuit breaker | `awaitly` (`createCircuitBreaker`) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
-| Saga / compensation | `awaitly/workflow` (`createSagaWorkflow`) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
-| Durable execution | `awaitly/workflow` (`durable`) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
+| Saga / compensation | `awaitly/saga` (`createSagaWorkflow`) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
+| Durable execution | `awaitly/durable` (`durable`) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
 | Human-in-the-loop | `awaitly/workflow` (approvals/hooks) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
 | Resource management | `awaitly/workflow` (`step.withResource`, scoped cleanup) | `Scope` (runtime-integrated) |
 | Observability | `onEvent` workflow event stream → OTel at step boundaries | Runtime-integrated spans/tracing APIs (OTel export requires SDK setup) |
@@ -852,7 +852,7 @@ Both libraries support streaming data processing.
   <TabItem label="awaitly">
 ```typescript
 import { createWorkflow } from 'awaitly/workflow';
-import { createMemoryStreamStore, getStreamReader, toAsyncIterable, collect } from 'awaitly/workflow';
+import { createMemoryStreamStore, getStreamReader, toAsyncIterable, collect } from 'awaitly/streaming';
 
 const streamStore = createMemoryStreamStore();
 const workflow = createWorkflow('enrich', deps, { streamStore });
@@ -1080,7 +1080,7 @@ When a multi-step operation fails partway through, you need to undo the steps th
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createSagaWorkflow } from 'awaitly/workflow';
+import { createSagaWorkflow } from 'awaitly/saga';
 
 const checkout = createSagaWorkflow('checkout', {
   reserveInventory, releaseInventory,
@@ -1157,7 +1157,7 @@ awaitly can checkpoint workflow state after each keyed step, so if the process c
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { durable } from 'awaitly/workflow';
+import { durable } from 'awaitly/durable';
 
 const result = await durable.run(
   { fetchUser, createOrder, sendEmail },
@@ -1202,7 +1202,7 @@ awaitly can pause a workflow mid-execution to wait for a human approval, then re
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createHITLOrchestrator, createMemoryApprovalStore, createMemoryWorkflowStateStore } from 'awaitly/workflow';
+import { createHITLOrchestrator, createMemoryApprovalStore, createMemoryWorkflowStateStore } from 'awaitly/hitl';
 
 const orchestrator = createHITLOrchestrator({
   approvalStore: createMemoryApprovalStore(),

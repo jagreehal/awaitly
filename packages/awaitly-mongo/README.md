@@ -18,7 +18,7 @@ yarn add awaitly-mongo mongodb
 
 ```typescript
 import { mongo } from 'awaitly-mongo';
-import { durable } from 'awaitly/workflow';
+import { durable } from 'awaitly/durable';
 
 const store = mongo(process.env.MONGODB_URI!);
 

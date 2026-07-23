@@ -1,9 +1,27 @@
 /**
- * Persistence surface (absorbed into `awaitly/workflow`).
+ * awaitly/persistence
  *
- * Snapshot API for JSON-serializable workflow state, plus resume-state
- * versioning/migration helpers.
+ * Store contracts, serialization, snapshots, and resume-state migrations.
+ * Persistence adapters should depend on this entry point rather than the
+ * workflow runtime.
  */
+
+export {
+  type ResumeState,
+  type SerializedResumeState,
+  type StoreSaveInput,
+  type StoreLoadResult,
+  type PersistedWorkflowState,
+  isResumeState,
+  isSerializedResumeState,
+  serializeResumeState,
+  deserializeResumeState,
+  toResumeState,
+} from "./workflow";
+
+// The lock is a store capability. It remains defined beside durable execution
+// internally, but is type-only here so adapters do not load that runtime.
+export type { WorkflowLock } from "./durable";
 
 // =============================================================================
 // Snapshot API (JSON-serializable workflow state)
@@ -21,6 +39,7 @@ export {
 
   // Validation
   looksLikeWorkflowSnapshot,
+  isWorkflowSnapshot,
   validateSnapshot,
   assertValidSnapshot,
   mergeSnapshots,

@@ -333,7 +333,7 @@ Compare manual rollback with automatic compensation.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createSagaWorkflow } from "awaitly/workflow";
+import { createSagaWorkflow } from "awaitly/saga";
 
 export const orderProcessingSaga = createSagaWorkflow('saga', {
   reserveInventory,
@@ -429,7 +429,7 @@ awaitly's `createSagaWorkflow` automatically runs compensation in reverse order 
 ```typescript
 import { streamText } from "ai";
 import { createWorkflow } from "awaitly/workflow";
-import { createMemoryStreamStore } from "awaitly/workflow";
+import { createMemoryStreamStore } from "awaitly/streaming";
 
 const streamStore = createMemoryStreamStore();
 

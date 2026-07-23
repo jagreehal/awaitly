@@ -2,27 +2,37 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
- * The exports-map contract: the canonical release has exactly four
- * entries. `awaitly/result` is the guaranteed-minimal entry (the size
- * contract), `awaitly` is the front door, `awaitly/workflow` is the
- * production tier, `awaitly/testing` is test utilities. Growing this
- * list is a design decision, not a convenience.
+ * Public entry-point contract. Each path owns a task-shaped interface;
+ * utility-only aliases stay on the root instead of becoming shallow modules.
  */
-describe("canonical exports map", () => {
+describe("public exports map", () => {
   const pkg = JSON.parse(
     readFileSync(new URL("../../package.json", import.meta.url), "utf8")
   ) as { exports?: Record<string, unknown> };
 
-  it("publishes exactly the canonical entries", () => {
+  const expectedEntries = [
+    ".",
+    "./result",
+    "./run",
+    "./workflow",
+    "./reliability",
+    "./durable",
+    "./persistence",
+    "./saga",
+    "./hitl",
+    "./streaming",
+    "./webhook",
+    "./engine",
+    "./testing",
+  ];
+
+  it("publishes exactly the task-shaped entries", () => {
     expect(Object.keys(pkg.exports ?? {})).toEqual([
-      ".",
-      "./result",
-      "./workflow",
-      "./testing",
+      ...expectedEntries,
     ]);
   });
 
-  it("builds exactly the canonical entry files", () => {
+  it("builds every public entry file", () => {
     const tsupConfig = readFileSync(
       new URL("../../tsup.config.ts", import.meta.url),
       "utf8"
@@ -30,9 +40,24 @@ describe("canonical exports map", () => {
     expect(tsupConfig).toContain("index: 'src/index.ts'");
     expect(tsupConfig).toContain("result: 'src/result/index.ts'");
     expect(tsupConfig).toContain("workflow: 'src/workflow-entry.ts'");
-    expect(tsupConfig).toContain("testing: 'src/testing-entry.ts'");
-    // Killed entries must not come back silently
-    for (const gone of ["'src/flow-entry.ts'", "'src/functional-entry.ts'", "'src/core-entry.ts'", "'src/run-entry.ts'"]) {
+    for (const [name, source] of [
+      ["run", "run-entry"],
+      ["workflow", "workflow-entry"],
+      ["reliability", "reliability-entry"],
+      ["durable", "durable-entry"],
+      ["persistence", "persistence-entry"],
+      ["saga", "saga-entry"],
+      ["hitl", "hitl-entry"],
+      ["streaming", "streaming-entry"],
+      ["webhook", "webhook-entry"],
+      ["engine", "engine-entry"],
+      ["testing", "testing-entry"],
+    ]) {
+      expect(tsupConfig).toContain(`${name}: 'src/${source}.ts'`);
+    }
+
+    // Removed dialects must not come back silently.
+    for (const gone of ["'src/flow-entry.ts'", "'src/functional-entry.ts'", "'src/core-entry.ts'"]) {
       expect(tsupConfig).not.toContain(gone);
     }
   });

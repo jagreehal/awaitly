@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { postgres } from "./index";
-import { durable } from "awaitly/workflow";
+import { durable } from "awaitly/durable";
 import { ok, err, type AsyncResult } from "awaitly";
-import type { WorkflowSnapshot } from "awaitly/workflow";
+import type { WorkflowSnapshot } from "awaitly/persistence";
 
 const TEST_CONNECTION_STRING = process.env.TEST_POSTGRES_CONNECTION_STRING ??
   (process.env.CI ? "postgresql://postgres:postgres@localhost:5432/test_awaitly" : undefined);

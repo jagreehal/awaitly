@@ -536,7 +536,7 @@ See [Persistence](/guides/persistence/) for details.
 Enable streaming within workflows:
 
 ```typescript
-import { createMemoryStreamStore } from 'awaitly/workflow';
+import { createMemoryStreamStore } from 'awaitly/streaming';
 
 const workflow = createWorkflow('workflow', deps, {
   streamStore: createMemoryStreamStore(),

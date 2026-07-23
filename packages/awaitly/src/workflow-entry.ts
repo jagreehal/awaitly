@@ -176,20 +176,9 @@ export {
 } from "./duration";
 
 // =============================================================================
-// Canonical core (v2): the production tier is one entry.
-//
-// Former sub-path entries for durable execution, persistence, human-in-the-
-// loop, sagas, streaming, webhooks, the engine, resources, and batching are
-// absorbed here. Explicit exports above win over these star re-exports on
-// any name clash; overlapping names (hitl approvals, snapshot validators,
-// cancellation guards) resolve to the same underlying declarations.
+// Workflow-local helpers. Production capabilities with independent runtime
+// and deployment concerns live at task-shaped entry points:
+// durable, persistence, saga, hitl, streaming, webhook, and engine.
 // =============================================================================
-export * from "./durable-entry";
-export * from "./persistence-entry";
-export * from "./hitl-entry";
-export * from "./saga-entry";
-export * from "./streaming-entry";
-export * from "./webhook-entry";
-export * from "./engine-entry";
 export * from "./resource";
 export * from "./batch";

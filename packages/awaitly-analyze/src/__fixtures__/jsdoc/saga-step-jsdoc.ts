@@ -1,4 +1,4 @@
-import { createSagaWorkflow } from "awaitly/workflow";
+import { createSagaWorkflow } from "awaitly/saga";
 
 const saga = createSagaWorkflow("saga", {
   createOrder: async () => ({ id: "1" }),
