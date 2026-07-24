@@ -53,7 +53,6 @@ import type {
   Workflow,
   WorkflowOptions,
   AnyResultFn,
-  ErrorsOfDeps,
 } from "./workflow/types";
 
 // =============================================================================
