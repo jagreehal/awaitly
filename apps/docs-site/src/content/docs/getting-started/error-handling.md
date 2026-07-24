@@ -20,6 +20,8 @@ const result = await workflow.run(async ({ step, deps }) => { ... });
 
 Add a new dependency? The error union updates automatically.
 
+That comment is exactly what you see on hover: `result.error` resolves to the concrete literal union (`'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | UnexpectedError`), not an opaque internal alias — so a typo like `result.error === 'NOT_FUOND'` is a compile error, and `switch`/`matchError` stay exhaustive.
+
 ## `UnexpectedError`
 
 If code throws an exception (not a returned error), it becomes an `UnexpectedError` (a `TaggedError`). The original thrown value is in `error.cause`:
