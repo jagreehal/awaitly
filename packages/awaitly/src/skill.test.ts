@@ -228,6 +228,28 @@ describe("Skill Examples", () => {
       });
     });
 
+    it("zero-annotation alternative: run(deps, fn) infers the error union", async () => {
+      type User = { id: string; name: string };
+      type Post = { id: string };
+
+      const fetchUser = (id: string): AsyncResult<User, "NOT_FOUND"> =>
+        Promise.resolve(id ? ok({ id, name: "Alice" }) : err("NOT_FOUND"));
+      const fetchPosts = (userId: string): AsyncResult<Post[], "FETCH_ERROR"> =>
+        Promise.resolve(ok([{ id: `p-${userId}` }]));
+
+      const result = await run({ fetchUser, fetchPosts }, async (s) => {
+        const user = await s.fetchUser("1");
+        return { user, posts: await s.fetchPosts(user.id) };
+      });
+
+      // result.error is inferred as 'NOT_FOUND' | 'FETCH_ERROR' | UnexpectedError
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.user.name).toBe("Alice");
+        expect(result.value.posts).toHaveLength(1);
+      }
+    });
+
     it("run() with Errors<[typeof d1, typeof d2]> for multiple deps", async () => {
       type User = { id: string; name: string };
       type Order = { orderId: string };

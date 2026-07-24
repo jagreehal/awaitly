@@ -10,6 +10,7 @@ import {
   type Result,
   type WorkflowEvent,
   type RunStep,
+  type ErrorOf,
   type UnexpectedError,
 } from "../core";
 import {
@@ -521,13 +522,20 @@ export const durable = {
   >(
     deps: Deps,
     fn: (
-      context: { step: RunStep<ErrorsOfDeps<Deps>>; deps: Deps; ctx: WorkflowContext<C> }
+      // Error union written INLINE (same body as `ErrorsOfDeps<Deps>`) so it
+      // renders as the concrete literal union in hovers instead of the opaque
+      // `ErrorsOfDeps<{ ...whole deps... }>`. See createWorkflow / run(deps, fn).
+      context: {
+        step: RunStep<{ [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps]>;
+        deps: Deps;
+        ctx: WorkflowContext<C>;
+      }
     ) => T | Promise<T>,
     options: DurableOptions<C>
   ): Promise<
     Result<
       T,
-      | ErrorsOfDeps<Deps>
+      | { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps]
       | UnexpectedError
       | WorkflowCancelledError
       | VersionMismatchError
