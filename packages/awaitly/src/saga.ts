@@ -42,6 +42,7 @@ import {
   err,
   type Result,
   type AsyncResult,
+  type ErrorOf,
   UnexpectedError,
   isEarlyExit,
   createEarlyExit,
@@ -52,7 +53,6 @@ import type {
   Workflow,
   WorkflowOptions,
   AnyResultFn,
-  ErrorsOfDeps,
 } from "./workflow/types";
 
 // =============================================================================
@@ -147,10 +147,24 @@ export function createSagaWorkflow<
 >(
   workflowName: string,
   deps: Deps,
-  options?: WorkflowOptions<ErrorsOfDeps<Deps>, U, C>
-): SagaWorkflow<ErrorsOfDeps<Deps>, U, Deps, C> {
+  // Error union written INLINE (same body as `ErrorsOfDeps<Deps>`) so it renders
+  // as the concrete literal union in hovers instead of the opaque
+  // `ErrorsOfDeps<{ ...whole deps... }>`. Inlined rather than a defaulted type
+  // param so it unifies with createWorkflow's own inferred union below.
+  // See createWorkflow / run(deps, fn).
+  options?: WorkflowOptions<
+    { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps],
+    U,
+    C
+  >
+): SagaWorkflow<
+  { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps],
+  U,
+  Deps,
+  C
+> {
   return createWorkflow(workflowName, deps, options) as unknown as SagaWorkflow<
-    ErrorsOfDeps<Deps>,
+    { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps],
     U,
     Deps,
     C

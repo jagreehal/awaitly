@@ -28,6 +28,7 @@ import {
   type StreamReaderInterface,
   extractStepMetadata,
   bindSteps,
+  type ErrorOf,
 } from "../core";
 import type { StepCallable } from "../core/bound-steps";
 
@@ -279,12 +280,19 @@ export function createWorkflow<
 export function createWorkflow<
   const Deps extends Readonly<Record<string, AnyResultFn>>,
   U = UnexpectedError,
-  C = void
+  C = void,
+  // Error union inferred from deps. Written INLINE (same body as
+  // `ErrorsOfDeps<Deps>`) and hoisted to a defaulted type param so it renders
+  // as the concrete literal union — e.g. `"NOT_FOUND" | "FETCH_ERROR"` — in
+  // hovers/errors, instead of the opaque `ErrorsOfDeps<{ ...whole deps... }>`
+  // a named alias over a generic produces. `NoInfer` pins it to the default.
+  // See the run(deps, fn) overload in core for the same rationale.
+  E = { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps]
 >(
   workflowName: string,
   deps: Deps,
-  options?: WorkflowOptions<ErrorsOfDeps<Deps>, U, C>
-): Workflow<ErrorsOfDeps<Deps>, U, Deps, C>;
+  options?: WorkflowOptions<NoInfer<E>, U, C>
+): Workflow<NoInfer<E>, U, Deps, C>;
 
 // Implementation (deps optional for 1-arg overload compatibility)
 export function createWorkflow<

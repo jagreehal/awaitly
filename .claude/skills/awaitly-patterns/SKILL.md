@@ -368,6 +368,23 @@ For single-use workflows where deps are available via closures.
 
 **Recommended pattern for `run()`:** Derive the error type with `ErrorOf<typeof dep>` (single dep), `Errors<[...]>` (tuple deps), or `ErrorsOf<typeof deps>` (deps object), and pass it as the second type parameter to `run<T, RunErrors>()`. This gives typed `result.error` (your errors plus `UnexpectedError`) without manual unions.
 
+**Zero-annotation alternative — `run(deps, fn)`:** pass deps as the first argument and skip the type parameters. The error union is inferred *and* rendered as its concrete literal union on hover — e.g. `'NOT_FOUND' | 'FETCH_ERROR' | UnexpectedError`, not an opaque `ErrorsOf<{…}>` alias:
+
+```typescript
+import { run, ok, type AsyncResult } from 'awaitly';
+
+const fetchUser = (id: string): AsyncResult<User, 'NOT_FOUND'> =>
+  Promise.resolve(ok({ id, name: 'Alice' }));
+const fetchPosts = (userId: string): AsyncResult<Post[], 'FETCH_ERROR'> =>
+  Promise.resolve(ok([]));
+
+const result = await run({ fetchUser, fetchPosts }, async (s) => {
+  const user = await s.fetchUser('1');
+  return { user, posts: await s.fetchPosts(user.id) };
+});
+// hover result.error → 'NOT_FOUND' | 'FETCH_ERROR' | UnexpectedError
+```
+
 ```typescript
 import { run, ok, type AsyncResult, type ErrorOf } from 'awaitly';
 

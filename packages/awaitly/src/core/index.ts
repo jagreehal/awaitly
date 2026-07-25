@@ -2782,24 +2782,39 @@ function runFn<T, E = never, C = void>(
  * // result.error: OrderNotFound | UserNotFound | ChargeDeclined | UnexpectedError
  * ```
  */
-function runFn<const Deps extends Record<string, AnyFunction>, T, C = void>(
+function runFn<
+  const Deps extends Record<string, AnyFunction>,
+  T,
+  C = void,
+  // Error union inferred from the deps. Hoisted to a defaulted type param and
+  // written INLINE (not `ErrorsOf<Deps>`) on purpose: a named alias over a
+  // generic renders in hovers/errors as the opaque
+  // `ErrorsOf<{ ...whole deps object... }>`, whereas a type parameter is shown
+  // as its resolved value. So every position below (return, `step`, `onError`,
+  // `onEvent`) displays the concrete literal union, e.g.
+  // `"NOT_FOUND" | "FETCH_ERROR" | UnexpectedError`. Structurally identical to
+  // `ErrorsOf<Deps>`; defined once here instead of repeated at each use site.
+  // `NoInfer` pins it to the default so it can't be widened by an annotated
+  // `onError`/`onEvent` callback parameter.
+  E = { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps]
+>(
   deps: Deps,
   fn: (
     steps: BoundSteps<Deps>,
     context: {
-      step: [ErrorsOf<Deps>] extends [never]
+      step: [NoInfer<E>] extends [never]
         ? RunStep<unknown>
-        : RunStep<ErrorsOf<Deps>>;
+        : RunStep<NoInfer<E>>;
     }
   ) => Promise<T> | T,
   options?: {
     onError?: (
-      error: ErrorsOf<Deps> | UnexpectedError,
+      error: NoInfer<E> | UnexpectedError,
       stepName?: string,
       ctx?: C
     ) => void;
     onEvent?: (
-      event: WorkflowEvent<ErrorsOf<Deps> | UnexpectedError, C>,
+      event: WorkflowEvent<NoInfer<E> | UnexpectedError, C>,
       ctx: C
     ) => void;
     workflowId?: string;
@@ -2809,7 +2824,7 @@ function runFn<const Deps extends Record<string, AnyFunction>, T, C = void>(
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
   }
-): AsyncResult<T, ErrorsOf<Deps> | UnexpectedError, unknown>;
+): AsyncResult<T, NoInfer<E> | UnexpectedError, unknown>;
 
 // Implementation
 async function runFn<T, E, C = void>(
