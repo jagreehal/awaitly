@@ -82,8 +82,8 @@ importers:
         specifier: 5.3.0
         version: 5.3.0
       '@fontsource/geist-sans':
-        specifier: 5.2.5
-        version: 5.2.5
+        specifier: 5.3.0
+        version: 5.3.0
       '@tailwindcss/vite':
         specifier: 4.3.3
         version: 4.3.3(vite@8.1.5(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))
@@ -1642,8 +1642,8 @@ packages:
   '@fontsource/geist-mono@5.3.0':
     resolution: {integrity: sha512-UtJ1BBBCVpMYdIcW7nEB45UAoAw5M53ZXs2t0ciPW+IokuAAIc56M8+kW5tXbRJCTpDw4XTtU7proT6NdQAHTg==}
 
-  '@fontsource/geist-sans@5.2.5':
-    resolution: {integrity: sha512-anllOHyJbElRs9fV15TeDRqAeb1IKm4bSknPl6ZMoyPTx1BBy7logudcUwpNjmQLkzn4Q0JGQLRCUKJYoyST6A==}
+  '@fontsource/geist-sans@5.3.0':
+    resolution: {integrity: sha512-AmG7cE1AvE4NHROPaOl1sN+a02cB5xy6pA/ZV76HXqWTCsJTV2SCBc9DTFHfJqnVOODm7HhXIYtUIb75NP5QXQ==}
 
   '@gerrit0/mini-shiki@3.23.0':
     resolution: {integrity: sha512-bEMORlG0cqdjVyCEuU0cDQbORWX+kYCeo0kV1lbxF5bt4r7SID2l9bqsxJEM0zndaxpOUT7riCyIVEuqq/Ynxg==}
@@ -9275,7 +9275,7 @@ snapshots:
 
   '@fontsource/geist-mono@5.3.0': {}
 
-  '@fontsource/geist-sans@5.2.5': {}
+  '@fontsource/geist-sans@5.3.0': {}
 
   '@gerrit0/mini-shiki@3.23.0':
     dependencies:
