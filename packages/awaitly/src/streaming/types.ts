@@ -416,6 +416,36 @@ export function isStreamBackpressureError(
   );
 }
 
+/**
+ * Every discriminant in {@link StreamError}.
+ * Add a member to that union? Add it here too — `isStreamError` decides what
+ * the workflow engine treats as infrastructure rather than a bug.
+ */
+const STREAM_ERROR_TYPES = new Set<string>([
+  STREAM_WRITE_ERROR,
+  STREAM_READ_ERROR,
+  STREAM_CLOSE_ERROR,
+  STREAM_STORE_ERROR,
+  STREAM_BACKPRESSURE_ERROR,
+]);
+
+/**
+ * Check if an error is any library-owned stream error.
+ *
+ * Used by the workflow engine to tell its own stream failures apart from
+ * arbitrary exceptions: a stream that could not be read is infrastructure
+ * failing, which the caller can act on, not a bug to be wrapped in
+ * `UnexpectedError`. See {@link StreamError}.
+ */
+export function isStreamError(error: unknown): error is StreamError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    typeof (error as StreamError).type === "string" &&
+    STREAM_ERROR_TYPES.has((error as StreamError).type)
+  );
+}
+
 // =============================================================================
 // Error Constructors
 // =============================================================================

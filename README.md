@@ -158,6 +158,8 @@ const result = await run<Payment, AllErrors>(async ({ step }) => {
 | `run<T, 'ERR_A' \| 'ERR_B'>(fn)` | You want to spell out the error union manually |
 | `run(fn)` (no type params) | You don't need typed errors (quick scripts, prototyping) |
 
+> **Watch the last row.** `run(fn)` with no deps and no type parameters types `result.error` as `UnexpectedError` alone — your step errors are still returned at runtime, but the compiler has nothing to infer them from, and the code looks identical to the form that infers everything. If you want typed errors, pass deps first (`run(deps, fn)`) or give the type parameters (`run<T, E>(fn)`).
+
 ### Why thunks in the explicit form? `step('id', () => fn())` not `step('id', fn())`
 
 (The deps-first form has no thunks — `s.getUser(id)` is already the controlled call.) In the explicit form, `step()` requires a string ID as the first argument, and the operation must be wrapped in a function (thunk):
@@ -210,7 +212,7 @@ const deps = {
 
 const workflow = createWorkflow(deps);
 
-const result = await workflow(async ({ steps }) => {
+const result = await workflow.run(async ({ steps }) => {
   const user = await steps.getUser(userId);
   const order = await steps.getOrder(orderId);
   return { user, order };
@@ -286,7 +288,7 @@ const deps = {
 // 2. Create and run a workflow
 const workflow = createWorkflow(deps);
 
-const result = await workflow(async ({ steps }) => {
+const result = await workflow.run(async ({ steps }) => {
   return await steps.loadTask('t-1');
 });
 
@@ -413,7 +415,7 @@ const transfer = createWorkflow(deps);
 
 // In an HTTP handler
 async function handler(fromUserId: string, toUserId: string, amount: number) {
-  const result = await transfer(async ({ step, deps }) => {
+  const result = await transfer.run(async ({ step, deps }) => {
     const fromUser = await step('getUser', () => deps.getUser(fromUserId));
     const toUser = await step('getUser', () => deps.getUser(toUserId));
     await step('validateBalance', () => deps.validateBalance(fromUser, amount));
@@ -497,7 +499,7 @@ TypeScript will force you to handle both. This is intentional.
 Add resilience exactly where you need it - no nested try/catch or custom retry loops.
 
 ```typescript
-const result = await workflow(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step, deps }) => {
   // Retry 3 times with exponential backoff, timeout after 5 seconds
   const task = await step.retry('loadTask', () => deps.loadTask('t-1'), {
     attempts: 3,
@@ -513,7 +515,7 @@ const result = await workflow(async ({ step, deps }) => {
 Use stable keys to ensure a step only runs once, even if the workflow crashes and restarts.
 
 ```typescript
-const result = await processPayment(async ({ step }) => {
+const result = await processPayment.run(async ({ step }) => {
   // If the workflow crashes after charging but before saving,
   // the next run skips the charge - it's already cached.
   const charge = await step('chargeCard', () => chargeCard(amount), {
@@ -547,7 +549,7 @@ const workflow = createWorkflow(
   },
 );
 
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   // Only steps with keys are saved
   const user = await step('fetchUser', () => deps.fetchUser('1'), {
     key: 'user:1',
@@ -597,7 +599,7 @@ const workflow = createWorkflow(
   },
 );
 
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'), {
     key: 'user:1',
   }); // ✅ Cache hit
@@ -655,7 +657,7 @@ const requireApproval = createApprovalStep({
   },
 });
 
-const result = await refundWorkflow(async ({ step, deps }) => {
+const result = await refundWorkflow.run(async ({ step, deps }) => {
   const refund = await step('calculateRefund', () =>
     deps.calculateRefund(orderId),
   );
@@ -691,7 +693,7 @@ const workflow = createWorkflow(
   },
 );
 
-await workflow(async ({ step, deps }) => {
+await workflow.run(async ({ step, deps }) => {
   const order = await step('fetchOrder', () => deps.fetchOrder('order_456'));
   const payment = await step('chargeCard', () => deps.chargeCard(order.total));
   return { order, payment };
@@ -725,7 +727,7 @@ You have the foundation. Pick one:
 ```typescript
 // Wrap throwing code — id first, then operation, then options
 const data = await step.try('fetch', () => fetch(url).then((r) => r.json()), {
-  error: 'HTTP_FAILED' as const,
+  error: 'HTTP_FAILED',
 });
 
 // Retries with backoff — id first
@@ -776,25 +778,43 @@ await step.forEach('process-payments', payments, {
 
 ---
 
-## Strict Mode (Closed Error Unions)
+## Closing the Error Union
 
-By default, workflows include `UnexpectedError` in the error union. Use strict mode for closed error unions:
+By default, workflows include `UnexpectedError` in the error union. `catchUnexpected` replaces it with a type you own, which closes the union:
 
 ```typescript
 // Default - open error union includes UnexpectedError
 const workflow = createWorkflow(deps);
 // Result error: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
 
-// Strict mode - closed error union
+// Closed error union - UnexpectedError is mapped to your own type
 const workflow = createWorkflow(deps, {
-  strict: true,
-  errors: ['NOT_FOUND', 'ORDER_FAILED'],
-  catchUnexpected: (cause) => ({ type: 'UNEXPECTED' as const, cause }),
+  catchUnexpected: (cause) => ({ type: 'UNEXPECTED', cause }),
 });
 // Result error: 'NOT_FOUND' | 'ORDER_FAILED' | { type: 'UNEXPECTED', cause }
 ```
 
-With strict mode, TypeScript will error if a dep can produce an undeclared error.
+No `as const` on `'UNEXPECTED'`: the type parameter is `const`, so the literal survives.
+
+## Declaring Extra Errors
+
+An error introduced by `step.try` — rather than by a dep — is declared with `errors`. Each entry joins the workflow's error union, so the step type-checks:
+
+```typescript
+const wf = createWorkflow('ingest', { fetchRow }, {
+  errors: ['PARSE_FAILED'],
+});
+
+await wf.run(async ({ step, deps }) => {
+  const row = await step('fetchRow', () => deps.fetchRow(id));
+  return await step.try('parse', () => JSON.parse(row.body), {
+    error: 'PARSE_FAILED',
+  });
+});
+// result.error: 'ROW_NOT_FOUND' | 'PARSE_FAILED' | UnexpectedError
+```
+
+The same list is what the analyzer validates against. `strict: true` is a **per-run** option — `workflow.run(fn, { strict: true })` — that turns a mismatch between declared and computed errors into an analyzer failure.
 
 ---
 

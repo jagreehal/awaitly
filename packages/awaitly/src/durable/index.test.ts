@@ -1219,3 +1219,35 @@ describe("Durable Execution", () => {
     });
   });
 });
+
+describe("durable.run with streamStore", () => {
+  it("opens a workflow stream inside a durable run", async () => {
+    const { createMemoryStreamStore } = await import("../streaming/stores/memory");
+    const { collect, pipe, map } = await import("../streaming/transformers");
+
+    const noop = async (): AsyncResult<void, never> => ok(undefined);
+
+    const result = await durable.run(
+      { noop },
+      async ({ step, deps }) => {
+        await step("noop", () => deps.noop());
+
+        const writer = step.getWritable<number>({ namespace: "nums" });
+        await writer.write(1);
+        await writer.write(2);
+        await writer.close();
+
+        const reader = step.getReadable<number>({ namespace: "nums" });
+        const doubled = pipe(reader, (s) => map(s, (n) => n * 2));
+        return await collect(doubled);
+      },
+      {
+        id: `stream-durable-${Math.random()}`,
+        store: createTestSnapshotStore(),
+        streamStore: createMemoryStreamStore(),
+      }
+    );
+
+    expect(result).toEqual({ ok: true, value: [2, 4] });
+  });
+});

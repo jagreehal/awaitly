@@ -275,18 +275,20 @@ import {
 // that survives renaming or minification.
 export function createWorkflow<
   const Deps extends Readonly<Record<string, AnyResultFn>>,
-  U = UnexpectedError,
+  // `const` so a `catchUnexpected` returning an object literal keeps its
+  // literal tag — `() => ({ type: "UNEXPECTED", cause })` infers
+  // `{ type: "UNEXPECTED" }`, not `{ type: string }` — without `as const`.
+  const U = UnexpectedError,
   C = void,
   E = { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps],
   // `const` so `errors: ["X"]` infers `readonly ["X"]` instead of `string[]`,
-  // which is what forced callers to write `as const`. The option is
-  // static-analysis metadata; a child workflow's errors reach the parent by
-  // inference through `step.workflow`, not by being declared here.
-  const Errs extends readonly string[] = readonly string[]
+  // which is what forced callers to write `as const`. Defaults to the empty
+  // tuple so an omitted `errors` widens the union by `never`.
+  const Errs extends readonly string[] = readonly []
 >(
   deps: Deps,
   options?: WorkflowOptions<NoInfer<E>, U, C, Errs>
-): Workflow<NoInfer<E>, U, Deps, C>;
+): Workflow<NoInfer<E> | Errs[number], U, Deps, C>;
 
 // Overload: no deps (single argument); callback receives deps: unknown
 export function createWorkflow<
@@ -299,7 +301,9 @@ export function createWorkflow<
 // Overload: with deps
 export function createWorkflow<
   const Deps extends Readonly<Record<string, AnyResultFn>>,
-  U = UnexpectedError,
+  // See the deps-first overload: `const` keeps a `catchUnexpected` object
+  // literal's tag literal without `as const`.
+  const U = UnexpectedError,
   C = void,
   // Error union inferred from deps. Written INLINE (same body as
   // `ErrorsOfDeps<Deps>`) and hoisted to a defaulted type param so it renders
@@ -309,13 +313,14 @@ export function createWorkflow<
   // See the run(deps, fn) overload in core for the same rationale.
   E = { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps],
   // See the deps-first overload: `const` keeps `errors: ["X"]` literal so no
-  // caller needs `as const`.
-  const Errs extends readonly string[] = readonly string[]
+  // caller needs `as const`, and the empty-tuple default means an omitted
+  // `errors` adds `never` to the union.
+  const Errs extends readonly string[] = readonly []
 >(
   workflowName: string,
   deps: Deps,
   options?: WorkflowOptions<NoInfer<E>, U, C, Errs>
-): Workflow<NoInfer<E>, U, Deps, C>;
+): Workflow<NoInfer<E> | Errs[number], U, Deps, C>;
 
 // Implementation (deps optional for 1-arg overload compatibility)
 export function createWorkflow<
