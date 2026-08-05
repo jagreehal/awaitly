@@ -105,7 +105,7 @@ await workflow.run(async ({ step, deps }) => {
 Use `createResumeStateCollector` to capture step results:
 
 ```typescript
-import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly';
 
 const collector = createResumeStateCollector();
 
@@ -220,7 +220,7 @@ if (savedState?.steps?.get('user:1')) {
 }
 ```
 
-For event streams, use the `isStepComplete` type guard from `awaitly/workflow` to narrow event types.
+For event streams, use the `isStepComplete` type guard from `awaitly` to narrow event types.
 
 ## Persistence Store
 
@@ -240,14 +240,14 @@ const savedState = await store.load('wf-123');
 await workflow.run(fn, { resumeState: savedState });
 ```
 
-See [Persistence](/guides/persistence/) for the full interface and custom adapters (e.g. Redis).
+See [Persistence](guides/persistence/) for the full interface and custom adapters (e.g. Redis).
 
 ## In-Memory Step Cache
 
-For process-local caching without persistence, use `createMemoryCache` from `awaitly/persistence`:
+For process-local caching without persistence, use `createMemoryCache` from `awaitly/durable`:
 
 ```typescript
-import { createMemoryCache } from 'awaitly/persistence';
+import { createMemoryCache } from 'awaitly/durable';
 
 const cache = createMemoryCache({ maxSize: 1000, ttl: 7 * 24 * 60 * 60 });
 
@@ -317,7 +317,7 @@ cache.delete('user:999');
 ## Complete Example
 
 ```typescript
-import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly';
 import { postgres } from 'awaitly-postgres';
 
 const store = postgres(process.env.DATABASE_URL!);
@@ -367,4 +367,4 @@ async function runWithRecovery(workflowId: string) {
 
 ## Next
 
-[Learn about Streaming →](/foundations/streaming/)
+[Learn about Streaming →](foundations/streaming/)

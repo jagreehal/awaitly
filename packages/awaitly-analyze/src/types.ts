@@ -115,6 +115,12 @@ export interface StaticStepNode extends StaticBaseNode {
   depLocation?: SourceLocation;
   /** Sleep duration string for step.sleep() (e.g. "5s", "1h") */
   sleepDuration?: string;
+  /**
+   * Name of the child workflow this step runs, when its dep is defined as
+   * `(x) => childWorkflow.run(...)`. Renders as a workflow reference.
+   */
+  workflowRef?: string;
+
   // === Typed extraction fields ===
   /** How the output type was determined: declared (Result/AsyncResult), inferred (checker, not any), unknown (any or missing) */
   outputTypeKind?: "inferred" | "declared" | "unknown";
@@ -280,6 +286,14 @@ export interface StaticConditionalNode extends StaticBaseNode {
   condition: string;
   /** The helper used (if any): "when", "unless", "whenOr", "unlessOr", or null for if/else */
   helper?: "when" | "unless" | "whenOr" | "unlessOr" | null;
+  /**
+   * Stable branch identity derived from the condition source for a raw
+   * if/else (e.g. `user.isPremium` -> `user-is-premium`). Lets a native
+   * conditional be labelled and diffed deterministically without forcing the
+   * author onto `step.if`. Absent when the condition is not statically
+   * readable (a call result, a computed member, etc.).
+   */
+  derivedId?: string;
   /** The "if" branch (or when/unless branch) */
   consequent: StaticFlowNode[];
   /** The "else" branch (or default value for whenOr/unlessOr) */
@@ -323,6 +337,13 @@ export interface StaticLoopNode extends StaticBaseNode {
   loopType: "for" | "while" | "forEach" | "map" | "for-of" | "for-in" | "step.forEach";
   /** Loop ID (for step.forEach) */
   loopId?: string;
+  /**
+   * Stable loop identity derived from the iterated expression for a native
+   * loop (e.g. `order.items` -> `order-items`). The native-loop equivalent of
+   * {@link StaticConditionalNode.derivedId}. Absent when the iterable is not
+   * statically readable.
+   */
+  derivedId?: string;
   /** The iteration source as source string (e.g., "users", "0..10") */
   iterSource?: string;
   /** Steps inside the loop */
@@ -495,6 +516,15 @@ export interface StaticWorkflowNode extends StaticBaseNode {
 export interface DependencyInfo {
   /** Name of the dependency (e.g., "fetchUser") */
   name: string;
+  /**
+   * Name of the child workflow this dependency calls, when the dep is defined as
+   * `(x) => childWorkflow.run(...)`.
+   *
+   * Passing a child workflow as a dep is how its errors join the parent's union,
+   * so this is a normal way to compose — the reference just isn't visible in the
+   * workflow callback the way an inline `childWorkflow.run(...)` is.
+   */
+  workflowRef?: string;
   /** Type signature as string (when type checker available) */
   typeSignature?: string;
   /** Error types this dependency can return (not yet inferred from types) */

@@ -207,20 +207,20 @@ function generateMarkdown(project) {
     "import { ok, err, map, andThen, type AsyncResult } from 'awaitly/result';",
     "",
     "// Focused async composition and reliability",
-    "import { run } from 'awaitly/run';",
-    "import { retry, createCircuitBreaker } from 'awaitly/reliability';",
+    "import { run } from 'awaitly';",
+    "import { retry, createCircuitBreaker } from 'awaitly';",
     "",
     "// Workflow composition, resources, and batching",
-    "import { createWorkflow } from 'awaitly/workflow';",
+    "import { createWorkflow } from 'awaitly';",
     "",
     "// Independent production capabilities",
     "import { durable } from 'awaitly/durable';",
-    "import { type SnapshotStore } from 'awaitly/persistence';",
-    "import { createSagaWorkflow } from 'awaitly/saga';",
-    "import { createApprovalStep } from 'awaitly/hitl';",
-    "import { createMemoryStreamStore } from 'awaitly/streaming';",
-    "import { createWebhookHandler } from 'awaitly/webhook';",
-    "import { createEngine } from 'awaitly/engine';",
+    "import { type SnapshotStore } from 'awaitly/durable';",
+    "import { createSagaWorkflow } from 'awaitly/durable';",
+    "import { createApprovalStep } from 'awaitly/durable';",
+    "import { createMemoryStreamStore } from 'awaitly/durable';",
+    "import { createWebhookHandler } from 'awaitly/durable';",
+    "import { createEngine } from 'awaitly/durable';",
     "",
     "// Test utilities",
     "import { createWorkflowHarness } from 'awaitly/testing';",
@@ -268,7 +268,7 @@ function generateMarkdown(project) {
   lines.push("");
   lines.push("Single place for all workflow and step option keys (for docs and static analysis).");
   lines.push("");
-  lines.push("**Workflow** — The value returned by `createWorkflow` has a single method: **`workflow.run(name?, fn, config?)`**. Overloads: `run(fn)`, `run(fn, config)`, `run(name, fn)`, `run(name, fn, config)`. Options below can be passed at **creation** (`createWorkflow('name', deps, options)`) or per-run in **RunConfig** (`workflow.run(fn, config)`).");
+  lines.push("**Workflow** — The value returned by `createWorkflow` has a single method: **`workflow.run(name?, fn, config?)`**. Overloads: `run(fn)`, `run(fn, config)`, `run(name, fn)`, `run(name, fn, config)`. Creation overloads: `createWorkflow(deps, options?)` (deps-first; name inferred from the variable in static analysis) and `createWorkflow('name', deps, options?)` (explicit label for traces and diagrams). Options can be passed at **creation** or per-run in **RunConfig** (`workflow.run(fn, config)`).");
   lines.push("");
   lines.push("| Option | Type | Purpose |");
   lines.push("|--------|------|---------|");

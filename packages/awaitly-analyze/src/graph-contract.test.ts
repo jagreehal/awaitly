@@ -6,12 +6,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { ok, type AsyncResult } from "awaitly";
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 import { analyzeWorkflowSource } from "./static-analyzer";
 import { renderWorkflowDSL } from "./output/dsl";
 
 const SOURCE = `
-  import { createWorkflow } from "awaitly/workflow";
+  import { createWorkflow } from "awaitly";
   declare const fetchUser: (id: string) => Promise<any>;
   declare const charge: (u: any) => Promise<any>;
 
@@ -56,7 +56,7 @@ describe("analyzer DSL as runtime graph", () => {
 
   it("keeps state ids unique when steps collide with start/end or each other", () => {
     const [ir] = analyzeWorkflowSource(`
-      import { createWorkflow } from "awaitly/workflow";
+      import { createWorkflow } from "awaitly";
       declare const op: () => Promise<any>;
       const wf = createWorkflow("edgeCase", { op });
       export async function runIt() {

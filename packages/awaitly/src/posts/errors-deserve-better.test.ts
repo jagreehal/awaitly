@@ -363,7 +363,7 @@ describe("Errors Deserve Better benchmark", () => {
   });
 });
 
-describe("Errors Deserve Better with awaitly/workflow", () => {
+describe("Errors Deserve Better with createWorkflow", () => {
   it("uses createWorkflow with the same typed error semantics", async () => {
     const typedGateway = {
       calls: 0,
@@ -436,7 +436,7 @@ describe("Errors Deserve Better with awaitly/workflow", () => {
   });
 });
 
-describe("Errors Deserve Better with awaitly/saga", () => {
+describe("Errors Deserve Better with createSagaWorkflow", () => {
   it("adds compensation when post-payment reservation fails", async () => {
     const refunded: string[] = [];
     const refundPayment = (txnId: string) => {

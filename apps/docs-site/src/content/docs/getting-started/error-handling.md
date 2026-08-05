@@ -1,54 +1,18 @@
 ---
 title: Handling Errors
-description: How errors flow through workflows and how to handle them
+description: Getting errors into the type system, and acting on them at the boundary
 ---
 
-## Error types are inferred
+[What TypeScript gives you back](getting-started/types/) covered the error union and
+where it comes from. This page is about the two practical jobs left: getting
+*throwing* code into the union, and acting on the union at your application edge.
 
-When you create a workflow, TypeScript computes the error union from your dependencies:
+## Bringing throwing code in
 
-```typescript
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { ... };
-const fetchPosts = async (id: string): AsyncResult<Post[], 'FETCH_ERROR'> => { ... };
-const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { ... };
-
-const workflow = createWorkflow('workflow', { fetchUser, fetchPosts, sendEmail });
-
-const result = await workflow.run(async ({ step, deps }) => { ... });
-// result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | UnexpectedError
-```
-
-Add a new dependency? The error union updates automatically.
-
-That comment is exactly what you see on hover: `result.error` resolves to the concrete literal union (`'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | UnexpectedError`), not an opaque internal alias — so a typo like `result.error === 'NOT_FUOND'` is a compile error, and `switch`/`matchError` stay exhaustive.
-
-## `UnexpectedError`
-
-If code throws an exception (not a returned error), it becomes an `UnexpectedError` (a `TaggedError`). The original thrown value is in `error.cause`:
+Most existing code throws. `step.try` turns a throw into a typed error:
 
 ```typescript
-import { isUnexpectedError } from 'awaitly';
-
-const badOperation = async (): AsyncResult<string, 'KNOWN_ERROR'> => {
-  throw new Error('Something broke'); // Throws instead of returning err()
-};
-
-const workflow = createWorkflow('workflow', { badOperation });
-const result = await workflow.run(async ({ step, deps }) => {
-  return await step('badOperation', () => badOperation());
-});
-
-if (!result.ok && isUnexpectedError(result.error)) {
-  console.log(result.error.cause); // The original Error object
-}
-```
-
-## Wrapping throwing code
-
-Use `step.try` to convert thrown exceptions into typed errors:
-
-```typescript
-const result = await workflow.run(async ({ step, deps }) => {
+const result = await workflow.run(async ({ step }) => {
   const data = await step.try(
     'fetchData',
     async () => {
@@ -58,106 +22,76 @@ const result = await workflow.run(async ({ step, deps }) => {
     },
     { error: 'FETCH_FAILED' as const }
   );
-
   return data;
 });
-// result.error includes 'FETCH_FAILED'
+// result.error now includes 'FETCH_FAILED' instead of UnexpectedError
 ```
 
-## Preserving error details
+Without `step.try`, that throw would still be caught — it would just arrive as an
+opaque `UnexpectedError` rather than something you can `switch` on.
 
-If your function returns rich error objects, use `step.fromResult`:
+## Keeping error detail
+
+When an operation already returns a rich error object, `step.fromResult` lets you
+reshape it as it enters the workflow:
 
 ```typescript
 type ApiError = { code: string; message: string };
+const callApi = async (): AsyncResult<Data, ApiError> =>
+  err({ code: 'RATE_LIMITED', message: 'Too many requests' });
 
-const callApi = async (): AsyncResult<Data, ApiError> => {
-  return err({ code: 'RATE_LIMITED', message: 'Too many requests' });
-};
-
-const result = await workflow.run(async ({ step, deps }) => {
-  const data = await step.fromResult(
-    'callApi',
-    () => callApi(),
-    {
-      onError: (apiError) => ({
-        type: 'API_ERROR' as const,
-        code: apiError.code,
-        message: apiError.message,
-      }),
-    }
-  );
-  return data;
+const result = await workflow.run(async ({ step }) => {
+  return step.fromResult('callApi', () => callApi(), {
+    onError: (e) => ({ type: 'API_ERROR' as const, code: e.code, message: e.message }),
+  });
 });
 ```
 
-## Handling specific errors
+## Acting on it at the boundary
 
-Use a switch statement for exhaustive handling:
+One `if`, then one `switch`. This is the only place in your app that deals with failure:
 
 ```typescript
-if (!result.ok) {
-  switch (result.error) {
-    case 'NOT_FOUND':
-      return res.status(404).json({ error: 'User not found' });
-    case 'UNAUTHORIZED':
-      return res.status(401).json({ error: 'Please log in' });
-    case 'FETCH_ERROR':
-      return res.status(502).json({ error: 'Upstream service failed' });
-    default:
-      // UnexpectedError or unknown error
-      console.error(result.error);
-      return res.status(500).json({ error: 'Internal error' });
-  }
+import { isUnexpectedError } from 'awaitly';
+
+if (result.ok) {
+  return res.status(200).json(result.value);
+}
+
+if (isUnexpectedError(result.error)) {
+  logger.error({ cause: result.error.cause }, 'unhandled exception');
+  return res.status(500).json({ error: 'Internal error' });
+}
+
+switch (result.error) {
+  case 'NOT_FOUND':     return res.status(404).json({ error: 'User not found' });
+  case 'UNAUTHORIZED':  return res.status(401).json({ error: 'Please log in' });
+  case 'FETCH_ERROR':   return res.status(502).json({ error: 'Upstream failed' });
 }
 ```
 
-TypeScript ensures you handle all known error cases.
+Handle `UnexpectedError` first and the remaining `switch` is over your own domain
+errors only — which is what makes an exhaustiveness check meaningful.
 
-## Custom unexpected errors
+## Choosing an error shape
 
-By default, thrown exceptions become an `UnexpectedError`. With `run()`, use `ErrorsOf` to derive error types from your deps:
+| Situation | Shape |
+|---|---|
+| A handful of distinct states | String literals: `'NOT_FOUND' \| 'UNAUTHORIZED'` |
+| The error carries data | Object: `{ type: 'NOT_FOUND', id: string }` |
+| Shared across a codebase or API | [Tagged Errors](foundations/tagged-errors/) |
 
-```typescript
-import { type ErrorsOf } from 'awaitly';
-
-const deps = { fetchUser, fetchPosts };
-type RunErrors = ErrorsOf<typeof deps>;
-
-const result = await run<User, RunErrors>(async ({ step }) => {
-  const user = await step('fetchUser', () => fetchUser('1'));
-  const posts = await step('fetchPosts', () => fetchPosts(user.id));
-  return user;
-});
-// result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | UnexpectedError
-```
-
-To replace `UnexpectedError` with a custom type, pass `catchUnexpected`:
-
-```typescript
-const workflow = createWorkflow('workflow', { fetchUser, fetchPosts },
-  {
-    catchUnexpected: (thrown) => ({
-      type: 'UNEXPECTED' as const,
-      message: String(thrown),
-    }),
-  }
-);
-// result.error is now your workflow errors | { type: 'UNEXPECTED', message: string }
-```
-
-## When to use string literals vs objects
-
-| Use case | Recommendation |
-|----------|---------------|
-| Simple distinct states | String literals: `'NOT_FOUND' \| 'UNAUTHORIZED'` |
-| Errors with context | Objects: `{ type: 'NOT_FOUND', id: string }` |
-| API responses | [Tagged Errors](/foundations/tagged-errors/) for structured data |
+Start with string literals. Move to objects when you find yourself needing the `id`
+that failed, and to `TaggedError` when the same error crosses module boundaries.
 
 ## Need help?
 
-Having issues with TypeScript narrowing or error handling? See [Troubleshooting](/guides/troubleshooting/).
+TypeScript not narrowing the way you expect? See [Troubleshooting](guides/troubleshooting/).
 
 ## Next
 
-[Learn about Results in depth →](/foundations/result-types/)
+You now know everything needed to use awaitly day to day.
+[Foundations](foundations/) goes deeper on each piece — Result combinators, step
+options, control flow, retries, persistence, and streaming.
+
+[Continue to Foundations →](foundations/)

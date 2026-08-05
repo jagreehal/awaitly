@@ -78,6 +78,51 @@ function getCalleeIdentifier(expression: Node): Node | undefined {
   return Node.isIdentifier(current) ? current : undefined;
 }
 
+
+/**
+ * Resolve an argument to the object literal it denotes.
+ *
+ * `createWorkflow(deps)` and `createWorkflow('name', deps)` are both ordinary
+ * usage, so the deps argument is frequently an identifier rather than an inline
+ * literal. Dependency extraction only understands object literals, so the
+ * identifier is followed to its declaration here — once — instead of every
+ * consumer having to cope with both shapes.
+ *
+ * Returns undefined when the argument is not (or does not resolve to) an
+ * object literal, which is also what marks it as "not a deps object".
+ */
+function resolveToObjectLiteral(arg: Node | undefined, sourceFile: SourceFile): Node | undefined {
+  const { Node } = loadTsMorph();
+  if (!arg) return undefined;
+  if (Node.isObjectLiteralExpression(arg)) return arg;
+  if (!Node.isIdentifier(arg)) return undefined;
+
+  const name = arg.getText();
+  let found: Node | undefined;
+  sourceFile.forEachDescendant((node) => {
+    if (found) return;
+    if (!Node.isVariableDeclaration(node)) return;
+    if (node.getName() !== name) return;
+    const init = node.getInitializer();
+    if (init && Node.isObjectLiteralExpression(init)) found = init;
+  });
+  return found;
+}
+
+/**
+ * Decide whether the first argument to createWorkflow is a workflow name or a
+ * deps object. A string literal is always a name; anything that resolves to an
+ * object literal is deps. Everything else keeps the historical reading (a
+ * possibly-dynamic name), which is the safer default for an unresolvable
+ * expression.
+ */
+function firstArgIsDeps(arg: Node | undefined, sourceFile: SourceFile): boolean {
+  const { Node } = loadTsMorph();
+  if (!arg) return false;
+  if (Node.isStringLiteral(arg) || Node.isNoSubstitutionTemplateLiteral(arg)) return false;
+  return resolveToObjectLiteral(arg, sourceFile) !== undefined;
+}
+
 export function findWorkflowCalls(sourceFile: SourceFile, opts: Required<AnalyzerOptions>): WorkflowCallInfo[] {
   const { Node } = loadTsMorph();
   const workflows: WorkflowCallInfo[] = [];
@@ -92,6 +137,24 @@ export function findWorkflowCalls(sourceFile: SourceFile, opts: Required<Analyze
     if (!arg) return undefined;
     if (Node.isStringLiteral(arg)) return arg.getLiteralText();
     if (Node.isNoSubstitutionTemplateLiteral(arg)) return arg.getLiteralText();
+    // `createWorkflow(NAME, deps)` with a hoisted constant is ordinary usage;
+    // follow it so the workflow is labelled with its value rather than the
+    // variable's name.
+    if (Node.isIdentifier(arg)) {
+      const identifier = arg.getText();
+      let resolved: string | undefined;
+      sourceFile.forEachDescendant((node) => {
+        if (resolved !== undefined) return;
+        if (!Node.isVariableDeclaration(node)) return;
+        if (node.getName() !== identifier) return;
+        const init = node.getInitializer();
+        if (!init) return;
+        if (Node.isStringLiteral(init) || Node.isNoSubstitutionTemplateLiteral(init)) {
+          resolved = init.getLiteralText();
+        }
+      });
+      if (resolved !== undefined) return resolved;
+    }
     // Best-effort: keep something stable for labels (may be dynamic).
     return arg.getText();
   }
@@ -133,12 +196,34 @@ export function findWorkflowCalls(sourceFile: SourceFile, opts: Required<Analyze
           bindingName = parent.getName();
         }
 
-        // createWorkflow(workflowName) or createWorkflow(workflowName, deps, options?)
+        // Three shapes:
+        //   createWorkflow(workflowName)
+        //   createWorkflow(workflowName, deps, options?)
+        //   createWorkflow(deps, options?)          <- deps-first, unnamed
+        // In the deps-first form the workflow takes its name from the variable
+        // it is bound to, which is why the author doesn't repeat it as a string.
         if (args.length >= 1 && args[0]) {
-          const name = resolveWorkflowNameArg(args[0]) ?? bindingName ?? "anonymous";
-          depsObject = args.length >= 2 ? args[1] : undefined;
-          if (args.length >= 3 && args[2] && Node.isObjectLiteralExpression(args[2])) {
-            optionsObject = args[2];
+          const isDepsFirst = firstArgIsDeps(args[0], sourceFile);
+          // In the deps-first form args[0] is the deps object, never a name —
+          // resolving it would yield the object's source text ("{ getOrder }")
+          // or the variable's name ("deps") as the workflow name.
+          const name =
+            (isDepsFirst ? undefined : resolveWorkflowNameArg(args[0])) ??
+            bindingName ??
+            "anonymous";
+
+          // Deps may be written inline or passed as an identifier; resolve to
+          // the literal so dependency extraction sees the same shape either way.
+          if (isDepsFirst) {
+            depsObject = resolveToObjectLiteral(args[0], sourceFile);
+            if (args.length >= 2 && args[1] && Node.isObjectLiteralExpression(args[1])) {
+              optionsObject = args[1];
+            }
+          } else {
+            depsObject = resolveToObjectLiteral(args[1], sourceFile) ?? (args.length >= 2 ? args[1] : undefined);
+            if (args.length >= 3 && args[2] && Node.isObjectLiteralExpression(args[2])) {
+              optionsObject = args[2];
+            }
           }
 
           workflows.push({
@@ -885,6 +970,9 @@ export function findWorkflowInvocations(
           });
           if (!hasStep) return;
 
+          // `deps` is the callback's unmanaged view of the dependencies — the same
+          // object the caller passed to createWorkflow. `steps` sits next to it and
+          // exposes the same keys, auto-stepped.
           const depsElement = elements.find((e: { getName: () => string; getPropertyNameNode?: () => { getText: () => string } | undefined }) => {
             const propName = e.getPropertyNameNode?.()?.getText() || e.getName();
             return propName === "deps";

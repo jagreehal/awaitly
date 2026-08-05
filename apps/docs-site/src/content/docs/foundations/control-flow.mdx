@@ -290,12 +290,38 @@ if (user.isPremium) {
 }
 ```
 
-For single guarded steps (no else branch), prefer [`when`](/guides/conditional-execution/) or [`unless`](/guides/conditional-execution/) — they emit skip events and integrate with the visualizer.
+For single guarded steps (no else branch), prefer [`when`](guides/conditional-execution/) or [`unless`](guides/conditional-execution/) — they emit skip events and integrate with the visualizer.
 
-`step.if` emits a `decision` event on each evaluation. The visualizer and `awaitly-analyze` consume it automatically; no `trackIf` wiring needed. See [Visualization →](/guides/visualization/#decision-tracking).
+`step.if` emits a `decision` event on each evaluation. The visualizer and `awaitly-analyze` consume it automatically; no `trackIf` wiring needed. See [Visualization →](guides/visualization/#decision-tracking).
 
-<Aside type="tip" title="Diagrammability">
-Raw `if/else`, native loops, and computed step ids create gaps in static diagrams. Use `step.if`, `when`/`unless`, and `step.forEach` so [`awaitly-analyze`](/guides/static-analysis/) can produce deterministic diagrams and `--assert-diagrammable` passes in CI. The ESLint rules [`workflow-prefer-step-if`](/guides/eslint-plugin/#awaitlyworkflow-prefer-step-if) and [`workflow-prefer-step-foreach`](/guides/eslint-plugin/#awaitlyworkflow-prefer-step-foreach) flag raw control flow as you write it.
+<Aside type="tip" title="Native `if` and `for` are fully diagrammable">
+You do **not** need `step.if` or `step.forEach` to get a deterministic diagram.
+`awaitly-analyze` reads plain `if`/`else`, `for...of`, and `while` directly, deriving a
+stable branch id from the condition (`user.isPremium` → `user-is-premium`) and a stable
+loop id from the iterable (`order.items` → `order-items`). Write ordinary TypeScript:
+
+```typescript
+if (user.isPremium) {
+  await steps.applyDiscount(order);
+}
+
+for (const item of order.items) {
+  await steps.reserve(item);
+}
+```
+
+The one thing that defeats it is a condition or iterable the analyzer can't read from
+the source — a call result (`if (checkEligibility(user))`) or a computed member
+(`items[i].ready`). Hoist those into a named variable and the diagram comes back:
+
+```typescript
+const isEligible = checkEligibility(user);   // now readable
+if (isEligible) { /* ... */ }
+```
+
+`--assert-diagrammable` flags only those genuinely unreadable cases. Reach for
+`step.if` / `step.forEach` when you want their **runtime** features — skip events,
+bounded iteration, per-iteration keys — not to satisfy the analyzer.
 </Aside>
 
 ### step.forEach for Static Analyzability
@@ -326,7 +352,7 @@ Use `step.forEach()` when you need:
 Use `allAsync` with array `.map()` when you need parallel execution.
 </Aside>
 
-See [step.forEach](/foundations/step/#stepforeach---process-collections) for full documentation.
+See [step.forEach](foundations/step/#stepforeach---process-collections) for full documentation.
 
 ## Error Handling in Parallel
 
@@ -345,7 +371,7 @@ const result = await allAsync([fetchUser('1'), fetchPosts('1')]);
 For large sets, limit concurrent operations:
 
 ```typescript
-import { processInBatches } from 'awaitly/workflow';
+import { processInBatches } from 'awaitly';
 
 const result = await processInBatches(
   userIds,
@@ -357,7 +383,7 @@ const result = await processInBatches(
 );
 ```
 
-See [Batch Processing](/guides/batch-processing/) for details.
+See [Batch Processing](guides/batch-processing/) for details.
 
 ## Pattern Summary
 
@@ -372,8 +398,7 @@ See [Batch Processing](/guides/batch-processing/) for details.
 ## Complete Example
 
 ```typescript
-import { allAsync, partition, ok, err, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { allAsync, partition, ok, err, type AsyncResult, createWorkflow } from 'awaitly';
 
 type User = { id: string; name: string };
 type Notification = { id: string; message: string };
@@ -400,18 +425,15 @@ const notifyUsers = createWorkflow('workflow', { fetchUser, sendNotification });
 const result = await notifyUsers.run(async ({ step, deps }) => {
   const userIds = ['1', '2', '3', '4', '5'];
 
-  // Fetch all users in parallel
-  const usersResult = await step('fetchUsers', () =>
+  // Fetch all users in parallel. `allAsync` reports only the errors the deps
+  // declare, so an ordinary step is enough — no mapping needed.
+  const users = await step('fetchUsers', () =>
     allAsync(userIds.map((id) => deps.fetchUser(id)))
   );
 
   // Send notifications in parallel
   const notifications = await step('fetchNotifications', () =>
-    allAsync(
-      usersResult.map((user) =>
-        deps.sendNotification(user.id, 'Hello!')
-      )
-    )
+    allAsync(users.map((user) => deps.sendNotification(user.id, 'Hello!')))
   );
 
   return { notified: notifications.length };
@@ -424,4 +446,4 @@ if (result.ok) {
 
 ## Next
 
-[Learn about Errors and Retries →](/foundations/error-handling/)
+[Learn about Errors and Retries →](foundations/error-handling/)

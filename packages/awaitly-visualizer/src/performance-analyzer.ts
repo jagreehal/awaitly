@@ -11,7 +11,7 @@
  * statistical insights and heatmap visualization data.
  */
 
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 import type {
   NodePerformance,
   HeatmapData,

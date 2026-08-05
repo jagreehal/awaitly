@@ -427,7 +427,7 @@ export function createWorkflowHarness<
     const mockStep = createMockStep();
 
     try {
-      const value = await fn({ step: mockStep, deps });
+      const value = await fn({ step: mockStep, deps: deps });
       return ok(value);
     } catch (error) {
       if (isTestEarlyExit(error)) {
@@ -444,7 +444,7 @@ export function createWorkflowHarness<
     const mockStep = createMockStep();
 
     try {
-      const value = await fn({ step: mockStep, deps, input });
+      const value = await fn({ step: mockStep, deps: deps, input });
       return ok(value);
     } catch (error) {
       if (isTestEarlyExit(error)) {
@@ -847,9 +847,15 @@ export interface SagaHarness<E, Deps> extends WorkflowHarness<E, Deps> {
  * Mock saga context for testing.
  */
 export interface MockSagaContext<E> {
+  /**
+   * Mirrors the real `SagaStep`: name first, then the operation, then options.
+   * The name is recorded on the compensation entry, so the name-based
+   * assertions (`assertCompensated` et al) can match it.
+   */
   step: <T, StepE extends E>(
+    name: string,
     operation: () => Result<T, StepE> | AsyncResult<T, StepE>,
-    options: SagaStepOptions<T>
+    options?: SagaStepOptions<T>
   ) => Promise<T>;
 }
 
@@ -920,13 +926,16 @@ export function createSagaHarness<
 
     const sagaContext: MockSagaContext<E> = {
       step: async <StepT, StepE extends E>(
+        name: string,
         operation: () => Result<StepT, StepE> | AsyncResult<StepT, StepE>,
         stepOptions?: SagaStepOptions<StepT>
       ): Promise<StepT> => {
         // Use the base harness step mechanism
         try {
           const result = await (baseHarness as unknown as { run: (fn: (context: { step: MockStep<E>; deps: Deps }) => Promise<StepT>) => Promise<Result<StepT, E | unknown>> }).run(
-            async ({ step }) => step('saga-step', operation)
+            // The harness forwards the caller's step name; it cannot be a literal here.
+            // eslint-disable-next-line awaitly/step-require-id
+            async ({ step }) => step(name, operation)
           );
 
           if (!result.ok) {
@@ -938,6 +947,7 @@ export function createSagaHarness<
           // Step succeeded - add to compensation stack if compensation provided
           if (stepOptions?.compensate) {
             compensationStack.push({
+              name,
               value: result.value,
               compensate: stepOptions.compensate as (value: unknown) => void | Promise<void>,
             });
@@ -976,7 +986,7 @@ export function createSagaHarness<
     }
 
     try {
-      const value = await fn({ saga: sagaContext, deps });
+      const value = await fn({ saga: sagaContext, deps: deps });
       return ok(value);
     } catch (error) {
       if (isTestEarlyExit(error)) {

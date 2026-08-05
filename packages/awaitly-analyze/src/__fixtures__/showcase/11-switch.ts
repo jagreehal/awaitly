@@ -18,10 +18,10 @@ export async function runSwitch(role: string) {
   return await switchWorkflow.run(async ({ step, deps }) => {
     switch (role) {
       case "admin":
-        await step("admin", () => deps.adminAction(), { errors: ["ADMIN_ERROR"] });
+        await step("admin", () => deps.adminAction());
         break;
       case "user":
-        await step("user", () => deps.userAction(), { errors: ["USER_ERROR"] });
+        await step("user", () => deps.userAction());
         break;
       default:
         await step("default", () => deps.defaultAction());

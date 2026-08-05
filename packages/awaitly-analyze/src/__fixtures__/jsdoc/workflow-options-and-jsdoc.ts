@@ -1,4 +1,4 @@
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 
 /**
  * JSDoc description for the workflow.

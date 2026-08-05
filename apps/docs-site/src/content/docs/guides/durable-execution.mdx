@@ -120,7 +120,7 @@ IDs should be unique per workflow instance; don't run the same id concurrently u
 
 Durable uses a **SnapshotStore** (`save`, `load`, `delete`, `list`, `close`). When you omit `store`, an in-memory store is used (per process).
 
-**Note:** Snapshot stores hold workflow checkpoints. For streaming output inside a step (AI tokens, etc.), see [Streaming](/foundations/streaming/).
+**Note:** Snapshot stores hold workflow checkpoints. For streaming output inside a step (AI tokens, etc.), see [Streaming](foundations/streaming/).
 
 ### In-memory (default)
 
@@ -139,7 +139,7 @@ const store = postgres(process.env.DATABASE_URL!);
 const result = await durable.run(deps, workflowFn, { id: 'checkout-123', store });
 ```
 
-[Learn more about PostgreSQL persistence →](./postgres-persistence/)
+[Learn more about PostgreSQL persistence →](guides/postgres-persistence/)
 
 ### MongoDB (production)
 
@@ -150,7 +150,7 @@ const store = mongo(process.env.MONGODB_URI!);
 const result = await durable.run(deps, workflowFn, { id: 'checkout-123', store });
 ```
 
-[Learn more about MongoDB persistence →](./mongo-persistence/)
+[Learn more about MongoDB persistence →](guides/mongo-persistence/)
 
 ### libSQL / SQLite (production)
 
@@ -163,10 +163,10 @@ const result = await durable.run(deps, workflowFn, { id: 'checkout-123', store }
 
 ### Custom store
 
-Implement the **SnapshotStore** interface from `awaitly/persistence`:
+Implement the **SnapshotStore** interface from `awaitly/durable`:
 
 ```typescript
-import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/durable';
 
 const store: SnapshotStore = {
   async save(id, snapshot) {
@@ -195,11 +195,54 @@ Awaitly **fails fast on version mismatch**: if stored state was written by a dif
 
 Bump the `version` option when you make breaking changes that old checkpoints cannot satisfy:
 
-- **Step names/keys** – You renamed or changed a step's `key` (e.g. `'fetch-user'` → `'load-user'`). Old state has cached results under the old key.
-- **Step order** – You added, removed, or reordered keyed steps. Resuming from old state would skip or replay the wrong steps.
-- **Step outputs** – You changed what a step returns in a way that later steps or the workflow logic no longer accept (e.g. type or shape change). Old cached results would be invalid.
+- **Step outputs** – You changed what a step returns in a way that later steps or the workflow logic no longer accept (e.g. type or shape change). Old cached results would be invalid, and nothing else can detect that for you.
 
-If you only change non-durable logic (e.g. logging, non-keyed steps, or code after the last keyed step), you usually do **not** need to bump.
+If you only change non-durable logic (e.g. logging, non-keyed steps, or code after the last keyed step), you do **not** need to bump.
+
+### Reordering and renaming are caught for you
+
+Changing step names, keys, or order used to require remembering to bump `version` —
+forget, and a resumed run could read one step's checkpoint into a different step.
+That is no longer a matter of discipline.
+
+Each snapshot records the order its steps executed in. On resume, awaitly compares
+the replayed order against that record **before each step reads its stored value**,
+and rejects a drifted resume with a `WorkflowShapeDriftError` naming the position and
+both keys:
+
+```text
+Workflow 'order-123' changed shape since its checkpoint was written:
+step 2 was 'authorizePayment' and is now 'submitReservation'.
+Resuming would read the wrong checkpoint.
+```
+
+The check runs in the `onBeforeStep` hook, which fires ahead of the cache and snapshot
+lookup — so the mismatched value is never read, the run fails cleanly, and the original
+checkpoint is left untouched for you to migrate or clear.
+
+This matters most for repeated calls to the same dependency. Their step keys are
+position-derived (`getUser`, `getUser#2`, …), so the key alone cannot tell
+`getUser("a")` from `getUser("b")` — swapping two such calls leaves the key sequence
+completely unchanged while the checkpoints now belong to different arguments.
+
+To catch that, the snapshot also records a fingerprint of each bound step's arguments
+and compares it alongside the key:
+
+```ts
+// v1 — checkpointed
+await steps.getUser("a");   // getUser
+await steps.getUser("b");   // getUser#2
+
+// v2 — same keys, different arguments. Rejected on resume.
+await steps.getUser("b");   // getUser  <- would have read "a"'s result
+await steps.getUser("a");   // getUser#2
+```
+
+Arguments that cannot be fingerprinted (circular structures, values JSON drops) record
+no fingerprint, and a missing fingerprint is treated as *no information* rather than a
+match — so the check never produces a false rejection, but it also cannot detect this
+particular edit for those steps. Bump `version` if you reorder calls whose arguments
+aren't serializable.
 
 ### Handling version mismatch
 
@@ -392,13 +435,15 @@ for (const id of pendingIds) {
 - **Claim/lock**: so multiple workers don't run the same id (e.g. Postgres `SELECT ... FOR UPDATE SKIP LOCKED`, or a Mongo/Redis claim pattern)—this is adapter/application logic, not in core Awaitly.
 - **Trigger**: pull (sweep pending) vs push (enqueue id, then worker runs). `durable.run` is the execution primitive either way.
 
-**Pagination and ordering:** Do not load the world into memory. For large deployments, use `durable.listPending(store, options)` with `limit` and `offset` (or `nextOffset` from the previous page). Postgres, Mongo, and LibSQL adapters implement `listPage(options)` and return `ListPageResult` with `ids`, optional `total`, and `nextOffset`. Example: `const page = await durable.listPending(store, { limit: 50, offset: 0, orderBy: 'updatedAt', orderDir: 'desc' });` then iterate `page.ids` and use `page.nextOffset` for the next page.
+**Listing pending work:** Do not load the world into memory. `durable.listPending(store, options)` takes `{ prefix?, limit? }` and returns `Array<{ id, updatedAt }>` — it delegates straight to `store.list(options)`. Example: `const pending = await durable.listPending(store, { limit: 50 });`.
 
-**Bulk delete:** Use `durable.deleteStates(store, ids, { concurrency?, continueOnError? })` for admin/cleanup. It loops over `store.delete(id)` with optional bounded concurrency; when the store implements `deleteMany(ids)` (Postgres, Mongo, LibSQL), that is used for efficiency. Returns `{ deleted, errors? }` when `continueOnError` is true.
+There is no offset/cursor pagination or ordering in the core API. To page or order beyond `prefix` + `limit`, query your store directly — the adapters expose their underlying client, so use `ORDER BY updated_at ... LIMIT ... OFFSET ...` (Postgres/LibSQL) or a `sort`/`skip` cursor (Mongo) and feed the resulting ids to `durable.run`.
+
+**Bulk delete:** Use `durable.deleteStates(store, ids, { concurrency?, continueOnError? })` for admin/cleanup. It loops over `store.delete(id)` in batches bounded by `concurrency` (default 10). Returns `{ deleted }`, or `{ deleted, errors }` when `continueOnError` is true and any delete failed.
 
 **Delete semantics (ack/reset):** Deleting state is effectively an ack or reset—the workflow can no longer resume from that state. If you delete while a workflow is running, the in-flight run continues; when it finishes it may try to delete again (no-op) or save (recreating state). For multi-worker safety, prefer deleting only when the workflow is not running, or when you hold the lock (e.g. after a successful run or after claiming the id). Core does not require the lock for delete; adapters that support locking do not enforce "delete only with lock"—so document and enforce in your worker logic if needed.
 
-See also: [Persistence](./persistence) and the store adapters above (Postgres, Mongo).
+See also: [Persistence](guides/persistence) and the store adapters above (Postgres, Mongo).
 
 ## Idempotency Requirements
 
@@ -489,4 +534,4 @@ async function processCheckout(orderId: string, userId: string, items: Item[]) {
 
 ## Next
 
-[Learn about Human-in-the-Loop →](/guides/human-in-loop/)
+[Learn about Human-in-the-Loop →](guides/human-in-loop/)

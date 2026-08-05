@@ -8,7 +8,7 @@ import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 Stream data in real-time within workflows. Perfect for AI token streaming, live updates, and processing large datasets incrementally.
 
 <Aside type="note" title="Different from workflow checkpoints">
-Streaming stores **ordered items inside a step** (tokens, chunks). For **workflow-level resume** after restart, see [Persistence](/guides/persistence/) and [Durable Execution](/guides/durable-execution/).
+Streaming stores **ordered items inside a step** (tokens, chunks). For **workflow-level resume** after restart, see [Persistence](guides/persistence/) and [Durable Execution](guides/durable-execution/).
 </Aside>
 
 <Aside type="caution" title="Options go to createWorkflow">
@@ -18,8 +18,8 @@ The `streamStore` option must be passed to `createWorkflow('workflow', deps, { s
 ## Quick Start
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
-import { createMemoryStreamStore } from 'awaitly/streaming';
+import { createWorkflow } from 'awaitly';
+import { createMemoryStreamStore } from 'awaitly/durable';
 
 // 1. Create a stream store
 const streamStore = createMemoryStreamStore();
@@ -44,14 +44,14 @@ Choose a store based on your needs:
 <Tabs>
   <TabItem label="Memory (Dev/Testing)">
 ```typescript
-import { createMemoryStreamStore } from 'awaitly/streaming';
+import { createMemoryStreamStore } from 'awaitly/durable';
 
 const streamStore = createMemoryStreamStore();
 ```
   </TabItem>
   <TabItem label="File (On-disk JSONL)">
 ```typescript
-import { createFileStreamStore } from 'awaitly/streaming';
+import { createFileStreamStore } from 'awaitly/durable';
 import * as fs from 'node:fs/promises';
 
 const streamStore = createFileStreamStore({
@@ -137,7 +137,7 @@ const reader = step.getReadable<string>({
 Convert readers to `for await...of` syntax:
 
 ```typescript
-import { toAsyncIterable } from 'awaitly/streaming';
+import { toAsyncIterable } from 'awaitly/durable';
 
 const result = await workflow.run(async ({ step, deps }) => {
   const reader = step.getReadable<string>({ namespace: 'tokens' });
@@ -155,7 +155,7 @@ Transform streams with functional operators:
 ### map / filter
 
 ```typescript
-import { map, filter } from 'awaitly/streaming';
+import { map, filter } from 'awaitly/durable';
 
 const reader = step.getReadable<number>({ namespace: 'numbers' });
 
@@ -171,7 +171,7 @@ for await (const value of doubled) {
 ### chunk (Batching)
 
 ```typescript
-import { chunk } from 'awaitly/streaming';
+import { chunk } from 'awaitly/durable';
 
 const reader = step.getReadable<string>({ namespace: 'items' });
 const batches = chunk(reader, 10); // Groups of 10
@@ -184,7 +184,7 @@ for await (const batch of batches) {
 ### take / skip
 
 ```typescript
-import { take, skip, collect } from 'awaitly/streaming';
+import { take, skip, collect } from 'awaitly/durable';
 
 const reader = step.getReadable<number>({ namespace: 'numbers' });
 
@@ -197,7 +197,7 @@ const items = await collect(limited); // number[]
 ### reduce
 
 ```typescript
-import { reduce } from 'awaitly/streaming';
+import { reduce } from 'awaitly/durable';
 
 const reader = step.getReadable<number>({ namespace: 'numbers' });
 const sum = await reduce(reader, (acc, n) => acc + n, 0);
@@ -206,7 +206,7 @@ const sum = await reduce(reader, (acc, n) => acc + n, 0);
 ### pipe (Composition)
 
 ```typescript
-import { pipe, filter, map, take, collect } from 'awaitly/streaming';
+import { pipe, filter, map, take, collect } from 'awaitly/durable';
 
 const reader = step.getReadable<number>({ namespace: 'numbers' });
 
@@ -252,7 +252,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 Consume streams outside workflows (e.g., HTTP handlers):
 
 ```typescript
-import { getStreamReader, toAsyncIterable } from 'awaitly/streaming';
+import { getStreamReader, toAsyncIterable } from 'awaitly/durable';
 
 // Express/Fastify handler
 app.get('/stream/:workflowId', async (req, res) => {
@@ -303,7 +303,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 All stream operations return Results:
 
 ```typescript
-import { isStreamEnded, isStreamWriteError } from 'awaitly/streaming';
+import { isStreamEnded, isStreamWriteError } from 'awaitly/durable';
 
 // Writing
 const writeResult = await writer.write('data');
@@ -437,8 +437,8 @@ import {
   map,
   filter,
   collect,
-} from 'awaitly/streaming';
-import { createWorkflow } from 'awaitly/workflow';
+} from 'awaitly/durable';
+import { createWorkflow } from 'awaitly';
 
 const streamStore = createMemoryStreamStore();
 
@@ -485,6 +485,6 @@ const consumerResult = await workflow.run(async ({ step, deps }) => {
 
 You've completed the Foundations section. Continue learning with:
 
-- [Batch Processing](/guides/batch-processing/) - Process items in bulk with concurrency control
-- [Human-in-the-Loop](/guides/human-in-loop/) - Pause workflows for human approval
-- [Visualization](/guides/visualization/) - Visualize workflow execution
+- [Batch Processing](guides/batch-processing/) - Process items in bulk with concurrency control
+- [Human-in-the-Loop](guides/human-in-loop/) - Pause workflows for human approval
+- [Visualization](guides/visualization/) - Visualize workflow execution

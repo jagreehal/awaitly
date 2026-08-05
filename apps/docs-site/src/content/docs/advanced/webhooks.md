@@ -16,7 +16,8 @@ import {
   createResultMapper,
   createExpressHandler,
   requireFields,
-} from 'awaitly/webhook';
+  type WebhookRequest,
+} from 'awaitly/durable';
 
 // Create a webhook handler
 const handler = createWebhookHandler(
@@ -27,7 +28,8 @@ const handler = createWebhookHandler(
     return { chargeId: charge.id };
   },
   {
-    validateInput: (req) => {
+    // Type the request body so `req.body` isn't `unknown`.
+    validateInput: (req: WebhookRequest<{ amount: number; email: string }>) => {
       const validation = requireFields(['amount', 'email'])(req.body);
       if (!validation.ok) return validation;
       return ok({ amount: req.body.amount, email: req.body.email });
@@ -44,7 +46,7 @@ const handler = createWebhookHandler(
 
 ```typescript
 import express from 'express';
-import { createExpressHandler } from 'awaitly/webhook';
+import { createExpressHandler } from 'awaitly/durable';
 
 const app = express();
 app.use(express.json());
@@ -72,7 +74,7 @@ Use built-in validators or write your own:
 
 ```typescript
 import { ok, err } from 'awaitly';
-import { requireFields, validationError } from 'awaitly/webhook';
+import { requireFields, validationError } from 'awaitly/durable';
 
 // Built-in field checker
 const validate = requireFields(['amount', 'email', 'items']);
@@ -97,7 +99,7 @@ const validateInput = (req) => {
 Map workflow errors to HTTP responses:
 
 ```typescript
-import { createResultMapper } from 'awaitly/webhook';
+import { createResultMapper } from 'awaitly/durable';
 
 const mapResult = createResultMapper([
   { error: 'NOT_FOUND', status: 404, message: 'Resource not found' },
@@ -114,7 +116,7 @@ const mapResult = createResultMapper([
 For message queues (SQS, RabbitMQ, etc.):
 
 ```typescript
-import { createEventHandler } from 'awaitly/webhook';
+import { createEventHandler } from 'awaitly/durable';
 
 const handler = createEventHandler(
   checkoutWorkflow,
@@ -155,23 +157,27 @@ For straightforward use cases without workflow context:
 
 ```typescript
 import { ok } from 'awaitly';
-import { createSimpleHandler } from 'awaitly/webhook';
+import { createSimpleHandler } from 'awaitly/durable';
 
-const handler = createSimpleHandler(
-  async (input: { userId: string }) => {
+// createSimpleHandler takes a single config object.
+const handler = createSimpleHandler({
+  validateInput: (req) => {
+    if (!req.params.userId) {
+      return err(validationError('Missing userId'));
+    }
+    return ok({ userId: req.params.userId });
+  },
+  handler: async (input: { userId: string }) => {
     const user = await db.users.find(input.userId);
     if (!user) return err('NOT_FOUND' as const);
     return ok(user);
   },
-  {
-    validateInput: (req) => {
-      if (!req.params.userId) {
-        return err(validationError('Missing userId'));
-      }
-      return ok({ userId: req.params.userId });
-    },
-  }
-);
+  // `mapResult` is required — it turns the Result into an HTTP response.
+  mapResult: (result) =>
+    result.ok
+      ? { status: 200, body: result.value }
+      : { status: 404, body: { error: { type: 'NOT_FOUND' } } },
+});
 ```
 
 ## Request/response types
@@ -246,7 +252,7 @@ const mapResult = (result) => ({
 
 ```typescript
 import Fastify from 'fastify';
-import { createWebhookHandler, createResultMapper } from 'awaitly/webhook';
+import { createWebhookHandler, createResultMapper } from 'awaitly/durable';
 
 const fastify = Fastify();
 
@@ -303,7 +309,7 @@ fastify.post('/checkout', createFastifyHandler(handler));
 
 ```typescript
 import { Hono } from 'hono';
-import { createWebhookHandler, createResultMapper } from 'awaitly/webhook';
+import { createWebhookHandler, createResultMapper } from 'awaitly/durable';
 
 const app = new Hono();
 
@@ -369,7 +375,7 @@ app.post('/orders', createHonoHandler(handler));
 ```typescript
 // app/api/checkout/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createWebhookHandler, createResultMapper } from 'awaitly/webhook';
+import { createWebhookHandler, createResultMapper } from 'awaitly/durable';
 
 const handler = createWebhookHandler(
   checkoutWorkflow,
@@ -411,7 +417,7 @@ export async function POST(request: NextRequest) {
 
 ```typescript
 import { ok, err } from 'awaitly';
-import { createWebhookHandler, validationError } from 'awaitly/webhook';
+import { createWebhookHandler, validationError } from 'awaitly/durable';
 
 const authenticateApiKey = (req: WebhookRequest) => {
   const apiKey = req.headers['x-api-key'];
@@ -561,7 +567,7 @@ const stripeWebhookHandler = createWebhookHandler(
 ```typescript
 import { z } from 'zod';
 import { ok, err } from 'awaitly';
-import { validationError } from 'awaitly/webhook';
+import { validationError } from 'awaitly/durable';
 
 const CheckoutSchema = z.object({
   amount: z.number().positive(),
@@ -763,4 +769,4 @@ describe('checkout webhook', () => {
 
 ## Next
 
-[Learn about Circuit Breakers →](/advanced/circuit-breaker/)
+[Learn about Circuit Breakers →](advanced/circuit-breaker/)

@@ -10,7 +10,7 @@ Execute multiple operations in parallel while maintaining typed error handling.
 Use **step.all** (Effect-style) or **allAsync** to run operations concurrently:
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts, fetchComments });
 
@@ -152,7 +152,7 @@ if (result.ok) {
 For large sets, use `processInBatches`:
 
 ```typescript
-import { processInBatches } from 'awaitly/workflow';
+import { processInBatches } from 'awaitly';
 
 const result = await processInBatches(
   userIds,
@@ -161,7 +161,7 @@ const result = await processInBatches(
 );
 ```
 
-See [Batch Processing](/guides/batch-processing/) for details.
+See [Batch Processing](guides/batch-processing/) for details.
 
 ## Parallel with dependencies
 
@@ -240,7 +240,7 @@ import {
   err,
   type AsyncResult,
 } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 type User = { id: string; name: string };
 type Notification = { id: string; message: string };
@@ -264,21 +264,18 @@ const sendNotification = async (
 
 const notifyUsers = createWorkflow('workflow', { fetchUser, sendNotification });
 
-const result = await notifyUsers.run(async ({ step }) => {
+const result = await notifyUsers.run(async ({ step, deps }) => {
   const userIds = ['1', '2', '3', '4', '5'];
 
-  // Fetch all users in parallel
-  const usersResult = await step('fetchUsers', () =>
-    allAsync(userIds.map((id) => fetchUser(id)))
+  // Fetch all users in parallel. `allAsync` reports only the errors the deps
+  // declare, so an ordinary step is enough — no mapping needed.
+  const users = await step('fetchUsers', () =>
+    allAsync(userIds.map((id) => deps.fetchUser(id)))
   );
 
   // Send notifications in parallel
   const notifications = await step('sendNotifications', () =>
-    allAsync(
-      usersResult.map((user) =>
-        sendNotification(user.id, 'Hello!')
-      )
-    )
+    allAsync(users.map((user) => deps.sendNotification(user.id, 'Hello!')))
   );
 
   return {

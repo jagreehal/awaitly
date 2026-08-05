@@ -51,8 +51,7 @@ If you can write `async/await`, you already know awaitly. There is no generator 
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
-import { run } from 'awaitly';
+import { ok, err, type AsyncResult, run } from 'awaitly';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
   id === '1' ? ok({ id, name: 'Ada' }) : err('NOT_FOUND');
@@ -174,10 +173,10 @@ This table compares Effect core/stdlib with awaitly core plus optional awaitly m
 | Interruption / cancellation | Cooperative via `AbortSignal` | Structured fiber interruption |
 | Rate limiting | `awaitly` (`createRateLimiter`) | `RateLimiter` |
 | Circuit breaker | `awaitly` (`createCircuitBreaker`) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
-| Saga / compensation | `awaitly/saga` (`createSagaWorkflow`) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
+| Saga / compensation | `awaitly/durable` (`createSagaWorkflow`) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
 | Durable execution | `awaitly/durable` (`durable`) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
-| Human-in-the-loop | `awaitly/workflow` (approvals/hooks) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
-| Resource management | `awaitly/workflow` (`step.withResource`, scoped cleanup) | `Scope` (runtime-integrated) |
+| Human-in-the-loop | `awaitly` (approvals/hooks) | Not a dedicated first-class module in Effect core; typically built from primitives or handled by external infrastructure |
+| Resource management | `awaitly` (`step.withResource`, scoped cleanup) | `Scope` (runtime-integrated) |
 | Observability | `onEvent` workflow event stream → OTel at step boundaries | Runtime-integrated spans/tracing APIs (OTel export requires SDK setup) |
 | Tagged errors | `TaggedError` with `type` + matching | `Data.TaggedEnum` / `_tag` |
 
@@ -237,7 +236,7 @@ const users = yield* Effect.all(
 </Tabs>
 
 <Aside type="tip" title="Full step engine">
-These helpers are not thin wrappers: they emit step events, support retry/timeout options, and in createWorkflow use the cache and `onAfterStep` when you pass a key. See [Steps: Effect-style ergonomics](/foundations/step/#effect-style-ergonomics).
+These helpers are not thin wrappers: they emit step events, support retry/timeout options, and in createWorkflow use the cache and `onAfterStep` when you pass a key. See [Steps: Effect-style ergonomics](foundations/step/#effect-style-ergonomics).
 </Aside>
 
 ## Result Types
@@ -306,8 +305,7 @@ Effect has a third type parameter for dependencies (Requirements). awaitly handl
 <Tabs>
   <TabItem label="awaitly (run)">
 ```typescript
-import { run } from 'awaitly';
-import { type ErrorsOf } from 'awaitly';
+import { run, type ErrorsOf } from 'awaitly';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
 const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
@@ -326,7 +324,7 @@ const result = await run<User, Errors>(async ({ step }) => {
   </TabItem>
   <TabItem label="awaitly (workflow)">
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 // createWorkflow infers errors automatically — no ErrorsOf needed
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
@@ -574,7 +572,7 @@ Both libraries can rate limit by start-time. awaitly also includes a separate co
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 const workflow = createWorkflow('checkout', {
   fetchUser,
@@ -797,7 +795,7 @@ Both libraries provide scoped resource management with automatic cleanup in LIFO
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { withScope, createResource } from 'awaitly/workflow';
+import { withScope, createResource } from 'awaitly';
 
 const dbResource = await createResource(
   () => new DatabaseClient().connect(),  // acquire
@@ -851,8 +849,8 @@ Both libraries support streaming data processing.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
-import { createMemoryStreamStore, getStreamReader, toAsyncIterable, collect } from 'awaitly/streaming';
+import { createWorkflow } from 'awaitly';
+import { createMemoryStreamStore, getStreamReader, toAsyncIterable, collect } from 'awaitly/durable';
 
 const streamStore = createMemoryStreamStore();
 const workflow = createWorkflow('enrich', deps, { streamStore });
@@ -1080,7 +1078,7 @@ When a multi-step operation fails partway through, you need to undo the steps th
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createSagaWorkflow } from 'awaitly/saga';
+import { createSagaWorkflow } from 'awaitly/durable';
 
 const checkout = createSagaWorkflow('checkout', {
   reserveInventory, releaseInventory,
@@ -1202,7 +1200,7 @@ awaitly can pause a workflow mid-execution to wait for a human approval, then re
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createHITLOrchestrator, createMemoryApprovalStore, createMemoryWorkflowStateStore } from 'awaitly/hitl';
+import { createHITLOrchestrator, createMemoryApprovalStore, createMemoryWorkflowStateStore } from 'awaitly/durable';
 
 const orchestrator = createHITLOrchestrator({
   approvalStore: createMemoryApprovalStore(),
@@ -1224,13 +1222,14 @@ const execution = await orchestrator.execute(
   { orderId: '456' }
 );
 
+// `runId` only exists on the paused/resumed arms, so narrow before using it.
 if (execution.status === 'paused') {
   console.log('Waiting for:', execution.pendingApprovals);
-}
 
-// Later: manager approves via API/webhook
-await orchestrator.grantApproval('refund:789', { approvedBy: 'manager@co.com' });
-const resumed = await orchestrator.resume(execution.runId, workflowFactory, fn);
+  // Later: manager approves via API/webhook
+  await orchestrator.grantApproval('refund:789', { approvedBy: 'manager@co.com' });
+  const resumed = await orchestrator.resume(execution.runId, workflowFactory, fn);
+}
 ```
   </TabItem>
   <TabItem label="Effect">
@@ -1247,7 +1246,7 @@ const resumed = await orchestrator.resume(execution.runId, workflowFactory, fn);
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createWorkflow, type WorkflowEvent } from 'awaitly/workflow';
+import { createWorkflow, type WorkflowEvent } from 'awaitly';
 
 // Every workflow emits a typed event stream — build metrics/spans from it,
 // no awaitly-specific adapter required.
@@ -1259,7 +1258,7 @@ const metrics = {
 };
 
 const workflow = createWorkflow('checkout', deps, {
-  onEvent: (event: WorkflowEvent) => {
+  onEvent: (event: WorkflowEvent<unknown>) => {
     if (event.type === 'step_success')
       metrics.stepDurations.push({ name: event.name, durationMs: event.durationMs, success: true });
     if (event.type === 'step_error') {
@@ -1338,9 +1337,9 @@ Effect encodes architecture in types; awaitly keeps it in values.
 
 ## Next Steps
 
-- [Getting Started with awaitly →](/getting-started/installation/)
-- [Workflows in depth →](/foundations/workflows/)
-- [Retries & Timeouts →](/guides/retries-timeouts/)
-- [Resource Management →](/patterns/resource-management/)
-- [Durable Execution →](/guides/durable-execution/)
-- [Human-in-the-Loop →](/guides/human-in-loop/)
+- [Getting Started with awaitly →](getting-started/installation/)
+- [Workflows in depth →](foundations/workflows/)
+- [Retries & Timeouts →](guides/retries-timeouts/)
+- [Resource Management →](patterns/resource-management/)
+- [Durable Execution →](guides/durable-execution/)
+- [Human-in-the-Loop →](guides/human-in-loop/)

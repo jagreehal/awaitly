@@ -11,15 +11,14 @@ Suspend a workflow at a step until your app receives an HTTP callback (e.g. paym
 - **OAuth or external redirects** – Send the user to an external site, suspend until they hit your callback URL with the token/code, then resume.
 - **Async approvals from external systems** – Wait for a webhook from a third party instead of polling.
 
-Unlike [Human-in-the-Loop](/guides/human-in-loop/), hooks are driven by an **incoming HTTP callback** (or any event you map to `injectHook`), not by a human approval flow.
+Unlike [Human-in-the-Loop](guides/human-in-loop/), hooks are driven by an **incoming HTTP callback** (or any event you map to `injectHook`), not by a human approval flow.
 
 ## Create a hook and suspend the workflow
 
 Generate a unique `hookId` and use it in both the workflow step and your callback URL:
 
 ```typescript
-import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
-import { createHook, pendingHook } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector, createHook, pendingHook } from 'awaitly';
 
 // One hook per “wait for callback” point; create once or per run
 const { hookId, stepKey } = createHook();
@@ -46,7 +45,7 @@ Use `stepKey` (which equals `"hook:" + hookId`) as the step `key` so resume stat
 When the workflow returns, check if it stopped because it’s waiting for a callback:
 
 ```typescript
-import { isPendingHook } from 'awaitly/workflow';
+import { isPendingHook } from 'awaitly';
 
 if (!result.ok && isPendingHook(result.error)) {
   // result.error.hookId is the hook to resolve
@@ -62,8 +61,7 @@ if (!result.ok && isPendingHook(result.error)) {
 When the HTTP callback hits your server, load the resume state, call `injectHook`, then run the workflow again with the updated state:
 
 ```typescript
-import { createWorkflow, injectHook } from 'awaitly/workflow';
-import { pendingHook } from 'awaitly/workflow';
+import { createWorkflow, injectHook, pendingHook } from 'awaitly';
 
 // In your HTTP handler (e.g. POST /hook/:hookId or POST /webhooks/payment/:hookId)
 app.post('/hook/:hookId', async (req, res) => {
@@ -103,7 +101,7 @@ app.post('/hook/:hookId', async (req, res) => {
 To see which hooks in a resume state are still waiting:
 
 ```typescript
-import { getPendingHooks, hasPendingHook } from 'awaitly/workflow';
+import { getPendingHooks, hasPendingHook } from 'awaitly';
 
 const state = collector.getResumeState();
 const pendingIds = getPendingHooks(state);
@@ -137,5 +135,5 @@ Step keys for hooks use the prefix `"hook:"`; the full key is `"hook:" + hookId`
 
 ## Next
 
-[Human-in-the-Loop](/guides/human-in-loop/) – Pause for human approval and resume when approved.  
-[Durable Execution](/guides/durable-execution/) – Checkpoint and resume across restarts.
+[Human-in-the-Loop](guides/human-in-loop/) – Pause for human approval and resume when approved.  
+[Durable Execution](guides/durable-execution/) – Checkpoint and resume across restarts.

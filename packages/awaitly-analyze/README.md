@@ -12,7 +12,7 @@ The cost: imperative control flow (`if`, `for`, computed ids) isn't always deter
 - Write `step.forEach` instead of a raw loop, and each iteration gets a structured id.
 - Use literal step ids (put the dynamic part in `key`), and every node has a stable identity.
 
-A workflow that stays on those constructs is **fully diagrammable**: its diagram is deterministic, and a runtime trace overlays onto it exactly. `--assert-diagrammable` (below) enforces that in CI, and `eslint-plugin-awaitly`'s `workflow-prefer-step-if` and `workflow-prefer-step-foreach` rules flag raw control flow as you write it.
+A workflow built from those constructs is **fully diagrammable**: its diagram is deterministic, and a runtime trace overlays onto it exactly. Native `if`/`for...of`/`while` qualify too — the analyzer derives a stable branch id from the condition and a stable loop id from the iterable. `--assert-diagrammable` (below) enforces this in CI, flagging only expressions it cannot read statically.
 
 ## CLI Usage
 
@@ -162,17 +162,10 @@ Analyze workflow source code from a string.
 
 ```typescript
 const ir = analyze.source(`
-  const workflow = createWorkflow('user-workflow', {
-    fetchUser: async (id: string) => ({ id, name: 'Alice' }),
-  });
-
-  async function run(id: string) {
-    return await workflow.run(async ({ step, deps }) => {
-      const user = await step('fetchUser', () => deps.fetchUser(id), { key: 'user' });
-      return user;
-    });
-  }
+  const checkout = createWorkflow({ fetchUser });
+  await checkout.run(async ({ steps }) => steps.fetchUser('1'));
 `).single();
+// ir.root.workflowName === 'checkout'
 ```
 
 ### Path Generation
@@ -425,11 +418,11 @@ writeFileSync('checkout.html', html);
 
 #### `renderWorkflowDSL(ir)`
 
-Produce a state-machine-like DSL for xstate-style visualization (states and transitions with event labels). Types are defined in `awaitly/workflow`; the analyzer emits DSL that conforms to them.
+Produce a state-machine-like DSL for xstate-style visualization (states and transitions with event labels). Types are defined in `awaitly`; the analyzer emits DSL that conforms to them.
 
 ```typescript
 import { analyze, renderWorkflowDSL, writeDSLToAwaitlyDir } from 'awaitly-analyze';
-import type { WorkflowDiagramDSL } from 'awaitly/workflow';
+import type { WorkflowDiagramDSL } from 'awaitly';
 
 const ir = analyze('./checkout.ts').single();
 const dsl: WorkflowDiagramDSL = renderWorkflowDSL(ir);
@@ -439,7 +432,7 @@ await writeDSLToAwaitlyDir(dsl, { rootDir: process.cwd() });
 // Custom folder: await writeDSLToAwaitlyDir(dsl, { rootDir: process.cwd(), outputDir: 'dist/dsl' });
 ```
 
-**Identity contract:** DSL state ids normally use the semantic ids authored in the code (step()'s literal first argument, step.if()'s decision id). If a collision requires a suffixed diagram id, `state.semanticId` preserves the authored identity used by runtime graph validation, so the DSL remains directly usable as the `graph` option. Literal cache keys are carried on `state.key`. For current-node highlighting, `WorkflowSnapshot.execution.currentStepId` holds the step key — match it against `state.key ?? state.semanticId ?? state.id`. See `awaitly/workflow` diagram-dsl types for details.
+**Identity contract:** DSL state ids normally use the semantic ids authored in the code (step()'s literal first argument, step.if()'s decision id). If a collision requires a suffixed diagram id, `state.semanticId` preserves the authored identity used by runtime graph validation, so the DSL remains directly usable as the `graph` option. Literal cache keys are carried on `state.key`. For current-node highlighting, `WorkflowSnapshot.execution.currentStepId` holds the step key — match it against `state.key ?? state.semanticId ?? state.id`. See `awaitly` diagram-dsl types for details.
 
 ### JSON Output
 
@@ -458,14 +451,14 @@ fs.writeFileSync('workflow.json', json);
 
 The analyzer detects the following awaitly patterns:
 
-- `createWorkflow()` - Standard workflow creation
-- `run()` - Inline workflow execution
+- `createWorkflow()` - Standard workflow creation (named or deps-first: `createWorkflow({ deps })` recovers the workflow name from the binding variable)
+- `run()` - Inline workflow execution (deps-first with auto-bound `steps.*()`)
 - `createSagaWorkflow()` - Saga workflow creation
 - `runSaga()` - Inline saga execution
 
 Within workflows, it detects:
 
-- `step('id', fn, opts?)` - Single steps (string ID required) with retry/timeout options
+- `steps.fetchUser(id)` / `step('fetchUser', () => deps.fetchUser(id))` - Deps-first bound steps and classic step calls
 - `step.parallel()` / `allAsync()` / `allSettledAsync()` - Parallel execution
 - `step.race()` / `anyAsync()` - Race execution
 - `step.sleep(id, duration, opts?)` - Sleep steps (ID required as first argument)
@@ -485,10 +478,10 @@ The analyzer supports various import styles:
 
 ```typescript
 // Named imports
-import { createWorkflow, run } from 'awaitly/workflow';
+import { createWorkflow, run } from 'awaitly';
 
 // Aliased imports
-import { createWorkflow as cw } from 'awaitly/workflow';
+import { createWorkflow as cw } from 'awaitly';
 ```
 
 Namespace imports (`import * as X from 'awaitly'`) and default imports from older awaitly versions are also recognized, so the analyzer keeps working on codebases that have not migrated to named imports yet.
@@ -680,7 +673,7 @@ A JSON Schema for this structure is available at `schema/static-workflow-ir.sche
 ## Requirements
 
 - Node.js >= 22
-- TypeScript project with `ts-morph` >= 27.0.2
+- TypeScript project with `ts-morph` >= 28.0.0
 
 ## License
 

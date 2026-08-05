@@ -84,7 +84,7 @@ The store also works directly with workflow resume state:
 
 ```ts
 import { libsql } from "awaitly-libsql";
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 
 const store = libsql("file:./awaitly.db");
 const workflow = createWorkflow(deps);

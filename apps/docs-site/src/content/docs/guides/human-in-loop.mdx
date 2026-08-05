@@ -35,7 +35,7 @@ Pause workflows for human approval (large transfers, deployments, refunds) and r
 />
 
 ```typescript
-import { createApprovalStep, isPendingApproval } from 'awaitly/hitl';
+import { createApprovalStep, isPendingApproval } from 'awaitly/durable';
 
 const requireApproval = createApprovalStep({
   key: 'approve:refund',
@@ -101,7 +101,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 ## Handle rejection
 
 ```typescript
-import { isApprovalRejected } from 'awaitly/hitl';
+import { isApprovalRejected } from 'awaitly/durable';
 
 if (!result.ok && isApprovalRejected(result.error)) {
   console.log('Rejected:', result.error.reason);
@@ -112,12 +112,12 @@ if (!result.ok && isApprovalRejected(result.error)) {
 ## List pending approvals
 
 ```typescript
-import { getPendingApprovals } from 'awaitly/hitl';
+import { getPendingApprovals } from 'awaitly/durable';
 
 // From in-memory collector (during same run)
 const state = collector.getResumeState();
 const pending = getPendingApprovals(state);
-// [{ stepKey: 'approve:refund', ... }]
+// ['approve:refund'] — an array of pending step keys
 ```
 
 ## HITL orchestrator
@@ -129,30 +129,49 @@ import {
   createHITLOrchestrator,
   createMemoryApprovalStore,
   createMemoryWorkflowStateStore,
-} from 'awaitly/hitl';
+  type HITLWorkflowFactoryOptions,
+} from 'awaitly/durable';
 
 const orchestrator = createHITLOrchestrator({
   approvalStore: createMemoryApprovalStore(),
   workflowStateStore: createMemoryWorkflowStateStore(),
-  createWorkflow: (resumeState) =>
-    createWorkflow('workflow', deps, { resumeState }),
 });
 
-// Start workflow
-const { runId, result } = await orchestrator.start(
-  async ({ step, deps }) => {
-    const data = await step('fetchData', () => deps.fetchData());
-    await step('requireApproval', deps.requireApproval, { key: 'approve:data' });
-    return data;
-  },
-  { workflowId: 'wf-1' }
+// The workflow is supplied as a *factory*. It must pass `resumeState` and
+// `onEvent` straight through to createWorkflow — HITL tracking depends on both.
+// Deps flow through, so `raw` and `step` are fully typed inside workflowFn.
+const workflowFactory = ({ resumeState, onEvent }: HITLWorkflowFactoryOptions) =>
+  createWorkflow('workflow', deps, { resumeState, onEvent });
+
+const workflowFn = async ({ step, deps }) => {
+  const data = await step('fetchData', () => deps.fetchData());
+  // The step id must match the approval key.
+  await step('approve:data', () => deps.requireApproval());
+  return data;
+};
+
+// Execute. Returns a status-tagged union, not a Result.
+const execution = await orchestrator.execute(
+  'data-workflow',
+  workflowFactory,
+  workflowFn,
+  { userId: 'u-1' },          // input, available as `args`
+  { runId: 'wf-1' }
 );
 
-// Approve
-await orchestrator.approve(runId, 'approve:data', { approvedBy: 'alice' });
+if (execution.status === 'paused') {
+  // Approve — this auto-resumes any waiting workflow by default.
+  await orchestrator.grantApproval('approve:data', { ok: true }, {
+    approvedBy: 'alice',
+  });
 
-// Resume
-const finalResult = await orchestrator.resume(runId);
+  // Or drive the resume yourself:
+  const resumed = await orchestrator.resume(
+    execution.runId,
+    workflowFactory,
+    workflowFn
+  );
+}
 ```
 
 ## Approval webhook handler
@@ -160,7 +179,7 @@ const finalResult = await orchestrator.resume(runId);
 Expose an HTTP endpoint for approvals:
 
 ```typescript
-import { createApprovalWebhookHandler, createMemoryApprovalStore } from 'awaitly/hitl';
+import { createApprovalWebhookHandler, createMemoryApprovalStore } from 'awaitly/durable';
 
 const approvalStore = createMemoryApprovalStore();
 const handler = createApprovalWebhookHandler(approvalStore);
@@ -185,11 +204,11 @@ app.post('/webhooks/approve', async (req, res) => {
 ## Full example
 
 ```typescript
-import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly';
 import {
   createApprovalStep,
   isPendingApproval,
-} from 'awaitly/hitl';
+} from 'awaitly/durable';
 
 // Define approval step
 const requireManagerApproval = createApprovalStep({
@@ -227,7 +246,7 @@ if (!result.ok && isPendingApproval(result.error)) {
 Push notifications when approvals are needed:
 
 ```typescript
-import { createHITLOrchestrator, NotificationChannel } from 'awaitly/hitl';
+import { createHITLOrchestrator, NotificationChannel } from 'awaitly/durable';
 
 const slackChannel: NotificationChannel = {
   async onApprovalNeeded(ctx) {
@@ -291,7 +310,7 @@ if (status.status === 'edited') {
 Gate operations *before* they execute, showing args for approval:
 
 ```typescript
-import { gatedStep, isPendingApproval } from 'awaitly/hitl';
+import { gatedStep, isPendingApproval } from 'awaitly/durable';
 
 // Gate external email sends
 const gatedSendEmail = gatedStep(
@@ -344,7 +363,7 @@ const gatedDelete = gatedStep(
 For workflows requiring multiple approvers (e.g., manager → finance → CEO):
 
 ```typescript
-import { createApprovalStep, isPendingApproval } from 'awaitly/hitl';
+import { createApprovalStep, isPendingApproval } from 'awaitly/durable';
 
 // Define approval stages
 const managerApproval = createApprovalStep({
@@ -411,15 +430,15 @@ const result = await expenseWorkflow.run(async ({ step }) => {
 ### Track approval progress
 
 ```typescript
-import { getPendingApprovals } from 'awaitly/hitl';
+import { getPendingApprovals } from 'awaitly/durable';
 
 const state = collector.getResumeState();
 const pending = getPendingApprovals(state);
 
-// Show approval chain status
+// Show approval chain status (`pending` is a string[] of step keys)
 const stages = ['manager', 'finance', 'ceo'];
-const completed = stages.filter(s => !pending.some(p => p.stepKey.includes(s)));
-const current = pending[0]?.stepKey;
+const completed = stages.filter(s => !pending.some(key => key.includes(s)));
+const current = pending[0];
 
 console.log(`Completed: ${completed.join(' → ')}`);
 console.log(`Waiting for: ${current}`);
@@ -432,7 +451,7 @@ console.log(`Waiting for: ${current}`);
 Handle approvals that take too long:
 
 ```typescript
-import { createApprovalStep, isPendingApproval } from 'awaitly/hitl';
+import { createApprovalStep, isPendingApproval } from 'awaitly/durable';
 
 // Approval with built-in timeout check
 const timedApproval = createApprovalStep({
@@ -520,7 +539,8 @@ import {
   createHITLOrchestrator,
   createMemoryApprovalStore,
   createMemoryWorkflowStateStore,
-} from 'awaitly/hitl';
+  type HITLWorkflowFactoryOptions,
+} from 'awaitly/durable';
 
 // Use persistent stores instead of memory
 const approvalStore = createRedisApprovalStore(redis);
@@ -529,8 +549,11 @@ const workflowStateStore = createPostgresWorkflowStateStore(db);
 const orchestrator = createHITLOrchestrator({
   approvalStore,
   workflowStateStore,
-  createWorkflow: (resumeState) => createWorkflow('workflow', deps, { resumeState }),
 });
+
+// The workflow factory is passed per call, not in the constructor.
+const workflowFactory = ({ resumeState, onEvent }: HITLWorkflowFactoryOptions) =>
+  createWorkflow('workflow', deps, { resumeState, onEvent });
 
 // On startup, recover incomplete workflows
 async function recoverWorkflows() {
@@ -546,9 +569,13 @@ async function recoverWorkflows() {
       const anyResolved = pendingApprovals.some(a => a.status !== 'pending');
 
       if (anyResolved) {
-        // Resume the workflow
-        const result = await orchestrator.resume(workflow.id);
-        console.log(`Workflow ${workflow.id} resumed:`, result.ok ? 'success' : 'failed');
+        // Resume the workflow — resume() takes the factory and the workflow fn.
+        const execution = await orchestrator.resume(
+          workflow.id,
+          workflowFactory,
+          workflowFn
+        );
+        console.log(`Workflow ${workflow.id}:`, execution.status);
       }
     } catch (error) {
       console.error(`Failed to recover ${workflow.id}:`, error);
@@ -667,4 +694,4 @@ function ApprovalCard({ approvalKey, pendingArgs }) {
 
 ## Next
 
-[Learn about Visualization →](/guides/visualization/)
+[Learn about Visualization →](guides/visualization/)

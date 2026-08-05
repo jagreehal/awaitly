@@ -5,7 +5,7 @@
  * Provides timeline rendering, run diffing, and live visualization.
  */
 
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 import type {
   OutputFormat,
   VisualizerOptions,

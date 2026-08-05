@@ -1,4 +1,4 @@
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 
 /**
  * Checkout workflow - handles cart and payment.

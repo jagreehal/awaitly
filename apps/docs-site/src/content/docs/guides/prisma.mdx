@@ -18,8 +18,7 @@ Turn Prisma database errors into typed Results for exhaustive error handling.
 
 ```typescript
 import { Prisma } from '@prisma/client';
-import { ok, err, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { ok, err, type AsyncResult, createWorkflow } from 'awaitly';
 
 type DbError =
   | { type: 'NOT_FOUND' }
@@ -169,7 +168,7 @@ const userRepository = {
 Combine Prisma with Zod validation:
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 import { z } from 'zod';
 
 const CreateUserSchema = z.object({
@@ -185,7 +184,7 @@ const zodToResult = <T>(schema: z.ZodSchema<T>, data: unknown) => {
     : err({ type: 'VALIDATION' as const, issues: parsed.error.issues });
 };
 
-const workflow = createWorkflow('workflow', { validateInput: (raw: unknown) => zodToResult(CreateUserSchema, raw),
+const workflow = createWorkflow('workflow', { validateInput: (deps: unknown) => zodToResult(CreateUserSchema, raw),
   createUser: userRepository.create,
 });
 
@@ -206,7 +205,7 @@ const createUser = async (rawInput: unknown) => {
 Use awaitly's saga pattern for transactions that need compensation:
 
 ```typescript
-import { createSagaWorkflow } from 'awaitly/saga';
+import { createSagaWorkflow } from 'awaitly/durable';
 
 const transferFunds = createSagaWorkflow('saga', { debitAccount: async (accountId: string, amount: number) => {
     return prismaToResult(() =>
@@ -307,8 +306,7 @@ Complete workflow combining Zod validation, email checking, and user creation:
 ```typescript
 import { z } from 'zod';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { ok, err, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { ok, err, type AsyncResult, createWorkflow } from 'awaitly';
 
 const prisma = new PrismaClient();
 
@@ -328,7 +326,7 @@ type SignUpError = ValidationError | EmailTakenError | DbError;
 
 // Dependencies
 const deps = {
-  validateInput: (raw: unknown) => {
+  validateInput: (deps: unknown) => {
     const parsed = SignUpSchema.safeParse(raw);
     return Promise.resolve(
       parsed.success
@@ -399,6 +397,11 @@ export const POST = async (request: Request) => {
           { error: 'Server error' },
           { status: 500 }
         );
+      default:
+        // The union also carries UnexpectedError — handle it so the block
+        // always returns and `result.value` narrows below.
+        console.error('Unexpected error:', result.error);
+        return Response.json({ error: 'Server error' }, { status: 500 });
     }
   }
 
@@ -493,6 +496,6 @@ export const findOrNotFound = async <T>(
 
 ## Next Steps
 
-- [Drizzle Integration](/guides/drizzle/) for an alternative ORM
-- [Zod Integration](/guides/zod/) for input validation
-- [Workflows](/foundations/workflows/) for composing database operations
+- [Drizzle Integration](guides/drizzle/) for an alternative ORM
+- [Zod Integration](guides/zod/) for input validation
+- [Workflows](foundations/workflows/) for composing database operations

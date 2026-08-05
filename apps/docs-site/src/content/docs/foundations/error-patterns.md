@@ -53,7 +53,7 @@ If your app can't continue without a config file or database connection, don't r
 const loadConfig = (): AsyncResult<Config, 'CONFIG_MISSING'> => {
   const raw = process.env.DATABASE_URL;
   if (!raw) return err('CONFIG_MISSING');
-  return ok({ databaseUrl: raw });
+  return ok({ databaseUrl: deps });
 };
 
 // Then deep in a workflow:
@@ -64,7 +64,7 @@ const config = await step('loadConfig', () => loadConfig());
 function loadConfig(): Config {
   const raw = process.env.DATABASE_URL;
   if (!raw) throw new Error('DATABASE_URL is required');
-  return { databaseUrl: raw };
+  return { databaseUrl: deps };
 }
 
 const config = loadConfig(); // Fails immediately if missing
@@ -218,14 +218,14 @@ if (!result.ok) {
 
 `run()`, `createWorkflow()`, and `saga()` all catch thrown exceptions automatically and wrap them as `UnexpectedError` with the original exception in `cause`. You never lose stack traces. You never need to model every possible failure. Your typed error union stays clean — only the domain errors you actually care about.
 
-If you need to replace `UnexpectedError` with your own type, pass `catchUnexpected` to `run()` or `createWorkflow()`. See [Custom unexpected errors](/foundations/error-handling/#custom-unexpected-errors).
+If you need to replace `UnexpectedError` with your own type, pass `catchUnexpected` to `run()` or `createWorkflow()`. See [Custom unexpected errors](foundations/error-handling/#custom-unexpected-errors).
 
 ## Further reading
 
 **awaitly docs:**
-- [Errors and Retries](/foundations/error-handling/) — how error propagation, retries, and timeouts work
-- [Tagged Errors](/foundations/tagged-errors/) — structured error types with exhaustive matching
-- [awaitly vs try/catch](/comparison/awaitly-vs-try-catch/) — side-by-side comparison with traditional error handling
+- [Errors and Retries](foundations/error-handling/) — how error propagation, retries, and timeouts work
+- [Tagged Errors](foundations/tagged-errors/) — structured error types with exhaustive matching
+- [awaitly vs try/catch](comparison/awaitly-vs-try-catch/) — side-by-side comparison with traditional error handling
 
 **External:**
 - [Against Railway-Oriented Programming](https://fsharpforfunandprofit.com/posts/against-railway-oriented-programming/) — Scott Wlaschin on when Result types are the wrong tool

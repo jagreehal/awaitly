@@ -155,7 +155,7 @@ export class RetryExhaustedError extends /* @__PURE__ */ TaggedError("RetryExhau
  */
 export class RateLimitError extends /* @__PURE__ */ TaggedError("RateLimitError", {
   slug: "runtime-rate-limit",
-  hint: "Wait retryAfterMs before retrying, or apply step.cache to deduplicate calls.",
+  hint: "Wait retryAfterMs before retrying, or apply singleflight to deduplicate calls.",
   message: (p: {
     /** Name of the rate limiter that was exceeded */
     limiterName?: string;

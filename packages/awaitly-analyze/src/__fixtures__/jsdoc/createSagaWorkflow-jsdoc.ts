@@ -1,4 +1,4 @@
-import { createSagaWorkflow } from "awaitly/saga";
+import { createSagaWorkflow } from "awaitly/durable";
 
 /**
  * Order saga - create order with compensation.

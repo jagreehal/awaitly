@@ -92,8 +92,7 @@ async function fetchUser(id: string): Promise<User> {
 <Tabs>
   <TabItem label="awaitly (run)">
 ```typescript
-import { run } from 'awaitly';
-import { type ErrorsOf } from 'awaitly';
+import { run, type ErrorsOf } from 'awaitly';
 
 const deps = { fetchUser };
 type Errors = ErrorsOf<typeof deps>;
@@ -108,7 +107,7 @@ export async function runWorkflow(id: string) {
   </TabItem>
   <TabItem label="awaitly (workflow)">
 ```typescript
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 
 // createWorkflow infers errors and adds caching/retry/observability
 export const userWorkflow = createWorkflow('workflow', { fetchUser });
@@ -270,7 +269,7 @@ export async function raceWorkflow() {
   <TabItem label="awaitly">
 ```typescript
 import { err } from "awaitly";
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 
 export const myWorkflow = createWorkflow('workflow', { myStep },
   {
@@ -333,7 +332,7 @@ Compare manual rollback with automatic compensation.
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createSagaWorkflow } from "awaitly/saga";
+import { createSagaWorkflow } from "awaitly/durable";
 
 export const orderProcessingSaga = createSagaWorkflow('saga', {
   reserveInventory,
@@ -428,8 +427,8 @@ awaitly's `createSagaWorkflow` automatically runs compensation in reverse order 
   <TabItem label="awaitly">
 ```typescript
 import { streamText } from "ai";
-import { createWorkflow } from "awaitly/workflow";
-import { createMemoryStreamStore } from "awaitly/streaming";
+import { createWorkflow } from "awaitly";
+import { createMemoryStreamStore } from "awaitly/durable";
 
 const streamStore = createMemoryStreamStore();
 
@@ -543,7 +542,7 @@ my-workflow [completed in 234ms]
   <TabItem label="awaitly (After)">
 ```typescript
 import { ok, type AsyncResult } from "awaitly";
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 
 async function add(a: number, b: number): AsyncResult<number, never> {
   return ok(a + b);
@@ -584,7 +583,7 @@ export async function simple(i: number) {
 <Tabs>
   <TabItem label="awaitly (After)">
 ```typescript
-import { processInBatches } from "awaitly/workflow";
+import { processInBatches } from "awaitly";
 
 export const batchWorkflow = createWorkflow('workflow', { processItem },
   { description: "Batch processing workflow" }
@@ -592,11 +591,13 @@ export const batchWorkflow = createWorkflow('workflow', { processItem },
 
 export async function runBatchWorkflow(items: string[]) {
   return await batchWorkflow(async (step, { processItem }) => {
+    // processInBatches(items, process, config, options) — progress hooks live
+    // in the 4th argument, not the config.
     const result = await step('processInBatches', () => processInBatches(
       items,
       processItem,
+      { batchSize: 50, concurrency: 5 },
       {
-        batchSize: 50,
         onProgress: (progress) => {
           console.log(`Processed ${progress.processed}/${progress.total}`);
         },
@@ -666,7 +667,7 @@ awaitly workflows are just TypeScript. No special compiler, no platform requirem
 
 ## Next Steps
 
-- [Getting Started with awaitly](/getting-started/installation/)
-- [Saga / Compensation patterns](/advanced/saga-compensation/)
-- [Static Analysis](/guides/static-analysis/)
-- [Visualization](/guides/visualization/)
+- [Getting Started with awaitly](getting-started/installation/)
+- [Saga / Compensation patterns](advanced/saga-compensation/)
+- [Static Analysis](guides/static-analysis/)
+- [Visualization](guides/visualization/)

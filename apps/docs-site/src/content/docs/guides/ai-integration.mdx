@@ -117,7 +117,7 @@ async function executeTools(step, toolCalls) {
         () => runTool(call.name, call.arguments),
         {
           key: `tool:${call.name}:${call.id}`,  // SDK's unique ID
-          name: `Tool: ${call.name}`,
+          description: `Tool: ${call.name}`,
         }
       );
       return { tool_call_id: call.id, content: JSON.stringify(result) };
@@ -146,7 +146,7 @@ async function executeTools(step, toolCalls) {
         () => runTool(call.name, call.arguments),
         {
           key: `tool:${call.name}:${hashArgs(call.arguments)}`,
-          name: `Tool: ${call.name}`,
+          description: `Tool: ${call.name}`,
         }
       );
       return { tool_call_id: call.id, content: JSON.stringify(result) };
@@ -177,7 +177,7 @@ function createToolExecutors(step: RunStep<AppError>) {
       return step(
         'search',
         () => searchDocuments(query),
-        { key, name: 'Search documents' }
+        { key, description: 'Search documents' }
       );
     },
 
@@ -189,7 +189,7 @@ function createToolExecutors(step: RunStep<AppError>) {
       return step(
         'weather',
         () => fetchWeather(location),
-        { key, name: 'Get weather' }
+        { key, description: 'Get weather' }
       );
     },
   };
@@ -212,8 +212,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 Here's a complete example combining all patterns:
 
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { ok, err, type AsyncResult, createWorkflow } from 'awaitly';
 
 // Define tool implementations
 const toolImplementations = {
@@ -247,7 +246,7 @@ const result = await chatWorkflow.run(async ({ step, deps }) => {
     const response = await step(
       'chat',
       () => deps.chat(messages),
-      { key: `chat:${iterations}`, name: `Chat iteration ${iterations}` }
+      { key: `chat:${iterations}`, description: `Chat iteration ${iterations}` }
     );
 
     if (response.finishReason === 'stop') {
@@ -270,7 +269,7 @@ const result = await chatWorkflow.run(async ({ step, deps }) => {
             () => impl(call.arguments),
             {
               key: `tool:${call.name}:${call.id}`,
-              name: `Tool: ${call.name}`,
+              description: `Tool: ${call.name}`,
             }
           );
 
@@ -307,8 +306,7 @@ When using the Vercel AI SDK with awaitly:
 
 ```typescript
 import { streamText, tool } from 'ai';
-import { ok, err } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { ok, err, createWorkflow } from 'awaitly';
 
 const aiWorkflow = createWorkflow('workflow', { generateText: async (prompt: string): AsyncResult<string, 'AI_ERROR'> => {
     try {
@@ -327,7 +325,7 @@ const result = await aiWorkflow.run(async ({ step, deps }) => {
   const response = await step(
     'explain',
     () => deps.generateText('Explain awaitly in one sentence'),
-    { key: 'explain', name: 'Generate explanation' }
+    { key: 'explain', description: 'Generate explanation' }
   );
 
   return response;  // Return raw value, not ok(response)!
@@ -336,7 +334,7 @@ const result = await aiWorkflow.run(async ({ step, deps }) => {
 
 <Aside type="caution" title="Return raw values">
 Remember: workflow executors return raw values. awaitly wraps them automatically.
-See [Troubleshooting: Double-wrapping](/guides/troubleshooting/#returning-ok-from-workflow-executor-double-wrapping).
+See [Troubleshooting: Double-wrapping](guides/troubleshooting/#returning-ok-from-workflow-executor-double-wrapping).
 </Aside>
 
 ## Error Handling for AI Calls
@@ -380,6 +378,6 @@ async function chat(messages: Message[]): AsyncResult<ChatResponse, 'AI_ERROR' |
 
 ## Related
 
-- [Retries & Timeouts](/guides/retries-timeouts/) - Handling transient AI API failures
-- [Streaming](/guides/streaming/) - Working with awaitly's stream store
-- [Troubleshooting](/guides/troubleshooting/) - Common issues and solutions
+- [Retries & Timeouts](guides/retries-timeouts/) - Handling transient AI API failures
+- [Streaming](guides/streaming/) - Working with awaitly's stream store
+- [Troubleshooting](guides/troubleshooting/) - Common issues and solutions

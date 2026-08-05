@@ -160,4 +160,37 @@ describe("run(deps, fn) — deps-first form", () => {
     const result = await run({ getUser }, async (s) => s.getUser("u-1"));
     expect(result).toEqual({ ok: true, value: { id: "u-1", name: "Alice" } });
   });
+
+  it("maps thrown exceptions via catchUnexpected on the deps-first form", async () => {
+    const boom = async (): Promise<never> => {
+      throw new Error("kaboom");
+    };
+
+    const result = await run({ getUser, boom }, async (s) => {
+      await s.getUser("u-1");
+      return s.boom();
+    }, {
+      catchUnexpected: (cause) => ({ type: "CRASHED" as const, message: String(cause) }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // UnexpectedError is replaced by the mapped type, not added alongside it.
+      expect(result.error).toEqual({
+        type: "CRASHED",
+        message: "Error: kaboom",
+      });
+    }
+  });
+
+  it("still surfaces declared dep errors when catchUnexpected is present", async () => {
+    const result = await run({ getUser }, async (s) => s.getUser("missing"), {
+      catchUnexpected: (cause) => ({ type: "CRASHED" as const, message: String(cause) }),
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: { type: "USER_NOT_FOUND", userId: "missing" },
+    });
+  });
 });

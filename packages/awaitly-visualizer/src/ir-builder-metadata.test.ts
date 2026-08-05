@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createIRBuilder } from "./ir-builder";
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 import type { StepNode } from "./types";
 import { loggerRenderer } from "./renderers/logger";
 import type { LoggerOutput } from "./renderers/logger";

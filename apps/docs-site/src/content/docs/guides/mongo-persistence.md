@@ -21,7 +21,7 @@ yarn add awaitly-mongo mongodb
 
 ```typescript
 import { mongo } from 'awaitly-mongo';
-import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly';
 
 // One-liner setup
 const store = mongo('mongodb://localhost:27017/mydb');
@@ -228,4 +228,4 @@ sh.shardCollection('myapp.awaitly_snapshots', { _id: 'hashed' });
 
 ## Next
 
-[Learn about PostgreSQL persistence →](./postgres-persistence/)
+[Learn about PostgreSQL persistence →](guides/postgres-persistence/)

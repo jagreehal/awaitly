@@ -29,23 +29,28 @@ Result<Value, 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError>
 
 ## createWorkflow
 
-Creates a reusable workflow with automatic error type inference from dependencies:
+Creates a reusable workflow with automatic error type inference from dependencies. Two call shapes:
+
+- **Named:** `createWorkflow('checkout', { fetchUser, sendEmail }, options?)` — stable label in traces, events, and diagrams even if the variable is renamed.
+- **Deps-first:** `createWorkflow({ fetchUser, sendEmail }, options?)` — same inference; `awaitly-analyze` labels the workflow from the variable name (e.g. `const checkout = createWorkflow({ ... })`).
 
 <Tabs>
   <TabItem label="With inference">
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { ok, err, type AsyncResult, createWorkflow } from 'awaitly';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
 const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
 
-// Error types inferred from dependencies
+// Named — explicit label for traces and diagrams
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
-const result = await workflow.run(async ({ step, deps }) => {
-  const user = await step('fetchUser', () => deps.fetchUser('1'));
-  await step('sendEmail', () => deps.sendEmail(user.email));
+// Deps-first — label comes from the variable name in static analysis
+const checkout = createWorkflow({ fetchUser, sendEmail });
+
+const result = await workflow.run(async ({ steps }) => {
+  const user = await steps.fetchUser('1');
+  await steps.sendEmail(user.email);
   return user;
 });
 /*
@@ -77,7 +82,7 @@ With automatic inference, you never forget to handle an error type. Add a new de
 
 <Aside type="caution" title="Return raw values, not Result">
 Workflow executors return raw values. awaitly wraps them automatically.
-See [Troubleshooting: Double-wrapping](/guides/troubleshooting/#returning-ok-from-workflow-executor-double-wrapping).
+See [Troubleshooting: Double-wrapping](guides/troubleshooting/#returning-ok-from-workflow-executor-double-wrapping).
 </Aside>
 
 ### With options
@@ -96,96 +101,65 @@ The value returned by `createWorkflow` is a workflow object with a single **`.ru
 
 ## run()
 
-For one-off workflows where you specify error types manually:
+`run(deps, fn)` is the same deps-first idea without a name attached. Error types are
+inferred exactly as they are for `createWorkflow` — you do not supply type parameters:
 
-<Tabs>
-  <TabItem label="With ErrorsOf (best DX)">
-```typescript
-import { run, type ErrorsOf } from 'awaitly';
-
-const deps = { fetchUser, sendEmail };
-type RunErrors = ErrorsOf<typeof deps>;
-
-const result = await run<User, RunErrors>(
-  async ({ step }) => {
-    const user = await step('fetchUser', () => fetchUser('1'));
-    await step('sendEmail', () => sendEmail(user.email));
-    return user;
-  }
-);
-// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
-```
-  </TabItem>
-  <TabItem label="With catchUnexpected (custom)">
 ```typescript
 import { run } from 'awaitly';
 
-const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED'>(
-  async ({ step }) => {
-    const user = await step('fetchUser', () => fetchUser('1'));
-    await step('sendEmail', () => sendEmail(user.email));
-    return user;
-  },
-  { catchUnexpected: (thrown) => ({ type: 'UNEXPECTED' as const, message: String(thrown) }) }
-);
-// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | { type: 'UNEXPECTED', message: string }
-```
-  </TabItem>
-  <TabItem label="Without type params">
-```typescript
-import { run } from 'awaitly';
-
-const result = await run(async ({ step }) => {
-  const user = await step('fetchUser', () => fetchUser('1'));
-  await step('sendEmail', () => sendEmail(user.email));
+const result = await run({ fetchUser, sendEmail }, async (s) => {
+  const user = await s.fetchUser('1');
+  await s.sendEmail(user.email);
   return user;
 });
-// result.error is: UnexpectedError (step error types not preserved at compile time)
+// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
 ```
-  </TabItem>
-</Tabs>
 
-<Aside type="tip" title="Deriving error types for run()">
-Use `ErrorOf<typeof fn>` for a single dep or `Errors<[typeof fn1, typeof fn2]>` for multiple deps to derive the error union. Your step errors are preserved in the result as `E | UnexpectedError`. Use `catchUnexpected` only when you want a custom unexpected type instead of the default.
+<Aside type="caution" title="No catchUnexpected on the deps-first form">
+`run(deps, fn, options)` accepts `onError`, `onEvent`, `workflowId`, `workflowName`,
+and `context` — but **not** `catchUnexpected`. Deps-first runs always carry
+`UnexpectedError`. To close the union, use `createWorkflow(name, deps, { catchUnexpected })`
+or `run.strict`, where you supply `E` yourself:
+
+```typescript
+const wf = createWorkflow('loadUser', { fetchUser, sendEmail }, {
+  catchUnexpected: (thrown) => ({ type: 'UNEXPECTED' as const, message: String(thrown) }),
+});
+// result.error: 'NOT_FOUND' | 'EMAIL_FAILED' | { type: 'UNEXPECTED', message: string }
+```
+</Aside>
+
+<Aside type="tip" title="Naming the union">
+You rarely need to write the error type down, but when you do — an HTTP mapper, a
+shared handler — derive it with `ErrorsOf<typeof deps>` rather than retyping it. See
+[What TypeScript gives you back](getting-started/types/).
 </Aside>
 
 ## When to use each
 
-<Tabs>
-  <TabItem label="Comparison">
+Both forms take deps first and both infer the error union. The difference is what
+becomes possible once the workflow has a **name**:
+
 | Scenario | Use |
 |----------|-----|
-| Dependencies known at compile time | `createWorkflow` |
-| Dependencies passed as parameters | `run` |
-| Need step caching or resume | `createWorkflow` |
-| Need automatic error inference | `createWorkflow` |
-| One-off workflow | `run` |
-| Testing with mocks | `run` |
-  </TabItem>
-  <TabItem label="Example: createWorkflow">
+| Composing a few operations, once | `run` |
+| Named node in generated diagrams | `createWorkflow` |
+| Step caching, resume, persistence | `createWorkflow` |
+| Retries and timeouts via step helpers | `createWorkflow` |
+| Swapping deps in tests | `createWorkflow` |
+| Deps only known at call time | `run` |
+
 ```typescript
-// Production: dependencies known ahead of time
-const checkout = createWorkflow('workflow', { validateOrder,
+// Named: reusable, analyzable, testable
+const checkout = createWorkflow('checkout', {
+  validateOrder,
   processPayment,
   sendConfirmation,
 });
 
-// Can reuse with different inputs
-await checkout.run(async ({ step, deps }) => { /* ... */ });
-await checkout.run(async ({ step, deps }) => { /* different flow */ });
+await checkout.run(async ({ steps }) => { /* ... */ });
+await checkout.run(async ({ steps }) => { /* a different flow, same deps */ });
 ```
-  </TabItem>
-  <TabItem label="Example: run">
-```typescript
-// Testing: dependencies injected
-const mockFetch = async () => ok({ id: '1', name: 'Test' });
-
-const result = await run<User, 'NOT_FOUND'>(async ({ step }) => {
-  return await step('mockFetch', () => mockFetch());
-});
-```
-  </TabItem>
-</Tabs>
 
 ## Workflow options
 
@@ -229,14 +203,14 @@ const result = await workflow.run(async ({ step, deps }) => {
 });
 ```
 
-See [Persistence](/guides/persistence/) for details.
+See [Persistence](guides/persistence/) for details.
 
 ### streamStore
 
 Enable streaming within workflows:
 
 ```typescript
-import { createMemoryStreamStore } from 'awaitly/streaming';
+import { createMemoryStreamStore } from 'awaitly/durable';
 
 const workflow = createWorkflow('workflow', deps, {
   streamStore: createMemoryStreamStore(),
@@ -251,7 +225,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 });
 ```
 
-See [Streaming](/guides/streaming/) for details.
+See [Streaming](guides/streaming/) for details.
 
 ### graph
 
@@ -271,7 +245,7 @@ await workflow.run(async ({ step, deps }) => { /* ... */ }, {
 await run(async ({ step }) => { /* ... */ }, { graph: ['fetchUser'] });
 ```
 
-Pair with [`awaitly-analyze --assert-diagrammable`](/guides/static-analysis/#lock-the-diagram-to-reality) in CI. See [Static Analysis →](/guides/static-analysis/#lock-the-diagram-to-reality).
+Pair with [`awaitly-analyze --assert-diagrammable`](guides/static-analysis/#lock-the-diagram-to-reality) in CI. See [Static Analysis →](guides/static-analysis/#lock-the-diagram-to-reality).
 
 ### onEvent
 
@@ -359,7 +333,7 @@ Most users don't need `catchUnexpected`. The default `UnexpectedError` works wel
 Cancel workflows externally using an AbortSignal:
 
 ```typescript
-import { isWorkflowCancelled } from 'awaitly/workflow';
+import { isWorkflowCancelled } from 'awaitly';
 
 const controller = new AbortController();
 const workflow = createWorkflow('workflow', deps, {
@@ -487,7 +461,8 @@ await workflow.run(fn);  // Uses handlerA, signalA
 | `snapshot` | Restore from a previously saved snapshot |
 | `shouldRun` | Concurrency control hook |
 | `onBeforeStart` | Pre-start hook |
-| `onAfterStep` | Post-step hook for checkpointing |
+| `onBeforeStep` | Pre-step hook. Runs before the operation *and* before a cached or replayed value is read; throwing aborts the step |
+| `onAfterStep` | Post-step hook for checkpointing. Does not fire for steps served from a snapshot |
 | `streamStore` | Stream store for this run |
 | `graph` | Declared workflow graph for this run (overrides creation-time) |
 
@@ -541,4 +516,4 @@ The workflow callback receives a context object `{ step, deps, ctx }`. Capture a
 
 ## Next
 
-[Learn about Tagged Errors →](/foundations/tagged-errors/)
+[Learn about Tagged Errors →](foundations/tagged-errors/)

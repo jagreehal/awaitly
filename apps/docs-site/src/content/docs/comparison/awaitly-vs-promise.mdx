@@ -148,8 +148,7 @@ try {
 <Tabs>
   <TabItem label="awaitly (run)">
 ```typescript
-import { run } from 'awaitly';
-import { type ErrorsOf } from 'awaitly';
+import { run, type ErrorsOf } from 'awaitly';
 
 const deps = { fetchUser, validateOrder, chargeCard };
 type OrderErrors = ErrorsOf<typeof deps>;
@@ -169,7 +168,7 @@ const result = await run<{ user: User; order: Order; receipt: Receipt }, OrderEr
   </TabItem>
   <TabItem label="awaitly (workflow)">
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 // createWorkflow infers errors automatically — no ErrorsOf needed
 const workflow = createWorkflow('workflow', { fetchUser, validateOrder, chargeCard });
@@ -230,7 +229,7 @@ const settled = await allSettledAsync([
   fetchUser('3'),
 ]);
 // Returns a Result with collected outcomes
-// See [allSettledAsync](/reference/api/) for the exact return shape.
+// See [allSettledAsync](reference/api/) for the exact return shape.
 ```
   </TabItem>
   <TabItem label="Promise">
@@ -301,7 +300,7 @@ const fetchUserForApi = async (id: string) => {
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 const workflow = createWorkflow('workflow', { fetchData, slowOperation });
 
@@ -447,6 +446,6 @@ awaitly uses standard async/await, so you keep Promise ergonomics and add Result
 
 ## Next Steps
 
-- [Getting Started →](/getting-started/installation/)
-- [Result Types →](/foundations/result-types/)
-- [Workflows →](/foundations/workflows/)
+- [Getting Started →](getting-started/installation/)
+- [Result Types →](foundations/result-types/)
+- [Workflows →](foundations/workflows/)

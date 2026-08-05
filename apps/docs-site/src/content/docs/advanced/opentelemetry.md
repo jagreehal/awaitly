@@ -14,8 +14,7 @@ A first-class OpenTelemetry adapter is planned as a separate ecosystem package. 
 `createWorkflow` accepts an `onEvent` callback that receives a `WorkflowEvent` for everything the engine does — workflow lifecycle, step lifecycle, retries, timeouts, and cache activity:
 
 ```typescript
-import { ok, err, type Result } from 'awaitly';
-import { createWorkflow, type WorkflowEvent } from 'awaitly/workflow';
+import { ok, err, type Result, createWorkflow, type WorkflowEvent } from 'awaitly';
 
 // Define your dependencies with Result-returning functions
 type UserNotFound = { type: 'USER_NOT_FOUND'; id: string };
@@ -58,7 +57,7 @@ Map workflow and step events onto OpenTelemetry spans. Start a span on `step_sta
 
 ```typescript
 import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
-import { createWorkflow, type WorkflowEvent } from 'awaitly/workflow';
+import { createWorkflow, type WorkflowEvent } from 'awaitly';
 
 const tracer = trace.getTracer('checkout-service');
 
@@ -129,7 +128,7 @@ The same stream drives counters and histograms. Retry and cache events are first
 
 ```typescript
 import { metrics } from '@opentelemetry/api';
-import { createWorkflow, type WorkflowEvent } from 'awaitly/workflow';
+import { createWorkflow, type WorkflowEvent } from 'awaitly';
 
 const meter = metrics.getMeter('checkout-service');
 
@@ -193,7 +192,7 @@ All events carry `workflowId`, an optional `workflowName`, and a `ts` timestamp;
 `onEvent` is a single callback, so fan out to as many consumers as you need:
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 import { createVisualizer } from 'awaitly-visualizer';
 
 const spans = createSpanHandler();

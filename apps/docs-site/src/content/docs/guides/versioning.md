@@ -31,7 +31,7 @@ import {
   createVersionedState,
   createKeyRenameMigration,
   type VersionedState
-} from 'awaitly/persistence';
+} from 'awaitly/durable';
 
 // Define migrations
 const migrations = {
@@ -66,8 +66,8 @@ if (migratedState.ok) {
 Always save state with version information:
 
 ```typescript
-import { createResumeStateCollector } from 'awaitly/workflow';
-import { createVersionedState, stringifyVersionedState } from 'awaitly/persistence';
+import { createResumeStateCollector } from 'awaitly';
+import { createVersionedState, stringifyVersionedState } from 'awaitly/durable';
 
 const collector = createResumeStateCollector();
 const workflow = createWorkflow('workflow', deps, {
@@ -90,7 +90,7 @@ await db.saveWorkflowState(workflowId, json);
 ### Rename step keys
 
 ```typescript
-import { createKeyRenameMigration } from 'awaitly/persistence';
+import { createKeyRenameMigration } from 'awaitly/durable';
 
 const migrations = {
   1: createKeyRenameMigration({
@@ -103,7 +103,7 @@ const migrations = {
 ### Remove step keys
 
 ```typescript
-import { createKeyRemoveMigration } from 'awaitly/persistence';
+import { createKeyRemoveMigration } from 'awaitly/durable';
 
 const migrations = {
   1: createKeyRemoveMigration([
@@ -116,7 +116,7 @@ const migrations = {
 ### Transform step values
 
 ```typescript
-import { createValueTransformMigration } from 'awaitly/persistence';
+import { createValueTransformMigration } from 'awaitly/durable';
 import { ok } from 'awaitly';
 
 const migrations = {
@@ -137,7 +137,7 @@ const migrations = {
 ### Compose multiple migrations
 
 ```typescript
-import { composeMigrations } from 'awaitly/persistence';
+import { composeMigrations } from 'awaitly/durable';
 
 const migrations = {
   1: composeMigrations([
@@ -153,8 +153,7 @@ const migrations = {
 ## Complete example
 
 ```typescript
-import { ok } from 'awaitly';
-import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
+import { ok, createWorkflow, createResumeStateCollector } from 'awaitly';
 import {
   createVersionedStateLoader,
   createVersionedState,
@@ -162,7 +161,7 @@ import {
   stringifyVersionedState,
   createKeyRenameMigration,
   createValueTransformMigration,
-} from 'awaitly/persistence';
+} from 'awaitly/durable';
 
 // Current workflow version
 const CURRENT_VERSION = 2;
@@ -243,7 +242,7 @@ await saveWorkflowState(workflowId, collector.getResumeState());
 ### Migration errors
 
 ```typescript
-import { isMigrationError } from 'awaitly/persistence';
+import { isMigrationError } from 'awaitly/durable';
 
 const migrated = await loadVersionedState(versionedState);
 
@@ -257,7 +256,7 @@ if (!migrated.ok) {
 ### Version incompatibility
 
 ```typescript
-import { isVersionIncompatibleError } from 'awaitly/persistence';
+import { isVersionIncompatibleError } from 'awaitly/durable';
 
 if (!migrated.ok && isVersionIncompatibleError(migrated.error)) {
   console.error(
@@ -302,4 +301,4 @@ const loader = createVersionedStateLoader({
 
 ## Next
 
-[Learn about Persistence →](/guides/persistence/)
+[Learn about Persistence →](guides/persistence/)

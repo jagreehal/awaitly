@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from "vitest";
 import { ok, type AsyncResult } from "awaitly";
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 import { createTimeTravelController } from "../time-travel";
 
 // Minimal two-step workflow so snapshot indices are easy to reason about

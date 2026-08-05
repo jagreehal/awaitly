@@ -7,7 +7,7 @@
  */
 
 import { ok, err, type Result } from "awaitly";
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 import type {
   WorkflowIR,
   ScopeStartEvent,

@@ -125,7 +125,7 @@ The six awaitly-system errors that participate in the spine are:
 |---|---|---|
 | `TimeoutError` | `runtime-step-timeout` | Increase the step's timeout option, or check why the upstream operation is slow. |
 | `RetryExhaustedError` | `runtime-retry-exhausted` | All retry attempts failed. Inspect lastError and decide whether to surface it or compensate. |
-| `RateLimitError` | `runtime-rate-limit` | Wait retryAfterMs before retrying, or apply step.cache to deduplicate calls. |
+| `RateLimitError` | `runtime-rate-limit` | Wait retryAfterMs before retrying, or apply singleflight to deduplicate calls. |
 | `CircuitBreakerOpenError` | `runtime-circuit-open` | The circuit is open. Wait for it to half-open or fall back to a degraded path. |
 | `CompensationError` | `runtime-saga-compensation` | A saga compensation step failed. Inspect compensationError and ensure compensation is idempotent. |
 | `UnexpectedError` | `runtime-unexpected` | An unexpected exception escaped a step. Inspect cause; consider returning a typed Result instead of throwing. |
@@ -172,7 +172,7 @@ export default [
 ];
 ```
 
-See the [ESLint plugin guide](/awaitly/guides/eslint-plugin/) for every rule.
+See the [ESLint plugin guide](guides/eslint-plugin/) for every rule.
 
 ## `awaitly-analyze --doctor`
 
@@ -238,15 +238,15 @@ If a developer (or agent) sees `error.code === 'step-require-id'` at runtime, th
 
 <CardGrid>
   <Card title="ESLint plugin" icon="approve-check">
-    [Twenty slug-named rules](/awaitly/guides/eslint-plugin/)
+    [Twenty slug-named rules](guides/eslint-plugin/)
   </Card>
   <Card title="Tagged Errors" icon="warning">
-    [How errors carry the spine](/awaitly/foundations/tagged-errors/)
+    [How errors carry the spine](foundations/tagged-errors/)
   </Card>
   <Card title="Static analysis" icon="magnifier">
-    [awaitly-analyze --doctor](/awaitly/guides/static-analysis/)
+    [awaitly-analyze --doctor](guides/static-analysis/)
   </Card>
   <Card title="Visualization" icon="seti:html">
-    [Visualizing workflow runs](/awaitly/guides/visualization/)
+    [Visualizing workflow runs](guides/visualization/)
   </Card>
 </CardGrid>

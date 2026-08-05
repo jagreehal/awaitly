@@ -5,7 +5,7 @@
  * representation of the workflow execution that can be rendered.
  */
 
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 import type {
   FlowNode,
   ScopeEndEvent,
@@ -78,7 +78,7 @@ interface ActiveStep {
   retryCount: number;
   timedOut: boolean;
   timeoutMs?: number;
-  metadata?: import("awaitly/workflow").StepMetadata;
+  metadata?: import("awaitly").StepMetadata;
 }
 
 interface ActiveScope {

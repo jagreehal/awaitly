@@ -5,6 +5,10 @@
     "declaration": false,
     "declarationMap": false
   },
-  "include": ["src/__fixtures__/kitchen-sink*.ts"],
+  // Fixtures that are meant to compile against the current public API, so an
+  // API rename cannot silently leave them behind. The remaining fixtures are
+  // deliberately-invalid or legacy analyzer input (parsed, never compiled) and
+  // stay out on purpose.
+  "include": ["src/__fixtures__/kitchen-sink*.ts", "src/__fixtures__/showcase/**/*.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }

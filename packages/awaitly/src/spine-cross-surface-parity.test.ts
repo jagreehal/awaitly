@@ -22,8 +22,6 @@ const EXPECTED_LINT_SLUGS = new Set([
   'workflow-callback-shape',
   'workflow-no-callable-form',
   'workflow-no-dynamic-import',
-  'workflow-prefer-step-if',
-  'workflow-prefer-step-foreach',
   'result-no-floating',
   'result-require-handling',
   'result-no-double-wrap',
@@ -48,15 +46,16 @@ describe('spine cross-surface parity', () => {
     for (const code of analyzerCodes) {
       expect(isAwaitlySlug(code)).toBe(true);
     }
-    // The analyzer's diagnostics map onto the core spine slugs plus the two
-    // dedicated "declare more" slugs shared with the ESLint rules: a raw
-    // conditional/loop with steps points at step.if / step.forEach.
+    // The analyzer's diagnostics map onto the core spine slugs plus two
+    // analyzer-only slugs for control flow whose condition/iterable cannot
+    // be read statically. These have no ESLint counterpart: deciding
+    // readability needs the analyzer's expression derivation.
     const expectedAnalyzerCodes = new Set([
       'step-require-id',
       'result-require-handling',
       'workflow-options-position',
-      'workflow-prefer-step-if',
-      'workflow-prefer-step-foreach',
+      'workflow-unreadable-condition',
+      'workflow-unreadable-iterable',
     ]);
     expectSetEqual(analyzerCodes, expectedAnalyzerCodes, 'analyzer strict codes');
   });

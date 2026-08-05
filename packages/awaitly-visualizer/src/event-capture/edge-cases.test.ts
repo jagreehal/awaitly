@@ -8,8 +8,8 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { ok, err, type AsyncResult } from "awaitly";
-import { createWorkflow } from "awaitly/workflow";
-import type { WorkflowEvent } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
+import type { WorkflowEvent } from "awaitly";
 import {
   createVisualizer,
   createIRBuilder,

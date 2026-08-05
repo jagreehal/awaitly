@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createIRBuilder } from "./ir-builder";
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 
 describe("createIRBuilder stream error handling", () => {
   it("preserves stream error state after workflow completion", () => {

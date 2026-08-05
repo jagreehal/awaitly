@@ -13,7 +13,7 @@ Workflows are sequential unless explicitly composed using step concurrency helpe
 **Execution is only via `workflow.run()`.** There is no callable form (`workflow(fn)` or `workflow(args, fn)`). Use closures for workflow input (e.g. `userId` in scope).
 
 **Callback shape:** Workflow callbacks receive a single destructured object:
-- `run()` (prefer `awaitly/run`; also available from `awaitly`): `async ({ step }) => { ... }` — deps via closures.
+- `run()` (from `awaitly`): `async ({ step }) => { ... }` — deps via closures.
 - `createWorkflow('name', deps)` → **execute with** `workflow.run(fn)`: `async ({ step, deps }) => { ... }`. Optional `ctx` when `createContext` is set: `async ({ step, deps, ctx }) => { ... }`.
 
 **Call form (mechanical):**
@@ -266,12 +266,12 @@ When you see these patterns, apply the rewrite:
 ## Choosing Your Pattern
 
 **Canonical signatures:**
-- `run(callback, options?)` — prefer `import { run } from 'awaitly/run'` (also available from `awaitly`; standalone, no workflow object). Also supports the deps-first form `run(deps, callback)` with automatic error inference.
-- `createWorkflow('name', deps, options?)` returns a workflow object; **execute only via** `workflow.run(fn)`, `workflow.run(fn, config)`, `workflow.run(name, fn)`, or `workflow.run(name, fn, config)` — `import { createWorkflow } from 'awaitly/workflow'`.
+- `run(callback, options?)` — `import { run } from 'awaitly'` (standalone, no workflow object). Also supports the deps-first form `run(deps, callback)` with automatic error inference.
+- `createWorkflow('name', deps, options?)` returns a workflow object; **execute only via** `workflow.run(fn)`, `workflow.run(fn, config)`, `workflow.run(name, fn)`, or `workflow.run(name, fn, config)` — `import { createWorkflow } from 'awaitly'`.
 
 | Aspect | `run()` | `createWorkflow('name', deps)` |
 |--------|---------|-------------------------------|
-| Import | `awaitly/run` | `awaitly/workflow` |
+| Import | `awaitly` | `awaitly` |
 | Execute | `run(fn)` or `run(fn, options)` | `workflow.run(fn)` or `workflow.run(fn, config)` or `workflow.run(name, fn)` or `workflow.run(name, fn, config)` — **no callable** |
 | Step syntax | `step('id', () => deps.fn(args))` (explicit) | `step('id', () => deps.fn(args))` (explicit) |
 | Deps | Closures | Injected at creation; override per run with `workflow.run(fn, { deps: partialOverride })` |
@@ -313,7 +313,7 @@ const result = await run<Value, RunErrors>(async ({ step }) => {
 
 ### createWorkflow() canonical (execute only via .run())
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 const workflow = createWorkflow('myWorkflow', deps);
 const result = await workflow.run(async ({ step, deps }) => {
@@ -476,7 +476,7 @@ const result = await run(async ({ step }) => {
 For shared deps, testing, or advanced features (retries, timeout):
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 const deps = { getUser, createOrder, sendEmail };
 const processOrder = createWorkflow('processOrder', deps);
@@ -847,7 +847,7 @@ if (!result.ok) {
 
 ```typescript
 import { ok, err, isUnexpectedError, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 // 1. deps return Results, never throw (see "Deps and throwing" above)
 const deps = {
@@ -916,7 +916,7 @@ expect(error).toBe('NOT_FOUND');
 Test workflows by creating the workflow with deps and calling **`workflow.run(async ({ step, deps }) => { ... })`**:
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 import { ok, err } from 'awaitly';
 import { unwrapOk, unwrapErr } from 'awaitly/testing';
 
@@ -1107,20 +1107,20 @@ import {
 } from 'awaitly';
 
 // Lightweight step composition and dependency protection
-import { run } from 'awaitly/run';
-import { retry, timeout, createCircuitBreaker } from 'awaitly/reliability';
+import { run } from 'awaitly';
+import { retry, timeout, createCircuitBreaker } from 'awaitly';
 
 // Workflow composition
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 // Independent production capabilities
 import { durable } from 'awaitly/durable';
-import { type SnapshotStore, serializeResumeState } from 'awaitly/persistence';
-import { createSagaWorkflow } from 'awaitly/saga';
-import { createApprovalStep } from 'awaitly/hitl';
-import { createMemoryStreamStore } from 'awaitly/streaming';
-import { createWebhookHandler } from 'awaitly/webhook';
-import { createEngine } from 'awaitly/engine';
+import { type SnapshotStore, serializeResumeState } from 'awaitly/durable';
+import { createSagaWorkflow } from 'awaitly/durable';
+import { createApprovalStep } from 'awaitly/durable';
+import { createMemoryStreamStore } from 'awaitly/durable';
+import { createWebhookHandler } from 'awaitly/durable';
+import { createEngine } from 'awaitly/durable';
 
 // Testing
 import { unwrapOk, unwrapErr } from 'awaitly/testing';
@@ -1140,7 +1140,7 @@ import { ok, err, type AsyncResult } from 'awaitly/result';
 `createEngine()` provides a polling background engine for durable workflow orchestration.
 
 ```typescript
-import { createEngine } from 'awaitly/engine';
+import { createEngine } from 'awaitly/durable';
 
 const engine = createEngine({
   store,
@@ -1164,7 +1164,7 @@ await engine.start();
 await engine.stop();
 ```
 
-**Import:** `'awaitly/engine'` — exports `createEngine`, `Engine`, `EngineOptions`, `EngineEvent`, `EnqueueOptions`, `ScheduleOptions`, `WorkflowRegistration`.
+**Import:** `'awaitly/durable'` — exports `createEngine`, `Engine`, `EngineOptions`, `EngineEvent`, `EnqueueOptions`, `ScheduleOptions`, `WorkflowRegistration`.
 
 ---
 
@@ -1173,7 +1173,7 @@ await engine.stop();
 Validate workflow input against any Standard Schema-compatible schema (Zod, Valibot, ArkType).
 
 ```typescript
-import { validateInput, isInputValidationError } from 'awaitly/workflow';
+import { validateInput, isInputValidationError } from 'awaitly';
 import { z } from 'zod';
 
 const schema = z.object({ orderId: z.string(), amount: z.number().positive() });
@@ -1185,7 +1185,7 @@ if (!result.ok) {
 }
 ```
 
-**Import:** `'awaitly/workflow'` — exports `validateInput`, `isInputValidationError`, type `InputValidationError`.
+**Import:** `'awaitly'` — exports `validateInput`, `isInputValidationError`, type `InputValidationError`.
 
 Optional peer dep: `@standard-schema/spec`.
 

@@ -13,7 +13,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { watch, type FSWatcher } from "node:fs";
 
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 
 import { analyzeWorkflowFile } from "./static-analyzer";
 import { renderStaticMermaid, renderStaticMermaidWithTrace } from "./output/mermaid";

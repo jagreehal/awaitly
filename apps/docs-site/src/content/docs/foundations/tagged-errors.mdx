@@ -283,7 +283,7 @@ console.log(error.message);                  // 'NotFoundError'
 
 ## Slug spine fields
 
-When you pass `slug` and `hint` to the `TaggedError` factory, instances carry three readonly fields populated automatically — `code`, `hint`, and `docsUrl` — alongside `type`, `message`, and the deprecated `_tag` alias. These fields participate in the [slug spine](/awaitly/reference/spine/) so the same canonical identifier appears on the runtime error, the lint rule that would catch a related mistake statically, the `awaitly-analyze --doctor` diagnostic, and the docs page.
+When you pass `slug` and `hint` to the `TaggedError` factory, instances carry three readonly fields populated automatically — `code`, `hint`, and `docsUrl` — alongside `type`, `message`, and the deprecated `_tag` alias. These fields participate in the [slug spine](reference/spine/) so the same canonical identifier appears on the runtime error, the lint rule that would catch a related mistake statically, the `awaitly-analyze --doctor` diagnostic, and the docs page.
 
 ```typescript
 class CheckoutFailed extends TaggedError('CheckoutFailed', {
@@ -404,4 +404,4 @@ class GoodExample extends TaggedError('GoodExample')<{
 
 ## Next
 
-[Learn about Retries & Timeouts →](/guides/retries-timeouts/)
+[Learn about Retries & Timeouts →](guides/retries-timeouts/)

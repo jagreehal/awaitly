@@ -11,7 +11,7 @@ Save workflow state and resume later. Completed steps return their cached result
 <Aside type="note" title="Different from streaming">
 This page covers **workflow checkpoints** (`SnapshotStore`) so you can resume after restarts.
 
-For **streaming items inside a step** (AI tokens, progressive output), use a separate **StreamStore** via [`createWorkflow` with `streamStore`](/foundations/streaming/). You can use both in the same workflow.
+For **streaming items inside a step** (AI tokens, progressive output), use a separate **StreamStore** via [`createWorkflow` with `streamStore`](foundations/streaming/). You can use both in the same workflow.
 </Aside>
 
 <AnimatedWorkflowDiagram
@@ -44,8 +44,8 @@ For **streaming items inside a step** (AI tokens, progressive output), use a sep
 **Preferred:** Use `runWithState` to run and get resume state in one call, then persist. Restore with `store.loadResumeState(id)` or `toResumeState(await store.load(id))` and pass to `workflow.run(fn, { resumeState })`.
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
-import { toResumeState } from 'awaitly/persistence';
+import { createWorkflow } from 'awaitly';
+import { toResumeState } from 'awaitly/durable';
 import { postgres } from 'awaitly-postgres';
 
 const store = postgres('postgresql://localhost/mydb');
@@ -185,7 +185,7 @@ import {
   looksLikeWorkflowSnapshot,
   validateSnapshot,
   assertValidSnapshot,
-} from 'awaitly/persistence';
+} from 'awaitly/durable';
 
 // Quick check
 if (looksLikeWorkflowSnapshot(obj)) {
@@ -209,7 +209,7 @@ const snapshot = assertValidSnapshot(obj); // throws SnapshotFormatError
 For incremental persistence:
 
 ```typescript
-import { mergeSnapshots } from 'awaitly/persistence';
+import { mergeSnapshots } from 'awaitly/durable';
 
 const merged = mergeSnapshots(baseSnapshot, deltaSnapshot);
 // delta.steps overwrites base.steps
@@ -228,7 +228,7 @@ if (savedState?.steps?.get('user:1')) {
 }
 ```
 
-For event streams, use the `isStepComplete` type guard from `awaitly/workflow` to narrow event types.
+For event streams, use the `isStepComplete` type guard from `awaitly` to narrow event types.
 
 ## Store Interface
 
@@ -262,7 +262,7 @@ const store = postgres({
 });
 ```
 
-[Learn more about PostgreSQL persistence →](./postgres-persistence/)
+[Learn more about PostgreSQL persistence →](guides/postgres-persistence/)
 
 ### MongoDB
 
@@ -281,7 +281,7 @@ const store = mongo({
 });
 ```
 
-[Learn more about MongoDB persistence →](./mongo-persistence/)
+[Learn more about MongoDB persistence →](guides/mongo-persistence/)
 
 ### libSQL / SQLite
 
@@ -327,4 +327,4 @@ function myStore(): SnapshotStore {
 
 ## Next
 
-[Learn about Human-in-the-Loop →](/guides/human-in-loop/)
+[Learn about Human-in-the-Loop →](guides/human-in-loop/)

@@ -198,6 +198,21 @@ export type ExecutionOptions<E, U = UnexpectedError, C = void> = {
    */
   onBeforeStart?: (workflowId: string, context: C) => boolean | Promise<boolean>;
   /**
+   * Hook called before each step runs — including steps about to be served
+   * from cache or a resume snapshot, and before that stored value is read.
+   *
+   * Throwing from it aborts the step and fails the run, which is the only
+   * point at which a stale checkpoint can be rejected *before* its value has
+   * been used. `onAfterStep` is too late for that: it never fires for a
+   * replayed step.
+   */
+  onBeforeStep?: (
+    stepKey: string,
+    workflowId: string,
+    context: C,
+    info: BeforeStepInfo
+  ) => void | Promise<void>;
+  /**
    * Hook called after each step completes (only for steps with a `key`).
    * Overrides `onAfterStep` from creation-time options.
    */
@@ -299,6 +314,21 @@ export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends reado
    */
   signal?: AbortSignal;
   onBeforeStart?: (workflowId: string, context: C) => boolean | Promise<boolean>;
+  /**
+   * Hook called before each step runs — including steps about to be served
+   * from cache or a resume snapshot, and before that stored value is read.
+   *
+   * Throwing from it aborts the step and fails the run, which is the only
+   * point at which a stale checkpoint can be rejected *before* its value has
+   * been used. `onAfterStep` is too late for that: it never fires for a
+   * replayed step.
+   */
+  onBeforeStep?: (
+    stepKey: string,
+    workflowId: string,
+    context: C,
+    info: BeforeStepInfo
+  ) => void | Promise<void>;
   onAfterStep?: (
     stepKey: string,
     result: Result<unknown, unknown, unknown>,
@@ -435,10 +465,36 @@ export type WorkflowSteps<Deps> = [Deps] extends [
   ? BoundSteps<Deps>
   : Record<string, never>;
 
+/**
+ * Extra identity for the step about to run, passed to {@link WorkflowOptions.onBeforeStep}.
+ */
+export type BeforeStepInfo = {
+  /**
+   * Fingerprint of the arguments a bound step (`steps.getUser(id)`) was called
+   * with, when they could be fingerprinted.
+   *
+   * Bound step keys are position-derived, so the key alone cannot distinguish
+   * `getUser("a")` from `getUser("b")`. `undefined` means "no information" —
+   * either the step was not a bound step, or its arguments could not be
+   * fingerprinted — and must never be read as "unchanged".
+   */
+  argsFingerprint?: string;
+};
+
 /** Workflow function type (no args). E is the full step error union (deps errors + any ExtraE from step.workflow/withFallback). */
 export type WorkflowFn<T, E, Deps, C = void> = (context: {
   step: RunStep<E>;
   steps: WorkflowSteps<Deps>;
+  /**
+   * The dependencies exactly as supplied — Result-returning and unmanaged.
+   *
+   * Same name as the argument you passed to `createWorkflow`, so there is
+   * nothing to translate. `steps` sits next to it and exposes the same keys with
+   * different semantics: `steps.getUser(id)` resolves to the unwrapped value and
+   * records a step, while `deps.getUser(id)` returns the Result and is invisible
+   * to the step engine. Reach for it inside `step('id', () => deps.getUser(id))`,
+   * or to read non-function values passed in the deps object.
+   */
   deps: Deps;
   ctx: WorkflowContext<C>;
 }) => T | Promise<T>;

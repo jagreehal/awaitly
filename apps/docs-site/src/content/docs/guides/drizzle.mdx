@@ -18,8 +18,7 @@ Turn Drizzle ORM database errors into typed Results for exhaustive error handlin
 
 ```typescript
 import { eq } from 'drizzle-orm';
-import { ok, err, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { ok, err, type AsyncResult, createWorkflow } from 'awaitly';
 import { db } from './db';
 import { users } from './schema';
 
@@ -198,8 +197,7 @@ Combine Drizzle with Zod validation:
 
 ```typescript
 import { z } from 'zod';
-import { createWorkflow } from 'awaitly/workflow';
-import { ok, err } from 'awaitly';
+import { createWorkflow, ok, err } from 'awaitly';
 import { userRepository } from './user-repository';
 
 const CreateUserSchema = z.object({
@@ -209,7 +207,7 @@ const CreateUserSchema = z.object({
 });
 
 const deps = {
-  validateInput: (raw: unknown) => {
+  validateInput: (deps: unknown) => {
     const parsed = CreateUserSchema.safeParse(raw);
     return Promise.resolve(
       parsed.success
@@ -393,8 +391,7 @@ Complete workflow combining Zod validation, email checking, and user creation:
 ```typescript
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
-import { ok, err, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { ok, err, type AsyncResult, createWorkflow } from 'awaitly';
 import { db } from './db';
 import { users } from './schema';
 
@@ -412,7 +409,7 @@ type DbError = { type: 'DB_ERROR'; message: string };
 
 // Dependencies
 const deps = {
-  validateInput: (raw: unknown) => {
+  validateInput: (deps: unknown) => {
     const parsed = SignUpSchema.safeParse(raw);
     return Promise.resolve(
       parsed.success
@@ -454,6 +451,11 @@ const deps = {
       return err({ type: 'DB_ERROR', message: String(e) });
     }
   },
+
+  // Declaring the failure as a dep puts EMAIL_TAKEN in the inferred error
+  // union — an `err()` returned inline from a step would not be.
+  emailTaken: async (email: string): AsyncResult<never, EmailTakenError> =>
+    err({ type: 'EMAIL_TAKEN', email }),
 };
 
 // Workflow
@@ -467,7 +469,7 @@ const signUp = async (rawInput: unknown) => {
     // Step 2: Check if email is taken
     const emailExists = await step('checkEmailExists', () => deps.checkEmailExists(input.email));
     if (emailExists) {
-      return await step('createUser', () => err({ type: 'EMAIL_TAKEN' as const, email: input.email }));
+      return await step('emailTaken', () => deps.emailTaken(input.email));
     }
 
     // Step 3: Hash password
@@ -508,6 +510,11 @@ export const POST = async (request: Request) => {
           { error: 'Server error' },
           { status: 500 }
         );
+      default:
+        // The union also carries UnexpectedError — handle it so the block
+        // always returns and `result.value` narrows below.
+        console.error('Unexpected error:', result.error);
+        return Response.json({ error: 'Server error' }, { status: 500 });
     }
   }
 
@@ -642,6 +649,6 @@ export const findOneOrNotFound = async <T>(
 
 ## Next Steps
 
-- [Prisma Integration](/guides/prisma/) for comparison
-- [Zod Integration](/guides/zod/) for input validation
-- [Workflows](/foundations/workflows/) for composing database operations
+- [Prisma Integration](guides/prisma/) for comparison
+- [Zod Integration](guides/zod/) for input validation
+- [Workflows](foundations/workflows/) for composing database operations

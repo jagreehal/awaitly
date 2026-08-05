@@ -10,6 +10,12 @@ import astroMermaid from 'astro-mermaid';
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
+
+// Base path for GitHub Pages (https://jagreehal.github.io/awaitly/). Local dev
+// uses /awaitly too so base-path bugs surface locally; `pnpm dev:root` overrides.
+const BASE = process.env.BASE || '/awaitly';
+// Same value guaranteed to end in exactly one slash, for string concatenation.
+const BASE_PATH = BASE.replace(/\/?$/, '/');
 // https://astro.build/config
 export default defineConfig({
   site: 'https://jagreehal.github.io',
@@ -21,7 +27,18 @@ export default defineConfig({
   },
   // Use base path for GitHub Pages deployment (https://jagreehal.github.io/awaitly/).
   // Local dev uses /awaitly by default so you can catch production issues; use pnpm dev:root or BASE=/ pnpm dev to run from /.
-  base: process.env.BASE || '/awaitly',
+  base: BASE,
+  // Pages merged during the docs consolidation. workflows-and-steps duplicated
+  // foundations/workflows + foundations/step; thunks folded into the latter.
+  // Redirect targets are NOT base-prefixed by Astro, so build them from BASE
+  // explicitly — otherwise they land on / instead of /awaitly/ in production.
+  redirects: {
+    '/foundations/workflows-and-steps': `${BASE_PATH}foundations/workflows`,
+    '/foundations/thunks': `${BASE_PATH}foundations/step`,
+    // Merged into framework-integration (tRPC, Hono, and Next.js Pages
+    // Router moved across); the plural slug was never in the sidebar.
+    '/guides/framework-integrations': `${BASE_PATH}guides/framework-integration`,
+  },
   integrations: [
     react(),
     sitemap(),
@@ -34,7 +51,7 @@ export default defineConfig({
         {
           tag: 'base',
           attrs: {
-            href: (process.env.BASE || '/awaitly').replace(/\/?$/, '/'),
+            href: BASE_PATH,
           },
         },
         {
@@ -78,6 +95,7 @@ export default defineConfig({
             { label: 'Installation', slug: 'getting-started/installation' },
             { label: 'The Basics', slug: 'getting-started/basics' },
             { label: 'Your First Workflow', slug: 'getting-started/first-workflow' },
+            { label: 'What TypeScript Gives You', slug: 'getting-started/types' },
             { label: 'Handling Errors', slug: 'getting-started/error-handling' },
           ],
         },
@@ -86,15 +104,15 @@ export default defineConfig({
           items: [
             { label: 'Overview', slug: 'foundations' },
             { label: 'Result Types', slug: 'foundations/result-types' },
-            { label: 'Workflows and Steps', slug: 'foundations/workflows-and-steps' },
+            { label: 'Workflows', slug: 'foundations/workflows' },
+            { label: 'Steps', slug: 'foundations/step' },
+            { label: 'Policies (retry, timeout, fallback)', slug: 'advanced/policies' },
             { label: 'Control Flow', slug: 'foundations/control-flow' },
             { label: 'Errors and Retries', slug: 'foundations/error-handling' },
-            { label: 'State and Resumption', slug: 'foundations/state-and-resumption' },
-            { label: 'Streaming', slug: 'foundations/streaming' },
             { label: 'Tagged Errors', slug: 'foundations/tagged-errors' },
             { label: 'Error Patterns', slug: 'foundations/error-patterns' },
-            { label: 'Step', slug: 'foundations/step' },
-            { label: 'Workflows', slug: 'foundations/workflows' },
+            { label: 'State and Resumption', slug: 'foundations/state-and-resumption' },
+            { label: 'Streaming', slug: 'foundations/streaming' },
           ],
         },
         {
@@ -131,6 +149,7 @@ export default defineConfig({
                 { label: 'Framework Integration', slug: 'guides/framework-integration' },
                 { label: 'React Query Integration', slug: 'guides/react-query' },
                 { label: 'AI Integration Patterns', slug: 'guides/ai-integration' },
+                { label: 'AI SDK Workflows', slug: 'guides/ai-sdk-workflows' },
               ],
             },
             {
@@ -162,6 +181,7 @@ export default defineConfig({
             { label: 'Safe Payment Retries', slug: 'patterns/payment-retries' },
             { label: 'Resource Management', slug: 'patterns/resource-management' },
             { label: 'Parallel Operations', slug: 'patterns/parallel-operations' },
+            { label: 'Error Recovery', slug: 'patterns/error-recovery' },
           ],
         },
         {
@@ -171,8 +191,9 @@ export default defineConfig({
             { label: 'Rate Limiting', slug: 'advanced/rate-limiting' },
             { label: 'Saga / Compensation', slug: 'advanced/saga-compensation' },
             { label: 'Webhooks & Events', slug: 'advanced/webhooks' },
-            { label: 'Policies', slug: 'advanced/policies' },
+            { label: 'Single-flight', slug: 'advanced/singleflight' },
             { label: 'OpenTelemetry', slug: 'advanced/opentelemetry' },
+            { label: 'Production Deployment', slug: 'advanced/production-deployment' },
           ],
         },
         {
@@ -193,10 +214,13 @@ export default defineConfig({
           label: 'Comparison',
           items: [
             { label: 'Overview', slug: 'comparison' },
+            { label: 'vs Promises', slug: 'comparison/awaitly-vs-promise' },
             { label: 'vs try/catch', slug: 'comparison/awaitly-vs-try-catch' },
             { label: 'vs neverthrow', slug: 'comparison/awaitly-vs-neverthrow' },
             { label: 'vs Effect', slug: 'comparison/awaitly-vs-effect' },
             { label: 'vs Vercel Workflow', slug: 'comparison/awaitly-vs-workflow' },
+            { label: 'Effect layers in awaitly', slug: 'comparison/effect-layers-in-awaitly' },
+            { label: 'Errors deserve better', slug: 'comparison/errors-deserve-better-in-awaitly' },
           ],
         },
       ],

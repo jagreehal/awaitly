@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   createWorkflowHarness,
+  createSagaHarness,
   createMockFn,
   createTestClock,
   createSnapshot,
@@ -625,6 +626,75 @@ describe("Testing Harness", () => {
         const asyncResult = Promise.resolve(ok(42));
         await expect(unwrapErrAsync(asyncResult)).rejects.toThrow();
       });
+    });
+  });
+
+  describe("createSagaHarness", () => {
+    const makeDeps = () => ({
+      chargePayment: async (): AsyncResult<{ id: string }, never> =>
+        ok({ id: "pay_1" }),
+      reserveInventory: async (): AsyncResult<never, "OUT_OF_STOCK"> =>
+        err("OUT_OF_STOCK" as const),
+      refundPayment: async (): AsyncResult<undefined, never> => ok(undefined),
+    });
+
+    it("runs compensations LIFO and records the step name", async () => {
+      const refunded: string[] = [];
+      const harness = createSagaHarness({
+        ...makeDeps(),
+        refundPayment: async (): AsyncResult<undefined, never> => {
+          refunded.push("refund");
+          return ok(undefined);
+        },
+      });
+
+      const result = await harness.runSaga(async ({ saga, deps }) => {
+        const payment = await saga.step(
+          "charge-payment",
+          () => deps.chargePayment(),
+          { compensate: () => void deps.refundPayment() }
+        );
+        // Fails, which triggers compensation of charge-payment.
+        const reservation = await saga.step("reserve-inventory", () =>
+          deps.reserveInventory()
+        );
+        return { payment, reservation };
+      });
+
+      expect(unwrapErr(result)).toBe("OUT_OF_STOCK");
+      expect(refunded).toEqual(["refund"]);
+
+      const compensations = harness.getCompensations();
+      expect(compensations).toHaveLength(1);
+      // The step name must survive onto the compensation record — without it
+      // the name-based assertions below can never match.
+      expect(compensations[0].stepName).toBe("charge-payment");
+      expect(compensations[0].value).toEqual({ id: "pay_1" });
+    });
+
+    it("supports the name-based compensation assertions", async () => {
+      const harness = createSagaHarness(makeDeps());
+
+      await harness.runSaga(async ({ saga, deps }) => {
+        const payment = await saga.step(
+          "charge-payment",
+          () => deps.chargePayment(),
+          { compensate: () => void deps.refundPayment() }
+        );
+        const reservation = await saga.step("reserve-inventory", () =>
+          deps.reserveInventory()
+        );
+        return { payment, reservation };
+      });
+
+      expect(harness.assertCompensationOrder(["charge-payment"]).passed).toBe(
+        true
+      );
+      expect(harness.assertCompensated("charge-payment").passed).toBe(true);
+      // The step that failed is never compensated.
+      expect(harness.assertNotCompensated("reserve-inventory").passed).toBe(
+        true
+      );
     });
   });
 });

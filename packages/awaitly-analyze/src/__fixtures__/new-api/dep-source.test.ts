@@ -30,13 +30,13 @@ describe("Dep Source Tracking", () => {
       }
     });
 
-    it("detects dep from ctx.deps.xxx() pattern", () => {
+    it("detects dep from ctx.raw.xxx() pattern", () => {
       const source = `
         import { createWorkflow, ok } from "awaitly";
         const workflow = createWorkflow("workflow", { fetchUser: async () => ok({}) });
         export async function run() {
           return await workflow.run(async ({ step, ctx }) => {
-            await step('getUser', () => ctx.deps.fetchUser('1'));
+            await step('getUser', () => ctx.raw.fetchUser('1'));
           });
         }
       `;

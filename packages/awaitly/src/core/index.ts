@@ -748,7 +748,7 @@ export interface StepErrorDiagnostics {
 }
 
 /** Extract canonical error tag. Priority: _tag > tag > code > Error.name > "unknown".
- * Tags are case-sensitive, whitespace-trimmed, otherwise raw.
+ * Tags are case-sensitive, whitespace-trimmed, otherwise deps.
  * Note: Error.name is fallback-grade (often too coarse like "Error", "TypeError"). */
 export function extractErrorTag(error: unknown): string {
   if (error == null) return 'unknown';
@@ -1748,9 +1748,24 @@ export interface RunStep<E = unknown> {
   // ===========================================================================
 
   /**
-  /**
    * Run a sub-workflow (or any AsyncResult-returning operation) as a step.
-   * Use for workflow composition; the getter's error type (SubE) flows into the parent's error union.
+   *
+   * The sub-workflow must fail only in ways this workflow already declares —
+   * `SubE extends E`. A child that introduces a *new* error cannot widen the
+   * parent's union from here: `E` is fixed before the callback is typed, and
+   * TypeScript cannot infer it back out of the callback body.
+   *
+   * To call a child that fails in its own ways, pass it as a dep instead. Deps
+   * are what determine `E`, so the child's errors join the union with no casts
+   * and no type arguments:
+   *
+   * ```typescript
+   * const parent = createWorkflow("parent", {
+   *   fetchUser,
+   *   enrichUser: (id: string) => childWorkflow.run(fn),
+   * });
+   * // inside the callback: deps.enrichUser(id) — ENRICH_ERROR is part of E
+   * ```
    *
    * @param id - Unique step identifier
    * @param getter - Function that returns AsyncResult (e.g. () => subWorkflow.run(fn))
@@ -2781,6 +2796,43 @@ function runFn<T, E = never, C = void>(
  * });
  * // result.error: OrderNotFound | UserNotFound | ChargeDeclined | UnexpectedError
  * ```
+ */
+function runFn<
+  const Deps extends Record<string, AnyFunction>,
+  T,
+  U,
+  C = void,
+  E = { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps]
+>(
+  deps: Deps,
+  fn: (
+    steps: BoundSteps<Deps>,
+    context: {
+      step: [NoInfer<E>] extends [never]
+        ? RunStep<unknown>
+        : RunStep<NoInfer<E>>;
+    }
+  ) => Promise<T> | T,
+  options: {
+    /**
+     * Maps uncaught exceptions to your own type, replacing `UnexpectedError`
+     * in the result union. Deps errors are still inferred as usual.
+     */
+    catchUnexpected: (cause: unknown) => U;
+    onError?: (error: NoInfer<E> | U, stepName?: string, ctx?: C) => void;
+    onEvent?: (event: WorkflowEvent<NoInfer<E> | U, C>, ctx: C) => void;
+    workflowId?: string;
+    workflowName?: string;
+    context?: C;
+    graph?: DeclaredGraph;
+    /** @internal External signal for workflow-level cancellation. */
+    _workflowSignal?: AbortSignal;
+  }
+): AsyncResult<T, NoInfer<E> | U, unknown>;
+
+/**
+ * run() with dependencies, no catchUnexpected: auto-bound steps, automatic
+ * error inference, and `UnexpectedError` added for uncaught exceptions.
  */
 function runFn<
   const Deps extends Record<string, AnyFunction>,
@@ -6384,19 +6436,19 @@ export async function allAsync<
 ): Promise<
   Result<
     { [K in keyof T]: T[K] extends Result<infer V, unknown, unknown> | Promise<Result<infer V, unknown, unknown>> ? V : never },
-    { [K in keyof T]: T[K] extends Result<unknown, infer E, unknown> | Promise<Result<unknown, infer E, unknown>> ? E : never }[number] | PromiseRejectedError,
-    { [K in keyof T]: T[K] extends Result<unknown, unknown, infer C> | Promise<Result<unknown, unknown, infer C>> ? C : never }[number] | PromiseRejectionCause
+    { [K in keyof T]: T[K] extends Result<unknown, infer E, unknown> | Promise<Result<unknown, infer E, unknown>> ? E : never }[number],
+    { [K in keyof T]: T[K] extends Result<unknown, unknown, infer C> | Promise<Result<unknown, unknown, infer C>> ? C : never }[number]
   >
 > {
   type Values = { [K in keyof T]: T[K] extends Result<infer V, unknown, unknown> | Promise<Result<infer V, unknown, unknown>> ? V : never };
-  type Errors = { [K in keyof T]: T[K] extends Result<unknown, infer E, unknown> | Promise<Result<unknown, infer E, unknown>> ? E : never }[number] | PromiseRejectedError;
-  type Causes = { [K in keyof T]: T[K] extends Result<unknown, unknown, infer C> | Promise<Result<unknown, unknown, infer C>> ? C : never }[number] | PromiseRejectionCause;
+  type Errors = { [K in keyof T]: T[K] extends Result<unknown, infer E, unknown> | Promise<Result<unknown, infer E, unknown>> ? E : never }[number];
+  type Causes = { [K in keyof T]: T[K] extends Result<unknown, unknown, infer C> | Promise<Result<unknown, unknown, infer C>> ? C : never }[number];
 
   if (results.length === 0) {
     return ok([]) as Result<Values, Errors, Causes>;
   }
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let settled = false;
     let pendingCount = results.length;
     const values: unknown[] = new Array(results.length);
@@ -6404,10 +6456,6 @@ export async function allAsync<
     for (let i = 0; i < results.length; i++) {
       const index = i;
       Promise.resolve(results[index])
-        .catch((reason) => err(
-          { type: "PROMISE_REJECTED" as const, cause: reason },
-          { cause: { type: "PROMISE_REJECTION" as const, reason } as PromiseRejectionCause }
-        ))
         .then((result) => {
           if (settled) return;
 
@@ -6423,6 +6471,14 @@ export async function allAsync<
           if (pendingCount === 0) {
             resolve(ok(values) as Result<Values, Errors, Causes>);
           }
+        },
+        // A rejection is a thrown exception rather than a modelled failure, so it
+        // propagates to whatever handles unexpected errors — `catchUnexpected`
+        // inside a workflow — instead of becoming an error every caller declares.
+        (reason) => {
+          if (settled) return;
+          settled = true;
+          reject(reason);
         });
     }
   });
@@ -6608,11 +6664,12 @@ type AnyCauses<T extends readonly Result<unknown, unknown, unknown>[]> = {
  *
  * - **First success wins**: Returns first successful Result, ignores rest
  * - **All errors**: If all fail, returns first error (not all errors)
- * - **Empty array**: Returns `EmptyInputError` if array is empty
+ * - **Empty array**: rejected by the type — at least one Result is required, so
+ *   there is no empty-input error for callers to handle
  * - **Use `all`**: If you need ALL to succeed
  *
- * @param results - Array of Results to check (evaluated in order)
- * @returns The first successful Result, or first error if all fail, or `EmptyInputError` if empty
+ * @param results - Non-empty array of Results to check (evaluated in order)
+ * @returns The first successful Result, or the first error if all fail
  *
  * @example
  * ```typescript
@@ -6636,10 +6693,15 @@ type AnyCauses<T extends readonly Result<unknown, unknown, unknown>[]> = {
  * // allErrors: { ok: false, error: 'A' } (first error)
  * ```
  */
-export function any<const T extends readonly Result<unknown, unknown, unknown>[]>(
+export function any<
+  const T extends readonly [
+    Result<unknown, unknown, unknown>,
+    ...Result<unknown, unknown, unknown>[]
+  ],
+>(
   results: T
-): Result<AnyValue<T>, AnyErrors<T> | EmptyInputError, AnyCauses<T>> {
-  type ReturnErr = Result<never, AnyErrors<T> | EmptyInputError, AnyCauses<T>>;
+): Result<AnyValue<T>, AnyErrors<T>, AnyCauses<T>> {
+  type ReturnErr = Result<never, AnyErrors<T>, AnyCauses<T>>;
   type ReturnOk = Result<AnyValue<T>, never, AnyCauses<T>>;
 
   if (results.length === 0) {
@@ -6713,17 +6775,14 @@ type AnyAsyncCauses<T extends readonly MaybeAsyncResult<unknown, unknown, unknow
  * ```
  */
 export async function anyAsync<
-  const T extends readonly MaybeAsyncResult<unknown, unknown, unknown>[],
+  const T extends readonly [
+    MaybeAsyncResult<unknown, unknown, unknown>,
+    ...MaybeAsyncResult<unknown, unknown, unknown>[]
+  ],
 >(
   results: T
-): Promise<
-  Result<AnyAsyncValue<T>, AnyAsyncErrors<T> | EmptyInputError | PromiseRejectedError, AnyAsyncCauses<T> | PromiseRejectionCause>
-> {
-  type ReturnErr = Result<
-    never,
-    AnyAsyncErrors<T> | EmptyInputError | PromiseRejectedError,
-    AnyAsyncCauses<T> | PromiseRejectionCause
-  >;
+): Promise<Result<AnyAsyncValue<T>, AnyAsyncErrors<T>, AnyAsyncCauses<T>>> {
+  type ReturnErr = Result<never, AnyAsyncErrors<T>, AnyAsyncCauses<T>>;
   type ReturnOk = Result<AnyAsyncValue<T>, never, AnyAsyncCauses<T>>;
 
   if (results.length === 0) {
@@ -6733,20 +6792,25 @@ export async function anyAsync<
     }) as ReturnErr;
   }
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let settled = false;
     let pendingCount = results.length;
-    let firstError: Result<never, unknown, unknown> | null = null;
+    let firstTypedError: Result<never, unknown, unknown> | null = null;
+    let firstRejection: { reason: unknown } | null = null;
+
+    const finish = (): void => {
+      settled = true;
+      // A modelled failure always wins over a rejection. Previously whichever
+      // settled first was reported, so a thrown racer could mask another racer's
+      // real error depending on timing. Only when every racer threw is there
+      // nothing in the domain to report, and the exception propagates.
+      if (firstTypedError) resolve(firstTypedError as ReturnErr);
+      else reject(firstRejection?.reason);
+    };
 
     for (const item of results) {
-      Promise.resolve(item)
-        .catch((reason) =>
-          err(
-            { type: "PROMISE_REJECTED" as const, cause: reason },
-            { cause: { type: "PROMISE_REJECTION" as const, reason } as PromiseRejectionCause }
-          )
-        )
-        .then((result) => {
+      Promise.resolve(item).then(
+        (result) => {
           if (settled) return;
 
           if (result.ok) {
@@ -6755,13 +6819,15 @@ export async function anyAsync<
             return;
           }
 
-          if (!firstError) firstError = result;
-          pendingCount--;
-
-          if (pendingCount === 0) {
-            resolve(firstError as ReturnErr);
-          }
-        });
+          if (!firstTypedError) firstTypedError = result;
+          if (--pendingCount === 0) finish();
+        },
+        (reason) => {
+          if (settled) return;
+          if (!firstRejection) firstRejection = { reason };
+          if (--pendingCount === 0) finish();
+        }
+      );
     }
   });
 }

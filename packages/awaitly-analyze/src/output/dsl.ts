@@ -14,7 +14,7 @@ import type {
   WorkflowDiagramStateType,
   WorkflowDiagramTransition,
   WorkflowDiagramSourceLocation,
-} from "awaitly/workflow";
+} from "awaitly";
 
 import {
   extractFunctionName,
@@ -308,9 +308,20 @@ function processRace(node: StaticRaceNode, ctx: DSLContext): { firstId: string |
 }
 
 function processConditional(node: StaticConditionalNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
-  const decisionId = uniqueStateId(ctx, `decision_${++ctx.nodeCounter}`);
+  // A native if/else whose condition reads statically carries a derived id, so
+  // it gets the same stable identity as an authored step.if. Falling back to
+  // the positional counter would make every state id downstream of an inserted
+  // branch shift, which is what breaks diffs and graph validation.
+  const semanticId = node.derivedId;
+  const decisionId = uniqueStateId(
+    ctx,
+    semanticId ?? `decision_${++ctx.nodeCounter}`
+  );
   const condLabel = truncate(node.condition, 40);
-  addState(ctx, decisionId, condLabel, "decision", { location: mapLocation(node.location) });
+  addState(ctx, decisionId, condLabel, "decision", {
+    location: mapLocation(node.location),
+    ...(semanticId && decisionId !== semanticId ? { semanticId } : {}),
+  });
 
   const lastIds: string[] = [];
 
@@ -399,9 +410,19 @@ function processSwitch(node: StaticSwitchNode, ctx: DSLContext): { firstId: stri
 }
 
 function processLoop(node: StaticLoopNode, ctx: DSLContext): { firstId: string | null; lastIds: string[] } {
-  const entryId = uniqueStateId(ctx, `loop_entry_${++ctx.nodeCounter}`);
+  // Prefer the authored step.forEach id, then the id derived from a native
+  // loop's iterable, and only fall back to the positional counter when neither
+  // reads statically. See processConditional for why position is a poor id.
+  const semanticId = node.loopId ?? node.derivedId;
+  const entryId = uniqueStateId(
+    ctx,
+    semanticId ? `loop_${semanticId}` : `loop_entry_${++ctx.nodeCounter}`
+  );
   const label = node.iterSource ? `${node.loopType}: ${truncate(node.iterSource, 20)}` : node.loopType;
-  addState(ctx, entryId, label, "decision", { location: mapLocation(node.location) });
+  addState(ctx, entryId, label, "decision", {
+    location: mapLocation(node.location),
+    ...(semanticId ? { semanticId } : {}),
+  });
 
   const bodyResult = processNodes(node.body, ctx, []);
   if (!bodyResult.firstId) {

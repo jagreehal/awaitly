@@ -7,8 +7,8 @@
  */
 
 import { createClient, type Client } from "@libsql/client";
-import type { WorkflowSnapshot, SnapshotStore } from "awaitly/persistence";
-import type { WorkflowLock } from "awaitly/persistence";
+import type { WorkflowSnapshot, SnapshotStore } from "awaitly/durable";
+import type { WorkflowLock } from "awaitly/durable";
 import {
   type ResumeState,
   type StoreSaveInput,
@@ -18,14 +18,14 @@ import {
   isSerializedResumeState,
   serializeResumeState,
   deserializeResumeState,
-} from "awaitly/persistence";
+} from "awaitly/durable";
 import { createLibSqlLock, type LibSqlLockOptions } from "./libsql-lock";
 
 // Re-export types for convenience
-export type { SnapshotStore, WorkflowSnapshot } from "awaitly/persistence";
-export type { WorkflowLock } from "awaitly/persistence";
+export type { SnapshotStore, WorkflowSnapshot } from "awaitly/durable";
+export type { WorkflowLock } from "awaitly/durable";
 export type { LibSqlLockOptions } from "./libsql-lock";
-export type { StoreSaveInput, StoreLoadResult } from "awaitly/persistence";
+export type { StoreSaveInput, StoreLoadResult } from "awaitly/durable";
 
 // =============================================================================
 // LibSqlOptions
@@ -71,7 +71,7 @@ export interface LibSqlStore extends Partial<WorkflowLock> {
  * @example
  * ```typescript
  * import { libsql } from 'awaitly-libsql';
- * import { createWorkflow } from 'awaitly/workflow';
+ * import { createWorkflow } from 'awaitly';
  *
  * const store = libsql('file:./workflow.db');
  * const workflow = createWorkflow(deps);

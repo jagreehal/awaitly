@@ -20,7 +20,7 @@ function verify(code: string, rules: Record<string, 'error' | 'warn'>) {
 describe('new slug rules', () => {
   describe('step-no-bare-await', () => {
     it('flags bare await deps.fn() outside step()', () => {
-      const bad = `async function x({ deps }) { await deps.fetchUser('1'); }`;
+      const bad = `async function x({ step, deps }) { await deps.fetchUser('1'); }`;
       expect(verify(bad, { 'awaitly/step-no-bare-await': 'error' })).toHaveLength(1);
     });
     it('allows await on a step() that wraps deps.fn()', () => {

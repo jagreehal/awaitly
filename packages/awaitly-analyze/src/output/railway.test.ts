@@ -303,7 +303,7 @@ describe("renderRailwayMermaid", () => {
   it("renders signup workflow with all inferred string-literal errors", () => {
     const source = `
       import { ok, err, type AsyncResult } from "awaitly";
-      import { createWorkflow } from "awaitly/workflow";
+      import { createWorkflow } from "awaitly";
 
       type User = { id: string; email: string };
       type CreateUserInput = { email: string; passwordHash: string };
@@ -365,7 +365,7 @@ describe("renderRailwayMermaid", () => {
   it("signup workflow respects includeInferredErrors: false", () => {
     const source = `
       import { ok, err, type AsyncResult } from "awaitly";
-      import { createWorkflow } from "awaitly/workflow";
+      import { createWorkflow } from "awaitly";
 
       const validateEmail = async (email: string): AsyncResult<string, "INVALID_EMAIL"> =>
         email.includes("@") ? ok(email) : err("INVALID_EMAIL");

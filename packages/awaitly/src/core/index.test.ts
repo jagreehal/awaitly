@@ -1403,43 +1403,71 @@ describe("allAsync() - mixed sync/async results", () => {
     }
   });
 
-  it("returns PromiseRejectedError when a promise rejects", async () => {
+  // A rejection is a thrown exception, not a modelled failure, so it propagates
+  // rather than becoming an error the caller has to declare. Inside a workflow
+  // `catchUnexpected` turns it into the UnexpectedError already in the union.
+  it("propagates a rejection instead of reporting it as an error", async () => {
     const rejectingPromise = Promise.reject(new Error("Network failure"));
 
-    const result = await allAsync([
-      ok(1),
-      rejectingPromise as Promise<Result<number, string>>,
-      ok(3),
-    ]);
-
-    expect(isErr(result)).toBe(true);
-    if (isErr(result)) {
-      expect(result.error).toEqual({
-        type: "PROMISE_REJECTED",
-        cause: expect.any(Error),
-      });
-    }
+    await expect(
+      allAsync([ok(1), rejectingPromise as Promise<Result<number, string>>, ok(3)])
+    ).rejects.toThrow("Network failure");
   });
 
-  it("short-circuits on first promise rejection", async () => {
-    let secondCalled = false;
+  it("propagates the first rejection when several inputs reject", async () => {
     const firstReject = Promise.reject(new Error("first"));
-    const secondPromise = new Promise<Result<number, string>>((resolve) => {
-      secondCalled = true;
-      resolve(ok(2));
-    });
+    const secondPromise = Promise.resolve(ok(2));
 
-    const result = await allAsync([
-      firstReject as Promise<Result<number, string>>,
-      secondPromise,
+    await expect(
+      allAsync([
+        firstReject as Promise<Result<number, string>>,
+        secondPromise as Promise<Result<number, string>>,
+      ])
+    ).rejects.toThrow("first");
+  });
+
+  it("still reports a modelled error as an error", async () => {
+    const result = await allAsync([ok(1), Promise.resolve(err("NOPE")), ok(3)]);
+
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error).toBe("NOPE");
+  });
+});
+
+describe("anyAsync() - rejection handling", () => {
+  it("lets a racer that resolves win over one that rejects", async () => {
+    const result = await anyAsync([
+      Promise.reject(new Error("boom")) as Promise<Result<number, string>>,
+      Promise.resolve(ok(2)),
+    ]);
+
+    expect(result).toEqual({ ok: true, value: 2 });
+  });
+
+  it("prefers a modelled error over a rejection when all racers fail", async () => {
+    // The rejection settles first. Reporting whichever settled first would hide
+    // MISS behind an opaque rejection, and which one you got would depend on
+    // timing — so a modelled failure always wins.
+    const result = await anyAsync([
+      Promise.reject(new Error("thrown")) as Promise<Result<number, "MISS">>,
+      new Promise<Result<number, "MISS">>((resolve) =>
+        setTimeout(() => resolve(err("MISS")), 5)
+      ),
     ]);
 
     expect(isErr(result)).toBe(true);
-    // Note: Due to Promise.all behavior, both promises start immediately
-    // but we return the first rejection error
-    if (isErr(result)) {
-      expect((result.error as PromiseRejectedError).type).toBe("PROMISE_REJECTED");
-    }
+    if (isErr(result)) expect(result.error).toBe("MISS");
+  });
+
+  it("propagates the exception when every racer rejects", async () => {
+    // Nothing in the domain to report, so the exception reaches whatever handles
+    // unexpected errors rather than being flattened into a declared error.
+    await expect(
+      anyAsync([
+        Promise.reject(new Error("first")) as Promise<Result<number, string>>,
+        Promise.reject(new Error("second")) as Promise<Result<number, string>>,
+      ])
+    ).rejects.toThrow("first");
   });
 });
 

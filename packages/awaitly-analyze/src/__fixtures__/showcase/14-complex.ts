@@ -12,7 +12,7 @@ export const complexWorkflow = createWorkflow("complexWorkflow", { fetchA, fetch
 
 export type ComplexResult = { a: string; b: string } | { a: string };
 
-export async function runComplex(doParallel: boolean, items: string[]): Promise<ComplexResult> {
+export async function runComplex(doParallel: boolean, items: string[]) {
   return await complexWorkflow.run(async ({ step, deps }): Promise<ComplexResult> => {
     if (step.if("choice", "doParallel", () => doParallel)) {
       const { a, b } = await step.all("fetchBoth", {
@@ -24,7 +24,7 @@ export async function runComplex(doParallel: boolean, items: string[]): Promise<
       });
       return { a, b };
     } else {
-      const a = await step("fetchAOnly", () => deps.fetchA(), { errors: ["ERR"] });
+      const a = await step("fetchAOnly", () => deps.fetchA());
       return { a };
     }
   });

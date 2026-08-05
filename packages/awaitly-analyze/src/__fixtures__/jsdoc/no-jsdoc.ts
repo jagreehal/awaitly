@@ -1,4 +1,4 @@
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 
 const workflow = createWorkflow("workflow", {
   fetchUser: async () => ({ id: "1", name: "Alice" }),

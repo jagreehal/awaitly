@@ -451,7 +451,7 @@ export function deserializeCauseNew(serialized: SerializedCause): unknown {
  * @example
  * ```typescript
  * import { postgres } from 'awaitly-postgres';
- * import { createWorkflow } from 'awaitly/workflow';
+ * import { createWorkflow } from 'awaitly';
  *
  * const store = postgres('postgresql://localhost/mydb');
  * const workflow = createWorkflow(deps);

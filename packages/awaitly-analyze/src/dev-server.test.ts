@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startDevServer, type DevServer } from "./dev-server";
 
 const WORKFLOW_SOURCE = `
-  import { createWorkflow } from "awaitly/workflow";
+  import { createWorkflow } from "awaitly";
   declare const fetchUser: (id: string) => Promise<any>;
   declare const charge: (u: any) => Promise<any>;
 
@@ -151,7 +151,7 @@ describe("dev server", () => {
 
   it("full loop: a real workflow streams itself in via devEvents", async () => {
     const { ok } = await import("awaitly");
-    const { createWorkflow } = await import("awaitly/workflow");
+    const { createWorkflow } = await import("awaitly");
     const { devEvents } = await import("awaitly-visualizer");
 
     const fetchUser = async (id: string) => ok({ id, premium: true });
@@ -176,8 +176,14 @@ describe("dev server", () => {
     let run:
       | { workflowId: string; trace: { steps: Array<{ stepId: string; status: string }>; decisions: unknown[] } }
       | undefined;
-    const deadline = Date.now() + 10_000;
+    // Poll budget must stay under this test's own timeout (below) so a slow
+    // run fails with the diagnostic here rather than an opaque vitest timeout.
+    // 10s was not enough once ts-morph analysis competed with the rest of the
+    // suite for CPU, which made this the flakiest test in the package.
+    const deadline = Date.now() + 30_000;
+    let polls = 0;
     while (Date.now() < deadline) {
+      polls++;
       const state = await (await fetch(`http://localhost:${dev.port}/state`)).json();
       run = state.runs.find((r: { workflowId: string }) => r.workflowId === "live-run-1");
       if (
@@ -190,7 +196,10 @@ describe("dev server", () => {
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-    expect(run).toBeDefined();
+    expect(
+      run,
+      `dev server never reported run 'live-run-1' after ${polls} polls over 30s`
+    ).toBeDefined();
     expect(run!.trace.steps.map((s) => [s.stepId, s.status])).toEqual([
       ["fetchUser", "success"],
       ["charge", "success"],
@@ -198,5 +207,5 @@ describe("dev server", () => {
     expect(run!.trace.decisions).toEqual([
       { decisionId: "premium-check", branch: "then", label: "user.premium" },
     ]);
-  });
+  }, 60_000);
 });

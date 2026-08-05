@@ -545,7 +545,7 @@ describe("README Examples", () => {
     it("should work with basic imports as shown in README", async () => {
       // Most apps only need:
       // import { ok, err, type AsyncResult } from "awaitly";
-      // import { createWorkflow } from "awaitly/workflow";
+      // import { createWorkflow } from "awaitly";
 
       type User = { id: string };
       type UserNotFound = { type: "USER_NOT_FOUND" };

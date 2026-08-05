@@ -7,13 +7,60 @@ import { Aside, Tabs, TabItem, AnimatedWorkflowDiagram } from '~/components';
 
 `step()` executes an operation within a workflow. If the operation fails, the workflow exits early.
 
+## When you need `step()` at all
+
+Your workflow callback receives both `steps` and `step`. They do the same thing —
+`steps.fetchUser(id)` is literally compiled to `step('fetchUser', () => deps.fetchUser(id))`.
+
+Most of the time you want `steps.x()`. **Retries and timeouts are not a reason to leave
+it** — those belong on the dependency, not the call site:
+
+```typescript
+import { createWorkflow, retry, timeout } from 'awaitly';
+
+const workflow = createWorkflow('loadUser', {
+  fetchUser,
+  fetchPosts: retry(timeout(fetchPosts, 5000), { attempts: 3 }),
+});
+
+const result = await workflow.run(async ({ steps }) => {
+  const user = await steps.fetchUser('1');
+  const posts = await steps.fetchPosts(user.id);   // retried + timed out, call site unchanged
+  return { user, posts };
+});
+```
+
+This is the preferred shape: the policy is declared once where the dependency is
+declared, every call site stays clean, and the analyzer reads the policy chain straight
+out of the deps literal instead of inferring it. See [Policies](advanced/policies/).
+
+That leaves a much smaller job for `step()`:
+
+| | Use |
+|---|---|
+| Call a dep | `steps.fetchUser(id)` |
+| Retry / timeout / fallback on a dep | `retry(...)` / `timeout(...)` / `fallback(...)` in deps |
+| Per-call cache key, custom id, or inline code that isn't a dep | `step('id', () => …, opts)` |
+
+```typescript
+// A cache key is per-call, so it belongs at the call site.
+const user = await step('fetchUser', () => fetchUser(id), { key: `user:${id}` });
+```
+
+Bound steps take no options — that is what `step()` is still for.
+
+<Aside type="note" title="Repeated calls">
+Calling the same bound step twice in one run auto-suffixes the id: `fetchUser`,
+`fetchUser#2`, and so on. This keeps loop iterations distinct — important because the
+step id doubles as the cache key, so a bare repeat would otherwise return the first
+result. The suffixes are deterministic, so they stay stable across durable replays.
+</Aside>
+
 ## Basic usage
 
 `step()` requires an explicit string ID as the first argument: `step('id', fn, opts)` or `step('id', result, opts)`. The string literal is the step ID used in events, diagrams, and caching.
 
 ```typescript
-const workflow = createWorkflow('workflow', { fetchUser, fetchPosts });
-
 const result = await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('1'));
   const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));
@@ -29,7 +76,40 @@ Unlike try/catch where you need explicit return statements, `step()` automatical
 
 You’ll often see `step('id', () => fn())` (a thunk) instead of `step('id', fn())` (an already-started Promise). This is the same pattern used by TanStack React Query’s `queryFn`: the orchestrator needs to control **when** work starts so it can cache, dedupe, retry, and resume correctly.
 
-See [Why thunks?](/foundations/thunks/) for the mental model and the “why `step('id', somePromise)` may work” nuance.
+### You already use thunks
+
+React Query's `queryFn` is the same shape, for the same reason:
+
+```typescript
+// React Query — the library decides when to call this
+useQuery({ queryKey: ['user', id], queryFn: () => fetchUser(id) });
+
+// awaitly — same idea
+step('fetchUser', () => fetchUser(id), { key: `user:${id}` });
+```
+
+### Promises start immediately
+
+A Promise begins executing the moment it is created. Hand awaitly an already-running
+Promise and it has nothing left to control:
+
+```typescript
+// The fetch already fired — a cache hit can't prevent it,
+// and a retry can't re-run it.
+const promise = fetchUser(id);
+await step('fetchUser', promise);
+
+// The fetch fires only if awaitly decides to run it.
+await step('fetchUser', () => fetchUser(id));
+```
+
+`step('id', somePromise)` is accepted and will often appear to work, because awaiting
+a Promise twice yields the same value. But caching, retries, timeouts, and resume all
+become no-ops — the work already happened. The failure is silent, which is why the
+thunk form is the one to reach for.
+
+**Rule of thumb:** if awaitly is supposed to decide *whether* or *when* something runs,
+give it a function, not a value.
 
 ## Using thunks for caching
 
@@ -89,7 +169,7 @@ You can attach optional metadata to steps for diagrams, diagnostics, and observa
 - **Effects & dependencies**: `stateChanges`, `emits`, `calls` — what the step mutates, what events it emits, which external services it calls.
 - **Error classification**: `errorMeta` — map from error tag to `{ retryable?, severity?, description? }` for diagnostics and `step_error` events.
 
-See [Static Analysis](/guides/static-analysis/) and [Documenting workflows](/guides/documenting-workflows/) for where this metadata is used.
+See [Static Analysis](guides/static-analysis/) and [Documenting workflows](guides/documenting-workflows/) for where this metadata is used.
 
 ```typescript
 await step('charge', () => deps.charge(orderId), {
@@ -266,7 +346,7 @@ Pause execution for a specified duration. Use for intentional delays between ope
 await step.sleep("rate-limit-delay", "5s");
 
 // Duration object
-import { seconds, millis } from 'awaitly/workflow';
+import { seconds, millis } from 'awaitly';
 await step.sleep("my-sleep", seconds(5));
 await step.sleep("short-delay", millis(100));
 ```
@@ -356,7 +436,7 @@ const result = await run(async ({ step }) => {
 ```
 
 <Aside type="tip" title="Duration formats">
-You can use string durations like `"5s"`, `"100ms"`, `"2m"`, or Duration objects from `awaitly/workflow` like `seconds(5)`, `millis(100)`.
+You can use string durations like `"5s"`, `"100ms"`, `"2m"`, or Duration objects from `awaitly` like `seconds(5)`, `millis(100)`.
 </Aside>
 
 ## step.forEach - process collections
@@ -418,20 +498,21 @@ await step.forEach('process-payments', payments, {
 
 Manual `for` loops with dynamic keys like `${item.id}`:
 - Cannot be enumerated by static analysis tools
-- Reduce path generation accuracy for [awaitly-analyze](/guides/static-analysis/)
+- Reduce path generation accuracy for [awaitly-analyze](guides/static-analysis/)
 - Make test matrix generation incomplete
 
 <Aside type="tip" title="Static analysis support">
-`step.forEach()` enables [awaitly-analyze](/guides/static-analysis/) to enumerate all possible execution paths, generate accurate workflow diagrams, and create comprehensive test matrices.
+`step.forEach()` enables [awaitly-analyze](guides/static-analysis/) to enumerate all possible execution paths, generate accurate workflow diagrams, and create comprehensive test matrices.
 </Aside>
 
 ## Effect-style ergonomics
 
 Convenience helpers that run through the step engine (events, retry, timeout, and in createWorkflow: cache and `onAfterStep`). Familiar to Effect users.
 
-### step.run - unwrap AsyncResult
+### step() - unwrap AsyncResult
 
-Unwrap an AsyncResult with a step ID. Use a **getter** when caching so the operation runs only on cache miss:
+Calling `step` directly unwraps an AsyncResult with a step ID. Use a **getter**
+when caching so the operation runs only on cache miss:
 
 ```typescript
 // run() - unwraps and exits on error
@@ -460,8 +541,8 @@ Map over an array with parallel execution. **Only caches when you pass an explic
 const users = await step.map('fetchUsers', ['1', '2', '3'], (id) => deps.fetchUser(id));
 ```
 
-<Aside type="note" title="Caching and run / all / map">
-In `createWorkflow`, use a getter with `step.run` when you use a key so cache hits don't run the operation. For `step.all` and `step.map`, caching applies only when you pass `{ key: '...' }`; without a key they never cache by step id.
+<Aside type="note" title="Caching and step() / all / map">
+In `createWorkflow`, use a getter with `step()` when you use a key so cache hits don't run the operation. For `step.all` and `step.map`, caching applies only when you pass `{ key: '...' }`; without a key they never cache by step id.
 </Aside>
 
 ### step.withFallback - primary with fallback
@@ -489,7 +570,7 @@ const data = await step.withResource('useDb', {
 
 ### step.workflow - child workflow as step
 
-Run a child workflow as a step. First argument is the step ID; second is a getter that returns the child workflow run (e.g. `() => childWorkflow.run(...)`). Optional `key`. Events and cache go through the step engine; [awaitly-analyze](/docs/guides/static-analysis/) detects child workflow refs when the getter calls `childWorkflow.run(...)` and draws them as workflow-ref nodes.
+Run a child workflow as a step. First argument is the step ID; second is a getter that returns the child workflow run (e.g. `() => childWorkflow.run(...)`). Optional `key`. Events and cache go through the step engine; [awaitly-analyze](guides/static-analysis/) detects child workflow refs when the getter calls `childWorkflow.run(...)` and draws them as workflow-ref nodes.
 
 ```typescript
 const result = await step.workflow('child-call', () =>
@@ -548,7 +629,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 
 ## Named steps for visualization and static docs
 
-The required string ID (first argument) is what appears in workflow diagrams and in **statically generated documentation**. [awaitly-analyze](/docs/guides/static-analysis/) extracts it and uses it in Mermaid diagrams, step tables, and doc generators. You can set `description` or `markdown` in options for richer docs. See [Documenting workflows](/docs/guides/documenting-workflows/) and [Visualization](/docs/guides/visualization/) for details.
+The required string ID (first argument) is what appears in workflow diagrams and in **statically generated documentation**. [awaitly-analyze](guides/static-analysis/) extracts it and uses it in Mermaid diagrams, step tables, and doc generators. You can set `description` or `markdown` in options for richer docs. See [Documenting workflows](guides/documenting-workflows/) and [Visualization](guides/visualization/) for details.
 
 ```typescript
 const user = await step('fetchUser', () => deps.fetchUser('1'));
@@ -589,4 +670,4 @@ Workflow diagram and generated docs show:
 
 ## Next
 
-[Learn about Workflows →](/foundations/workflows/)
+[Learn about Workflows →](foundations/workflows/)

@@ -51,7 +51,7 @@ If you want Layer-like ergonomics, awaitly supports `withDeps(...)`:
   `createWorkflow deps < withDeps deps < run config deps`.
 
 ```typescript
-import { createWorkflow, withDeps } from 'awaitly/workflow';
+import { createWorkflow, withDeps } from 'awaitly';
 
 const checkout = createWorkflow('checkout', liveDeps, {});
 const checkoutWithSandboxPayments = withDeps(checkout, {
@@ -73,8 +73,7 @@ You want one place that builds all services and workflows use them.
 **awaitly:** Build a deps object (or a function that returns it) and pass it when you create the workflow.
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
-import { ok } from 'awaitly';
+import { createWorkflow, ok } from 'awaitly';
 
 // Services (could live in separate modules)
 async function fetchUser(id: string) {
@@ -297,7 +296,7 @@ If that form is important to you (e.g. you're coming from Effect or want a stric
 
 Effect gives you **scoped resources**, **structured concurrency**, **automatic acquire/release**, **interruption safety**, and **memoized layer graphs** in the type system and runtime. That is where Effect has a structural advantage.
 
-awaitly offers **`withScope`** and **`createResource`** ([Resource Management](/patterns/resource-management/)): RAII-style scopes, LIFO cleanup on exit (including on error or throw), and nested scopes. So you get automatic cleanup without a separate Layer type. **But** awaitly does not attempt to model structured resource lifecycles in the type system. If your application depends heavily on scoped resource safety and fine-grained interruption semantics, Effect provides stronger guarantees at the cost of additional abstraction. We're not pretending equivalence there — it's a deliberate tradeoff: awaitly prioritizes simplicity and explicit scopes over encoding those constraints in the type system.
+awaitly offers **`withScope`** and **`createResource`** ([Resource Management](patterns/resource-management/)): RAII-style scopes, LIFO cleanup on exit (including on error or throw), and nested scopes. So you get automatic cleanup without a separate Layer type. **But** awaitly does not attempt to model structured resource lifecycles in the type system. If your application depends heavily on scoped resource safety and fine-grained interruption semantics, Effect provides stronger guarantees at the cost of additional abstraction. We're not pretending equivalence there — it's a deliberate tradeoff: awaitly prioritizes simplicity and explicit scopes over encoding those constraints in the type system.
 
 ## Common pushbacks
 
@@ -319,7 +318,7 @@ Effect encodes architecture in types; awaitly keeps it in values. Both give you 
 
 ## See Also
 
-- [awaitly vs Effect](/comparison/awaitly-vs-effect/): full comparison of philosophy, APIs, and features.
-- [Workflows](/foundations/workflows/): how `createWorkflow` and the step engine work.
-- [Foundations: Workflows and steps](/foundations/workflows-and-steps/): declaring dependencies and using `step`, `deps`, and `ctx`.
-- [Resource Management](/patterns/resource-management/): scoped resources with `withScope` and `createResource` (RAII-style cleanup).
+- [awaitly vs Effect](comparison/awaitly-vs-effect/): full comparison of philosophy, APIs, and features.
+- [Workflows](foundations/workflows/): how `createWorkflow` and the step engine work.
+- [Foundations: Workflows and steps](foundations/workflows/): declaring dependencies and using `step`, `deps`, and `ctx`.
+- [Resource Management](patterns/resource-management/): scoped resources with `withScope` and `createResource` (RAII-style cleanup).

@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { ok, type AsyncResult } from "awaitly";
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 import { createVisualizer } from "./index";
 import type { DecisionNode, FlowNode } from "./types";
 

@@ -11,7 +11,7 @@ A minimal app that **verifies** the framework-integration docs: Server Actions w
 ## Stack
 
 - **Next.js** (App Router)
-- **awaitly** (workspace) — `ok`/`err`/`AsyncResult` from `awaitly`, `createWorkflow` from `awaitly/workflow`
+- **awaitly** (workspace) — `ok`/`err`/`AsyncResult` from `awaitly`, `createWorkflow` from `awaitly`
 - **Drizzle ORM** + **libsql** — SQLite (file-based, no native bindings)
 - **TanStack Query** — client data fetching with Result unwrap + `ResultError`
 
@@ -73,5 +73,5 @@ Open [http://localhost:3000](http://localhost:3000). You’ll see three sections
 
 In this repo, `apps/docs-site` and the main awaitly docs cover:
 
-- **Framework Integrations** — Server Actions, API routes, error mapping (`guides/framework-integrations`)
+- **Framework Integrations** — Server Actions, API routes, error mapping (`guides/framework-integration`)
 - **React Query Integration** — Result + useQuery, ResultError, typed errors (`guides/react-query`)

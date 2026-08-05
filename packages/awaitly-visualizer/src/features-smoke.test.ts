@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { ok } from "awaitly";
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 import {
   createVisualizer,
   createEventCollector,
@@ -35,7 +35,7 @@ import {
   encodeForMermaidInk,
 } from "./index";
 import { createWebhookNotifier } from "./notifiers/webhook";
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 
 const DONE = "done" as const;
 

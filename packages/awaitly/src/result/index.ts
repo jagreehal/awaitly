@@ -770,25 +770,20 @@ export async function allAsync<
 ): Promise<
   Result<
     { [K in keyof T]: T[K] extends Result<infer V, unknown, unknown> | Promise<Result<infer V, unknown, unknown>> ? V : never },
-    | { [K in keyof T]: T[K] extends Result<unknown, infer E, unknown> | Promise<Result<unknown, infer E, unknown>> ? E : never }[number]
-    | PromiseRejectedError,
-    | { [K in keyof T]: T[K] extends Result<unknown, unknown, infer C> | Promise<Result<unknown, unknown, infer C>> ? C : never }[number]
-    | PromiseRejectionCause
+    { [K in keyof T]: T[K] extends Result<unknown, infer E, unknown> | Promise<Result<unknown, infer E, unknown>> ? E : never }[number],
+    { [K in keyof T]: T[K] extends Result<unknown, unknown, infer C> | Promise<Result<unknown, unknown, infer C>> ? C : never }[number]
   >
 > {
   const values: unknown[] = [];
   for (const resultOrPromise of results) {
-    try {
-      const r = await resultOrPromise;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if (!r.ok) return r as any;
-      values.push(r.value);
-    } catch (reason) {
-      return err(
-        { type: PROMISE_REJECTED, cause: reason } as PromiseRejectedError,
-        { cause: { type: "PROMISE_REJECTION", reason } as PromiseRejectionCause }
-      );
-    }
+    // A rejection is a thrown exception, not a modelled failure, so it propagates
+    // to whatever handles unexpected errors — `catchUnexpected` inside a workflow.
+    // Reporting it as a typed error instead would force every caller to declare a
+    // failure mode that is not part of their domain.
+    const r = await resultOrPromise;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (!r.ok) return r as any;
+    values.push(r.value);
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ok(values) as any;
@@ -894,15 +889,23 @@ export function partition<T, E, C>(
 }
 
 /**
- * Returns the first Ok result, or an EmptyInputError/first Err if all fail.
+ * Returns the first Ok result, or the first Err if all fail.
+ *
+ * At least one Result is required by the type, so there is no empty-input error
+ * for callers to handle.
  */
-export function any<const T extends readonly Result<unknown, unknown, unknown>[]>(
+export function any<
+  const T extends readonly [
+    Result<unknown, unknown, unknown>,
+    ...Result<unknown, unknown, unknown>[]
+  ]
+>(
   results: T
 ): T extends readonly []
   ? Err<EmptyInputError, unknown>
   : Result<
       { [K in keyof T]: T[K] extends Result<infer V, unknown, unknown> ? V : never }[number],
-      AllErrors<T> | EmptyInputError,
+      AllErrors<T>,
       AllCauses<T>
     >;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -922,7 +925,10 @@ export function any(results: any): any {
  * Async version of any - races promises and returns first success.
  */
 export async function anyAsync<
-  const T extends readonly (Result<unknown, unknown, unknown> | Promise<Result<unknown, unknown, unknown>>)[]
+  const T extends readonly [
+    Result<unknown, unknown, unknown> | Promise<Result<unknown, unknown, unknown>>,
+    ...(Result<unknown, unknown, unknown> | Promise<Result<unknown, unknown, unknown>>)[]
+  ]
 >(
   results: T
 ): Promise<
@@ -930,11 +936,8 @@ export async function anyAsync<
     ? Err<EmptyInputError, unknown>
     : Result<
         { [K in keyof T]: T[K] extends Result<infer V, unknown, unknown> | Promise<Result<infer V, unknown, unknown>> ? V : never }[number],
-        | { [K in keyof T]: T[K] extends Result<unknown, infer E, unknown> | Promise<Result<unknown, infer E, unknown>> ? E : never }[number]
-        | EmptyInputError
-        | PromiseRejectedError,
-        | { [K in keyof T]: T[K] extends Result<unknown, unknown, infer C> | Promise<Result<unknown, unknown, infer C>> ? C : never }[number]
-        | PromiseRejectionCause
+        { [K in keyof T]: T[K] extends Result<unknown, infer E, unknown> | Promise<Result<unknown, infer E, unknown>> ? E : never }[number],
+        { [K in keyof T]: T[K] extends Result<unknown, unknown, infer C> | Promise<Result<unknown, unknown, infer C>> ? C : never }[number]
       >
 > {
   if (results.length === 0) {
@@ -942,37 +945,45 @@ export async function anyAsync<
     return err({ type: "EMPTY_INPUT", message: "anyAsync() requires at least one Result" }) as any;
   }
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let settled = false;
     let pendingCount = results.length;
-    let firstError: Err<unknown, unknown> | null = null;
+    let firstTypedError: Err<unknown, unknown> | null = null;
+    let firstRejection: { reason: unknown } | null = null;
+
+    const finish = (): void => {
+      settled = true;
+      // A modelled failure always wins over a rejection. Previously whichever
+      // settled first was reported, so a thrown racer could mask another racer's
+      // real error depending on timing. Only when every racer threw is there
+      // nothing in the domain to report, and the exception propagates.
+      if (firstTypedError) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        resolve(firstTypedError as any);
+      } else {
+        reject(firstRejection?.reason);
+      }
+    };
 
     for (const item of results) {
-      Promise.resolve(item)
-        .catch((reason) =>
-          err(
-            { type: PROMISE_REJECTED, cause: reason } as PromiseRejectedError,
-            { cause: { type: "PROMISE_REJECTION", reason } as PromiseRejectionCause }
-          )
-        )
-        .then((result) => {
+      Promise.resolve(item).then(
+        (result) => {
           if (settled) return;
-
           if (result.ok) {
             settled = true;
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             resolve(result as any);
             return;
           }
-
-          if (!firstError) firstError = result;
-          pendingCount--;
-
-          if (pendingCount === 0) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            resolve(firstError as any);
-          }
-        });
+          if (!firstTypedError) firstTypedError = result;
+          if (--pendingCount === 0) finish();
+        },
+        (reason) => {
+          if (settled) return;
+          if (!firstRejection) firstRejection = { reason };
+          if (--pendingCount === 0) finish();
+        }
+      );
     }
   });
 }

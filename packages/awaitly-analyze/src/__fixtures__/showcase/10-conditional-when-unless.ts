@@ -12,7 +12,7 @@ export const conditionalWorkflow = createWorkflow("conditionalWorkflow", { audit
 
 export type ConditionalResult = { a: boolean; b: number };
 
-export async function runConditional(isPremium: boolean): Promise<ConditionalResult> {
+export async function runConditional(isPremium: boolean) {
   return await conditionalWorkflow.run(async ({ step, deps }): Promise<ConditionalResult> => {
     await when(isPremium, () => step("whenStep", () => deps.audit()));
     await unless(isPremium, () => step("unlessStep", () => deps.compute()));

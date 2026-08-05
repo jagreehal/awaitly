@@ -7,12 +7,12 @@ Best practices for running awaitly in production: observability, error tracking,
 
 ## Observability with OpenTelemetry
 
-Workflows expose everything they do through the `onEvent` option — wire those events to OpenTelemetry spans and metrics directly. See the [OpenTelemetry guide](/advanced/opentelemetry/) for the full event reference. A first-class OTel adapter is planned as a separate ecosystem package.
+Workflows expose everything they do through the `onEvent` option — wire those events to OpenTelemetry spans and metrics directly. See the [OpenTelemetry guide](advanced/opentelemetry/) for the full event reference. A first-class OTel adapter is planned as a separate ecosystem package.
 
 ### Basic setup
 
 ```typescript
-import { createWorkflow, type WorkflowEvent } from 'awaitly/workflow';
+import { createWorkflow, type WorkflowEvent } from 'awaitly';
 import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
@@ -155,8 +155,7 @@ const workflow = createWorkflow('workflow', deps, { onEvent: handleWorkflowEvent
 
 ```typescript
 import * as Sentry from '@sentry/node';
-import { createWorkflow, type WorkflowEvent } from 'awaitly/workflow';
-import { isUnexpectedError } from 'awaitly';
+import { createWorkflow, type WorkflowEvent, isUnexpectedError } from 'awaitly';
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
@@ -239,7 +238,7 @@ Use a **SnapshotStore** (`save`, `load`, `delete`, `list`, `close`) with **Workf
 
 ```typescript
 import { postgres } from 'awaitly-postgres';
-import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly';
 // or: import { mongo } from 'awaitly-mongo';
 // or: import { libsql } from 'awaitly-libsql';
 
@@ -258,14 +257,14 @@ const savedState = await store.load('run-123');
 await workflow.run(/* same workflow fn */, { resumeState: savedState ?? undefined });
 ```
 
-See [Persistence](/guides/persistence/) and [PostgreSQL](/guides/postgres-persistence/) guides.
+See [Persistence](guides/persistence/) and [PostgreSQL](guides/postgres-persistence/) guides.
 
 ### Redis (custom SnapshotStore)
 
-Implement the `SnapshotStore` interface from `awaitly/persistence`:
+Implement the `SnapshotStore` interface from `awaitly/durable`:
 
 ```typescript
-import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/durable';
 import { createClient } from 'redis';
 
 const redis = createClient({ url: process.env.REDIS_URL });
@@ -301,7 +300,7 @@ await workflow.run(/* same workflow fn */, { resumeState: savedState ?? undefine
 If you need a custom table, implement `SnapshotStore` and store `WorkflowSnapshot` as JSONB:
 
 ```typescript
-import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/durable';
 import { Pool } from 'pg';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -341,7 +340,7 @@ const store: SnapshotStore = {
 Implement `SnapshotStore` and store `WorkflowSnapshot` as JSON:
 
 ```typescript
-import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/persistence';
+import type { SnapshotStore, WorkflowSnapshot } from 'awaitly/durable';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 
@@ -584,14 +583,12 @@ import { createRateLimiter } from 'awaitly';
 
 // Limit Stripe API calls
 const stripeLimit = createRateLimiter('stripe', {
-  maxRequests: 100,
-  windowMs: 1000, // 100 requests per second
+  maxPerSecond: 100,
 });
 
 // Limit email sending
 const emailLimit = createRateLimiter('email', {
-  maxRequests: 10,
-  windowMs: 1000, // 10 emails per second
+  maxPerSecond: 10,
 });
 
 const workflow = createWorkflow('workflow', deps);
@@ -601,14 +598,14 @@ const result = await workflow.run(async ({ step, deps }) => {
 
   // Rate-limited payment
   const payment = await step(
-    () => stripeLimit(() => deps.chargeCard(user.cardId, amount)),
-    { name: 'charge' }
+    'charge',
+    () => stripeLimit.executeResult(() => deps.chargeCard(user.cardId, amount))
   );
 
   // Rate-limited notification
   await step(
-    () => emailLimit(() => deps.sendReceipt(user.email, payment)),
-    { name: 'send-receipt' }
+    'send-receipt',
+    () => emailLimit.executeResult(() => deps.sendReceipt(user.email, payment))
   );
 
   return payment;
@@ -624,7 +621,7 @@ import { createCircuitBreaker } from 'awaitly';
 const paymentBreaker = createCircuitBreaker('payment-service', {
   failureThreshold: 5,      // Open after 5 failures
   resetTimeout: 30000,      // Try again after 30 seconds
-  halfOpenRequests: 3,      // Allow 3 test requests when half-open
+  halfOpenMax: 3,           // Allow 3 test requests when half-open
 });
 
 const workflow = createWorkflow('workflow', deps);
@@ -753,4 +750,4 @@ process.on('SIGINT', gracefulShutdown);
 
 ## Next
 
-[Learn about Circuit Breakers →](/advanced/circuit-breaker/)
+[Learn about Circuit Breakers →](advanced/circuit-breaker/)

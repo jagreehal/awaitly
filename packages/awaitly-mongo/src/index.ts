@@ -8,8 +8,8 @@
 
 import type { Db, MongoClientOptions } from "mongodb";
 import { MongoClient as MongoClientImpl } from "mongodb";
-import type { WorkflowSnapshot, SnapshotStore } from "awaitly/persistence";
-import type { WorkflowLock } from "awaitly/persistence";
+import type { WorkflowSnapshot, SnapshotStore } from "awaitly/durable";
+import type { WorkflowLock } from "awaitly/durable";
 import {
   type ResumeState,
   type StoreSaveInput,
@@ -19,21 +19,21 @@ import {
   isSerializedResumeState,
   serializeResumeState,
   deserializeResumeState,
-} from "awaitly/persistence";
+} from "awaitly/durable";
 import { createMongoLock, type MongoLockOptions } from "./mongo-lock";
 
 /** Document shape for the snapshots collection (string _id). */
 interface SnapshotDoc {
   _id: string;
-  snapshot: WorkflowSnapshot | import("awaitly/persistence").SerializedResumeState;
+  snapshot: WorkflowSnapshot | import("awaitly/durable").SerializedResumeState;
   updatedAt: Date;
 }
 
 // Re-export types for convenience
-export type { SnapshotStore, WorkflowSnapshot } from "awaitly/persistence";
-export type { WorkflowLock } from "awaitly/persistence";
+export type { SnapshotStore, WorkflowSnapshot } from "awaitly/durable";
+export type { WorkflowLock } from "awaitly/durable";
 export type { MongoLockOptions } from "./mongo-lock";
-export type { StoreSaveInput, StoreLoadResult } from "awaitly/persistence";
+export type { StoreSaveInput, StoreLoadResult } from "awaitly/durable";
 
 // =============================================================================
 // MongoOptions
@@ -81,7 +81,7 @@ export interface MongoStore extends Partial<WorkflowLock> {
  * @example
  * ```typescript
  * import { mongo } from 'awaitly-mongo';
- * import { createWorkflow } from 'awaitly/workflow';
+ * import { createWorkflow } from 'awaitly';
  *
  * const store = mongo('mongodb://localhost:27017/mydb');
  * const workflow = createWorkflow(deps);

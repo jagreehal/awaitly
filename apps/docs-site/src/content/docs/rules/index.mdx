@@ -9,7 +9,7 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
 
 Every canonical awaitly slug lives on this page. The same slug appears on runtime errors (`error.code`), ESLint rule names (`awaitly/<slug>`), and `awaitly-analyze --doctor` diagnostics. `error.docsUrl` deep-links to the matching section.
 
-See the [Slug Spine reference](/awaitly/reference/spine/) for the design rationale and the [ESLint plugin guide](/awaitly/guides/eslint-plugin/) for hand-authored examples of every lint rule.
+See the [Slug Spine reference](reference/spine/) for the design rationale and the [ESLint plugin guide](guides/eslint-plugin/) for hand-authored examples of every lint rule.
 
 ## `step-*`
 
@@ -51,12 +51,12 @@ When using step() with a 'key' option, the executor (second argument) must be a 
 
 ### `step-no-bare-await` \{#step-no-bare-await\}
 
-Disallow bare await deps.*() in workflow callbacks. Wrap deps calls in step().
+Disallow bare await deps.*() in workflow callbacks. Wrap them in step() or call them through steps.*().
 
 - **ESLint rule:** `awaitly/step-no-bare-await`
 
 ```text
-Avoid bare await on deps call. Wrap it in step(): step('id', () => deps.fn(...)).
+Avoid bare await on a raw dependency call — it is invisible to the step engine. Use steps.fn(...), or wrap it: step('id', () => deps.fn(...)).
 ```
 
 ### `step-no-try-catch-wrap` \{#step-no-try-catch-wrap\}
@@ -136,27 +136,17 @@ Dynamic import() is not allowed. Use static import instead.
 require() is not allowed. Use static import instead.
 ```
 
-### `workflow-prefer-step-if` \{#workflow-prefer-step-if\}
+### `workflow-unreadable-condition` \{#workflow-unreadable-condition\}
 
-Prefer step.if / when / unless over a raw if/else that contains steps, so the workflow diagram stays deterministic.
+Canonical awaitly slug: workflow-unreadable-condition
 
-- **ESLint rule:** `awaitly/workflow-prefer-step-if`
 - **Analyzer:** `awaitly-analyze --doctor` strict rules `unlabelled-conditional`
 
-```text
-Raw if/else containing steps has no stable branch id and degrades the diagram. Use step.if('decision-id', () => condition, ...) for a labelled branch, or when()/unless() to guard a single step.
-```
+### `workflow-unreadable-iterable` \{#workflow-unreadable-iterable\}
 
-### `workflow-prefer-step-foreach` \{#workflow-prefer-step-foreach\}
+Canonical awaitly slug: workflow-unreadable-iterable
 
-Prefer step.forEach over a native loop that contains steps, so iteration ids are stable and the diagram stays deterministic.
-
-- **ESLint rule:** `awaitly/workflow-prefer-step-foreach`
 - **Analyzer:** `awaitly-analyze --doctor` strict rules `unlabelled-loop`
-
-```text
-Loop containing steps produces unstable iteration ids and degrades the diagram. Use step.forEach('loop-id', items, { stepIdPattern: 'item-{i}', run: (item) => ... }).
-```
 
 ## `result-*`
 
@@ -295,7 +285,7 @@ All retry attempts failed. Inspect lastError and decide whether to surface it or
 
 ### `runtime-rate-limit` \{#runtime-rate-limit\}
 
-Wait retryAfterMs before retrying, or apply step.cache to deduplicate calls.
+Wait retryAfterMs before retrying, or apply singleflight to deduplicate calls.
 
 - **Runtime error:** `RateLimitError` (`error.code === 'runtime-rate-limit'`)
 

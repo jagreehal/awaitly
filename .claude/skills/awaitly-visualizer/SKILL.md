@@ -63,7 +63,7 @@ Step events may include optional metadata (`domain`, `intent`, `owner`, etc.) wh
 
 ### 1) Live capture while workflow runs
 ```typescript
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 import { createVisualizer } from "awaitly-visualizer";
 
 const viz = createVisualizer({ workflowName: "checkout" });

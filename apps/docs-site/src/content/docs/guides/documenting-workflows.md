@@ -5,7 +5,7 @@ description: Use description and markdown options for static analysis and doc ge
 
 Workflow-level and step-level `description` and `markdown` are the **supported way** to document workflows for:
 
-- **Static analysis** — [awaitly-analyze](/docs/guides/static-analysis/) reads these fields when analyzing workflow source.
+- **Static analysis** — [awaitly-analyze](guides/static-analysis/) reads these fields when analyzing workflow source.
 - **Generated diagrams and docs** — Mermaid diagrams and doc generators can use them for labels and content.
 - **Future tooling** — IDE tooltips or other tooling may surface them.
 
@@ -18,7 +18,7 @@ JSDoc comments above workflow or step declarations are **also** extracted by the
 Set `description` and `markdown` when creating the workflow (in the options object or on the deps object). They apply to `createWorkflow` and `createSagaWorkflow` only; `run()` and `runSaga()` have no options object, so they do not support workflow-level docs.
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 const checkoutWorkflow = createWorkflow('workflow', deps, {
   description: 'Checkout workflow - handles orders and payments',
@@ -62,4 +62,4 @@ The string literal first argument (`'getUser'`, `'createOrder'`) is what appears
 
 ## Options reference
 
-For a full list of workflow, step, and saga step options (including `description` and `markdown`), see the [Options reference](/docs/reference/api/#options-reference) in the API reference.
+For a full list of workflow, step, and saga step options (including `description` and `markdown`), see the [Options reference](reference/api/#options-reference) in the API reference.

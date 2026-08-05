@@ -72,6 +72,41 @@ function unwrapPolicyCalls(
   return { base: current, analyzedPolicies };
 }
 
+/**
+ * Name of the child workflow a dep delegates to, for a dep written as
+ * `(id) => childWorkflow.run(fn)`.
+ *
+ * Matches `<name>.run(...)` / `<name>.runWithState(...)` anywhere inside the
+ * initializer, since the call is usually wrapped in an arrow function. Returns
+ * undefined when the callee is not a plain `<identifier>.run` — `deps.foo.run()`
+ * or a computed access is not something we can name.
+ */
+function findWorkflowRefInDep(init: Node): string | undefined {
+  const { Node } = loadTsMorph();
+  let found: string | undefined;
+
+  const visit = (node: Node): void => {
+    if (found) return;
+    if (Node.isCallExpression(node)) {
+      const expr = node.getExpression();
+      if (Node.isPropertyAccessExpression(expr)) {
+        const method = expr.getName();
+        if (method === "run" || method === "runWithState") {
+          const target = expr.getExpression();
+          if (Node.isIdentifier(target)) {
+            found = target.getText();
+            return;
+          }
+        }
+      }
+    }
+    for (const child of node.getChildren()) visit(child);
+  };
+
+  visit(init);
+  return found;
+}
+
 export function extractDependencies(
   depsNode: Node,
   _warnings: AnalysisWarning[]
@@ -89,10 +124,15 @@ export function extractDependencies(
     let signature: DependencyInfo["signature"] = undefined;
     let policies: DependencyInfo["policies"];
     let analyzedPolicies: AnalyzedPolicy[] | undefined;
+    let workflowRef: string | undefined;
 
     if (Node.isPropertyAssignment(prop)) {
       name = prop.getName();
       let init: Node | undefined = prop.getInitializer();
+
+      // Detect before policy unwrapping so a policy-wrapped child workflow
+      // (`retry(() => child.run(fn))`) is still recognised as a reference.
+      if (init) workflowRef = findWorkflowRefInDep(init);
 
       // Policy-wrapped dep: extract types from the BASE function so error
       // inference doesn't depend on resolving the wrapper's generics, and
@@ -151,6 +191,7 @@ export function extractDependencies(
       typeSignature,
       errorTypes,
       signature,
+      ...(workflowRef ? { workflowRef } : {}),
       ...(policies ? { policies } : {}),
     });
   }
@@ -219,6 +260,45 @@ export function enrichStepOutputTypes(root: StaticWorkflowNode): void {
 }
 
 /**
+ * Mark steps that run a child workflow through a dep.
+ *
+ * `enrichUser: (id) => childWorkflow.run(fn)` passed as a dep is the composition
+ * that carries the child's errors into the parent's union, so it is the form
+ * users are steered towards — but the reference lives in the deps object rather
+ * than the callback, so `analyzeRaceCall`-style callback scanning never sees it
+ * and the diagram showed a plain step. Resolve it from the dependency list.
+ *
+ * @returns how many steps were marked, so stats can count them as references.
+ */
+export function attachWorkflowRefsFromDeps(root: StaticWorkflowNode): number {
+  const refDeps = new Map(
+    root.dependencies.filter((d) => d.workflowRef).map((d) => [d.name, d.workflowRef!])
+  );
+  if (refDeps.size === 0) return 0;
+
+  let marked = 0;
+  function visit(node: StaticFlowNode): void {
+    if (node.type === "step") {
+      const step = node as StaticStepNode;
+      const callee = step.callee ?? step.name;
+      if (callee && !step.workflowRef) {
+        const ref =
+          refDeps.get(callee) ??
+          refDeps.get(extractFunctionName(callee)) ??
+          (step.depSource ? refDeps.get(step.depSource) : undefined);
+        if (ref) {
+          step.workflowRef = ref;
+          marked++;
+        }
+      }
+    }
+    for (const c of getStaticChildren(node)) visit(c);
+  }
+  for (const c of root.children) visit(c);
+  return marked;
+}
+
+/**
  * When step.errors is not explicitly set but errorTypeInfo has been resolved,
  * populate step.errors from errorTypeInfo.display by splitting union types.
  */
@@ -233,6 +313,11 @@ export function inferErrorsFromErrorTypeInfo(root: StaticWorkflowNode): void {
       if (!errorDisplay || errorDisplay === "unknown" || errorDisplay === "never") return;
 
       const errorNames = splitTopLevelUnion(errorDisplay)
+        // A string-literal error arrives as TypeScript writes it — `"NOT_FOUND"`,
+        // quotes included — while a declared `errors: ["NOT_FOUND"]` is bare.
+        // Unquote so a step reads the same whether its errors were declared or
+        // inferred; otherwise dropping the redundant option changes every label.
+        .map((s) => s.replace(/^(['"])(.*)\1$/, "$2"))
         .filter((s) => s && s !== "unknown" && s !== "never");
 
       if (errorNames.length > 0) {

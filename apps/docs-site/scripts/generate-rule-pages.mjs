@@ -177,7 +177,7 @@ function renderPage() {
   );
   lines.push("");
   lines.push(
-    "See the [Slug Spine reference](/awaitly/reference/spine/) for the design rationale and the [ESLint plugin guide](/awaitly/guides/eslint-plugin/) for hand-authored examples of every lint rule."
+    "See the [Slug Spine reference](reference/spine/) for the design rationale and the [ESLint plugin guide](guides/eslint-plugin/) for hand-authored examples of every lint rule."
   );
   lines.push("");
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createLiveSession } from "./live-session";
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 
 function makeEvent(ts: number): WorkflowEvent<unknown> {
   return { type: "workflow_start", workflowId: "wf-1", ts };

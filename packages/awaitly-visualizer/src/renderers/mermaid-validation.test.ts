@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeAll } from "vitest";
 import { ok, err, type AsyncResult } from "awaitly";
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 import { createEventCollector, createVisualizer, type MermaidRenderOptions, defaultColorScheme } from "../index";
 import { mermaidRenderer } from "./mermaid";
 import mermaid from "mermaid";

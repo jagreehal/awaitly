@@ -7,8 +7,8 @@
  */
 
 import { ok, err, anyAsync, type AsyncResult } from "awaitly";
-import { createWorkflow } from "awaitly/workflow";
-import type { WorkflowEvent } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
+import type { WorkflowEvent } from "awaitly";
 import { when } from "awaitly";
 import {
   createVisualizer,
@@ -233,7 +233,7 @@ export async function runProcessOrder(
       anyAsync([
         deps.getPrimaryShipping(),
         deps.getFallbackShipping(),
-      ]) as AsyncResult<{ estimate: string; days: number }, "SHIPPING_ERROR">
+      ])
     );
 
     // Step 7: bundleDiscount (conditional — skipped for single-item carts)

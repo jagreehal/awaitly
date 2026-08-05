@@ -21,10 +21,15 @@ Work through these topics in order. Each builds on concepts from the previous on
 
     [Start here →](foundations/result-types/)
   </Card>
-  <Card title="Workflows and Steps" icon="rocket">
-    Compose operations with `run()` and `createWorkflow()`. Master the `step()` function.
+  <Card title="Workflows" icon="rocket">
+    Compose operations with `run()` and `createWorkflow()`. Options, composition, lifecycle.
 
-    [Learn workflows →](foundations/workflows-and-steps/)
+    [Learn workflows →](foundations/workflows/)
+  </Card>
+  <Card title="Steps" icon="puzzle">
+    When to use `steps.x()` vs `step()`, plus retries, timeouts, caching, and `step.forEach`.
+
+    [Learn steps →](foundations/step/)
   </Card>
   <Card title="Control Flow" icon="random">
     Sequential, parallel, and race patterns. Run operations concurrently.
@@ -66,7 +71,7 @@ Where workflows, runs, and options live:
 ```mermaid
 flowchart LR
   subgraph creation [Creation-time options]
-    createWorkflow["createWorkflow(name, deps, options)"]
+    createWorkflow["createWorkflow(name, deps, options) or createWorkflow(deps, options)"]
     options[resumeState, onEvent, cache, ...]
     createWorkflow --> options
   end
@@ -102,7 +107,9 @@ flowchart LR
 |---------|-------------|
 | `ok(value)` | Create a success Result |
 | `err(error)` | Create a failure Result |
-| `step('id', fn)` | Execute operation, exit early on error |
+| `run(deps, fn)` | Compose operations once; error union inferred from deps |
+| `steps.getUser(id)` | Call a dep as a step — no options, id from the dep name |
+| `step('id', fn, opts)` | Same, but with retry / timeout / cache options |
 | `createWorkflow('workflow', deps)` | Create reusable workflow with error inference (deps optional: `createWorkflow('name')` for no deps) |
 | `allAsync([...])` | Run operations in parallel (fail-fast) |
 | `step.retry(id, fn, opts)` | Retry with backoff on failure |

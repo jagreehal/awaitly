@@ -1,122 +1,44 @@
 ---
 title: The Basics
-description: Learn Result types and run() - the simplest way to use awaitly
+description: Result types and run() - the two ideas the rest of awaitly builds on
 ---
 
-Before diving into workflows, let's cover the fundamentals: **Result types** and the **`run()`** function.
+There are only two ideas to learn here. Everything else in awaitly is built from them.
 
-## Result types
+1. Operations return a **Result** instead of throwing.
+2. **`run(deps, fn)`** unwraps those Results for you and exits at the first error.
 
-Instead of throwing errors, awaitly uses Result types. Every operation returns either `ok(value)` or `err(error)`:
+## 1. Results instead of throws
+
+An operation that can fail returns `AsyncResult<T, E>` — either `ok(value)` or `err(error)`:
 
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
 
-// Functions return Results instead of throwing
-const divide = (a: number, b: number): AsyncResult<number, 'DIVIDE_BY_ZERO'> =>
+const divide = async (a: number, b: number): AsyncResult<number, 'DIVIDE_BY_ZERO'> =>
   b === 0 ? err('DIVIDE_BY_ZERO') : ok(a / b);
 
 const result = await divide(10, 2);
 
 if (result.ok) {
-  console.log(result.value); // 5
+  result.value; // number
 } else {
-  console.log(result.error); // TypeScript knows this is 'DIVIDE_BY_ZERO'
+  result.error; // 'DIVIDE_BY_ZERO' — and TypeScript knows that's the only option
 }
 ```
 
-This gives you:
-- **Type safety**: TypeScript knows exactly what errors can occur
-- **Explicit handling**: No hidden exceptions - errors are part of the return type
-- **Composability**: Results can be chained and transformed
+The failure is in the **return type**, so the compiler can see it. That is the whole
+point: `catch (error: unknown)` tells you nothing, `result.error` tells you everything.
 
-## The `run()` function
+## 2. Composing with `run()`
 
-`run()` is the simplest way to compose multiple Result-returning operations. The **deps-first** form is recommended — pass dependencies as the first argument and call them on the bound steps object:
+Checking `result.ok` after every call gets tedious fast. `run()` does it for you.
 
-```typescript
-import { ok, err, run, type AsyncResult } from 'awaitly';
-
-// Define operations that return Results
-const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
-  const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
-};
-
-const getOrders = async (userId: string): AsyncResult<Order[], 'FETCH_ERROR'> => {
-  const orders = await db.orders.findByUser(userId);
-  return ok(orders);
-};
-
-// Deps-first: property names become step ids; errors inferred from deps
-const result = await run({ getUser, getOrders }, async (s) => {
-  const user = await s.getUser('123');
-  const orders = await s.getOrders(user.id);
-  return { user, orders };
-});
-```
-
-You can also use the step-callback form when you want explicit step ids in the callback:
+Pass your operations as the first argument. You get back an object with the same
+keys, and calling one gives you the **unwrapped value**:
 
 ```typescript
-const result = await run(async ({ step }) => {
-  const user = await step('getUser', () => getUser('123'));
-  const orders = await step('getOrders', () => getOrders(user.id));
-  return { user, orders };
-});
-```
-
-## Using `step()` for early exit
-
-The `step()` function unwraps Results automatically. If any step returns an error, execution exits immediately:
-
-```typescript
-const result = await run(async ({ step }) => {
-  // If getUser returns err('NOT_FOUND'), we exit here
-  const user = await step('getUser', () => getUser('unknown'));
-
-  // This line never runs if getUser failed
-  const orders = await step('getOrders', () => getOrders(user.id));
-
-  return { user, orders };
-});
-
-// result.ok is false, result.error is 'NOT_FOUND'
-```
-
-No try/catch, no manual error checking - `step()` handles it all.
-
-## Handling the result
-
-At your application boundary, check the result:
-
-```typescript
-import { isUnexpectedError } from 'awaitly';
-
-if (result.ok) {
-  // Success path
-  return { status: 200, data: result.value };
-} else {
-  if (isUnexpectedError(result.error)) {
-    // Unexpected runtime failure (thrown exception)
-    console.error(result.error.cause);
-    return { status: 500 };
-  }
-
-  // Expected error path - TypeScript knows your domain errors
-  switch (result.error.type ?? result.error) {
-    case 'NOT_FOUND':
-      return { status: 404 };
-    case 'FETCH_ERROR':
-      return { status: 500 };
-  }
-}
-```
-
-## Complete example
-
-```typescript
-import { ok, err, run, type AsyncResult } from 'awaitly';
+import { run, ok, err, type AsyncResult } from 'awaitly';
 
 type User = { id: string; name: string };
 type Order = { id: number; total: number };
@@ -128,29 +50,74 @@ const getOrders = async (userId: string): AsyncResult<Order[], 'FETCH_ERROR'> =>
   ok([{ id: 1, total: 99.99 }]);
 
 const result = await run({ getUser, getOrders }, async (s) => {
-  const user = await s.getUser('1');
-  const orders = await s.getOrders(user.id);
+  const user = await s.getUser('1');         // User, not Result<User, ...>
+  const orders = await s.getOrders(user.id); // Order[], not Result<Order[], ...>
+  return { user, orders };
+});
+```
+
+Inside the callback there are no Results and no error checks — just values. The
+property names (`getUser`, `getOrders`) become the step names used in diagrams and
+traces, so you never write an id by hand.
+
+## Errors exit early
+
+If any operation returns `err`, the callback stops there and `run()` returns that error:
+
+```typescript
+const result = await run({ getUser, getOrders }, async (s) => {
+  const user = await s.getUser('999');       // returns err('NOT_FOUND') — stops here
+  const orders = await s.getOrders(user.id); // never runs
   return { user, orders };
 });
 
+result.ok;    // false
+result.error; // 'NOT_FOUND'
+```
+
+No try/catch, no early-return ladder, no `if (!x.ok) return x`.
+
+## What you get back
+
+This is the part worth internalising, because it is what you are buying:
+
+```typescript
+const result = await run({ getUser, getOrders }, async (s) => { /* ... */ });
+//    ^? Result<{ user: User; orders: Order[] }, 'NOT_FOUND' | 'FETCH_ERROR' | UnexpectedError>
+```
+
+The error union was **computed from the deps you passed**. You never declared it.
+Add a third operation that can fail and the union widens on its own; delete one and
+it narrows. Your `switch` over `result.error` breaks at compile time when it goes stale.
+
+`UnexpectedError` is always in the union: it represents an operation that *threw*
+rather than returning `err`. See [What TypeScript gives you back](getting-started/types/)
+for the full rules.
+
+## Handling it at the boundary
+
+```typescript
+import { isUnexpectedError } from 'awaitly';
+
 if (result.ok) {
-  console.log(`${result.value.user.name} has ${result.value.orders.length} orders`);
+  return { status: 200, data: result.value };
+}
+
+if (isUnexpectedError(result.error)) {
+  console.error(result.error.cause); // the original thrown value
+  return { status: 500 };
+}
+
+switch (result.error) {
+  case 'NOT_FOUND':   return { status: 404 };
+  case 'FETCH_ERROR': return { status: 502 };
 }
 ```
 
-## When to use `createWorkflow()`
-
-`run()` is great for simple workflows. Graduate to `createWorkflow()` when you need:
-
-| Need | Use |
-|------|-----|
-| Dependency injection for testing | `createWorkflow('workflow', deps)` |
-| Retries, timeouts, caching | `createWorkflow('workflow', deps)` with step helpers |
-| State persistence | `createWorkflow('workflow', deps)` |
-| Auto-inferred error types from deps | `createWorkflow('workflow', deps)` |
-
-For most cases, start with `run()`. You can always migrate later.
-
 ## Next
 
-[Build your first workflow →](/getting-started/first-workflow/)
+`run()` is for one-off composition. When you want a workflow you can name, test,
+retry, persist, and diagram, you reach for `createWorkflow()` — the same deps-first
+idea with more capability.
+
+[Build your first workflow →](getting-started/first-workflow/)

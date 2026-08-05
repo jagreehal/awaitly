@@ -6,7 +6,7 @@
  *
  * @example
  * ```typescript
- * import { createWorkflow, run } from 'awaitly/workflow';
+ * import { createWorkflow, run } from 'awaitly';
  * import { ok, err, type AsyncResult } from 'awaitly';
  *
  * const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>

@@ -527,8 +527,16 @@ function renderStepNode(
     label += `\\n[${node.tags.join(", ")}]`;
   }
 
-  lines.push(`  ${nodeId}["${escapeLabel(label)}"]`);
-  context.styleClasses.set(nodeId, "stepStyle");
+  if (node.workflowRef) {
+    // A step whose dep runs a child workflow. Subroutine shape and ref styling to
+    // match an inline `childWorkflow.run(...)`, keeping the step's own name so the
+    // diagram still says which step makes the call.
+    lines.push(`  ${nodeId}[["${escapeLabel(`${label} (${node.workflowRef})`)}"]]`);
+    context.styleClasses.set(nodeId, "workflowRefStyle");
+  } else {
+    lines.push(`  ${nodeId}["${escapeLabel(label)}"]`);
+    context.styleClasses.set(nodeId, "stepStyle");
+  }
 
   // Track step ID -> mermaid node ID for overlay features
   if (node.stepId) {
@@ -754,6 +762,11 @@ function renderConditionalNode(
   const conditionLabel = truncate(node.condition, 30);
   lines.push(`  ${decisionId}{"${escapeLabel(conditionLabel)}"}`);
   context.styleClasses.set(decisionId, "conditionalStyle");
+  // Register the derived id so a runtime trace can highlight this branch the
+  // same way it highlights an authored step.if decision.
+  if (node.derivedId) {
+    context.decisionIdMap.set(node.derivedId, decisionId);
+  }
 
   const lastNodeIds: string[] = [];
 

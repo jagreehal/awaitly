@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createPerformanceAnalyzer } from "./performance-analyzer";
 import { createIRBuilder } from "./ir-builder";
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 
 describe("createPerformanceAnalyzer", () => {
   it("maps heatmap data for steps with stepKey but no name", () => {

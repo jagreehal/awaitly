@@ -129,10 +129,41 @@ describe("renderWorkflowDSL", () => {
     `;
     const results = analyzeWorkflowSource(source);
     const dsl = renderWorkflowDSL(results[0]!);
-    const loopEntry = dsl.states.find((s) => s.id.startsWith("loop_entry_"));
+    // The loop iterates `items`, which reads statically, so the entry state
+    // takes its identity from the iterable rather than its position.
+    const loopEntry = dsl.states.find((s) => s.id === "loop_items");
     expect(loopEntry).toBeDefined();
     expect(dsl.transitions.some((t) => t.event === "next")).toBe(true);
     expect(dsl.transitions.some((t) => t.event === "done")).toBe(true);
+  });
+
+  it("keeps loop and branch ids stable when a step is inserted above them", () => {
+    const workflow = (extra: string) => `
+      import { createWorkflow, ok } from "awaitly";
+      const w = createWorkflow("w", { pay: async () => ok({}), audit: async () => ok({}) });
+      export async function run(order: { items: number[]; premium: boolean }) {
+        return await w(async ({ step, steps }) => {
+          ${extra}
+          if (order.premium) {
+            await step('discount', () => pay());
+          }
+          for (const _ of order.items) {
+            await step('pay', () => pay());
+          }
+          return {};
+        });
+      }
+    `;
+
+    const idsOf = (src: string) =>
+      renderWorkflowDSL(analyzeWorkflowSource(src)[0]!)
+        .states.filter((s) => s.type === "decision")
+        .map((s) => s.id)
+        .sort();
+
+    // Positional ids would all shift by one here; derived ids must not.
+    expect(idsOf(workflow(""))).toEqual(idsOf(workflow("await steps.audit();")));
+    expect(idsOf(workflow(""))).toEqual(["loop_order-items", "order-premium"]);
   });
 
   it("includes step kind suffixes and dep in DSL labels", () => {

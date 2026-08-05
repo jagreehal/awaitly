@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createPerformanceAnalyzer } from "./performance-analyzer";
 import type { WorkflowIR } from "./types";
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 
 describe("performance analyzer heatmap lookup", () => {
   it("maps heat values when steps have stepId + name (no key)", () => {

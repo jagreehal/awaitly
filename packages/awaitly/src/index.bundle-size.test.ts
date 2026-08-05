@@ -65,20 +65,23 @@ describe("bundle budgets", () => {
     ).toBeLessThan(40_000);
   });
 
-  it("keeps each task-shaped entry within its whole-entry budget", () => {
+  it("keeps createWorkflow reachable from the root without taxing primitive users", () => {
+    if (!built()) return;
+    // createWorkflow lives in the root entry so the common case is one import.
+    // The guard that matters is the tree-shaking test above: pulling in the
+    // workflow engine must not change what an `ok`/`err` consumer ships.
+    expect(
+      minifiedSize(importProbe(rootDist, ["createWorkflow", "run", "ok"]))
+    ).toBeLessThan(80_000);
+  });
+
+  it("keeps each public entry within its whole-entry budget", () => {
     if (!built()) return;
 
     const budgets = {
-      run: 36_000,
-      workflow: 70_000,
-      reliability: 22_000,
-      durable: 72_000,
-      persistence: 10_000,
-      saga: 58_000,
-      hitl: 12_000,
-      streaming: 13_000,
-      webhook: 9_000,
-      engine: 70_000,
+      // Heavy production machinery: durable execution, persistence, saga,
+      // HITL, streaming, webhook, engine. Deliberately off the root.
+      durable: 150_000,
       testing: 65_000,
     } as const;
 
@@ -92,10 +95,22 @@ describe("bundle budgets", () => {
     }
   });
 
-  it("keeps the raw root entry below the absorbed-core ceiling", () => {
+  it("ships exactly the four public entries", () => {
+    if (!built()) return;
+    // Consolidated from twelve. Adding a fifth is a deliberate act: it splits
+    // the install story again, which is what this collapse was meant to fix.
+    for (const name of ["index", "result", "durable", "testing"]) {
+      expect(existsSync(distEntry(name)), `missing dist/${name}.js`).toBe(true);
+    }
+    for (const gone of ["run", "workflow", "reliability", "persistence", "saga", "hitl", "streaming", "webhook", "engine"]) {
+      expect(existsSync(distEntry(gone)), `dist/${gone}.js should be absorbed`).toBe(false);
+    }
+  });
+
+  it("keeps the raw root entry below its ceiling", () => {
     if (!existsSync(rootDist)) return;
-    // Unminified raw ceiling: catches accidental absorption of the
-    // focused production capabilities belong to their own entry points.
-    expect(statSync(rootDist).size).toBeLessThan(150_000);
+    // Root now includes the workflow engine by design. The ceiling still
+    // catches the durable/saga/engine machinery leaking in from `awaitly/durable`.
+    expect(statSync(rootDist).size).toBeLessThan(260_000);
   });
 });

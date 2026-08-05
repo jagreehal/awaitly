@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ok, err, allAsync, anyAsync, type AsyncResult } from "awaitly";
-import { createWorkflow } from "awaitly/workflow";
-import type { WorkflowEvent } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
+import type { WorkflowEvent } from "awaitly";
 import {
   createVisualizer,
   createEventCollector,
