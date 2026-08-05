@@ -1,22 +1,16 @@
 version: 2
 updates:
+  # Single entry for the whole pnpm workspace. Dependabot reads
+  # pnpm-workspace.yaml, so this covers packages/* and apps/* and updates the
+  # one root pnpm-lock.yaml alongside each manifest. Do NOT add a per-workspace
+  # entry (e.g. /apps/docs-site): there is no lockfile in those directories, so
+  # Dependabot bumps package.json alone and every `--frozen-lockfile` CI run
+  # fails on the stale root lockfile.
   - package-ecosystem: 'npm'
     directory: '/'
     schedule:
       interval: 'weekly'
     open-pull-requests-limit: 10
-    versioning-strategy: 'auto'
-    allow:
-      - dependency-type: 'all'
-    labels:
-      - 'dependencies'
-      - 'automerge'
-
-  - package-ecosystem: 'npm'
-    directory: '/apps/docs-site'
-    schedule:
-      interval: 'weekly'
-    open-pull-requests-limit: 5
     versioning-strategy: 'auto'
     allow:
       - dependency-type: 'all'
