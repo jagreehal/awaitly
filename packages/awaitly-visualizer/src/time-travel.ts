@@ -8,7 +8,7 @@
  * - State inspection at any moment
  */
 
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 import type {
   IRSnapshot,
   TimeTravelState,

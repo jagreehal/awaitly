@@ -21,7 +21,7 @@ yarn add awaitly-postgres pg
 
 ```typescript
 import { postgres } from 'awaitly-postgres';
-import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly';
 
 // One-liner setup
 const store = postgres('postgresql://localhost/mydb');
@@ -214,4 +214,4 @@ GROUP BY 1;
 
 ## Next
 
-[Learn about MongoDB persistence →](./mongo-persistence/)
+[Learn about MongoDB persistence →](guides/mongo-persistence/)

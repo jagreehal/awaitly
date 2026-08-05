@@ -203,11 +203,12 @@ const message = match(result, {
 **Exhaustive per-type arms** — dispatch across string literals, tagged objects, and `TaggedError` classes in one call:
 
 ```typescript
-import { match, ok, err, type AsyncResult } from 'awaitly';
+import { match, ok, err, type Result } from 'awaitly';
 
 type FetchUserError = 'USER_NOT_FOUND' | TimeoutError | UnexpectedError;
 
-const result: AsyncResult<User, FetchUserError> = await fetchUser('123');
+// `await` unwraps the AsyncResult, so the value here is a `Result`.
+const result: Result<User, FetchUserError> = await fetchUser('123');
 
 const response = match(result, {
   ok: (user) => ({ status: 200, body: user }),
@@ -217,7 +218,7 @@ const response = match(result, {
 });
 ```
 
-TypeScript errors if you omit a variant from the inferred union. See [Tagged Errors](/foundations/tagged-errors/) for `TaggedError`-specific helpers.
+TypeScript errors if you omit a variant from the inferred union. See [Tagged Errors](foundations/tagged-errors/) for `TaggedError`-specific helpers.
 
 ## Unwrapping
 
@@ -574,4 +575,4 @@ const deps = {
 
 ## Next
 
-[Learn about Workflows and Steps →](/foundations/workflows-and-steps/)
+[Learn about Workflows and Steps →](foundations/workflows/)

@@ -10,7 +10,7 @@ Define compensating actions for steps that need rollback on downstream failures.
 `saga.run(fn)` runs your callback. Each `step(id, op, { compensate })` records its compensation on success. If anything later fails, compensations run in reverse. That's it.
 
 ```typescript
-import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/saga';
+import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/durable';
 
 const checkout = createSagaWorkflow('checkout', {
   reserveInventory, releaseInventory,
@@ -88,7 +88,7 @@ const result = await checkoutSaga.run(async ({ step, deps }) => {
 Use `step.try` to catch exceptions from external libraries:
 
 ```typescript
-import { runSaga } from 'awaitly/saga';
+import { runSaga } from 'awaitly/durable';
 
 const result = await runSaga<OrderResult, OrderError>(async ({ step }) => {
   const reservation = await step(
@@ -116,7 +116,7 @@ const result = await runSaga<OrderResult, OrderError>(async ({ step }) => {
 For explicit error typing without deps-based inference:
 
 ```typescript
-import { runSaga } from 'awaitly/saga';
+import { runSaga } from 'awaitly/durable';
 
 type CheckoutResult = { orderId: string; chargeId: string };
 type CheckoutError = 'INVENTORY_UNAVAILABLE' | 'PAYMENT_FAILED' | 'SEND_FAILED';
@@ -202,7 +202,7 @@ Compensations can fail for many reasons: network issues, service unavailable, bu
 ### Understanding compensation errors
 
 ```typescript
-import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/saga';
+import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/durable';
 
 const result = await orderSaga.run(async ({ step, deps }) => {
   const reservation = await step(
@@ -258,24 +258,35 @@ Result: SagaCompensationError with compensationErrors: [{stepName: 'charge', err
 ### Alerting on compensation failures
 
 ```typescript
-import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/saga';
+import { runSaga } from 'awaitly/durable';
 
-const orderSaga = createSagaWorkflow('saga', deps, {
+// `SagaEvent`s come from `runSaga` — `createSagaWorkflow`'s `onEvent` receives
+// ordinary `WorkflowEvent`s and never sees the compensation events.
+const result = await runSaga(async ({ step }) => {
+  const charge = await step('charge-card', () => chargeCard(amount), {
+    compensate: (c) => refund(c.id),
+  });
+  return await step('reserve-stock', () => reserveStock(items), {
+    compensate: (r) => releaseStock(r.id),
+  });
+}, {
   onEvent: async (event) => {
-    if (event.type === 'compensation_error') {
+    // Each compensation emits `saga_compensation_step` with a success flag;
+    // the saga is identified by `sagaId`.
+    if (event.type === 'saga_compensation_step' && !event.success) {
       // Alert immediately when compensation fails
       await alertOps({
         severity: 'high',
         message: `Compensation failed for step: ${event.stepName}`,
         error: event.error,
-        workflowId: event.workflowId,
+        sagaId: event.sagaId,
         requiresManualIntervention: true,
       });
 
       // Log for audit trail
       await db.compensationFailures.create({
         data: {
-          workflowId: event.workflowId,
+          sagaId: event.sagaId,
           stepName: event.stepName,
           error: JSON.stringify(event.error),
           timestamp: new Date(),
@@ -286,6 +297,12 @@ const orderSaga = createSagaWorkflow('saga', deps, {
   },
 });
 ```
+
+:::note
+`createSagaWorkflow(...)`'s `onEvent` receives standard `WorkflowEvent`s
+(`step_start`, `step_complete`, …). The `saga_*` compensation events above are
+emitted only by `runSaga`.
+:::
 
 ## Partial compensation recovery
 

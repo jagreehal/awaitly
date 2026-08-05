@@ -66,9 +66,9 @@ export interface BaseNode {
   /** Timeout duration in ms (if timed out) */
   timeoutMs?: number;
   /** Agent metadata from step options (domain, intent, owner, etc.) */
-  metadata?: import("awaitly/workflow").StepMetadata;
+  metadata?: import("awaitly").StepMetadata;
   /** Error diagnostics (tag, classification, origin) */
-  errorDiagnostics?: import("awaitly/workflow").StepErrorDiagnostics;
+  errorDiagnostics?: import("awaitly").StepErrorDiagnostics;
 }
 
 /**
@@ -206,8 +206,8 @@ export interface WorkflowIR {
 // =============================================================================
 
 // Re-export ScopeType from awaitly for consistency
-export type { ScopeType } from "awaitly/workflow";
-import type { ScopeType, WorkflowEvent, WorkflowOptions } from "awaitly/workflow";
+export type { ScopeType } from "awaitly";
+import type { ScopeType, WorkflowEvent, WorkflowOptions } from "awaitly";
 import type { UnexpectedError } from "awaitly";
 
 /**

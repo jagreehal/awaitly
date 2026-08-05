@@ -1,17 +1,19 @@
 ---
 title: Your First Workflow
-description: Build a simple workflow with typed errors in 5 minutes
+description: Turn a run() into a named workflow you can test, retry, and diagram
 ---
 
 :::note
-New to awaitly? Start with [The Basics](/docs/getting-started/basics/) to learn `run()` and Result types first.
+This page assumes you've read [The Basics](getting-started/basics/) — Result types and `run(deps, fn)`.
 :::
 
-This guide walks through building a workflow that fetches a user and their posts, with typed error handling.
+`createWorkflow()` is `run()` with a name attached. Same deps-first idea, same
+unwrapping, same inferred error union — but because the workflow has a name and a
+fixed set of deps, awaitly can also test it, retry it, persist it, and **draw it**.
 
 ## Define your operations
 
-Operations return `AsyncResult<T, E>` - either `ok(value)` or `err(error)`:
+Nothing new here — operations return `AsyncResult<T, E>`:
 
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
@@ -19,88 +21,102 @@ import { ok, err, type AsyncResult } from 'awaitly';
 type User = { id: string; name: string };
 type Post = { id: number; title: string };
 
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
-  if (id === '1') {
-    return ok({ id: '1', name: 'Alice' });
-  }
-  return err('NOT_FOUND');
-};
+const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
+  id === '1' ? ok({ id: '1', name: 'Alice' }) : err('NOT_FOUND');
 
-const fetchPosts = async (userId: string): AsyncResult<Post[], 'FETCH_ERROR'> => {
-  return ok([
-    { id: 1, title: 'Hello World' },
-    { id: 2, title: 'Second Post' },
-  ]);
-};
+const fetchPosts = async (userId: string): AsyncResult<Post[], 'FETCH_ERROR'> =>
+  ok([{ id: 1, title: 'Hello World' }]);
 ```
 
-## Create the workflow
-
-Pass your operations to `createWorkflow`. Error types are inferred automatically:
+## Name it and pass the deps
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
-const loadUserData = createWorkflow('workflow', { fetchUser, fetchPosts });
+const loadUserData = createWorkflow('loadUserData', { fetchUser, fetchPosts });
 ```
 
-## Adding workflow options
-
-Options like caching, events, and resume state are passed to `createWorkflow`, or per-run via `workflow.run(fn, config)`:
-
-```typescript
-// Correct: Options at creation
-const workflow = createWorkflow('workflow', { fetchUser }, {
-  cache: new Map(),
-  onEvent: (e) => console.log(e)
-});
-await workflow.run(async ({ step }) => { ... });
-
-// Per-run options: pass config as second argument to .run()
-await workflow.run(async ({ step }) => { ... }, { signal: controller.signal });
-```
+The first argument is the **workflow name**. It is not decoration — it's the
+identifier used in diagrams, traces, persisted state, and analyzer output.
 
 ## Run it
 
-Use `step()` to execute operations. Prefer **`step('id', fn)`** so step names appear in [statically generated docs](/docs/guides/static-analysis/) and diagrams. If any step fails, the workflow exits early:
+The callback receives `{ steps }` — the same bound object `run()` gave you:
 
 ```typescript
-const result = await loadUserData.run(async ({ step, deps }) => {
-  const user = await step('fetchUser', () => deps.fetchUser('1'));
-  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));
+const result = await loadUserData.run(async ({ steps }) => {
+  const user = await steps.fetchUser('1');
+  const posts = await steps.fetchPosts(user.id);
   return { user, posts };
 });
 ```
 
-## Handle the result
+If `fetchUser` returns `err('NOT_FOUND')`, the callback stops there and `result.error`
+is `'NOT_FOUND'`. Identical to `run()`.
 
-Check `result.ok` to determine success or failure:
+## Handle the result
 
 ```typescript
 if (result.ok) {
-  console.log(result.value.user.name);
-  console.log(result.value.posts.length, 'posts');
+  console.log(result.value.user.name, result.value.posts.length);
 } else {
-  // TypeScript knows: result.error is 'NOT_FOUND' | 'FETCH_ERROR' | UnexpectedError
   switch (result.error) {
-    case 'NOT_FOUND':
-      console.log('User not found');
-      break;
-    case 'FETCH_ERROR':
-      console.log('Failed to fetch posts');
-      break;
-    default:
-      // UnexpectedError - something threw an exception
-      console.log('Unexpected error:', result.error);
+    case 'NOT_FOUND':   console.log('User not found'); break;
+    case 'FETCH_ERROR': console.log('Failed to fetch posts'); break;
+    default:            console.log('Threw:', result.error.cause);
   }
 }
 ```
 
+`result.error` is `'NOT_FOUND' | 'FETCH_ERROR' | UnexpectedError`, inferred from the
+deps. See [What TypeScript gives you back](getting-started/types/).
+
+## What you just unlocked
+
+Because the workflow is named, this now works:
+
+```bash
+npx awaitly-analyze ./src/load-user-data.ts
+```
+
+```mermaid
+flowchart TB
+  start([loadUserData]) --> fetchUser
+  fetchUser -->|ok| fetchPosts
+  fetchUser -->|NOT_FOUND| fail([error])
+  fetchPosts -->|ok| done([ok])
+  fetchPosts -->|FETCH_ERROR| fail
+```
+
+The diagram is generated from your source — no annotations, no separate spec file.
+Add a step and the diagram changes; delete one and it disappears. Add
+`--assert-diagrammable` in CI and a workflow that drifts out of shape fails the build.
+
+That is the reason to name workflows, and the reason to prefer `steps.fetchUser(id)`
+over hand-written control flow. See [Static Analysis](guides/static-analysis/).
+
+:::caution
+`run()` works with the analyzer too, but an anonymous `run()` shows up as
+`run@file.ts:12` because there's no name to use. Reach for `createWorkflow()` as
+soon as you care about the diagram.
+:::
+
+## When to use which
+
+| You want | Use |
+|----------|-----|
+| Compose a few operations, once | `run(deps, fn)` |
+| A named unit that appears in diagrams | `createWorkflow(name, deps)` |
+| Swap deps in tests | `createWorkflow(name, deps)` |
+| Retries, timeouts, caching | `createWorkflow(name, deps)` |
+| Resume after a crash | `createWorkflow(name, deps)` |
+
+Both infer the error union from deps. The difference is what you can do afterwards.
+
 ## Complete example
 
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { ok, err, type AsyncResult, createWorkflow } from 'awaitly';
 
 type User = { id: string; name: string };
 type Post = { id: number; title: string };
@@ -111,11 +127,11 @@ const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
 const fetchPosts = async (userId: string): AsyncResult<Post[], 'FETCH_ERROR'> =>
   ok([{ id: 1, title: 'Hello World' }]);
 
-const loadUserData = createWorkflow('workflow', { fetchUser, fetchPosts });
+const loadUserData = createWorkflow('loadUserData', { fetchUser, fetchPosts });
 
-const result = await loadUserData.run(async ({ step, deps }) => {
-  const user = await step('fetchUser', () => deps.fetchUser('1'));
-  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));
+const result = await loadUserData.run(async ({ steps }) => {
+  const user = await steps.fetchUser('1');
+  const posts = await steps.fetchPosts(user.id);
   return { user, posts };
 });
 
@@ -124,24 +140,6 @@ if (result.ok) {
 }
 ```
 
-## What happens on error?
-
-Change `fetchUser('1')` to `fetchUser('999')`:
-
-```typescript
-const result = await loadUserData.run(async ({ step, deps }) => {
-  const user = await step('fetchUser', () => deps.fetchUser('999')); // Returns err('NOT_FOUND')
-  // This line never runs
-  const posts = await step('fetchPosts', () => deps.fetchPosts(user.id));
-  return { user, posts };
-});
-
-console.log(result.ok);    // false
-console.log(result.error); // 'NOT_FOUND'
-```
-
-The workflow exits at the first error. No need for try/catch or manual error checking.
-
 ## Next
 
-[Learn about error handling →](/getting-started/error-handling/)
+[What TypeScript gives you back →](getting-started/types/)

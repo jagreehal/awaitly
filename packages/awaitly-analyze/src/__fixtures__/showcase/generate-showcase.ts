@@ -19,7 +19,7 @@ import {
   isStaticStepNode,
   isStaticSagaStepNode,
 } from "../../index";
-import type { StaticFlowNode, StaticStepNode } from "../../types.js";
+import type { StaticFlowNode, StaticStepNode, StaticWorkflowIR } from "../../types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const showcaseDir = __dirname;
@@ -46,6 +46,17 @@ const SHOWCASE_ENTRIES = [
 
 const tsConfigPath = join(pkgRoot, "tsconfig.json");
 const outPath = join(fixturesDir, "analyzer-showcase.data.json");
+// pkgRoot is packages/awaitly-analyze, so the repo root is two levels up.
+const docsSiteOutPath = join(
+  pkgRoot,
+  "..",
+  "..",
+  "apps",
+  "docs-site",
+  "src",
+  "data",
+  "analyzer-showcase.data.json"
+);
 
 interface StepDetailRecord {
   stepId?: string;
@@ -171,7 +182,7 @@ function main(): void {
       process.exit(1);
     }
 
-    let ir: { root: { children: StaticFlowNode[] } };
+    let ir: StaticWorkflowIR;
     try {
       const result = analyze(absPath, { tsConfigPath });
       ir = workflowName ? result.named(workflowName)! : result.single()!;
@@ -196,7 +207,9 @@ function main(): void {
   }
 
   writeFileSync(outPath, JSON.stringify(results, null, 2), "utf8");
+  writeFileSync(docsSiteOutPath, JSON.stringify(results, null, 2), "utf8");
   console.log(`Wrote ${results.length} entries to ${outPath}`);
+  console.log(`Wrote ${results.length} entries to ${docsSiteOutPath}`);
 }
 
 main();

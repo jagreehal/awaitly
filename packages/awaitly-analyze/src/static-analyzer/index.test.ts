@@ -2632,17 +2632,79 @@ async function run() {
     });
   });
 
+  describe("child workflow passed as a dep", () => {
+    // Passing a child workflow as a dep is how its errors join the parent's
+    // union, so it is the composition users are steered towards. The reference
+    // lives in the deps object rather than the callback, so it has to be
+    // resolved from the dependency list or the diagram shows a plain step.
+    it("marks a step whose dep runs a child workflow as a workflow ref", () => {
+      const source = `
+        const childWorkflow = createWorkflow("childWorkflow", { enrich });
+        const workflow = createWorkflow("parent", {
+          fetchUser,
+          enrichUser: (id) => childWorkflow.run(async ({ step, deps }) => step("enrich", () => deps.enrich(id))),
+        });
+
+        async function run(userId) {
+          return await workflow.run(async ({ step, deps }) => {
+            const user = await step("getUser", () => deps.fetchUser(userId));
+            const enriched = await step("callChild", () => deps.enrichUser(user.id));
+            return { user, enriched };
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const parent = results.find((r) =>
+        r.root.dependencies.some((d) => d.name === "enrichUser")
+      )!;
+      const steps = collectStepNodes(parent.root);
+
+      const callChild = steps.find((s) => s.stepId === "callChild");
+      expect(callChild?.workflowRef).toBe("childWorkflow");
+
+      // A dep that is just a function stays a plain step.
+      const getUser = steps.find((s) => s.stepId === "getUser");
+      expect(getUser?.workflowRef).toBeUndefined();
+    });
+
+    it("records the referenced workflow on the dependency itself", () => {
+      const source = `
+        const childWorkflow = createWorkflow("childWorkflow", { enrich });
+        const workflow = createWorkflow("parent", {
+          fetchUser,
+          enrichUser: (id) => childWorkflow.run(async ({ step, deps }) => step("enrich", () => deps.enrich(id))),
+        });
+
+        async function run() {
+          return await workflow.run(async ({ step, deps }) => step("getUser", () => deps.fetchUser("1")));
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const parent = results.find((r) =>
+        r.root.dependencies.some((d) => d.name === "enrichUser")
+      )!;
+      const deps = parent.root.dependencies;
+
+      expect(deps.find((d) => d.name === "enrichUser")?.workflowRef).toBe("childWorkflow");
+      expect(deps.find((d) => d.name === "fetchUser")?.workflowRef).toBeUndefined();
+    });
+  });
+
   describe("step.race() Analysis", () => {
-    it("should detect step.race with array form", () => {
+    // The runtime signature is step.race(name, operation) — a scope wrapper whose
+    // racers come from what the callback runs. Nothing accepts a bare array or
+    // object literal, and require-step-id rejects a non-string first argument.
+    it("should detect step.race wrapping anyAsync", () => {
       const source = `
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow.run(async ({ step, deps }) => {
-            const result = await step.race([
-              () => deps.fetchFromCacheA(),
-              () => deps.fetchFromCacheB(),
-            ]);
+            const result = await step.race("cacheRace", () =>
+              anyAsync([deps.fetchFromCacheA(), deps.fetchFromCacheB()])
+            );
           });
         }
       `;
@@ -2650,20 +2712,21 @@ async function run() {
       const results = analyzeWorkflowSource(source);
       const stats = results[0]?.metadata?.stats;
 
+      // One race scope, not two — the inner anyAsync is absorbed rather than
+      // nested, so the diagram shows a single fork with both racers under it.
       expect(stats?.raceCount).toBe(1);
       expect(stats?.totalSteps).toBe(2);
     });
 
-    it("should detect step.race with object form", () => {
+    it("should name the race scope and keep its racers as children", () => {
       const source = `
         const workflow = createWorkflow("workflow", {});
 
         async function run() {
           return await workflow.run(async ({ step, deps }) => {
-            const result = await step.race({
-              cacheA: () => deps.fetchFromCacheA(),
-              cacheB: () => deps.fetchFromCacheB(),
-            });
+            const result = await step.race("cacheRace", () =>
+              anyAsync([deps.cacheA(), deps.cacheB()])
+            );
           });
         }
       `;
@@ -2684,6 +2747,7 @@ async function run() {
 
       expect(raceNode?.type).toBe("race");
       if (raceNode?.type === "race") {
+        expect(raceNode.name).toBe("cacheRace");
         expect(raceNode.children).toHaveLength(2);
         expect(raceNode.children[0].name).toBe("cacheA");
         expect(raceNode.children[1].name).toBe("cacheB");
@@ -4887,7 +4951,7 @@ async function run() {
 
     it("extracts @param name when JSDoc includes a type annotation", () => {
       const source = `
-        import { createWorkflow } from "awaitly/workflow";
+        import { createWorkflow } from "awaitly";
         const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
         async function run(id: string) {
           return await workflow.run(async ({ step, deps }) => {
@@ -4909,7 +4973,7 @@ async function run() {
 
     it("extracts @returns text when JSDoc includes a return type annotation", () => {
       const source = `
-        import { createWorkflow } from "awaitly/workflow";
+        import { createWorkflow } from "awaitly";
         type User = { id: string };
         const workflow = createWorkflow("workflow", { fetchUser: async (id: string): Promise<User> => ({ id }) });
         async function run(id: string) {
@@ -4932,7 +4996,7 @@ async function run() {
 
     it("extracts optional @param names without square brackets", () => {
       const source = `
-        import { createWorkflow } from "awaitly/workflow";
+        import { createWorkflow } from "awaitly";
         const workflow = createWorkflow("workflow", { fetchUser: async (id?: string) => ({ id }) });
         async function run(id?: string) {
           return await workflow.run(async ({ step, deps }) => {
@@ -4954,7 +5018,7 @@ async function run() {
 
     it("extracts optional @param names with defaults without default suffix", () => {
       const source = `
-        import { createWorkflow } from "awaitly/workflow";
+        import { createWorkflow } from "awaitly";
         const workflow = createWorkflow("workflow", { fetchUser: async (id?: string) => ({ id }) });
         async function run(id?: string) {
           return await workflow.run(async ({ step, deps }) => {
@@ -4976,7 +5040,7 @@ async function run() {
 
     it("extracts clean @throws descriptions when JSDoc includes a throw type", () => {
       const source = `
-        import { createWorkflow } from "awaitly/workflow";
+        import { createWorkflow } from "awaitly";
         const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
         async function run(id: string) {
           return await workflow.run(async ({ step, deps }) => {
@@ -4998,7 +5062,7 @@ async function run() {
 
     it("extracts @param description when no dash separator is present", () => {
       const source = `
-        import { createWorkflow } from "awaitly/workflow";
+        import { createWorkflow } from "awaitly";
         const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
         async function run(id: string) {
           return await workflow.run(async ({ step, deps }) => {
@@ -5020,7 +5084,7 @@ async function run() {
 
     it("extracts structured JSDoc tags for step.retry nodes", () => {
       const source = `
-        import { createWorkflow } from "awaitly/workflow";
+        import { createWorkflow } from "awaitly";
         const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
         async function run(id: string) {
           return await workflow.run(async ({ step, deps }) => {
@@ -5044,7 +5108,7 @@ async function run() {
 
     it("extracts structured JSDoc tags for step.sleep nodes", () => {
       const source = `
-        import { createWorkflow } from "awaitly/workflow";
+        import { createWorkflow } from "awaitly";
         const workflow = createWorkflow("workflow", {});
         async function run() {
           return await workflow.run(async ({ step }) => {
@@ -5066,7 +5130,7 @@ async function run() {
 
     it("extracts clean @example text without the tag prefix", () => {
       const source = `
-        import { createWorkflow } from "awaitly/workflow";
+        import { createWorkflow } from "awaitly";
         const workflow = createWorkflow("workflow", { fetchUser: async (id: string) => ({ id }) });
         async function run(id: string) {
           return await workflow.run(async ({ step, deps }) => {
@@ -6447,7 +6511,9 @@ describe("infer errors from errorTypeInfo", () => {
     const steps = collectStepNodes(results[0].root);
     const stepNode = steps.find((s) => s.stepId === "action")!;
 
-    expect(stepNode.errors).toEqual(['"A|B"']);
+    // Unquoted so declared and inferred errors read alike; the point of the test
+    // is that the embedded `|` did not split it into two errors.
+    expect(stepNode.errors).toEqual(["A|B"]);
     expect(stepNode.errorTypeInfo?.display).toBe('"A|B"');
     expect(stepNode.errorsSource).toBe("inferred");
   });
@@ -6471,7 +6537,7 @@ describe("infer errors from errorTypeInfo", () => {
     const steps = collectStepNodes(results[0].root);
     const stepNode = steps.find((s) => s.stepId === "action")!;
 
-    expect(stepNode.errors).toEqual(['"A,B"']);
+    expect(stepNode.errors).toEqual(["A,B"]);
     expect(stepNode.errorTypeInfo?.display).toBe('"A,B"');
     expect(stepNode.errorsSource).toBe("inferred");
   });
@@ -6495,7 +6561,7 @@ describe("infer errors from errorTypeInfo", () => {
     const steps = collectStepNodes(results[0].root);
     const stepNode = steps.find((s) => s.stepId === "action")!;
 
-    expect(stepNode.errors).toEqual(['"A\\\\\\"|B"']);
+    expect(stepNode.errors).toEqual(['A\\\\\\"|B']);
     expect(stepNode.errorTypeInfo?.display).toBe('"A\\\\\\"|B"');
     expect(stepNode.errorsSource).toBe("inferred");
   });

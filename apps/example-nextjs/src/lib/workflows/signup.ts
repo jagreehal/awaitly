@@ -1,5 +1,5 @@
 import { ok, err, type AsyncResult } from "awaitly";
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { users, type User } from "../db/schema";

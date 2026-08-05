@@ -24,12 +24,12 @@ export const linearWorkflow = createWorkflow("linearWorkflow", {
   sendEmail,
 });
 
-export async function runLinear(userId: string): Promise<{ user: User; orders: Order[] }> {
+export async function runLinear(userId: string) {
   return await linearWorkflow.run(
     async ({ step, deps }): Promise<{ user: User; orders: Order[] }> => {
-      const user = await step("getUser", () => deps.fetchUser(userId), { errors: ["NOT_FOUND"] });
-      const orders = await step("getOrders", () => deps.fetchOrders(user.id), { errors: ["FETCH_ERROR"] });
-      await step("notify", () => deps.sendEmail(user.id), { errors: ["SEND_ERROR"] });
+      const user = await step("getUser", () => deps.fetchUser(userId));
+      const orders = await step("getOrders", () => deps.fetchOrders(user.id));
+      await step("notify", () => deps.sendEmail(user.id));
       return { user, orders };
     }
   );

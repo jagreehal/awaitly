@@ -30,6 +30,7 @@ import {
   type AsyncResult,
   type Errors,
   type ErrorOf,
+  type ErrorsOf,
   type TagOf,
   type ErrorByTag,
   type UnexpectedError,
@@ -1063,7 +1064,7 @@ async function _test24bWorkflowNoDeps() {
 
   const result = await workflow.run(async ({ step, deps }) => {
     // no deps object provided at creation, so deps should not be required for step helpers
-    expectType<unknown>(deps);
+    expectType<unknown>(raw);
     await step.sleep("pause", "1ms");
     return 123;
   });
@@ -1984,4 +1985,54 @@ async function _test55ExecutionOptionsType() {
 
   // Should compile without error
   await workflow.run(async ({ step }) => 1, execOptions);
+}
+
+// =============================================================================
+// Documented claims — getting-started/types.md
+//
+// Each block mirrors a `^?` annotation printed in the docs. If an inference
+// rule changes, this fails and the docs page is wrong until it's updated.
+// =============================================================================
+{
+  type DocUser = { id: string; name: string };
+  type DocPost = { id: number };
+
+  const getUser = async (id: string): AsyncResult<DocUser, "NOT_FOUND"> =>
+    id === "1" ? ok({ id: "1", name: "A" }) : err("NOT_FOUND");
+  const getPosts = async (_id: string): AsyncResult<DocPost[], "FETCH_ERROR"> => ok([]);
+  const slugify = (s: string) => s.toLowerCase();
+
+  // Rule 1 & 3: union inferred from deps, UnexpectedError always added.
+  // Rule 2: bound steps resolve to the UNWRAPPED value inside the callback.
+  const inferred = await run({ getUser, getPosts }, async (s) => {
+    const user = await s.getUser("1");
+    expectType<DocUser>(user);
+    return s.getPosts(user.id);
+  });
+  if (!inferred.ok) {
+    expectType<"NOT_FOUND" | "FETCH_ERROR" | UnexpectedError>(inferred.error);
+  }
+
+  // Rule 4: a plain (non-Result) dep passes its value through and contributes
+  // nothing to the error union.
+  const mixed = await run({ getUser, slugify }, async (s) => {
+    const user = await s.getUser("1");
+    return s.slugify(user.name);
+  });
+  if (mixed.ok) {
+    expectType<string>(mixed.value);
+  } else {
+    expectType<"NOT_FOUND" | UnexpectedError>(mixed.error);
+  }
+
+  // Naming the union: ErrorsOf gives DECLARED errors only (no UnexpectedError).
+  expectType<"NOT_FOUND" | "FETCH_ERROR">(
+    null as unknown as ErrorsOf<{ getUser: typeof getUser; getPosts: typeof getPosts }>
+  );
+  expectType<"NOT_FOUND">(null as unknown as ErrorOf<typeof getUser>);
+
+  // The docs state catchUnexpected is NOT on the deps-first form. Guard it, so
+  // the day it is added the docs get corrected instead of silently going stale.
+  type DepsFirstOptions = NonNullable<Parameters<typeof run<{ getUser: typeof getUser }, DocUser>>[2]>;
+  expectType<never>(null as unknown as Extract<keyof DepsFirstOptions, "catchUnexpected">);
 }

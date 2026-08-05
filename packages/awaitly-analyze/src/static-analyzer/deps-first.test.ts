@@ -125,7 +125,7 @@ describe("deps-first form: run(deps, fn)", () => {
 
   it("detects steps.<key>() in createWorkflow callbacks: ({ steps })", () => {
     const source = `${PREAMBLE}
-      import { createWorkflow } from 'awaitly/workflow';
+      import { createWorkflow } from 'awaitly';
       const workflow = createWorkflow('checkout', { getOrder, getUser });
       await workflow.run(async ({ steps }) => {
         const order = await steps.getOrder('o-1');
@@ -141,7 +141,7 @@ describe("deps-first form: run(deps, fn)", () => {
 
   it("detects nested destructured workflow steps: ({ steps: { getOrder } })", () => {
     const source = `${PREAMBLE}
-      import { createWorkflow } from 'awaitly/workflow';
+      import { createWorkflow } from 'awaitly';
       const workflow = createWorkflow('checkout', { getOrder });
       await workflow.run(async ({ steps: { getOrder } }) => {
         return getOrder('o-1');
@@ -155,7 +155,7 @@ describe("deps-first form: run(deps, fn)", () => {
 
   it("keeps classic step and steps working side by side in a workflow", () => {
     const source = `${PREAMBLE}
-      import { createWorkflow } from 'awaitly/workflow';
+      import { createWorkflow } from 'awaitly';
       const workflow = createWorkflow('checkout', { getOrder, charge });
       await workflow.run(async ({ steps, step, deps }) => {
         const order = await steps.getOrder('o-1');

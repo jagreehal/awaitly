@@ -74,7 +74,7 @@ const createOrder = async (
 ## Create the workflow
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 const checkout = createWorkflow('workflow', { validateCart,
   checkInventory,

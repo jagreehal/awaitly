@@ -6,7 +6,7 @@
  */
 
 import type { AsyncResult } from "awaitly";
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 import type {
   FlowNode,
   WorkflowIR,

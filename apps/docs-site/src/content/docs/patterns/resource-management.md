@@ -8,8 +8,7 @@ Manage resources (database connections, file handles, API clients) with guarante
 ## Basic usage
 
 ```typescript
-import { ok } from 'awaitly';
-import { withScope, createResource } from 'awaitly/workflow';
+import { ok, withScope, createResource } from 'awaitly';
 
 const result = await withScope(async (scope) => {
   // Resources are tracked for automatic cleanup
@@ -30,7 +29,7 @@ const result = await withScope(async (scope) => {
 Use `createResource` to wrap acquire/release logic:
 
 ```typescript
-import { createResource } from 'awaitly/workflow';
+import { createResource } from 'awaitly';
 
 const createDbResource = async (connectionString: string) =>
   createResource(
@@ -61,8 +60,7 @@ const createFileResource = async (path: string, mode: string) =>
 ## Use in workflows
 
 ```typescript
-import { ok, err } from 'awaitly';
-import { withScope, createResource } from 'awaitly/workflow';
+import { ok, err, withScope, createResource } from 'awaitly';
 
 const result = await withScope(async (scope) => {
   const db = scope.add(await createDbResource(process.env.DATABASE_URL));
@@ -157,7 +155,7 @@ const result = await withScope(async (outer) => {
 For cases where you need explicit control:
 
 ```typescript
-import { createResourceScope } from 'awaitly/workflow';
+import { createResourceScope } from 'awaitly';
 
 const scope = createResourceScope();
 
@@ -176,7 +174,7 @@ try {
 If cleanup fails, you get a `ResourceCleanupError`:
 
 ```typescript
-import { isResourceCleanupError } from 'awaitly/workflow';
+import { isResourceCleanupError } from 'awaitly';
 
 const result = await withScope(async (scope) => {
   const db = scope.add(await createDbResource());
@@ -289,13 +287,15 @@ const acquireWithRetry = async <T>(
   release: (resource: T) => Promise<void>,
   retries = 3
 ) => {
+  // `retry(fn, opts)` returns a wrapped function — call it to run.
+  // Per-attempt delay is `delay` on a policy (`initialDelay` is StepOptions).
   const result = await retry(
     async () => {
       const resource = await acquire();
       return ok(resource);
     },
-    { attempts: retries, backoff: 'exponential', initialDelay: 100 }
-  );
+    { attempts: retries, backoff: 'exponential', delay: 100 }
+  )();
 
   if (!result.ok) {
     return result;
@@ -325,7 +325,7 @@ const result = await withScope(async (scope) => {
 ### Collecting cleanup errors
 
 ```typescript
-import { withScope, isResourceCleanupError } from 'awaitly/workflow';
+import { withScope, isResourceCleanupError } from 'awaitly';
 
 const result = await withScope(async (scope) => {
   const db = scope.add(await createDbResource());
@@ -648,4 +648,4 @@ const result = await withScope(async (scope) => {
 
 ## Next
 
-[See Patterns: Error Recovery →](/patterns/error-recovery/)
+[See Patterns: Error Recovery →](patterns/error-recovery/)

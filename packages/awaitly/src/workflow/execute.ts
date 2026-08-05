@@ -268,6 +268,26 @@ import {
  * );
  * ```
  */
+// Overload: deps-first, no name. The workflow name is optional — omit it and
+// awaitly-analyze labels the workflow from the variable it is assigned to, so
+// `const checkout = createWorkflow({ ... })` needs no repeated string. Pass a
+// name explicitly when you want a stable label in runtime events and traces
+// that survives renaming or minification.
+export function createWorkflow<
+  const Deps extends Readonly<Record<string, AnyResultFn>>,
+  U = UnexpectedError,
+  C = void,
+  E = { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps],
+  // `const` so `errors: ["X"]` infers `readonly ["X"]` instead of `string[]`,
+  // which is what forced callers to write `as const`. The option is
+  // static-analysis metadata; a child workflow's errors reach the parent by
+  // inference through `step.workflow`, not by being declared here.
+  const Errs extends readonly string[] = readonly string[]
+>(
+  deps: Deps,
+  options?: WorkflowOptions<NoInfer<E>, U, C, Errs>
+): Workflow<NoInfer<E>, U, Deps, C>;
+
 // Overload: no deps (single argument); callback receives deps: unknown
 export function createWorkflow<
   U = UnexpectedError,
@@ -287,11 +307,14 @@ export function createWorkflow<
   // hovers/errors, instead of the opaque `ErrorsOfDeps<{ ...whole deps... }>`
   // a named alias over a generic produces. `NoInfer` pins it to the default.
   // See the run(deps, fn) overload in core for the same rationale.
-  E = { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps]
+  E = { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps],
+  // See the deps-first overload: `const` keeps `errors: ["X"]` literal so no
+  // caller needs `as const`.
+  const Errs extends readonly string[] = readonly string[]
 >(
   workflowName: string,
   deps: Deps,
-  options?: WorkflowOptions<NoInfer<E>, U, C>
+  options?: WorkflowOptions<NoInfer<E>, U, C, Errs>
 ): Workflow<NoInfer<E>, U, Deps, C>;
 
 // Implementation (deps optional for 1-arg overload compatibility)
@@ -300,21 +323,33 @@ export function createWorkflow<
   U = UnexpectedError,
   C = void
 >(
-  workflowName: string,
-  deps?: Deps,
+  nameOrDeps: string | Deps,
+  depsOrOptions?: Deps | WorkflowOptions<ErrorsOfDeps<Deps>, U, C>,
   options?: WorkflowOptions<ErrorsOfDeps<Deps>, U, C>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): any {
   type E = ErrorsOfDeps<Deps>;
 
-  if (typeof workflowName !== "string" || workflowName.length === 0) {
+  // Deps-first form: createWorkflow(deps, options?). The name stays undefined;
+  // static tooling recovers it from the variable declaration instead.
+  const isDepsFirst = typeof nameOrDeps !== "string";
+
+  if (!isDepsFirst && nameOrDeps.length === 0) {
     throw new TypeError(
-      "createWorkflow(workflowName, deps, options?): first argument must be a non-empty string. Example: createWorkflow('checkout', { chargeCard, sendEmail })"
+      "createWorkflow(workflowName, deps, options?): workflow name must be a non-empty string. Pass deps first to leave it unnamed: createWorkflow({ chargeCard, sendEmail })"
+    );
+  }
+  if (isDepsFirst && (nameOrDeps === null || typeof nameOrDeps !== "object")) {
+    throw new TypeError(
+      "createWorkflow(deps, options?): first argument must be a deps object or a workflow name. Example: createWorkflow({ chargeCard, sendEmail })"
     );
   }
 
-  const depsActual = deps ?? ({} as Deps);
-  const optionsActual = options;
+  const workflowName = isDepsFirst ? undefined : nameOrDeps;
+  const depsActual = (isDepsFirst ? nameOrDeps : (depsOrOptions as Deps | undefined)) ?? ({} as Deps);
+  const optionsActual = isDepsFirst
+    ? (depsOrOptions as WorkflowOptions<E, U, C> | undefined)
+    : options;
 
   // ===========================================================================
 
@@ -374,6 +409,35 @@ export function createWorkflow<
     const onBeforeStartHook = (config?.onBeforeStart ?? (optionsActual as any)?.onBeforeStart) as
       | ((workflowId: string, context: C) => boolean | Promise<boolean>)
       | undefined;
+
+    // Get onBeforeStep hook (config overrides options). Fires before a step
+    // runs — including before a cached/replayed value is read — so a caller can
+    // reject a stale checkpoint before its value is used.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const onBeforeStepHook = (config?.onBeforeStep ?? (optionsActual as any)?.onBeforeStep) as
+      | ((
+          stepKey: string,
+          workflowId: string,
+          context: C,
+          info: { argsFingerprint?: string }
+        ) => void | Promise<void>)
+      | undefined;
+
+    /**
+     * Run the before-step hook for `stepKey`.
+     *
+     * Every path that can read a cached or resumed value must call this FIRST,
+     * including the helpers below that implement their own cache lookup rather
+     * than delegating to `cachedStepFn` (`step.try`, `step.fromResult`,
+     * `step.withFallback`). Missing one silently lets a stale value through the
+     * durable shape guard.
+     */
+    const runBeforeStep = async (
+      stepKey: string,
+      info: { argsFingerprint?: string } = {}
+    ): Promise<void> => {
+      if (onBeforeStepHook) await onBeforeStepHook(stepKey, workflowId, context, info);
+    };
 
     // Get onAfterStep hook (config overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -599,8 +663,8 @@ export function createWorkflow<
         console.warn(
           `awaitly: resumeState.steps is not a Map (got ${typeof resumeState.steps}). ` +
             `This usually happens when state is serialized with JSON.stringify() directly.\n` +
-            `Use serializeResumeState() and deserializeResumeState() from 'awaitly/workflow' instead:\n` +
-            `  import { serializeResumeState, deserializeResumeState } from 'awaitly/workflow';\n` +
+            `Use serializeResumeState() and deserializeResumeState() from 'awaitly' instead:\n` +
+            `  import { serializeResumeState, deserializeResumeState } from 'awaitly';\n` +
             `  const json = JSON.stringify(serializeResumeState(state));  // Save this\n` +
             `  const restored = deserializeResumeState(JSON.parse(json)); // Load this`
         );
@@ -781,6 +845,14 @@ export function createWorkflow<
         // Use lastStepKey (last completed step) for reporting, not the step about to run
         checkCancellation();
 
+        // Before-step hook. Deliberately ahead of the cache/snapshot lookup
+        // below: a caller rejecting a stale checkpoint must be able to stop the
+        // stored value from being read at all. Errors propagate as-is so the
+        // reason surfaces instead of being reported as a step failure.
+        await runBeforeStep(key ?? id, {
+          argsFingerprint: (opts as { argsFingerprint?: string }).argsFingerprint,
+        });
+
         // Update lastStepKey AFTER the step completes (moved to success/error handlers below)
         // This ensures lastStepKey always means "last successfully completed keyed step"
 
@@ -890,6 +962,8 @@ export function createWorkflow<
         const key = opts.key ?? id; // step.try caches by id when key omitted (for resume)
         const name = id;
 
+        await runBeforeStep(key);
+
         if (cache && cache.has(key)) {
           emitEvent({
             type: "step_cache_hit",
@@ -962,6 +1036,8 @@ export function createWorkflow<
         const key = opts.key ?? id; // step.fromResult caches by id when key omitted (for resume)
         const name = id;
 
+        await runBeforeStep(key);
+
         if (cache && cache.has(key)) {
           emitEvent({
             type: "step_cache_hit",
@@ -1027,6 +1103,8 @@ export function createWorkflow<
       ): Promise<StepT> => {
         const key = options.key ?? id; // matches core withFallback cache key behavior
         const name = id;
+
+        await runBeforeStep(key);
 
         if (cache && cache.has(key)) {
           emitEvent({

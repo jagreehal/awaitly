@@ -11,7 +11,7 @@
  * diagrammability gate and the overlay reinforce each other.
  */
 
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 
 /** Any workflow event, regardless of the error/context type parameters. */
 type AnyWorkflowEvent = WorkflowEvent<unknown, unknown>;

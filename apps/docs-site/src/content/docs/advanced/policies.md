@@ -13,18 +13,20 @@ Policies control retries, timeouts, and fallbacks. awaitly offers two patterns:
 Wrap dependencies at declaration site. Policies compose inside-out. `retry(timeout(fn, 5000), { attempts: 3 })` applies the timeout before each retry.
 
 ```typescript
-import { ok, run, retry, timeout, fallback, tryAsync } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { ok, run, retry, timeout, fallback, tryAsync, createWorkflow } from 'awaitly';
 
-const charge = tryAsync(
-  () => paymentGateway.charge(amount),
-  (cause) => ({ type: 'CHARGE_FAILED' as const, cause })
-);
+// Deps are *functions* — policies wrap them, so `tryAsync` goes inside.
+const charge = (amount: number) =>
+  tryAsync(
+    () => paymentGateway.charge(amount),
+    (cause) => ({ type: 'CHARGE_FAILED' as const, cause })
+  );
 
-const sendEmail = tryAsync(
-  () => emailService.send(to),
-  (cause) => ({ type: 'SEND_FAILED' as const, cause })
-);
+const sendEmail = (to: string) =>
+  tryAsync(
+    () => emailService.send(to),
+    (cause) => ({ type: 'SEND_FAILED' as const, cause })
+  );
 
 // Standalone composition with run()
 const result = await run(
@@ -56,7 +58,7 @@ const checkout = createWorkflow('checkout', {
 
 Plain (non-Result) functions are valid inputs: return values normalize to `ok()`, throws surface as `UnexpectedError` at the run/workflow layer. Wrappers preserve the base function's name so events and diagrams keep showing the dep name.
 
-See [Result types: policies](/foundations/result-types/#retry-with-the-retry-policy) and [Retries & Timeouts: deps-level policies](/guides/retries-timeouts/#deps-level-policies).
+See [Result types: policies](foundations/result-types/#retry-with-the-retry-policy) and [Retries & Timeouts: deps-level policies](guides/retries-timeouts/#deps-level-policies).
 
 ## StepOptions bundles (legacy)
 
@@ -72,20 +74,23 @@ import { withPolicy, servicePolicies } from 'awaitly';
 const result = await workflow.run(async ({ step }) => {
   // HTTP API: 5s timeout, 3 retries
   const user = await step(
+    'fetch-user',
     () => fetchUser(id),
-    withPolicy(servicePolicies.httpApi, { name: 'fetch-user' })
+    withPolicy(servicePolicies.httpApi)
   );
 
   // Database: 30s timeout, 2 retries
   const orders = await step(
+    'fetch-orders',
     () => db.query('SELECT * FROM orders'),
-    withPolicy(servicePolicies.database, { name: 'fetch-orders' })
+    withPolicy(servicePolicies.database)
   );
 
   // Cache: 1s timeout, no retry
   const cached = await step(
+    'cache-lookup',
     () => cache.get(key),
-    withPolicy(servicePolicies.cache, { name: 'cache-lookup' })
+    withPolicy(servicePolicies.cache)
   );
 
   return { user, orders, cached };
@@ -100,8 +105,9 @@ Merge multiple policies together:
 import { withPolicies, timeoutPolicies, retryPolicies } from 'awaitly';
 
 const data = await step(
+  'fetch-data',
   () => fetchData(),
-  withPolicies([timeoutPolicies.api, retryPolicies.standard], 'fetch-data')
+  withPolicies([timeoutPolicies.api, retryPolicies.standard])
 );
 ```
 
@@ -118,8 +124,9 @@ const applyPolicy = createPolicyApplier(
 );
 
 const result = await step(
+  'api-call',
   () => callApi(),
-  applyPolicy({ name: 'api-call', key: 'cache:api' })
+  applyPolicy({ key: 'cache:api' })
 );
 ```
 
@@ -131,7 +138,6 @@ Build step options with a fluent API:
 import { stepOptions } from 'awaitly';
 
 const options = stepOptions()
-  .name('fetch-user')
   .key('user:123')
   .timeout(5000)
   .retries(3)
@@ -155,13 +161,15 @@ registry.register('queue', servicePolicies.messageQueue);
 
 // Use in workflows
 const user = await step(
+  'fetch-user',
   () => fetchUser(id),
-  registry.apply('api', { name: 'fetch-user' })
+  registry.apply('api')
 );
 
 const data = await step(
+  'query-data',
   () => db.query(sql),
-  registry.apply('db', { name: 'query-data' })
+  registry.apply('db')
 );
 ```
 
@@ -284,23 +292,26 @@ describe('custom policies', () => {
 ### Test policy application in workflows
 
 ```typescript
-import { createWorkflowHarness, okOutcome, errOutcome } from 'awaitly/testing';
-import { withPolicy, servicePolicies } from 'awaitly';
+import { createWorkflowHarness, createMockFn } from 'awaitly/testing';
+import { ok, err, withPolicy, servicePolicies, type AsyncResult } from 'awaitly';
 
 describe('workflow with policies', () => {
   it('retries on transient failure', async () => {
-    const mockFetch = createMockFn();
+    // `returns`/`returnsOnce` take Results — `okOutcome`/`errOutcome` are for
+    // `harness.script()` / `harness.scriptStep()`.
+    const mockFetch = createMockFn<{ id: string }, 'NETWORK_ERROR'>();
     mockFetch
-      .returnsOnce(errOutcome('NETWORK_ERROR'))
-      .returnsOnce(errOutcome('NETWORK_ERROR'))
-      .returns(okOutcome({ id: '1' }));
+      .returnsOnce(err('NETWORK_ERROR'))
+      .returnsOnce(err('NETWORK_ERROR'))
+      .returns(ok({ id: '1' }));
 
     const harness = createWorkflowHarness({ fetchData: mockFetch });
 
     const result = await harness.run(async ({ step, deps }) => {
       return await step(
+        'fetch',
         () => deps.fetchData(),
-        withPolicy(servicePolicies.httpApi, { name: 'fetch' })
+        withPolicy(servicePolicies.httpApi)
       );
     });
 
@@ -309,16 +320,18 @@ describe('workflow with policies', () => {
   });
 
   it('times out slow operations', async () => {
-    const slowFetch = () => new Promise((resolve) =>
-      setTimeout(() => resolve(ok({ data: 'slow' })), 10000)
-    );
+    const slowFetch = (): AsyncResult<{ data: string }, never> =>
+      new Promise((resolve) =>
+        setTimeout(() => resolve(ok({ data: 'slow' })), 10000)
+      );
 
-    const harness = createWorkflowHarness({ fetchData: () => slowFetch() });
+    const harness = createWorkflowHarness({ fetchData: slowFetch });
 
     const result = await harness.run(async ({ step, deps }) => {
       return await step(
+        'fetch',
         () => deps.fetchData(),
-        withPolicy({ timeout: { ms: 100 } }, { name: 'fetch' })
+        withPolicy({ timeout: { ms: 100 } })
       );
     });
 

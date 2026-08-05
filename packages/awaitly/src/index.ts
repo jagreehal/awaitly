@@ -31,14 +31,10 @@
  *   pattern matching, durations, reliability instances
  * - `awaitly/result` — the size guarantee: Result primitives only, whole
  *   entry stays tiny with zero bundler trust required
- * - `awaitly/run` — async step composition without the rest of the root
- * - `awaitly/reliability` — policies, circuit breakers, rate limiting,
- *   caching, and singleflight
- * - `awaitly/workflow` — workflow composition, resources, and batching
- * - focused production entries: `awaitly/durable`, `awaitly/persistence`,
- *   `awaitly/saga`, `awaitly/hitl`, `awaitly/streaming`, `awaitly/webhook`,
- *   and `awaitly/engine`
- * - `awaitly/testing` — test utilities
+ * - `awaitly/durable` — production machinery: durable execution, snapshot
+ *   persistence, saga/compensation, human-in-the-loop, streaming stores,
+ *   webhooks, and the low-level engine
+ * - `awaitly/testing` — test utilities, kept out of production bundles
  */
 
 // =============================================================================
@@ -170,7 +166,7 @@ export type { AwaitlySlug, AwaitlySlugCategory } from "./slugs";
 // Canonical core (v2): the root entry is the front door.
 //
 // The exports map is four entries — `awaitly`, `awaitly/result`,
-// `awaitly/workflow`, `awaitly/testing`. Former sub-path entries are
+// `awaitly/durable`, `awaitly/testing`. Former sub-path entries are
 // absorbed here (explicit exports above always win over star re-exports,
 // so curated names take precedence on any clash). Consumers pay only for
 // what they import: the package ships unminified ESM with sideEffects:
@@ -227,3 +223,9 @@ export * from "./conditional-entry";
 // AI-DX slug spine runtime (formerly awaitly/slugs) — needed by tooling
 // (analyzer, lint). Pure data + helpers; tree-shakes when unused.
 export * from "./slugs";
+// Workflow composition (formerly awaitly/workflow) — createWorkflow and the
+// step helpers, resume state, duration and validation utilities. Absorbed into
+// the root so the common case (Results, run, createWorkflow) is a single
+// import. Primitive-only consumers still tree-shake to a few KB; the
+// zero-tree-shaking size guarantee lives on `awaitly/result`.
+export * from "./workflow-entry";

@@ -9,6 +9,10 @@ export {
   // Main API
   durable,
 
+  // Thrown (and surfaced as PersistenceError.cause) when a resumed workflow's
+  // step order no longer matches its checkpoint.
+  WorkflowShapeDriftError,
+
   // Types
   type DurableOptions,
   type DurableWorkflowEvent,
@@ -40,5 +44,6 @@ export {
 
 // Snapshot stores, validation, serialization, and state migrations are part
 // of the durable interface. Adapter authors can import the smaller
-// `awaitly/persistence` entry when they do not need the durable runtime.
+// snapshot helpers directly from `awaitly/durable` when they do not need the
+// durable runtime itself.
 export * from "./persistence-entry";

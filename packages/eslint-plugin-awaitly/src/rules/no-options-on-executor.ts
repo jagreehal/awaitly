@@ -31,6 +31,7 @@ const KNOWN_OPTION_KEYS = new Set([
   'onDefinitionChange',
   'onError',
   'onBeforeStart',
+  'onBeforeStep',
   'onAfterStep',
   'shouldRun',
   'createContext',

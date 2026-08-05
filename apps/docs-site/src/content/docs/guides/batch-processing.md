@@ -8,8 +8,7 @@ Process items in batches with progress tracking and checkpoint hooks. Useful for
 ## Basic usage
 
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
-import { processInBatches } from 'awaitly/workflow';
+import { ok, err, type AsyncResult, processInBatches } from 'awaitly';
 
 const embedText = async (text: string): AsyncResult<number[], 'EMBED_ERROR'> => {
   const response = await fetch('/api/embed', { method: 'POST', body: text });
@@ -79,7 +78,7 @@ If `afterBatch` returns an error, processing stops.
 Use presets for common scenarios:
 
 ```typescript
-import { processInBatches, batchPresets } from 'awaitly/workflow';
+import { processInBatches, batchPresets } from 'awaitly';
 
 // Conservative: batchSize=20, concurrency=3, delay=50ms
 // Good for memory-constrained environments
@@ -162,7 +161,7 @@ import {
   processInBatches,
   batchPresets,
   isBatchProcessingError,
-} from 'awaitly/workflow';
+} from 'awaitly';
 
 // Generate embeddings for documents
 const generateEmbeddings = async (documents: Document[]) => {
@@ -423,4 +422,4 @@ async function retryFailedItems() {
 
 ## Next
 
-[See Patterns: Checkout Flow →](/patterns/checkout-flow/)
+[See Patterns: Checkout Flow →](patterns/checkout-flow/)

@@ -15,7 +15,7 @@ yarn add awaitly-visualizer awaitly
 ## Quick Start
 
 ```ts
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 import { createVisualizer } from "awaitly-visualizer";
 
 const viz = createVisualizer({ workflowName: "checkout" });

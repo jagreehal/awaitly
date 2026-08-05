@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { traceFromEvents, type WorkflowTrace } from "./trace";
 import { renderStaticMermaidWithTrace } from "./output/mermaid";
 import { analyzeWorkflowSource } from "./static-analyzer";
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 
 type AnyEvent = WorkflowEvent<unknown, unknown>;
 

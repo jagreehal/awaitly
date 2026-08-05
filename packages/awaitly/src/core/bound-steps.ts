@@ -48,7 +48,8 @@ export type BoundSteps<Deps extends Record<string, AnyFunction>> = {
  */
 export type StepCallable = (
   id: string,
-  operation: () => AsyncResult<unknown, unknown, unknown>
+  operation: () => AsyncResult<unknown, unknown, unknown>,
+  options?: { argsFingerprint?: string }
 ) => Promise<unknown>;
 
 /**
@@ -82,6 +83,49 @@ export const isDepResultShaped = (
  *
  * @internal Used by core run() and the workflow layer; not public API.
  */
+/**
+ * Stable, bounded fingerprint of a bound step's arguments.
+ *
+ * Bound step keys are position-derived (`getUser`, `getUser#2`, ...), so the
+ * key alone cannot tell `getUser("a")` from `getUser("b")` — swapping two calls
+ * to the same dep leaves the key sequence identical while the checkpoints now
+ * belong to different arguments. Recording this alongside the key is what makes
+ * that edit detectable on resume.
+ *
+ * Returns undefined for anything that cannot be fingerprinted (circular
+ * structures, throwing getters, values JSON drops entirely). Callers must treat
+ * undefined as "no information", never as "matches".
+ */
+export const fingerprintArgs = (args: readonly unknown[]): string | undefined => {
+  let json: string | undefined;
+  try {
+    json = JSON.stringify(args, (_key, value) =>
+      typeof value === "function"
+        ? "[fn]"
+        : typeof value === "bigint"
+          ? `${value}n`
+          : typeof value === "undefined"
+            ? "[undefined]"
+            : value
+    );
+  } catch {
+    return undefined; // circular, or a getter that threw
+  }
+  if (json === undefined) return undefined;
+
+  // Bounded so a large payload can't make every step pay for a full walk.
+  const input = json.length > 2048 ? json.slice(0, 2048) : json;
+
+  // FNV-1a (32-bit). Not cryptographic — it only needs to change when the
+  // arguments change, and a collision degrades to today's behaviour.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+};
+
 export const bindSteps = <Deps extends Record<string, AnyFunction>>(
   deps: Deps,
   step: StepCallable
@@ -97,11 +141,16 @@ export const bindSteps = <Deps extends Record<string, AnyFunction>>(
       const count = (invocationCounts.get(key) ?? 0) + 1;
       invocationCounts.set(key, count);
       const stepKey = count === 1 ? key : `${key}#${count}`;
-      // eslint-disable-next-line awaitly/step-require-id -- internal binding: the dep key IS the step ID
-      return step(stepKey, async () => {
-        const value = await dep(...args);
-        return isDepResultShaped(value) ? value : ok(value);
-      });
+      // internal binding: the dep key IS the step ID
+      return step(
+        // eslint-disable-next-line awaitly/step-require-id
+        stepKey,
+        async () => {
+          const value = await dep(...args);
+          return isDepResultShaped(value) ? value : ok(value);
+        },
+        { argsFingerprint: fingerprintArgs(args) }
+      );
     };
   }
   return steps as BoundSteps<Deps>;

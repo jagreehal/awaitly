@@ -12,8 +12,8 @@ Stream data in real-time within workflows. Perfect for AI token streaming, live 
 ## Quick Start
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
-import { createMemoryStreamStore, toAsyncIterable } from 'awaitly/streaming';
+import { createWorkflow } from 'awaitly';
+import { createMemoryStreamStore, toAsyncIterable } from 'awaitly/durable';
 
 // 1. Create a stream store
 const streamStore = createMemoryStreamStore();
@@ -38,7 +38,7 @@ Choose a store based on your needs:
 ### Memory Store (Development/Testing)
 
 ```typescript
-import { createMemoryStreamStore } from 'awaitly/streaming';
+import { createMemoryStreamStore } from 'awaitly/durable';
 
 const streamStore = createMemoryStreamStore();
 ```
@@ -46,7 +46,7 @@ const streamStore = createMemoryStreamStore();
 ### File Store (Persistence)
 
 ```typescript
-import { createFileStreamStore } from 'awaitly/streaming';
+import { createFileStreamStore } from 'awaitly/durable';
 import * as fs from 'node:fs/promises';
 
 const streamStore = createFileStreamStore({
@@ -132,7 +132,7 @@ const reader = step.getReadable<string>({
 Convert readers to `for await...of` syntax:
 
 ```typescript
-import { toAsyncIterable } from 'awaitly/streaming';
+import { toAsyncIterable } from 'awaitly/durable';
 
 const result = await workflow.run(async ({ step }) => {
   const reader = step.getReadable<string>({ namespace: 'tokens' });
@@ -150,7 +150,7 @@ Transform streams with functional operators:
 ### map / filter
 
 ```typescript
-import { map, filter, toAsyncIterable } from 'awaitly/streaming';
+import { map, filter, toAsyncIterable } from 'awaitly/durable';
 
 const reader = step.getReadable<number>({ namespace: 'numbers' });
 
@@ -166,7 +166,7 @@ for await (const value of doubled) {
 ### chunk (Batching)
 
 ```typescript
-import { chunk } from 'awaitly/streaming';
+import { chunk } from 'awaitly/durable';
 
 const reader = step.getReadable<string>({ namespace: 'items' });
 const batches = chunk(reader, 10); // Groups of 10
@@ -179,7 +179,7 @@ for await (const batch of batches) {
 ### take / skip
 
 ```typescript
-import { take, skip, collect } from 'awaitly/streaming';
+import { take, skip, collect } from 'awaitly/durable';
 
 const reader = step.getReadable<number>({ namespace: 'numbers' });
 
@@ -192,7 +192,7 @@ const items = await collect(limited); // number[]
 ### reduce
 
 ```typescript
-import { reduce } from 'awaitly/streaming';
+import { reduce } from 'awaitly/durable';
 
 const reader = step.getReadable<number>({ namespace: 'numbers' });
 const sum = await reduce(reader, (acc, n) => acc + n, 0);
@@ -201,7 +201,7 @@ const sum = await reduce(reader, (acc, n) => acc + n, 0);
 ### pipe (Composition)
 
 ```typescript
-import { pipe, filter, map, take, collect } from 'awaitly/streaming';
+import { pipe, filter, map, take, collect } from 'awaitly/durable';
 
 const reader = step.getReadable<number>({ namespace: 'numbers' });
 
@@ -248,7 +248,7 @@ const result = await workflow.run(async ({ step }) => {
 Consume streams outside workflows (e.g., HTTP handlers):
 
 ```typescript
-import { getStreamReader, toAsyncIterable } from 'awaitly/streaming';
+import { getStreamReader, toAsyncIterable } from 'awaitly/durable';
 
 // Express/Fastify handler
 app.get('/stream/:workflowId', async (req, res) => {
@@ -314,7 +314,7 @@ for (const item of largeDataset) {
 All stream operations return Results:
 
 ```typescript
-import { isStreamEnded, isStreamWriteError } from 'awaitly/streaming';
+import { isStreamEnded, isStreamWriteError } from 'awaitly/durable';
 
 // Writing
 const writeResult = await writer.write('data');
@@ -409,7 +409,7 @@ const workflow = createWorkflow('workflow', deps, {
 
 ```typescript
 // Workflow integration
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 // Stream stores and utilities
 import {
@@ -446,7 +446,7 @@ import {
   streamWriteError,
   streamReadError,
   streamEnded,
-} from 'awaitly/streaming';
+} from 'awaitly/durable';
 ```
 
 ### Step Methods
@@ -480,5 +480,5 @@ import {
 
 ## Next
 
-- [Batch Processing →](/guides/batch-processing/) - Process items in bulk
-- [Persistence →](/guides/persistence/) - Save workflow state for resume
+- [Batch Processing →](guides/batch-processing/) - Process items in bulk
+- [Persistence →](guides/persistence/) - Save workflow state for resume

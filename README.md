@@ -23,7 +23,7 @@ No exceptions for expected failures. No manual error unions.
 npm install awaitly
 ```
 
-Import from the capability you use. The small everyday entries are `awaitly/result`, `awaitly/run`, and `awaitly/reliability`; production capabilities have focused entries such as `awaitly/workflow`, `awaitly/durable`, `awaitly/persistence`, `awaitly/saga`, `awaitly/hitl`, `awaitly/streaming`, `awaitly/webhook`, and `awaitly/engine`. Test helpers live at `awaitly/testing`. The root `awaitly` entry remains the convenient front door for Result, `run()`, and reliability APIs.
+Four entry points, and you only need the first: `awaitly` is the front door — Result, `run()`, `createWorkflow()`, reliability. `awaitly/durable` holds the production machinery (durable execution, persistence, saga, human-in-the-loop, streaming, webhooks, engine). `awaitly/result` is the size guarantee: Result primitives only, tiny with zero bundler trust required. `awaitly/testing` is test helpers.
 
 📚 **[Full Documentation](https://jagreehal.github.io/awaitly/)** - guides, API reference, and examples.
 
@@ -197,7 +197,7 @@ TypeScript forces you to handle both.
 `createWorkflow()` is `run(deps, fn)` plus production machinery: step caching, save & resume, events, and human-in-the-loop. The same bound steps object is there as `steps`:
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 const deps = {
   getUser: async (id: string): AsyncResult<User, UserNotFound> => {
@@ -270,8 +270,7 @@ Each `step()` unwraps a `Result`. If it's `ok`, you get the value and continue. 
 Now that you understand the concepts, here's the complete pattern:
 
 ```typescript
-import { err, ok, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { err, ok, type AsyncResult, createWorkflow } from 'awaitly';
 
 type Task = { id: string };
 type TaskNotFound = { type: 'TASK_NOT_FOUND'; id: string };
@@ -371,8 +370,7 @@ async function executeTransfer(
 **With workflow: typed errors, automatic inference, clean code**
 
 ```typescript
-import { err, isUnexpectedError, ok, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { err, isUnexpectedError, ok, type AsyncResult, createWorkflow } from 'awaitly';
 
 type User = { id: string; balance: number };
 type UserNotFound = { type: 'USER_NOT_FOUND'; userId: string };
@@ -537,7 +535,7 @@ Save workflow state to a database and resume later from exactly where you left o
 **Step 1: Collect state during execution**
 
 ```typescript
-import { createResumeStateCollector, createWorkflow } from 'awaitly/workflow';
+import { createResumeStateCollector, createWorkflow } from 'awaitly';
 
 // Create a collector to automatically capture step results
 const collector = createResumeStateCollector();
@@ -567,7 +565,7 @@ const state = collector.getResumeState(); // Returns ResumeState
 **Step 2: Save to database**
 
 ```typescript
-import { serializeResumeState } from 'awaitly/persistence';
+import { serializeResumeState } from 'awaitly/durable';
 
 // Serialize to a JSON-safe object
 const workflowId = '123';
@@ -585,7 +583,7 @@ await db.workflowStates.create({
 
 ```typescript
 // Load from database
-import { deserializeResumeState } from 'awaitly/persistence';
+import { deserializeResumeState } from 'awaitly/durable';
 
 const workflowId = '123';
 const saved = await db.workflowStates.findUnique({ where: { id: workflowId } });
@@ -790,7 +788,7 @@ const workflow = createWorkflow(deps);
 // Strict mode - closed error union
 const workflow = createWorkflow(deps, {
   strict: true,
-  errors: ['NOT_FOUND', 'ORDER_FAILED'] as const,
+  errors: ['NOT_FOUND', 'ORDER_FAILED'],
   catchUnexpected: (cause) => ({ type: 'UNEXPECTED' as const, cause }),
 });
 // Result error: 'NOT_FOUND' | 'ORDER_FAILED' | { type: 'UNEXPECTED', cause }
@@ -870,8 +868,7 @@ For production handlers, use `createWorkflow()` — same inference and bound ste
 Most apps only need:
 
 ```typescript
-import { err, isUnexpectedError, ok, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { err, isUnexpectedError, ok, type AsyncResult, createWorkflow } from 'awaitly';
 ```
 
 Everything else is optional and documented in the [guides](https://jagreehal.github.io/awaitly/).

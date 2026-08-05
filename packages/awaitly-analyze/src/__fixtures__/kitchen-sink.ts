@@ -14,7 +14,7 @@ import {
   anyAsync,
   type AsyncResult,
 } from "awaitly";
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 import { when, unless, whenOr, unlessOr } from "awaitly";
 
 // ---------------------------------------------------------------------------
@@ -190,22 +190,16 @@ export async function runKitchenSink(userId: string) {
     ]);
 
     // -----------------------------------------------------------------------
-    // 11. step.race (array form) — analyzer AST pattern
-    // @ts-expect-error Analyzer expects step.race([...]) but runtime API is step.race(name, op)
+    // 11. step.race wrapping anyAsync — the racers come from the array
     // -----------------------------------------------------------------------
-    await step.race([
-      () => deps.fetchFromCacheA(),
-      () => deps.fetchFromCacheB(),
-    ]);
+    await step.race("cacheRace", () =>
+      anyAsync([deps.fetchFromCacheA(), deps.fetchFromCacheB()])
+    );
 
     // -----------------------------------------------------------------------
-    // 12. step.race (object form) — analyzer AST pattern
-    // @ts-expect-error Analyzer expects step.race({...}) but runtime API is step.race(name, op)
+    // 12. step.race over a single operation — race scope with one racer
     // -----------------------------------------------------------------------
-    await step.race({
-      cacheA: () => deps.fetchFromCacheA(),
-      cacheB: () => deps.fetchFromCacheB(),
-    });
+    await step.race("cacheRaceSingle", () => deps.fetchFromCacheA());
 
     // -----------------------------------------------------------------------
     // 13. anyAsync
@@ -434,8 +428,8 @@ export async function runKitchenSink(userId: string) {
     // -----------------------------------------------------------------------
     // 39. Workflow ref (call another workflow)
     // -----------------------------------------------------------------------
-    const enriched = await otherWorkflow.run(async ({ step: s, deps: d }) => {
-      return await s("enrich", () => d.enrichUser(user.id));
+    const enriched = await otherWorkflow.run(async ({ step: s, deps: r }) => {
+      return await s("enrich", () => r.enrichUser(user.id));
     });
 
     return { user, enriched, whenOrVal, unlessOrVal, ternaryResult, writer, reader, mapped, fallbackResult, filteredFallback, resourceResult };

@@ -9,7 +9,7 @@
 import { mkdir, writeFile } from "fs/promises";
 import { mkdirSync, writeFileSync } from "fs";
 import { join, isAbsolute } from "path";
-import type { WorkflowDiagramDSL } from "awaitly/workflow";
+import type { WorkflowDiagramDSL } from "awaitly";
 
 export const AWAITLY_DIR_NAME = ".awaitly";
 export const AWAITLY_DSL_SUBDIR = "dsl";

@@ -27,7 +27,7 @@ async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND' | 'NETWORK_E
 Now the signature tells you both outcomes: a `User` if it works, or `'NOT_FOUND'` or `'NETWORK_ERROR'` if it doesn't. TypeScript then makes you handle the failure before you can touch the value.
 
 <Aside type="note" title="New to this type syntax?">
-In TypeScript, a specific string like `'NOT_FOUND'` can be a type of its own, and `|` means "one of these". So `'NOT_FOUND' | 'NETWORK_ERROR'` describes a value that is one of those two exact strings. The [Result Types](/foundations/result-types/) page walks through this from the start.
+In TypeScript, a specific string like `'NOT_FOUND'` can be a type of its own, and `|` means "one of these". So `'NOT_FOUND' | 'NETWORK_ERROR'` describes a value that is one of those two exact strings. The [Result Types](foundations/result-types/) page walks through this from the start.
 </Aside>
 
 The two approaches side by side:
@@ -225,8 +225,7 @@ awaitly does not prevent every runtime error, eliminate unexpected failures, or 
 <Tabs>
   <TabItem label="awaitly (run)">
 ```typescript
-import { run } from 'awaitly';
-import { type ErrorsOf } from 'awaitly';
+import { run, type ErrorsOf } from 'awaitly';
 
 const deps = { fetchUser, validateAge, createAccount };
 type Errors = ErrorsOf<typeof deps>;
@@ -249,7 +248,7 @@ const result = await run<Account, Errors>(async ({ step }) => {
   </TabItem>
   <TabItem label="awaitly (workflow)">
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 // createWorkflow infers errors automatically — no ErrorsOf needed
 const workflow = createWorkflow('workflow', { fetchUser, validateAge, createAccount });
@@ -306,7 +305,7 @@ const results = await Promise.all([
 
 // Collect all outcomes (successes and failures)
 const settled = allSettled(results);
-// See [allSettled](/reference/api/) for the exact return shape.
+// See [allSettled](reference/api/) for the exact return shape.
 
 // Partition into successes and failures
 const [successes, failures] = partition(results);
@@ -436,6 +435,6 @@ The difference comes down to one thing: try/catch leaves failure out of the type
 
 ## Next Steps
 
-- [Learn about Results →](/foundations/result-types/)
-- [Your First Workflow →](/getting-started/first-workflow/)
-- [Handling Errors →](/getting-started/error-handling/)
+- [Learn about Results →](foundations/result-types/)
+- [Your First Workflow →](getting-started/first-workflow/)
+- [Handling Errors →](getting-started/error-handling/)

@@ -5,10 +5,10 @@ description: Agent-friendly entry points for awaitly docs
 
 Use these internal docs entry points when configuring coding agents for this site:
 
-- **Agent setup**: [/guides/claude-skill/](/guides/claude-skill/)
-- **Foundations overview**: [/foundations/](/foundations/)
-- **Rules index (slug spine)**: [/rules/](/rules/)
-- **Static analysis**: [/guides/static-analysis/](/guides/static-analysis/)
+- **Agent setup**: [/guides/claude-skill/](guides/claude-skill/)
+- **Foundations overview**: [/foundations/](foundations/)
+- **Rules index (slug spine)**: [/rules/](rules/)
+- **Static analysis**: [/guides/static-analysis/](guides/static-analysis/)
 
 ## Skill file location
 

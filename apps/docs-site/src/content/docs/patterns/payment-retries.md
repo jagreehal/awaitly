@@ -23,7 +23,7 @@ async function processPayment(order: Order) {
 Use step keys and a **resume state** collector to make the workflow resumable:
 
 ```typescript
-import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
+import { createWorkflow, createResumeStateCollector } from 'awaitly';
 import { postgres } from 'awaitly-postgres';
 
 const store = postgres(process.env.DATABASE_URL!);
@@ -123,8 +123,7 @@ const idempotencyKey = `payment:${Date.now()}`;
 ## Full example
 
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
-import { createWorkflow, createResumeStateCollector } from 'awaitly/workflow';
+import { ok, err, type AsyncResult, createWorkflow, createResumeStateCollector } from 'awaitly';
 import { postgres } from 'awaitly-postgres';
 
 const store = postgres(process.env.DATABASE_URL!);

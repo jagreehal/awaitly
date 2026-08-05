@@ -190,7 +190,7 @@ await workflow.run(async ({ step }) => {});
 
 **Severity**: warn
 
-Workflow callbacks should destructure their context. Only `step` is required; `deps` and `ctx` are optional depending on the entry point.
+Workflow callbacks should destructure their context. Only `step` is required; `raw` and `ctx` are optional depending on the entry point.
 
 ```typescript
 // Bad — opaque parameter
@@ -221,43 +221,6 @@ workflow.run(async ({ step }) => { /* */ });
 **Severity**: error
 
 Disallows dynamic `import()` and `require()` so static analysis can trace dependencies.
-
-#### `awaitly/workflow-prefer-step-if`
-
-**Severity**: warn (recommended) · error (recommended-strict)
-
-A raw `if/else` that contains steps has no stable branch id, so the static diagram can't label it deterministically. Use `step.if` for a labelled branch, or `when`/`unless` to guard a single step.
-
-```typescript
-// Bad — the branch has no stable identity in the diagram
-if (user.premium) {
-  await step('sendPremiumEmail', () => deps.sendEmail(user));
-}
-
-// Good — labelled, analyzable branch
-await when(() => user.premium, () =>
-  step('sendPremiumEmail', () => deps.sendEmail(user))
-);
-```
-
-#### `awaitly/workflow-prefer-step-foreach`
-
-**Severity**: warn (recommended) · error (recommended-strict)
-
-A native loop (or `.forEach`/`.map`) that contains steps produces unstable, unbounded iteration ids. Use `step.forEach` so each iteration has a structured, statically-analyzable id.
-
-```typescript
-// Bad — iteration ids are unstable / unbounded
-for (const item of items) {
-  await step('processItem', () => deps.process(item));
-}
-
-// Good — structured iteration
-await step.forEach('process', items, {
-  stepIdPattern: 'item-{i}',
-  run: (item) => step('processItem', () => deps.process(item)),
-});
-```
 
 ### `result-*` — Result handling
 
@@ -432,7 +395,7 @@ With ESLint editor extensions, you'll see errors inline and can apply autofixes:
 
 Enable "fix on save" for automatic corrections:
 
-```json
+```jsonc
 // .vscode/settings.json
 {
   "editor.codeActionsOnSave": {

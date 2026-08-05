@@ -20,7 +20,7 @@ Different error recovery patterns solve different problems. Choosing the wrong o
 **Use when:** Failures are transient and likely to self-resolve.
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 const workflow = createWorkflow('workflow', deps);
 const result = await workflow.run(async ({ step, deps }) => {
@@ -61,11 +61,12 @@ import { createCircuitBreaker, isCircuitOpenError } from 'awaitly';
 
 const paymentBreaker = createCircuitBreaker('payment-api', {
   failureThreshold: 5,     // Open after 5 failures
-  resetTimeMs: 30000,      // Try again after 30s
-  halfOpenAttempts: 2,     // Test with 2 requests before closing
+  resetTimeout: 30000,     // Try again after 30s
+  halfOpenMax: 2,          // Test with 2 requests before closing
 });
 
-const result = await paymentBreaker.call(() => paymentAPI.charge(amount));
+// executeResult() keeps the Result; execute() throws CircuitOpenError instead.
+const result = await paymentBreaker.executeResult(() => paymentAPI.charge(amount));
 
 if (!result.ok && isCircuitOpenError(result.error)) {
   // Fail fast - don't even try to call the API
@@ -90,7 +91,7 @@ if (!result.ok && isCircuitOpenError(result.error)) {
 **Use when:** A multi-step operation fails partway through and you need to undo completed steps.
 
 ```typescript
-import { createSagaWorkflow } from 'awaitly/saga';
+import { createSagaWorkflow } from 'awaitly/durable';
 
 const checkout = createSagaWorkflow('saga', deps);
 const result = await checkout.run(async ({ step, deps }) => {
@@ -147,24 +148,22 @@ const payment = await step(
 ### Circuit Breaker wrapping Retry
 
 ```typescript
-// Good: Circuit breaker prevents retry storms
+// Good: Circuit breaker prevents retry storms.
+// `retry(fn, opts)` returns a wrapped function — call it to run.
 const breaker = createCircuitBreaker('payment-api', config);
+const chargeWithRetry = retry(() => paymentAPI.charge(), { attempts: 3 });
 
-const result = await breaker.call(
-  () => retry(() => paymentAPI.charge(), { maxAttempts: 3 })
-);
+const result = await breaker.executeResult(chargeWithRetry);
 ```
 
 ### Rate Limiter at the outer layer
 
 ```typescript
 // Good: Rate limiter prevents exceeding quotas
-const limiter = createRateLimiter('payment-api', { maxRequests: 100, windowMs: 60000 });
+const limiter = createRateLimiter('payment-api', { maxPerSecond: 100 });
 
-const result = await limiter.call(
-  () => breaker.call(
-    () => retry(() => paymentAPI.charge(), { maxAttempts: 3 })
-  )
+const result = await limiter.executeResult(
+  () => breaker.executeResult(chargeWithRetry)
 );
 ```
 
@@ -176,17 +175,17 @@ const result = await limiter.call(
 // Bad: Validation errors won't change on retry
 await retry(
   () => createUser({ email: 'invalid' }),
-  { maxAttempts: 3 }  // Wastes 3 attempts
-);
+  { attempts: 3 }  // Wastes 3 attempts
+)();
 
 // Good: Only retry transient errors
 await retry(
   () => createUser({ email }),
   {
-    maxAttempts: 3,
-    shouldRetry: (error) => error === 'TIMEOUT' || error === 'CONNECTION_ERROR',
+    attempts: 3,
+    retryIf: (error) => error === 'TIMEOUT' || error === 'CONNECTION_ERROR',
   }
-);
+)();
 ```
 
 ### Retrying when downstream is overloaded
@@ -194,14 +193,14 @@ await retry(
 ```typescript
 // Bad: Makes overload worse
 for (const user of users) {
-  await retry(() => notifyUser(user), { maxAttempts: 10 });
+  await retry(() => notifyUser(user), { attempts: 10 })();
 }
 
 // Good: Circuit breaker protects the service
 const breaker = createCircuitBreaker('notification-service', config);
 for (const user of users) {
-  const result = await breaker.call(() => notifyUser(user));
-  if (isCircuitOpenError(result.error)) break; // Stop when circuit opens
+  const result = await breaker.executeResult(() => notifyUser(user));
+  if (!result.ok && isCircuitOpenError(result.error)) break; // Stop when circuit opens
 }
 ```
 
@@ -242,10 +241,10 @@ Before choosing a pattern, ask:
 
 ```typescript
 import { createCircuitBreaker, createRateLimiter } from 'awaitly';
-import { createSagaWorkflow } from 'awaitly/saga';
+import { createSagaWorkflow } from 'awaitly/durable';
 
 const paymentBreaker = createCircuitBreaker('payment-api', { failureThreshold: 5 });
-const paymentLimiter = createRateLimiter('payment-api', { maxRequests: 100, windowMs: 60000 });
+const paymentLimiter = createRateLimiter('payment-api', { maxPerSecond: 100 });
 
 const checkout = createSagaWorkflow('saga', deps);
 
@@ -254,12 +253,12 @@ const result = await checkout.run(async ({ step, deps }) => {
   const payment = await step(
     'charge',
     async () => {
-      return paymentLimiter.call(() =>
-        paymentBreaker.call(() =>
+      return paymentLimiter.executeResult(() =>
+        paymentBreaker.executeResult(() =>
           retry(() => deps.chargeCard(amount), {
-            maxAttempts: 3,
-            shouldRetry: (e) => e === 'TIMEOUT',
-          })
+            attempts: 3,
+            retryIf: (e) => e === 'TIMEOUT',
+          })()
         )
       );
     },

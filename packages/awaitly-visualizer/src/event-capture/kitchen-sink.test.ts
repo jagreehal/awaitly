@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 import type { CollectableEvent } from "../index";
 import {
   runProcessOrder,

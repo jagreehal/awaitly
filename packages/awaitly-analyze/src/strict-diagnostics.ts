@@ -112,10 +112,11 @@ export const STRICT_RULE_TO_SLUG: Record<StrictRule, AwaitlySlug> = {
   "computed-property": "step-require-id",
   "template-literal-id": "step-require-id",
   "imported-config": "workflow-options-position",
-  // A raw conditional/loop with steps has no first-class construct; each maps
-  // to its dedicated "declare more" slug (shared with the ESLint rule).
-  "unlabelled-conditional": "workflow-prefer-step-if",
-  "unlabelled-loop": "workflow-prefer-step-foreach",
+  // Native control flow is diagrammable whenever its condition/iterable is
+  // statically readable. These fire only when it is not, so the slug names
+  // the actual defect: the expression cannot be read, not the missing DSL.
+  "unlabelled-conditional": "workflow-unreadable-condition",
+  "unlabelled-loop": "workflow-unreadable-iterable",
   "parallel-missing-errors": "result-require-handling",
   // Missing `collect` is fundamentally a Result-handling gap inside a loop.
   "loop-missing-collect": "result-require-handling",

@@ -18,20 +18,9 @@ const documentationFiles = (directory: string): string[] =>
 
 describe("docs import paths for result extras", () => {
   it("uses only public task-shaped awaitly entry points", () => {
-    const publicEntries = new Set([
-      "result",
-      "run",
-      "workflow",
-      "reliability",
-      "durable",
-      "persistence",
-      "saga",
-      "hitl",
-      "streaming",
-      "webhook",
-      "engine",
-      "testing",
-    ]);
+    // Four public entries. Docs and skills must not teach an import path that
+    // no longer resolves.
+    const publicEntries = new Set(["result", "durable", "testing"]);
     const subpathImport = /from\s+["']awaitly\/([^"']+)["']/g;
 
     for (const path of [
@@ -62,25 +51,24 @@ describe("docs import paths for result extras", () => {
     expect(docs).not.toMatch(/\btryAsyncRetry\b/);
   });
 
-  it("keeps the bundled coding skill on the focused production paths", () => {
+  it("keeps the bundled coding skill on the four public entry points", () => {
     const skill = readFileSync(
       new URL("../../../../.claude/skills/awaitly-patterns/SKILL.md", import.meta.url),
       "utf8",
     );
 
-    expect(skill).not.toMatch(/exactly four entry points/i);
-    for (const [symbol, entry] of [
-      ["run", "run"],
-      ["durable", "durable"],
-      ["serializeResumeState", "persistence"],
-      ["createSagaWorkflow", "saga"],
-      ["createApprovalStep", "hitl"],
-      ["createMemoryStreamStore", "streaming"],
-      ["createWebhookHandler", "webhook"],
-      ["createEngine", "engine"],
-    ]) {
-      expect(skill, `${symbol} should be taught from awaitly/${entry}`).toMatch(
-        new RegExp(`import\\s+\\{[^}]*\\b${symbol}\\b[^}]*\\}\\s+from\\s+['"]awaitly/${entry}['"]`, "s"),
+    // The 95% case comes from the root; only heavy production machinery is
+    // taught from ./durable.
+    for (const symbol of ["run", "createWorkflow"]) {
+      expect(skill, `${symbol} should be taught from the root entry`).toMatch(
+        new RegExp(`import\\s+\\{[^}]*\\b${symbol}\\b[^}]*\\}\\s+from\\s+['"]awaitly['"]`, "s"),
+      );
+    }
+
+    // Absorbed subpaths must not resurface in the skill.
+    for (const gone of ["run", "workflow", "reliability", "persistence", "saga", "hitl", "streaming", "webhook", "engine"]) {
+      expect(skill, `awaitly/${gone} no longer exists`).not.toMatch(
+        new RegExp(`['"]awaitly/${gone}['"]`),
       );
     }
   });

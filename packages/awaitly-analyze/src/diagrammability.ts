@@ -146,17 +146,19 @@ function classify(node: StaticFlowNode, issues: DiagrammabilityIssue[]): void {
     }
 
     case "conditional": {
-      // when / unless / whenOr / unlessOr are first-class analyzable helpers.
-      // A raw if/else (helper == null) that contains steps has no stable branch
-      // identity. Steer it onto step.if or a when/unless helper.
+      // when / unless / whenOr / unlessOr are first-class analyzable helpers,
+      // and a raw if/else whose condition is statically readable gets a
+      // derived id that identifies the branch just as stably. Only a raw
+      // conditional whose condition the analyzer cannot read — a call result,
+      // a computed member — leaves the diagram without a stable label.
       const isRaw = node.helper == null;
-      if (isRaw && branchesHaveSteps(node)) {
+      if (isRaw && node.derivedId == null && branchesHaveSteps(node)) {
         issues.push({
           kind: "raw-conditional",
           message:
-            "A raw if/else containing steps has no stable branch id, so the diagram cannot label it deterministically.",
+            "This branch condition is computed at runtime, so the diagram cannot label it deterministically.",
           suggestion:
-            "Use step.if('decision-id', () => condition, ...) for a labelled branch, or when()/unless() for a guarded step.",
+            "Hoist the condition into a named boolean (`const isPremium = check(user)`) so it reads statically, or label it with step.if('decision-id', () => condition, ...).",
           location: node.location,
           nodeId: node.id,
         });
@@ -166,13 +168,16 @@ function classify(node: StaticFlowNode, issues: DiagrammabilityIssue[]): void {
 
     case "loop": {
       if (node.loopType !== "step.forEach") {
-        if (loopBodyHasSteps(node)) {
+        // A native loop over a statically readable iterable gets a derived id,
+        // which gives its iterations stable identity. Only an unreadable
+        // iterable leaves the diagram unable to name the loop.
+        if (node.derivedId == null && loopBodyHasSteps(node)) {
           issues.push({
             kind: "raw-loop",
             message:
-              "A native loop containing steps produces unstable, unbounded iteration ids in the diagram.",
+              "This loop iterates over a runtime-computed expression, so its iterations have no stable id in the diagram.",
             suggestion:
-              "Use step.forEach('loop-id', items, { stepIdPattern: 'item-{i}', run: (item) => ... }) for structured iteration.",
+              "Hoist the iterable into a named variable (`const items = getItems()`) so it reads statically, or use step.forEach('loop-id', items, ...) for bounded, structured iteration.",
             location: node.location,
             nodeId: node.id,
           });

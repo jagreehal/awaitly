@@ -126,8 +126,7 @@ async function getOrder(id: string) {
 **Claude** (with skill): I'll migrate this to awaitly patterns...
 
 ```typescript
-import { ok, err, type AsyncResult } from 'awaitly';
-import { run } from 'awaitly';
+import { ok, err, type AsyncResult, run } from 'awaitly';
 
 // 1. Convert deps to return Results
 async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {

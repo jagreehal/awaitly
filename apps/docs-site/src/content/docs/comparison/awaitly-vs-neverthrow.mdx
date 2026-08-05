@@ -593,7 +593,7 @@ Result { _error: 'ERROR_A' }
 </Tabs>
 
 <Aside type="note">
-awaitly collects all errors with `allSettled` (sync) and `allSettledAsync` (async); each collected entry is `{ error, cause? }`. See the [API Reference](/reference/api/) for the exact return shape.
+awaitly collects all errors with `allSettled` (sync) and `allSettledAsync` (async); each collected entry is `{ error, cause? }`. See the [API Reference](reference/api/) for the exact return shape.
 </Aside>
 
 ## Wrapping Throwing Functions
@@ -673,7 +673,7 @@ const result = await run({ parseId, fetchUser, sendEmail }, async (s) => {
   </TabItem>
   <TabItem label="awaitly (workflow)">
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 // createWorkflow infers errors automatically — no ErrorsOf needed
 const workflow = createWorkflow('workflow', { parseId, fetchUser, sendEmail });
@@ -739,7 +739,7 @@ const result = await run({ fetchUser, sendEmail, chargeCard }, async (s) => {
 With `createWorkflow`, error inference is automatic — no `ErrorsOf` needed:
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail, chargeCard });
 
@@ -856,5 +856,5 @@ awaitly uses standalone functions instead of methods. This works well with tree-
 
 ## Next Steps
 
-- [Learn about Workflows →](/foundations/workflows/)
-- [See the full API Reference →](/reference/api/)
+- [Learn about Workflows →](foundations/workflows/)
+- [See the full API Reference →](reference/api/)

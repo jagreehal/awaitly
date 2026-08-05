@@ -99,7 +99,7 @@ The store also works directly with workflow resume state:
 
 ```typescript
 import { mongo } from 'awaitly-mongo';
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 const store = mongo('mongodb://localhost:27017/mydb');
 const workflow = createWorkflow(deps);

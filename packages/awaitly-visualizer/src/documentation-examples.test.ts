@@ -8,7 +8,7 @@ import { ok, err, type AsyncResult } from "awaitly";
 
 // Marker value for workflow completion (not wrapped in ok())
 const DONE = "done" as const;
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 import {
   createVisualizer,
   createEventCollector,

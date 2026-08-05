@@ -83,14 +83,14 @@ import { describe, it, expect } from 'vitest';
 
 describe('checkout workflow', () => {
   it('completes when payment succeeds', async () => {
-    const harness = createWorkflowHarness({
-      fetchOrder: okOutcome({ id: '123', total: 100 }),
-      chargeCard: okOutcome({ txId: 'tx-123' }),
-    });
+    // The harness takes the real deps; outcomes are scripted separately.
+    const harness = createWorkflowHarness({ fetchOrder, chargeCard });
+    harness.scriptStep('fetchOrder', okOutcome({ id: '123', total: 100 }));
+    harness.scriptStep('chargeCard', okOutcome({ txId: 'tx-123' }));
 
     const result = await harness.run(async ({ step, deps }) => {
-      const order = await step('fetchOrder', () => fetchOrder('123'));
-      const payment = await step('chargeCard', () => chargeCard(order.total));
+      const order = await step('fetchOrder', () => deps.fetchOrder('123'));
+      const payment = await step('chargeCard', () => deps.chargeCard(order.total));
       return { order, payment };
     });
 
@@ -99,14 +99,13 @@ describe('checkout workflow', () => {
   });
 
   it('fails when payment is declined', async () => {
-    const harness = createWorkflowHarness({
-      fetchOrder: okOutcome({ id: '123', total: 100 }),
-      chargeCard: errOutcome('DECLINED'),
-    });
+    const harness = createWorkflowHarness({ fetchOrder, chargeCard });
+    harness.scriptStep('fetchOrder', okOutcome({ id: '123', total: 100 }));
+    harness.scriptStep('chargeCard', errOutcome('DECLINED'));
 
     const result = await harness.run(async ({ step, deps }) => {
-      const order = await step('fetchOrder', () => fetchOrder('123'));
-      const payment = await step('chargeCard', () => chargeCard(order.total));
+      const order = await step('fetchOrder', () => deps.fetchOrder('123'));
+      const payment = await step('chargeCard', () => deps.chargeCard(order.total));
       return { order, payment };
     });
 
@@ -118,31 +117,34 @@ describe('checkout workflow', () => {
 
 ### Scripted outcomes
 
-Control what each step returns:
+Control what each step returns. `script()` feeds outcomes in invocation order;
+`scriptStep()` targets one step by name or key:
 
 ```typescript
-const harness = createWorkflowHarness({
-  // Always succeeds
-  fetchUser: okOutcome({ id: '1', name: 'Alice' }),
+const harness = createWorkflowHarness({ fetchUser, sendEmail, badOperation });
 
-  // Always fails
-  sendEmail: errOutcome('EMAIL_FAILED'),
+// In invocation order
+harness.script([
+  okOutcome({ id: '1', name: 'Alice' }),
+  errOutcome('EMAIL_FAILED'),
+  throwOutcome(new Error('Boom')),
+]);
 
-  // Throws exception
-  badOperation: throwOutcome(new Error('Boom')),
-});
+// Or per step
+harness.scriptStep('fetchUser', okOutcome({ id: '1', name: 'Alice' }));
+harness.scriptStep('sendEmail', errOutcome('EMAIL_FAILED'));
+harness.scriptStep('badOperation', throwOutcome(new Error('Boom')));
 ```
 
 ### Dynamic outcomes
 
-Return different results based on input:
+For input-dependent behaviour, pass a plain dep function — it returns a
+`Result`, not a scripted outcome:
 
 ```typescript
 const harness = createWorkflowHarness({
-  fetchUser: (id: string) =>
-    id === '1'
-      ? okOutcome({ id, name: 'Alice' })
-      : errOutcome('NOT_FOUND'),
+  fetchUser: async (id: string) =>
+    id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND' as const),
 });
 ```
 
@@ -159,7 +161,7 @@ const harness = createWorkflowHarness({
 If multiple tests share the same overrides, pre-bind them once with `withDeps()` (or `workflow.withDeps()`), then run the same workflow logic with less setup noise.
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 const workflow = createWorkflow('checkout', {
   fetchUser: realFetchUser,
@@ -208,49 +210,52 @@ Track calls and change behavior:
 
 ```typescript
 import { createMockFn } from 'awaitly/testing';
+import { ok } from 'awaitly';
 
-const mockFetchUser = createMockFn<typeof fetchUser>();
+// createMockFn<Value, Error>() — mocks return Results, not scripted outcomes.
+const mockFetchUser = createMockFn<{ id: string; name: string }, 'NOT_FOUND'>();
 
 // Set return value
-mockFetchUser.returns(okOutcome({ id: '1', name: 'Alice' }));
+mockFetchUser.returns(ok({ id: '1', name: 'Alice' }));
 
 const harness = createWorkflowHarness({
   fetchUser: mockFetchUser,
 });
 
 await harness.run(async ({ step, deps }) => {
-  await step('fetchUser', () => fetchUser('1'));
-  await step('fetchUser', () => fetchUser('2'));
+  await step('fetchUser', () => deps.fetchUser('1'));
+  await step('fetchUser', () => deps.fetchUser('2'));
 });
 
 // Check calls
-expect(mockFetchUser.calls.length).toBe(2);
-expect(mockFetchUser.calls[0].args).toEqual(['1']);
-expect(mockFetchUser.calls[1].args).toEqual(['2']);
+expect(mockFetchUser.getCallCount()).toBe(2);
+expect(mockFetchUser.getCalls()[0]).toEqual(['1']);
+expect(mockFetchUser.getCalls()[1]).toEqual(['2']);
 ```
 
 ### Testing retries
 
 ```typescript
 import { unwrapOk } from 'awaitly/testing';
+import { ok, err } from 'awaitly';
 
-const mockFetch = createMockFn<typeof fetchData>();
+const mockFetch = createMockFn<{ data: string }, 'NETWORK_ERROR'>();
 
-// Fail twice, then succeed
+// `returnsOnce` queues per-call results; `returns` is the fallback.
 mockFetch
-  .onCall(0).returns(errOutcome('NETWORK_ERROR'))
-  .onCall(1).returns(errOutcome('NETWORK_ERROR'))
-  .onCall(2).returns(okOutcome({ data: 'success' }));
+  .returnsOnce(err('NETWORK_ERROR'))
+  .returnsOnce(err('NETWORK_ERROR'))
+  .returns(ok({ data: 'success' }));
 
 const harness = createWorkflowHarness({ fetchData: mockFetch });
 
 const result = await harness.run(async ({ step, deps }) => {
-  return await step.retry('fetchData', () => fetchData(), { attempts: 3 });
+  return await step.retry('fetchData', () => deps.fetchData(), { attempts: 3 });
 });
 
 const value = unwrapOk(result);
 expect(value.data).toBe('success');
-expect(mockFetch.calls.length).toBe(3);
+expect(mockFetch.getCallCount()).toBe(3);
 ```
 
 ---
@@ -271,7 +276,7 @@ import { createSnapshot, compareSnapshots } from 'awaitly/testing';
 const harness = createWorkflowHarness(mocks);
 
 const result = await harness.run(executor);
-const snapshot = createSnapshot(harness.getInvocations());
+const snapshot = createSnapshot(harness.getInvocations(), result);
 
 // Save to file or compare
 expect(snapshot).toMatchSnapshot();
@@ -286,16 +291,17 @@ import { createTestClock } from 'awaitly/testing';
 
 const clock = createTestClock();
 
-const harness = createWorkflowHarness(mocks, { clock });
+// TestHarnessOptions.clock is a `() => number`, so pass the reader.
+const harness = createWorkflowHarness(mocks, { clock: clock.now });
 
 await harness.run(async ({ step, deps }) => {
-  const data = await step.withTimeout('fetchData', () => fetchData(), { ms: 1000 });
+  const data = await step.withTimeout('fetchData', () => deps.fetchData(), { ms: 1000 });
   return data;
 });
 
 // Advance time
-clock.tick(500);  // 500ms passed
-clock.tick(600);  // Now 1100ms, timeout triggers
+clock.advance(500);  // 500ms passed
+clock.advance(600);  // Now 1100ms, timeout triggers
 ```
 
 ### Assertions on step invocations
@@ -320,23 +326,22 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   createWorkflowHarness,
   createMockFn,
-  okOutcome,
-  errOutcome,
   unwrapOk,
   unwrapErr,
 } from 'awaitly/testing';
+import { ok, err } from 'awaitly';
 
 describe('refund workflow', () => {
-  let mockCalculateRefund: ReturnType<typeof createMockFn>;
-  let mockProcessRefund: ReturnType<typeof createMockFn>;
+  let mockCalculateRefund: ReturnType<typeof createMockFn<{ amount: number }, 'ORDER_NOT_FOUND'>>;
+  let mockProcessRefund: ReturnType<typeof createMockFn<{ refundId: string }, never>>;
   let harness: ReturnType<typeof createWorkflowHarness>;
 
   beforeEach(() => {
-    mockCalculateRefund = createMockFn();
-    mockProcessRefund = createMockFn();
+    mockCalculateRefund = createMockFn<{ amount: number }, 'ORDER_NOT_FOUND'>();
+    mockProcessRefund = createMockFn<{ refundId: string }, never>();
 
-    mockCalculateRefund.returns(okOutcome({ amount: 50 }));
-    mockProcessRefund.returns(okOutcome({ refundId: 'ref-123' }));
+    mockCalculateRefund.returns(ok({ amount: 50 }));
+    mockProcessRefund.returns(ok({ refundId: 'ref-123' }));
 
     harness = createWorkflowHarness({
       calculateRefund: mockCalculateRefund,
@@ -346,27 +351,27 @@ describe('refund workflow', () => {
 
   it('calculates and processes refund', async () => {
     const result = await harness.run(async ({ step, deps }) => {
-      const refund = await step('calculateRefund', () => calculateRefund('order-1'));
-      return await step('processRefund', () => processRefund(refund));
+      const refund = await step('calculateRefund', () => deps.calculateRefund('order-1'));
+      return await step('processRefund', () => deps.processRefund(refund));
     });
 
     const value = unwrapOk(result);
     expect(value.refundId).toBe('ref-123');
-    expect(mockCalculateRefund.calls.length).toBe(1);
-    expect(mockProcessRefund.calls.length).toBe(1);
+    expect(mockCalculateRefund.getCallCount()).toBe(1);
+    expect(mockProcessRefund.getCallCount()).toBe(1);
   });
 
   it('stops if calculation fails', async () => {
-    mockCalculateRefund.returns(errOutcome('ORDER_NOT_FOUND'));
+    mockCalculateRefund.returns(err('ORDER_NOT_FOUND'));
 
     const result = await harness.run(async ({ step, deps }) => {
-      const refund = await step('calculateRefund', () => calculateRefund('order-1'));
-      return await step('processRefund', () => processRefund(refund));
+      const refund = await step('calculateRefund', () => deps.calculateRefund('order-1'));
+      return await step('processRefund', () => deps.processRefund(refund));
     });
 
     const error = unwrapErr(result);
     expect(error).toBe('ORDER_NOT_FOUND');
-    expect(mockProcessRefund.calls.length).toBe(0); // Never called
+    expect(mockProcessRefund.getCallCount()).toBe(0); // Never called
   });
 });
 ```
@@ -376,28 +381,31 @@ describe('refund workflow', () => {
 Use `createSagaHarness` to test workflows with compensation:
 
 ```typescript
-import { createSagaHarness, okOutcome, errOutcome, unwrapErr } from 'awaitly/testing';
+import { createSagaHarness, unwrapErr } from 'awaitly/testing';
+import { ok, err } from 'awaitly';
 
 describe('payment saga', () => {
   it('compensates on failure', async () => {
+    // Deps are functions returning Results.
     const harness = createSagaHarness({
-      chargePayment: () => okOutcome({ id: 'pay_1', amount: 100 }),
-      reserveInventory: () => errOutcome('OUT_OF_STOCK'),
-      refundPayment: () => okOutcome(undefined),
+      chargePayment: async () => ok({ id: 'pay_1', amount: 100 }),
+      reserveInventory: async () => err('OUT_OF_STOCK' as const),
+      refundPayment: async () => ok(undefined),
     });
 
-    const result = await harness.runSaga(async ({ step, deps }) => {
+    // The saga context is `saga`; `saga.step(name, operation, options?)` mirrors
+    // the real SagaStep — name first.
+    const result = await harness.runSaga(async ({ saga, deps }) => {
       // Charge payment - add compensation to refund if later steps fail
-      const payment = await step(
+      const payment = await saga.step(
         'charge-payment',
-        () => deps.chargePayment({ amount: 100 }),
-        { compensate: (p) => deps.refundPayment({ id: p.id }) }
+        () => deps.chargePayment(),
+        { compensate: (p) => void deps.refundPayment() }
       );
 
       // This fails - triggers compensation
-      const reservation = await step(
-        'reserve-inventory',
-        () => deps.reserveInventory({ items: [] })
+      const reservation = await saga.step('reserve-inventory', () =>
+        deps.reserveInventory()
       );
 
       return { payment, reservation };
@@ -425,6 +433,9 @@ describe('payment saga', () => {
 | `assertCompensated(name)` | Assert a specific step was compensated |
 | `assertNotCompensated(name)` | Assert a step was NOT compensated |
 
+Each assertion returns `{ passed, message, expected, actual }` — assert on
+`.passed`, or read `getCompensations()` directly for the raw records.
+
 ### Event assertions
 
 Assert on workflow events for detailed behavior testing:
@@ -435,7 +446,7 @@ import {
   assertEventEmitted,
   assertEventNotEmitted,
 } from 'awaitly/testing';
-import { createWorkflow, type WorkflowEvent } from 'awaitly/workflow';
+import { createWorkflow, type WorkflowEvent } from 'awaitly';
 
 describe('event assertions', () => {
   it('verifies event sequence', async () => {
@@ -451,14 +462,17 @@ describe('event assertions', () => {
       return { user, posts };
     });
 
-    // Assert events occurred in order
+    // Assert events occurred in order. Each step emits `step_success` *and*
+    // `step_complete`; the run ends with `workflow_success`.
     const result = assertEventSequence(events, [
       'workflow_start',
       'step_start:fetch-user',
+      'step_success:fetch-user',
       'step_complete:fetch-user',
       'step_start:fetch-posts',
+      'step_success:fetch-posts',
       'step_complete:fetch-posts',
-      'workflow_complete',
+      'workflow_success',
     ]);
 
     expect(result.passed).toBe(true);
@@ -514,7 +528,7 @@ Allow extra events between expected ones:
 // Only checks that these events appear in order, ignores others
 const result = assertEventSequence(
   events,
-  ['workflow_start', 'step_complete:payment', 'workflow_complete'],
+  ['workflow_start', 'step_complete:payment', 'workflow_success'],
   { strict: false }
 );
 ```
@@ -525,7 +539,7 @@ Format results and events for debugging:
 
 ```typescript
 import { formatResult, formatEvent, formatEvents } from 'awaitly/testing';
-import { ok, err } from 'awaitly';
+import { ok, err, type WorkflowEvent } from 'awaitly';
 
 // Format results
 console.log(formatResult(ok(42)));
@@ -541,13 +555,21 @@ console.log(formatResult(err({ type: 'VALIDATION_ERROR', field: 'email' })));
 // "Err({ type: 'VALIDATION_ERROR', field: 'email' })"
 
 // Format events
-const event = { type: 'step_complete', name: 'fetch-user', durationMs: 42 };
+const event: WorkflowEvent<unknown> = {
+  type: 'step_complete',
+  workflowId: 'wf-1',
+  stepKey: 'fetch-user',
+  name: 'fetch-user',
+  ts: Date.now(),
+  durationMs: 42,
+  result: ok({ id: '1' }),
+};
 console.log(formatEvent(event));
 // "step_complete:fetch-user"
 
 // Format event sequence
 console.log(formatEvents(events));
-// "workflow_start → step_start:fetch-user → step_complete:fetch-user → workflow_complete"
+// "workflow_start → step_start:fetch-user → step_success:fetch-user → step_complete:fetch-user → workflow_success"
 ```
 
 #### Using debug helpers in tests
@@ -573,4 +595,4 @@ it('debugs failing workflow', async () => {
 
 ## Next
 
-[Learn about Batch Processing →](/guides/batch-processing/)
+[Learn about Batch Processing →](guides/batch-processing/)

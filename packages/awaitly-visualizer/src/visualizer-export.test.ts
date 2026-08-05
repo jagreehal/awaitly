@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createVisualizer } from "./index";
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 
 describe("WorkflowVisualizer export methods", () => {
   // Helper to create a visualizer with some events

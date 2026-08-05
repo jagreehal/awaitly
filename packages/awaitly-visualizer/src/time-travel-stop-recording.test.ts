@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createTimeTravelController } from "./time-travel";
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 
 describe("createTimeTravelController stopRecording", () => {
   it("does not add new snapshots when recording is stopped", () => {

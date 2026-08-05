@@ -23,8 +23,7 @@ const [user1, user2, user3] = await Promise.all([
 With singleflight, concurrent calls with the same key share one in-flight request:
 
 ```typescript
-import { singleflight } from 'awaitly';
-import { ok, err, type AsyncResult } from 'awaitly';
+import { singleflight, ok, err, type AsyncResult } from 'awaitly';
 
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
   const user = await db.find(id);
@@ -253,20 +252,38 @@ await slowOp(); // Fetches again
 
 ## Cache Invalidation
 
-### Manual invalidation with groups
+### Manual invalidation
+
+A singleflight group only dedupes calls that are **in flight at the same
+time** — entries are dropped as soon as the operation settles, so there is
+nothing to invalidate. Its `clear()` takes no key and just drops in-flight
+tracking:
 
 ```typescript
 import { createSingleflightGroup } from 'awaitly';
 
-const userCache = createSingleflightGroup<User, 'NOT_FOUND'>();
+const userGroup = createSingleflightGroup<User, 'NOT_FOUND'>();
 
-// Fetch with caching
+// Concurrent callers for the same key share one request
 const getUser = (id: string) =>
-  userCache.execute(`user:${id}`, () => fetchUser(id));
+  userGroup.execute(`user:${id}`, () => fetchUser(id));
+
+userGroup.isInflight('user:1'); // boolean
+userGroup.size();               // number of in-flight requests
+userGroup.clear();              // drop all in-flight tracking (no key argument)
+```
+
+For invalidation you want a real cache, which retains values after they
+settle and supports per-key deletion:
+
+```typescript
+import { createCache } from 'awaitly';
+
+const userCache = createCache<string, User>({ defaultTTL: '5m' });
 
 // Invalidate single user
 const invalidateUser = (id: string) => {
-  userCache.clear(`user:${id}`);
+  userCache.delete(`user:${id}`);
 };
 
 // Invalidate all users
@@ -478,4 +495,4 @@ const getUserWithFallback = async (id: string) => {
 
 ## Next
 
-[Learn about Webhooks & Events →](/advanced/webhooks/)
+[Learn about Webhooks & Events →](advanced/webhooks/)

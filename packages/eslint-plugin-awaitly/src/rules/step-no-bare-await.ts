@@ -30,13 +30,13 @@ const rule: Rule.RuleModule = {
   meta: {
     type: 'problem',
     docs: {
-      description: 'Disallow bare await deps.*() in workflow callbacks. Wrap deps calls in step().',
+      description: 'Disallow bare await deps.*() in workflow callbacks. Wrap them in step() or call them through steps.*().',
       recommended: true,
     },
     schema: [],
     messages: {
       noBareAwait:
-        "Avoid bare await on deps call. Wrap it in step(): step('id', () => deps.fn(...)).",
+        "Avoid bare await on a raw dependency call — it is invisible to the step engine. Use steps.fn(...), or wrap it: step('id', () => deps.fn(...)).",
     },
   },
   create(context) {

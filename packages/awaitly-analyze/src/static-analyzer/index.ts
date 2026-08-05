@@ -18,6 +18,7 @@ import { extname } from "path";
 import type { SourceFile, Project, Node } from "ts-morph";
 import type * as ts from "typescript";
 import { loadTsMorph } from "../ts-morph-loader";
+import { deriveIdFromExpression } from "../derive-id";
 
 import {
   extractFunctionName,
@@ -76,6 +77,7 @@ import {
   extractDependencies,
   extractErrorTypes,
   inferErrorsFromErrorTypeInfo,
+  attachWorkflowRefsFromDeps,
   inferStepIOFromInnerCall,
 } from "./deps-types";
 
@@ -512,6 +514,8 @@ function analyzeWorkflowCall(
   enrichStepOutputTypes(root);
   inferErrorsFromErrorTypeInfo(root);
   enrichStepDepSource(root);
+  // After enrichStepDepSource: matching a step to its dep relies on depSource.
+  stats.workflowRefCount += attachWorkflowRefsFromDeps(root);
 
   if (workflowInfo.variableDeclaration) {
     const decl = workflowInfo.variableDeclaration as { getVariableStatement?: () => Node };
@@ -984,6 +988,27 @@ function analyzeTryStatement(
  * Analyze a callback argument (arrow function or function expression).
  * Only use this in explicit callback contexts like when(), unless(), allAsync(), etc.
  */
+/**
+ * Strip parentheses and type assertions so a cast cannot hide the real call.
+ *
+ * `() => anyAsync([a(), b()]) as AsyncResult<T, E>` is a common shape — casting
+ * is how callers absorb the extra error types anyAsync introduces. Without this,
+ * the body reads as an AsExpression, no known pattern matches, and the scope
+ * renders with no children at all.
+ */
+function unwrapExpression(node: Node): Node {
+  const { Node } = loadTsMorph();
+  let current = node;
+  while (
+    Node.isParenthesizedExpression(current) ||
+    Node.isAsExpression(current) ||
+    Node.isNonNullExpression(current)
+  ) {
+    current = current.getExpression();
+  }
+  return current;
+}
+
 function analyzeCallbackArgument(
   node: Node,
   opts: Required<AnalyzerOptions>,
@@ -993,20 +1018,22 @@ function analyzeCallbackArgument(
   context: AnalysisContext = { stepNames: new Set(["step"]), isInWorkflowCallback: true, depth: 0 }
 ): StaticFlowNode[] {
   const { Node } = loadTsMorph();
+  const target = unwrapExpression(node);
+
   // Handle arrow function (e.g., () => step(...))
-  if (Node.isArrowFunction(node)) {
-    const body = node.getBody();
+  if (Node.isArrowFunction(target)) {
+    const body = unwrapExpression(target.getBody());
     return analyzeNode(body, opts, warnings, stats, sagaContext, context);
   }
 
   // Handle function expression (e.g., function() { step(...) })
-  if (Node.isFunctionExpression(node)) {
-    const body = node.getBody();
+  if (Node.isFunctionExpression(target)) {
+    const body = target.getBody();
     return analyzeNode(body, opts, warnings, stats, sagaContext, context);
   }
 
   // Fallback: try analyzing as a regular node (e.g., a direct call expression)
-  return analyzeNode(node, opts, warnings, stats, sagaContext, context);
+  return analyzeNode(target, opts, warnings, stats, sagaContext, context);
 }
 
 // =============================================================================
@@ -1562,7 +1589,8 @@ function analyzeStepCall(
         stepNode.readParamIndices = extractedReads.paramIndices;
       }
 
-      // Try to detect dep source from callee pattern: deps.xxx() or ctx.deps.xxx()
+      // Try to detect dep source from callee pattern: deps.xxx() or ctx.deps.xxx().
+      // `deps` is the callback's unmanaged view of the deps object.
       if (!stepNode.depSource && stepNode.callee) {
         const depMatch = stepNode.callee.match(/^(?:deps|ctx\.deps)\.([a-zA-Z_$][a-zA-Z0-9_$]*)/);
         if (depMatch) {
@@ -2690,59 +2718,30 @@ function analyzeRaceCall(
     location: opts.includeLocations ? getLocation(node) : undefined,
   };
 
-  // Extract operations from array or object
-  if (args[0] && Node.isArrayLiteralExpression(args[0])) {
-    const elements = args[0].getElements();
-    for (let i = 0; i < elements.length; i++) {
-      const element = elements[i];
-      const scopePrefix = `race.${i}.`;
-      const implicitStep = tryExtractImplicitStep(element, opts, stats, scopePrefix);
-      if (implicitStep) {
-        implicitStep.depSource = implicitStep.name ?? extractFunctionName(implicitStep.callee ?? "");
-        raceNode.children.push(implicitStep);
-      } else {
-        const children = analyzeCallbackArgument(element, opts, warnings, stats, sagaContext, context);
-        for (const c of children) {
-          if (c.type === "step") {
-            const s = c as StaticStepNode;
-            if (!s.depSource && s.callee) s.depSource = extractFunctionName(s.callee);
-            if (s.stepId?.startsWith("implicit:"))
-              s.stepId = scopePrefix + (s.name ?? s.stepId.slice("implicit:".length));
-          }
-        }
-        raceNode.children.push(...children);
+  // Runtime form: step.race(name, callback). The racers are whatever the
+  // callback runs — typically `anyAsync([...])`, sometimes inner steps.
+  if (args[0] && Node.isStringLiteral(args[0]) && args[1]) {
+    raceNode.name = args[0].getLiteralValue();
+    const scopePrefix = `race.${raceNode.name}.`;
+    const children = analyzeCallbackArgument(args[1], opts, warnings, stats, sagaContext, context);
+
+    // `step.race('x', () => anyAsync([a, b]))` — the inner anyAsync already
+    // models the racers, so absorb it rather than nesting a race in a race.
+    // Its handler counted itself, so undo that to keep raceCount = one per scope.
+    const absorbed =
+      children.length === 1 && children[0].type === "race"
+        ? ((stats.raceCount--, (children[0] as StaticRaceNode).children))
+        : children;
+
+    for (const c of absorbed) {
+      if (c.type === "step") {
+        const s = c as StaticStepNode;
+        if (!s.depSource && s.callee) s.depSource = extractFunctionName(s.callee);
+        if (s.stepId?.startsWith("implicit:"))
+          s.stepId = scopePrefix + (s.name ?? s.stepId.slice("implicit:".length));
       }
     }
-  } else if (args[0] && Node.isObjectLiteralExpression(args[0])) {
-    // Object form: step.race({ cacheA: () => ..., cacheB: () => ... })
-    for (const prop of args[0].getProperties()) {
-      if (Node.isPropertyAssignment(prop)) {
-        const name = prop.getName();
-        const init = prop.getInitializer();
-        if (init) {
-          const scopePrefix = `race.${name}.`;
-          const implicitStep = tryExtractImplicitStep(init, opts, stats, scopePrefix);
-          if (implicitStep) {
-            implicitStep.name = name;
-            implicitStep.depSource = name;
-            raceNode.children.push(implicitStep);
-          } else {
-            const children = analyzeCallbackArgument(init, opts, warnings, stats, sagaContext, context);
-            if (children.length > 0) {
-              const child = children[0];
-              child.name = name;
-              if (child.type === "step") {
-                const s = child as StaticStepNode;
-                s.depSource = s.depSource ?? name;
-                if (s.stepId?.startsWith("implicit:"))
-                  s.stepId = scopePrefix + (s.name ?? s.stepId.slice("implicit:".length));
-              }
-              raceNode.children.push(child);
-            }
-          }
-        }
-      }
-    }
+    raceNode.children.push(...absorbed);
   }
 
   return raceNode;
@@ -2769,9 +2768,31 @@ function analyzeAnyAsyncCall(
   };
 
   if (args[0] && Node.isArrayLiteralExpression(args[0])) {
-    for (const element of args[0].getElements()) {
+    const elements = args[0].getElements();
+    for (let i = 0; i < elements.length; i++) {
+      const element = elements[i];
       const children = analyzeCallbackArgument(element, opts, warnings, stats, sagaContext, context);
-      raceNode.children.push(...children);
+      if (children.length > 0) {
+        raceNode.children.push(...children);
+        continue;
+      }
+      // Racers are usually invoked directly — `anyAsync([deps.cacheA(), deps.cacheB()])`.
+      // Those calls are the racers, so treat each as an implicit step the way
+      // allAsync's array form already does; otherwise the race has no children.
+      if (Node.isCallExpression(element)) {
+        const callee = element.getExpression().getText();
+        const name = extractFunctionName(callee);
+        stats.totalSteps++;
+        raceNode.children.push({
+          id: generateId(),
+          type: "step",
+          stepId: `race.${i}.${name}`,
+          location: opts.includeLocations ? getLocation(element) : undefined,
+          callee,
+          name,
+          depSource: name,
+        } as StaticStepNode);
+      }
     }
   }
 
@@ -3027,6 +3048,10 @@ function analyzeIfStatement(
     type: "conditional",
     condition,
     helper: null,
+    // A raw if/else still gets a stable branch identity when its condition is
+    // statically readable, so native control flow diagrams and diffs as
+    // reliably as step.if. Undefined only when the text can't identify it.
+    derivedId: deriveIdFromExpression(condition),
     consequent,
     alternate,
     location: opts.includeLocations ? getLocation(node) : undefined,
@@ -3275,6 +3300,7 @@ function analyzeForOfStatement(
     type: "loop",
     loopType: "for-of",
     iterSource: node.getExpression().getText(),
+    derivedId: deriveIdFromExpression(node.getExpression().getText()),
     body: bodyChildren,
     boundKnown: false,
     location: opts.includeLocations ? getLocation(node) : undefined,
@@ -3316,6 +3342,7 @@ function analyzeForInStatement(
     type: "loop",
     loopType: "for-in",
     iterSource: node.getExpression().getText(),
+    derivedId: deriveIdFromExpression(node.getExpression().getText()),
     body: bodyChildren,
     boundKnown: false,
     location: opts.includeLocations ? getLocation(node) : undefined,
@@ -3356,6 +3383,10 @@ function analyzeWhileStatement(
     id: generateId(),
     type: "loop",
     loopType: "while",
+    // A while loop has no iterable; its condition is the closest thing to a
+    // stable identity.
+    iterSource: node.getExpression().getText(),
+    derivedId: deriveIdFromExpression(node.getExpression().getText()),
     body: bodyChildren,
     boundKnown: false,
     location: opts.includeLocations ? getLocation(node) : undefined,

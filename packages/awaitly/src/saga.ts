@@ -11,7 +11,7 @@
  *
  * @example
  * ```typescript
- * import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/saga';
+ * import { createSagaWorkflow, isSagaCompensationError } from 'awaitly/durable';
  *
  * const checkout = createSagaWorkflow('checkout', {
  *   reserveInventory, releaseInventory,
@@ -68,7 +68,7 @@ export interface SagaStepOptions<T> {
 }
 
 /**
- * @deprecated Use `WorkflowOptions` from `awaitly/workflow`. Kept as an alias for back-compat.
+ * @deprecated Use `WorkflowOptions` from `awaitly`. Kept as an alias for back-compat.
  */
 export type SagaWorkflowOptions<E> = {
   onError?: (error: E | UnexpectedError | SagaCompensationError, stepName?: string) => void;

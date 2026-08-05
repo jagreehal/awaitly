@@ -31,7 +31,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
         "type": "step",
       },
       {
-        "id": "decision_1",
+        "id": "not-validation-valid",
         "label": "!validation.valid",
         "location": {
           "column": 4,
@@ -64,13 +64,13 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
     "transitions": [
       {
         "event": "true",
-        "fromStateId": "decision_1",
+        "fromStateId": "not-validation-valid",
         "toStateId": "refresh",
       },
       {
         "event": "done",
         "fromStateId": "validate",
-        "toStateId": "decision_1",
+        "toStateId": "not-validation-valid",
       },
       {
         "event": "start",
@@ -84,7 +84,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       },
       {
         "event": "done",
-        "fromStateId": "decision_1",
+        "fromStateId": "not-validation-valid",
         "toStateId": "end",
       },
     ],
@@ -643,7 +643,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
         "type": "step",
       },
       {
-        "id": "decision_1",
+        "id": "user-is-premium",
         "label": "user.isPremium",
         "location": {
           "column": 4,
@@ -691,13 +691,13 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
     "transitions": [
       {
         "event": "true",
-        "fromStateId": "decision_1",
+        "fromStateId": "user-is-premium",
         "toStateId": "Apply Discount",
       },
       {
         "event": "done",
         "fromStateId": "Fetch User",
-        "toStateId": "decision_1",
+        "toStateId": "user-is-premium",
       },
       {
         "event": "done",
@@ -706,7 +706,7 @@ exports[`renderWorkflowDSL > Fixture-based DSL output > produces expected DSL fo
       },
       {
         "event": "done",
-        "fromStateId": "decision_1",
+        "fromStateId": "user-is-premium",
         "toStateId": "Fetch Posts",
       },
       {

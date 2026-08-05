@@ -245,7 +245,7 @@ const data = await step.withTimeout(
   {
     ms: 5000,
     onTimeout: ({ name, ms }) => ({
-      _tag: 'API_TIMEOUT' as const,
+      type: 'API_TIMEOUT' as const,
       operation: name,
       waited: ms,
     }),
@@ -258,11 +258,11 @@ const data = await step.withTimeout(
 ### Checking Timeout Errors
 
 ```typescript
-import { isStepTimeoutError, getStepTimeoutMeta } from 'awaitly/workflow';
+import { isStepTimeoutError, getStepTimeoutMeta } from 'awaitly';
 
 if (!result.ok && isStepTimeoutError(result.error)) {
   const meta = getStepTimeoutMeta(result.error);
-  console.log(`${meta.name} timed out after ${meta.ms}ms`);
+  console.log(`${meta?.stepName} timed out after ${meta?.timeoutMs}ms`);
 }
 ```
 
@@ -468,8 +468,7 @@ const result = await run<User, 'NOT_FOUND'>(
 ## Complete Example
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
-import { TaggedError } from 'awaitly';
+import { createWorkflow, TaggedError } from 'awaitly';
 
 class NetworkError extends TaggedError('NetworkError')<{
   endpoint: string;
@@ -488,14 +487,13 @@ const fetchUserFromApi = async (id: string): AsyncResult<User, NetworkError | No
 const workflow = createWorkflow('workflow', { fetchUserFromApi });
 
 const result = await workflow.run(async ({ step, deps }) => {
+  // Per-attempt timeout goes in the retry options — don't nest step calls,
+  // `step.withTimeout` returns the unwrapped value, not a Result.
   const user = await step.retry(
     'fetchUser',
-    () => step.withTimeout(
-      'fetchUser',
-      () => deps.fetchUserFromApi('123'),
-      { ms: 3000 }
-    ),
+    () => deps.fetchUserFromApi('123'),
     {
+      timeout: { ms: 3000 },
       attempts: 3,
       backoff: 'exponential',
       initialDelay: 200,
@@ -522,4 +520,4 @@ if (!result.ok) {
 
 ## Next
 
-[Learn about State and Resumption →](/foundations/state-and-resumption/)
+[Learn about State and Resumption →](foundations/state-and-resumption/)

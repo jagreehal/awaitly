@@ -36,9 +36,9 @@ Imperative control flow (`if`, `for`, computed step ids) produces diagrams with 
 - Use `step.forEach` for loops. Each iteration gets a structured id.
 - Use literal step ids and put dynamic parts in `key`. Each node keeps a stable identity.
 
-Workflows that use those constructs produce deterministic static diagrams. Run `--assert-diagrammable` in CI. The [`workflow-prefer-step-if`](/guides/eslint-plugin/#awaitlyworkflow-prefer-step-if) and [`workflow-prefer-step-foreach`](/guides/eslint-plugin/#awaitlyworkflow-prefer-step-foreach) rules flag raw control flow during development.
+Native `if`/`else`, `for...of`, and `while` are analyzed too: the analyzer derives a stable branch id from the condition and a stable loop id from the iterable, so plain TypeScript produces deterministic diagrams without any DSL. Run `--assert-diagrammable` in CI — it flags only control flow whose condition or iterable cannot be read statically (a call result, a computed member), which you fix by hoisting it into a named variable.
 
-See [Control flow and diagrammability](/foundations/control-flow/#stepif-for-labelled-branches) for the workflow authoring patterns.
+See [Control flow and diagrammability](foundations/control-flow/#stepif-for-labelled-branches) for the workflow authoring patterns.
 
 ## Fast start
 
@@ -124,14 +124,14 @@ npx awaitly-analyze ./src/workflows/checkout.ts --dev
 npx awaitly-analyze ./src/workflows/checkout.ts --dev --port=5000
 ```
 
-Wire `onEvent` to stream runs into the inspector. Use `devEvents` from `awaitly-visualizer` (see [Visualization →](/guides/visualization/#live-inspector)) or POST events yourself to `/events`. Updates use Server-Sent Events; no WebSocket server required.
+Wire `onEvent` to stream runs into the inspector. Use `devEvents` from `awaitly-visualizer` (see [Visualization →](guides/visualization/#live-inspector)) or POST events yourself to `/events`. Updates use Server-Sent Events; no WebSocket server required.
 
 ## Lock the diagram to reality
 
 Pass a declared `graph` at workflow creation or per run so every step and decision id must appear in the graph. Any runtime id not in the graph fails the workflow immediately, so the static diagram and execution stay aligned.
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 
 const workflow = createWorkflow('checkout', deps, {
   graph: ['fetchUser', 'chargeCard', 'premium-check'],
@@ -143,7 +143,7 @@ await run(async ({ step }) => { /* ... */ }, {
 });
 ```
 
-Pair with `--assert-diagrammable` in CI: the analyzer checks that source is diagrammable; `graph` enforces that runtime matches the declared shape. See [Workflow options →](/foundations/workflows/#graph).
+Pair with `--assert-diagrammable` in CI: the analyzer checks that source is diagrammable; `graph` enforces that runtime matches the declared shape. See [Workflow options →](foundations/workflows/#graph).
 
 ## Interactive HTML artifact
 
@@ -391,6 +391,6 @@ Node categories:
 
 ## Next
 
-- [Documenting Workflows →](/docs/guides/documenting-workflows/)
-- [Visualization →](/docs/guides/visualization/)
-- [Rules Index →](/docs/rules/)
+- [Documenting Workflows →](guides/documenting-workflows/)
+- [Visualization →](guides/visualization/)
+- [Rules Index →](rules/)

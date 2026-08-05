@@ -18,9 +18,9 @@ function getWorkflowCallback(
 }
 
 /**
- * Workflow callbacks receive a single destructured object: `{ step, deps?, ctx? }`.
+ * Workflow callbacks receive a single destructured object: `{ step, steps?, raw?, ctx? }`.
  *
- * `step` is always present — `deps` and `ctx` are optional depending on the
+ * `step` is always present — `steps`, `raw`, and `ctx` are optional depending on the
  * entry point (`run()` vs `createWorkflow().run()` and whether `createContext`
  * is set). Requiring all three is too strict; require only `step` (and accept
  * any superset).

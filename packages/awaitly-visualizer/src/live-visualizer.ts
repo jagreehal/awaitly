@@ -5,7 +5,7 @@
  * workflow progress as it happens.
  */
 
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 import type {
   LiveVisualizerOptions,
   RenderOptions,

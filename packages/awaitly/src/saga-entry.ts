@@ -5,7 +5,7 @@
  *
  * @example
  * ```typescript
- * import { createSagaWorkflow } from 'awaitly/saga';
+ * import { createSagaWorkflow } from 'awaitly/durable';
  *
  * const booking = createSagaWorkflow('booking', {
  *   reserveFlight, cancelFlight,

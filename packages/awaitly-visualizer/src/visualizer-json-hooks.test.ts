@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createVisualizer } from "./index";
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 
 describe("visualizer json output", () => {
   it("serializes onAfterStep hooks into JSON output", () => {

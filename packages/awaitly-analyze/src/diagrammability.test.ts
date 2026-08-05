@@ -151,25 +151,51 @@ describe("computeDiagrammability", () => {
 });
 
 describe("computeDiagrammability (integration)", () => {
-  it("flags a raw if/else in real analyzed source", () => {
-    const source = `
+  const analyzeBody = (body: string) =>
+    analyzeWorkflowSource(`
       import { createWorkflow } from "awaitly";
 
       const wf = createWorkflow("wf");
 
-      export async function runIt(premium: boolean) {
+      export async function runIt(premium: boolean, order: { items: string[] }) {
         return await wf.run(async ({ step }) => {
           const user = await step("fetchUser", () => fetchUser());
-          if (premium) {
-            await step("sendPremiumEmail", () => sendEmail(user));
-          }
+          ${body}
           return user;
         });
       }
-    `;
-    const results = analyzeWorkflowSource(source);
-    expect(results.length).toBeGreaterThan(0);
-    const report = computeDiagrammability(results[0]);
+    `);
+
+  it("accepts a raw if/else whose condition reads statically", () => {
+    // Native control flow is first-class: the condition text supplies a stable
+    // branch id, so no step.if is required to get a deterministic diagram.
+    const report = computeDiagrammability(analyzeBody(`
+      if (premium) {
+        await step("sendPremiumEmail", () => sendEmail(user));
+      }
+    `)[0]);
+
+    expect(report.issues.map((i) => i.kind)).not.toContain("raw-conditional");
+    expect(report.deterministic).toBe(true);
+  });
+
+  it("accepts a native for-of over a statically readable iterable", () => {
+    const report = computeDiagrammability(analyzeBody(`
+      for (const item of order.items) {
+        await step("reserve", () => reserve(item));
+      }
+    `)[0]);
+
+    expect(report.issues.map((i) => i.kind)).not.toContain("raw-loop");
+  });
+
+  it("still flags a condition computed at runtime", () => {
+    const report = computeDiagrammability(analyzeBody(`
+      if (checkEligibility(user)) {
+        await step("sendPremiumEmail", () => sendEmail(user));
+      }
+    `)[0]);
+
     expect(report.deterministic).toBe(false);
     expect(report.issues.map((i) => i.kind)).toContain("raw-conditional");
   });

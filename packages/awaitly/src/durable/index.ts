@@ -97,6 +97,57 @@ function getDefaultStore(): SnapshotStore {
 // =============================================================================
 
 /**
+ * Build the PersistenceError surfaced to callers for a shape drift.
+ */
+function shapeDriftError(
+  workflowId: string,
+  drift: { index: number; expected: string; actual: string }
+): PersistenceError {
+  const cause = new WorkflowShapeDriftError(workflowId, drift);
+  return {
+    type: "PERSISTENCE_ERROR",
+    operation: "load",
+    workflowId,
+    cause,
+    message: cause.message,
+  };
+}
+
+/**
+ * Thrown when a resumed workflow's step order no longer matches the order
+ * recorded in its checkpoint.
+ *
+ * Step keys are position-derived (repeat calls to a dep auto-suffix:
+ * `getUser`, `getUser#2`, ...), so inserting or reordering a call shifts every
+ * later key. Replaying against the old checkpoint would then hand one step's
+ * stored value to a different step. This is thrown from `onBeforeStep`, i.e.
+ * before the stored value is read.
+ */
+export class WorkflowShapeDriftError extends Error {
+  readonly workflowId: string;
+  readonly stepIndex: number;
+  readonly expectedStepKey: string;
+  readonly actualStepKey: string;
+
+  constructor(
+    workflowId: string,
+    drift: { index: number; expected: string; actual: string }
+  ) {
+    super(
+      `Workflow '${workflowId}' changed shape since its checkpoint was written: ` +
+        `step ${drift.index + 1} was '${drift.expected}' and is now '${drift.actual}'. ` +
+        `Resuming would read the wrong checkpoint. Bump the workflow version to ` +
+        `migrate, or clear this id (durable.deleteState(store, '${workflowId}')) and re-run.`
+    );
+    this.name = "WorkflowShapeDriftError";
+    this.workflowId = workflowId;
+    this.stepIndex = drift.index;
+    this.expectedStepKey = drift.expected;
+    this.actualStepKey = drift.actual;
+  }
+}
+
+/**
  * Error returned when workflow cannot resume due to version mismatch.
  * Indicates the stored state was created with a different workflow version.
  * Fail-fast contract: bump version when you change step keys, order, or outputs.
@@ -305,7 +356,11 @@ export interface DurableOptions<C = void> {
    * If stored state has a different version, workflow will reject resume with VersionMismatchError
    * unless onVersionMismatch is used to clear or migrate.
    *
-   * Bump when you change step keys, reorder steps, or change step outputs in a way old checkpoints can't satisfy.
+   * Bump when you change step outputs in a way old checkpoints can't satisfy.
+   *
+   * Reordering or renaming steps does NOT need a manual bump: the snapshot
+   * records the executed step order and a drifted resume is rejected with
+   * {@link WorkflowShapeDriftError} before any stored value is read.
    *
    * @default 1
    */
@@ -804,6 +859,26 @@ export const durable = {
       // Collect step results via onEvent for snapshot building
       const resumeCollector = createResumeStateCollector();
 
+      // Step keys are position-derived: repeat calls to the same dep auto-suffix
+      // (`getUser`, `getUser#2`, ...). Reordering or inserting a call shifts
+      // every later suffix, so a resumed run can read a different step's
+      // checkpoint under the same key. Recording the order in the snapshot makes
+      // that detectable instead of depending on the author bumping `version`.
+      const storedStepOrder = Array.isArray(existingSnapshot?.metadata?.stepOrder)
+        ? (existingSnapshot.metadata.stepOrder as string[])
+        : undefined;
+      // Bound step keys are position-derived, so `getUser("a")` and
+      // `getUser("b")` share the key `getUser`. Swapping them leaves the key
+      // sequence identical while the checkpoints now belong to different
+      // arguments — the key alone cannot see that edit, so argument
+      // fingerprints are recorded and compared alongside it.
+      const storedStepArgs = Array.isArray(existingSnapshot?.metadata?.stepArgs)
+        ? (existingSnapshot.metadata.stepArgs as Array<string | null>)
+        : undefined;
+      const observedStepOrder: string[] = [];
+      const observedStepArgs: Array<string | null> = [];
+      let shapeDrift: { index: number; expected: string; actual: string } | undefined;
+
       // Build workflow options with proper types (U = UnexpectedError by default)
       const workflowOptions: WorkflowOptions<E, UnexpectedError, C> = {
         // Restore from existing snapshot
@@ -834,6 +909,11 @@ export const durable = {
               }
             }
 
+            const stepOrder =
+              observedStepOrder.length > 0
+                ? [...observedStepOrder]
+                : [...collectedState.steps.keys()];
+
             const currentSnapshot: WorkflowSnapshot = {
               formatVersion: 1,
               workflowName: id,
@@ -848,6 +928,16 @@ export const durable = {
                 ...metadata,
                 version,
                 lastStepKey: stepKey,
+                // Merged so a resumed run keeps the full recorded order rather
+                // than truncating it to the steps replayed this time.
+                stepOrder:
+                  storedStepOrder && storedStepOrder.length > stepOrder.length
+                    ? storedStepOrder
+                    : stepOrder,
+                stepArgs:
+                  storedStepArgs && storedStepArgs.length > observedStepArgs.length
+                    ? storedStepArgs
+                    : [...observedStepArgs],
               } as Record<string, JSONValue>,
             };
 
@@ -899,10 +989,46 @@ export const durable = {
           }
         },
 
-        // Forward events and collect step results for snapshot building
+        // Forward events and collect step results for snapshot building.
+        // Step order is tracked here rather than in onAfterStep because
+        // onAfterStep does not fire for steps served from the snapshot — and a
+        // fully replayed prefix is exactly the case shape drift corrupts.
         onEvent: (event, ctx) => {
           resumeCollector.handleEvent(event);
           emitDurableEvent(event as DurableWorkflowEvent<E, C>, ctx as C);
+        },
+
+        // Shape-drift guard. Runs before each step — including before a step
+        // served from the snapshot reads its stored value — so a checkpoint
+        // written by a differently-shaped workflow is rejected rather than
+        // replayed into the wrong step.
+        onBeforeStep: (stepKey, _wfId, _ctx, info) => {
+          const i = observedStepOrder.length;
+          const fingerprint = info?.argsFingerprint ?? null;
+          observedStepOrder.push(stepKey);
+          observedStepArgs.push(fingerprint);
+
+          if (!storedStepOrder || i >= storedStepOrder.length) return;
+
+          if (storedStepOrder[i] !== stepKey) {
+            const drift = { index: i, expected: storedStepOrder[i]!, actual: stepKey };
+            shapeDrift ??= drift;
+            throw new WorkflowShapeDriftError(id, drift);
+          }
+
+          // Same key, different arguments: the checkpoint at this position was
+          // written by a different call. A missing fingerprint on either side
+          // means "no information", so it is not treated as a mismatch.
+          const stored = storedStepArgs?.[i] ?? null;
+          if (stored !== null && fingerprint !== null && stored !== fingerprint) {
+            const drift = {
+              index: i,
+              expected: `${stepKey} (args ${stored})`,
+              actual: `${stepKey} (args ${fingerprint})`,
+            };
+            shapeDrift ??= drift;
+            throw new WorkflowShapeDriftError(id, drift);
+          }
         },
 
         onError: onError as (error: E | UnexpectedError, stepName?: string, ctx?: C) => void,
@@ -934,7 +1060,24 @@ export const durable = {
       let result: Result<T, E | UnexpectedError | PersistenceError, unknown>;
       try {
         result = await workflowInstance!.run(fn);
+        if (shapeDrift) {
+          // onBeforeStep threw before the mismatched step read its stored
+          // value, so nothing downstream saw a wrong result. Surface it as a
+          // typed error and leave the existing snapshot untouched.
+          const error = shapeDriftError(id, shapeDrift);
+          durableResult = err(error);
+          return err(error);
+        }
       } catch (runError) {
+        if (runError instanceof WorkflowShapeDriftError) {
+          const error = shapeDriftError(id, {
+            index: runError.stepIndex,
+            expected: runError.expectedStepKey,
+            actual: runError.actualStepKey,
+          });
+          durableResult = err(error);
+          return err(error);
+        }
         if (runError instanceof SnapshotFormatError || runError instanceof SnapshotDecodeError) {
           const error: PersistenceError = {
             type: "PERSISTENCE_ERROR",

@@ -1,5 +1,5 @@
 import { ok, err, type AsyncResult } from "awaitly";
-import { createWorkflow } from "awaitly/workflow";
+import { createWorkflow } from "awaitly";
 
 type User = { id: string; email: string };
 type CreateUserInput = { email: string; passwordHash: string };

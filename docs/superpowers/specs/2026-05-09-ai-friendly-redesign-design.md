@@ -48,14 +48,14 @@ Derived from current lint rules, patterns SKILL.md MUST/MUST-NOT contract, error
 - `step-require-id` (lint: was `require-step-id`) — step() and step.all/map/race need a string-literal ID. Covers the existing rule's full surface (top-level step + helpers + computed/template-literal rejection).
 - `step-no-immediate-execution` (lint: was `no-immediate-execution`) — second argument must be a thunk.
 - `step-require-thunk-for-key` (lint: was `require-thunk-for-key`) — `{ key }` requires a thunk.
-- `step-no-bare-await` (NEW lint) — no bare `await deps.fn()` inside workflow callbacks.
+- `step-no-bare-await` (NEW lint) — no bare `await raw.fn()` inside workflow callbacks.
 - `step-no-try-catch-wrap` (NEW lint) — do not wrap step() in try/catch; use `step.try()`.
 - `step-stable-cache-keys` (lint: was `stable-cache-keys`).
 
 ### `workflow-*`
 - `workflow-no-floating` (lint: was `no-floating-workflow`).
 - `workflow-options-position` (lint: was `no-options-on-executor`).
-- `workflow-callback-shape` (NEW lint) — destructured `{ step, deps, ctx }`, no positional args.
+- `workflow-callback-shape` (NEW lint) — destructured `{ step, raw, ctx }`, no positional args.
 - `workflow-no-callable-form` (NEW lint) — execute via `workflow.run(...)`, never `workflow(fn)`.
 - `workflow-no-dynamic-import` (lint: was `no-dynamic-import`) — keep static imports for tooling traceability.
 

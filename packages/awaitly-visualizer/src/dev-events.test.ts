@@ -3,7 +3,7 @@
  * fetch failures AND serialization failures are swallowed.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WorkflowEvent } from "awaitly/workflow";
+import type { WorkflowEvent } from "awaitly";
 import { devEvents } from "./dev-events";
 
 const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 0));

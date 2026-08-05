@@ -18,8 +18,7 @@ Turn Zod validation errors into typed Results for seamless composition in workfl
 
 ```typescript
 import { z } from 'zod';
-import { ok, err, type Result } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { ok, err, type Result, createWorkflow } from 'awaitly';
 
 const UserSchema = z.object({
   email: z.string().email(),
@@ -96,11 +95,11 @@ const input = zodToResult(CreateUserSchema, requestBody);
 Compose validation with other operations:
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 import { zodToResult } from './utils';
 
 const deps = {
-  validateInput: (raw: unknown) => Promise.resolve(zodToResult(CreateUserSchema, raw)),
+  validateInput: (deps: unknown) => Promise.resolve(zodToResult(CreateUserSchema, raw)),
   saveToDatabase,
   sendWelcomeEmail,
 };
@@ -173,7 +172,7 @@ const handleSubmit = async (formData: FormData) => {
 Validate incoming API requests:
 
 ```typescript
-import { createWorkflow } from 'awaitly/workflow';
+import { createWorkflow } from 'awaitly';
 import { zodToResult } from './utils';
 
 // Define request schemas
@@ -184,7 +183,7 @@ const CreatePostSchema = z.object({
 });
 
 const deps = {
-  validatePost: (raw: unknown) => Promise.resolve(zodToResult(CreatePostSchema, raw)),
+  validatePost: (deps: unknown) => Promise.resolve(zodToResult(CreatePostSchema, raw)),
   createPost,
 };
 
@@ -254,8 +253,7 @@ Complete workflow combining Zod validation with database operations:
 
 ```typescript
 import { z } from 'zod';
-import { ok, err, type Result, type AsyncResult } from 'awaitly';
-import { createWorkflow } from 'awaitly/workflow';
+import { ok, err, type Result, type AsyncResult, createWorkflow } from 'awaitly';
 
 // Schemas
 const EmailSchema = z.string().email();
@@ -278,7 +276,7 @@ type DbError = { type: 'DB_ERROR'; message: string };
 
 // Dependencies
 const deps = {
-  validateInput: (raw: unknown) => {
+  validateInput: (deps: unknown) => {
     const parsed = RegisterSchema.safeParse(raw);
     return Promise.resolve(
       parsed.success
@@ -298,6 +296,11 @@ const deps = {
   > => {
     return ok({ id: '123', email: data.email, name: data.name });
   },
+
+  // Declaring the failure as a dep puts EMAIL_TAKEN in the inferred error
+  // union — an `err()` returned inline from a step would not be.
+  emailTaken: async (email: string): AsyncResult<never, EmailTakenError> =>
+    err({ type: 'EMAIL_TAKEN', email }),
 };
 
 // Registration workflow
@@ -311,7 +314,7 @@ const register = async (rawInput: unknown) => {
     // Step 2: Check if email is taken
     const emailExists = await step('checkEmailExists', () => deps.checkEmailExists(input.email));
     if (emailExists) {
-      return await step('createUser', () => err({ type: 'EMAIL_TAKEN' as const, email: input.email }));
+      return await step('emailTaken', () => deps.emailTaken(input.email));
     }
 
     // Step 3: Create user
@@ -413,6 +416,6 @@ export const getFirstError = (error: ValidationError): string => {
 
 ## Next Steps
 
-- [Prisma Integration](/guides/prisma/) for database operations
-- [React Query Integration](/guides/react-query/) for client-side data fetching
-- [Workflows](/foundations/workflows/) for composing validated operations
+- [Prisma Integration](guides/prisma/) for database operations
+- [React Query Integration](guides/react-query/) for client-side data fetching
+- [Workflows](foundations/workflows/) for composing validated operations
