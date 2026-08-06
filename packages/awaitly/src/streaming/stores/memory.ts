@@ -44,15 +44,26 @@ export interface MemoryStreamStoreOptions {
 /**
  * Create an in-memory StreamStore.
  *
+ * The store takes no type parameter on purpose: one store backs every
+ * namespace a workflow opens, and those namespaces hold different types.
+ * Typing happens per stream, at `step.getReadable<T>()` / `step.getWritable<T>()`.
+ *
  * @param options - Configuration options
  * @returns StreamStore implementation
  *
  * @example
  * ```typescript
- * const store = createMemoryStreamStore();
+ * const streamStore = createMemoryStreamStore();
  *
- * // Use with workflow
- * const workflow = createWorkflow(deps, { streamStore: store });
+ * // Use with a workflow...
+ * const workflow = createWorkflow(deps, { streamStore });
+ *
+ * // ...or with a durable run
+ * await durable.run(deps, fn, { id: 'job-1', store, streamStore });
+ *
+ * // Each namespace is typed where it is opened
+ * const lines = step.getReadable<string>({ namespace: 'lines' });
+ * const rows = step.getWritable<Row>({ namespace: 'rows' });
  * ```
  */
 export function createMemoryStreamStore(

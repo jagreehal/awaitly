@@ -458,8 +458,38 @@ export async function* skipWhile<T>(
  * Warning: This loads all items into memory. Only use when you know
  * the stream is bounded.
  *
+ * ## Why this returns a promise, not a Result
+ *
+ * `collect` is a terminal consumer of an async iterable, so it fails the way
+ * `for await` fails: by throwing. Returning `AsyncResult<T[], …>` would make
+ * every caller unwrap a Result to get an array — including callers who passed a
+ * plain async iterable and only ever write `await`.
+ *
+ * Inside a workflow you do not lose typed errors by that choice. The two things
+ * that can throw are sorted at the workflow boundary:
+ *
+ * - A **stream error** (`STREAM_READ_ERROR` and friends) is infrastructure
+ *   failing, and arrives as a typed error value in `result.error` — the same
+ *   treatment `STEP_TIMEOUT` gets. No `step.try`, nothing to declare. Add it to
+ *   `errors: ['STREAM_READ_ERROR']` if you want it in the static union.
+ * - A throw from **your own transform callback** is a bug, and stays an
+ *   `UnexpectedError` with the original throw on `.cause`.
+ *
+ * ```typescript
+ * const result = await wf.run(async ({ step }) => {
+ *   const reader = step.getReadable<string>({ namespace: 'input' });
+ *   return await collect(pipe(reader, (s) => chunk(s, 100)));
+ * });
+ *
+ * if (!result.ok && (result.error.type ?? result.error) === 'STREAM_READ_ERROR') {
+ *   // the store is down — retry later
+ * }
+ * ```
+ *
  * @param source - StreamReader or AsyncIterable
  * @returns Promise resolving to array of all items
+ * @throws StreamReadError from the reader, or anything a transform threw —
+ *   both handled as above when this runs inside a workflow
  *
  * @example
  * ```typescript
@@ -486,10 +516,16 @@ export async function collect<T>(
 /**
  * Reduce stream items to a single value.
  *
+ * Like {@link collect}, this is a terminal consumer: it throws rather than
+ * returning a Result, and inside a workflow a stream failure still arrives as a
+ * typed error while a throw from your reducer stays an `UnexpectedError`.
+ * See {@link collect} for the reasoning.
+ *
  * @param source - StreamReader or AsyncIterable
  * @param reducer - Reducer function
  * @param initial - Initial accumulator value
  * @returns Promise resolving to final accumulated value
+ * @throws StreamReadError from the reader, or anything the reducer threw
  *
  * @example
  * ```typescript
@@ -575,6 +611,44 @@ export function pipe<T, A, B, C, D>(
   t3: (s: AsyncIterable<B>) => AsyncIterable<C>,
   t4: (s: AsyncIterable<C>) => AsyncIterable<D>
 ): AsyncIterable<D>;
+export function pipe<T, A, B, C, D, E>(
+  source: StreamReader<T> | AsyncIterable<T>,
+  t1: (s: AsyncIterable<T>) => AsyncIterable<A>,
+  t2: (s: AsyncIterable<A>) => AsyncIterable<B>,
+  t3: (s: AsyncIterable<B>) => AsyncIterable<C>,
+  t4: (s: AsyncIterable<C>) => AsyncIterable<D>,
+  t5: (s: AsyncIterable<D>) => AsyncIterable<E>
+): AsyncIterable<E>;
+export function pipe<T, A, B, C, D, E, F>(
+  source: StreamReader<T> | AsyncIterable<T>,
+  t1: (s: AsyncIterable<T>) => AsyncIterable<A>,
+  t2: (s: AsyncIterable<A>) => AsyncIterable<B>,
+  t3: (s: AsyncIterable<B>) => AsyncIterable<C>,
+  t4: (s: AsyncIterable<C>) => AsyncIterable<D>,
+  t5: (s: AsyncIterable<D>) => AsyncIterable<E>,
+  t6: (s: AsyncIterable<E>) => AsyncIterable<F>
+): AsyncIterable<F>;
+export function pipe<T, A, B, C, D, E, F, G>(
+  source: StreamReader<T> | AsyncIterable<T>,
+  t1: (s: AsyncIterable<T>) => AsyncIterable<A>,
+  t2: (s: AsyncIterable<A>) => AsyncIterable<B>,
+  t3: (s: AsyncIterable<B>) => AsyncIterable<C>,
+  t4: (s: AsyncIterable<C>) => AsyncIterable<D>,
+  t5: (s: AsyncIterable<D>) => AsyncIterable<E>,
+  t6: (s: AsyncIterable<E>) => AsyncIterable<F>,
+  t7: (s: AsyncIterable<F>) => AsyncIterable<G>
+): AsyncIterable<G>;
+export function pipe<T, A, B, C, D, E, F, G, H>(
+  source: StreamReader<T> | AsyncIterable<T>,
+  t1: (s: AsyncIterable<T>) => AsyncIterable<A>,
+  t2: (s: AsyncIterable<A>) => AsyncIterable<B>,
+  t3: (s: AsyncIterable<B>) => AsyncIterable<C>,
+  t4: (s: AsyncIterable<C>) => AsyncIterable<D>,
+  t5: (s: AsyncIterable<D>) => AsyncIterable<E>,
+  t6: (s: AsyncIterable<E>) => AsyncIterable<F>,
+  t7: (s: AsyncIterable<F>) => AsyncIterable<G>,
+  t8: (s: AsyncIterable<G>) => AsyncIterable<H>
+): AsyncIterable<H>;
 export function pipe(
   source: StreamReader<unknown> | AsyncIterable<unknown>,
   ...transformers: Array<(s: AsyncIterable<unknown>) => AsyncIterable<unknown>>

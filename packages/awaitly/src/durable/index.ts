@@ -25,6 +25,7 @@ import type {
   WorkflowCancelledError,
   Workflow,
 } from "../workflow/types";
+import type { StreamStore } from "../streaming/types";
 import {
   type SnapshotStore,
   type WorkflowSnapshot,
@@ -349,7 +350,7 @@ export interface DurableOptions<C = void> {
    * await durable.run(deps, fn, { id: 'my-id', store });
    * ```
    */
-  store?: SnapshotStore;
+  store?: SnapshotStore | undefined;
 
   /**
    * Workflow logic version.
@@ -364,7 +365,7 @@ export interface DurableOptions<C = void> {
    *
    * @default 1
    */
-  version?: number;
+  version?: number | undefined;
 
   /**
    * When stored state version differs from requested version, either throw (default), clear state and run from scratch, or supply migrated snapshot.
@@ -384,7 +385,7 @@ export interface DurableOptions<C = void> {
    *
    * @default false
    */
-  allowConcurrent?: boolean;
+  allowConcurrent?: boolean | undefined;
 
   /**
    * Lease TTL in milliseconds for cross-process locking.
@@ -393,20 +394,20 @@ export interface DurableOptions<C = void> {
    *
    * @default 60000 (1 minute)
    */
-  lockTtlMs?: number;
+  lockTtlMs?: number | undefined;
 
   /**
    * Heartbeat interval for lease renewal (ms).
    * Only active when store implements WorkflowLock with renew().
    * @default lockTtlMs / 3
    */
-  heartbeatIntervalMs?: number;
+  heartbeatIntervalMs?: number | undefined;
 
   /**
    * Whether to abort the workflow when lease is lost mid-execution.
    * @default true
    */
-  abortOnLeaseLoss?: boolean;
+  abortOnLeaseLoss?: boolean | undefined;
 
   /**
    * Metadata to store alongside workflow state.
@@ -414,29 +415,29 @@ export interface DurableOptions<C = void> {
    *
    * @example { userId: 'user-123', source: 'api' }
    */
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> | undefined;
 
   /**
    * External AbortSignal for workflow-level cancellation.
    * Cancellation persists state up to the last completed step.
    */
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
 
   /**
    * Create per-run context for event correlation.
    */
-  createContext?: () => C;
+  createContext?: (() => C) | undefined;
 
   /**
    * Unified event stream for workflow and step lifecycle.
    * Includes durable-specific events: `persist_success` and `persist_error`.
    */
-  onEvent?: (event: DurableWorkflowEvent<unknown, C>, ctx: C) => void;
+  onEvent?: ((event: DurableWorkflowEvent<unknown, C>, ctx: C) => void) | undefined;
 
   /**
    * Handler for expected and unexpected errors.
    */
-  onError?: (error: unknown, stepName?: string, ctx?: C) => void;
+  onError?: ((error: unknown, stepName?: string, ctx?: C) => void) | undefined;
 
   /**
    * Idempotency key for deduplication.
@@ -444,7 +445,7 @@ export interface DurableOptions<C = void> {
    * the stored result is returned without re-execution.
    * If the stored input differs, an IdempotencyConflictError is returned.
    */
-  idempotencyKey?: string;
+  idempotencyKey?: string | undefined;
 
   /**
    * Workflow input for idempotency conflict detection.
@@ -452,6 +453,24 @@ export interface DurableOptions<C = void> {
    * Must be JSON-serializable.
    */
   input?: unknown;
+
+  /**
+   * Stream store backing `step.getReadable()` / `step.getWritable()`.
+   *
+   * Durable execution and streaming compose: without this, a durable run had
+   * no way to open a stream, so "resume a long pipeline" and "stream its
+   * items" could not be expressed in one call.
+   *
+   * @example
+   * ```typescript
+   * const result = await durable.run(deps, fn, {
+   *   id: `import-${jobId}`,
+   *   store,
+   *   streamStore: createMemoryStreamStore(),
+   * });
+   * ```
+   */
+  streamStore?: StreamStore | undefined;
 }
 
 /**
@@ -617,6 +636,7 @@ export const durable = {
       onVersionMismatch,
       idempotencyKey,
       input,
+      streamStore,
     } = options;
 
     const effectiveStore = storeOption ?? getDefaultStore();
@@ -880,7 +900,9 @@ export const durable = {
       let shapeDrift: { index: number; expected: string; actual: string } | undefined;
 
       // Build workflow options with proper types (U = UnexpectedError by default)
-      const workflowOptions: WorkflowOptions<E, UnexpectedError, C> = {
+      // `readonly []` for Errs: durable declares no extra errors of its own, so
+      // the workflow's union stays exactly the deps' errors.
+      const workflowOptions: WorkflowOptions<E, UnexpectedError, C, readonly []> = {
         // Restore from existing snapshot
         snapshot: existingSnapshot,
 
@@ -1032,6 +1054,7 @@ export const durable = {
         },
 
         onError: onError as (error: E | UnexpectedError, stepName?: string, ctx?: C) => void,
+        streamStore,
         signal: leaseAbortController && signal
           ? AbortSignal.any([signal, leaseAbortController.signal])
           : leaseAbortController?.signal ?? signal,
@@ -1041,7 +1064,10 @@ export const durable = {
       // Create workflow instance (U = UnexpectedError by default)
       let workflowInstance: Workflow<E, UnexpectedError, Deps, C>;
       try {
-        workflowInstance = createWorkflow<Deps, UnexpectedError, C>(id, deps, workflowOptions);
+        // E is passed explicitly: the overload's default writes the deps error
+        // union inline (for readable hovers), which does not unify with the
+        // `ErrorsOfDeps<Deps>` alias while Deps is still generic here.
+        workflowInstance = createWorkflow<Deps, UnexpectedError, C, E>(id, deps, workflowOptions);
       } catch (createError) {
         if (createError instanceof SnapshotFormatError) {
           const error: PersistenceError = {

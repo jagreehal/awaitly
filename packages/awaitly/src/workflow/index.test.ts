@@ -6641,3 +6641,68 @@ describe("createWorkflow input validation", () => {
     }
   });
 });
+
+describe("declared errors (options.errors)", () => {
+  const fetchRow = async (id: string): AsyncResult<{ body: string }, "ROW_NOT_FOUND"> =>
+    id === "1" ? ok({ body: '{"n":1}' }) : err("ROW_NOT_FOUND");
+
+  it("lets a step.try error that no dep declares reach the result", async () => {
+    const wf = createWorkflow("ingest", { fetchRow }, { errors: ["PARSE_FAILED"] });
+
+    const result = await wf.run(async ({ step, deps }) => {
+      const row = await step("fetchRow", () => deps.fetchRow("1"));
+      return await step.try("parse", () => JSON.parse(row.body) as { n: number }, {
+        error: "PARSE_FAILED",
+      });
+    });
+
+    expect(result).toEqual({ ok: true, value: { n: 1 } });
+  });
+
+  it("surfaces the declared error when the throwing step fails", async () => {
+    const wf = createWorkflow("ingest", { fetchRow }, { errors: ["PARSE_FAILED"] });
+
+    const result = await wf.run(async ({ step, deps }) => {
+      await step("fetchRow", () => deps.fetchRow("1"));
+      return await step.try("parse", () => JSON.parse("not json") as { n: number }, {
+        error: "PARSE_FAILED",
+      });
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("PARSE_FAILED");
+  });
+
+  it("still short-circuits on a dep error", async () => {
+    const wf = createWorkflow("ingest", { fetchRow }, { errors: ["PARSE_FAILED"] });
+
+    const result = await wf.run(async ({ step, deps }) => {
+      const row = await step("fetchRow", () => deps.fetchRow("missing"));
+      return await step.try("parse", () => JSON.parse(row.body) as { n: number }, {
+        error: "PARSE_FAILED",
+      });
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("ROW_NOT_FOUND");
+  });
+});
+
+describe("catchUnexpected literal inference", () => {
+  it("maps a thrown exception to the declared literal shape", async () => {
+    const boom = async (): AsyncResult<number, "NEVER"> => {
+      throw new Error("kaboom");
+    };
+
+    const wf = createWorkflow("mapped", { boom }, {
+      catchUnexpected: (cause) => ({ type: "UNEXPECTED", cause }),
+    });
+
+    const result = await wf.run(async ({ step, deps }) => step("boom", () => deps.boom()));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatchObject({ type: "UNEXPECTED" });
+    }
+  });
+});

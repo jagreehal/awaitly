@@ -1064,7 +1064,7 @@ async function _test24bWorkflowNoDeps() {
 
   const result = await workflow.run(async ({ step, deps }) => {
     // no deps object provided at creation, so deps should not be required for step helpers
-    expectType<unknown>(raw);
+    expectType<unknown>(deps);
     await step.sleep("pause", "1ms");
     return 123;
   });
@@ -2035,4 +2035,97 @@ async function _test55ExecutionOptionsType() {
   // the day it is added the docs get corrected instead of silently going stale.
   type DepsFirstOptions = NonNullable<Parameters<typeof run<{ getUser: typeof getUser }, DocUser>>[2]>;
   expectType<never>(null as unknown as Extract<keyof DepsFirstOptions, "catchUnexpected">);
+}
+
+// =============================================================================
+// TEST 40: `errors` widens the workflow error union
+//
+// Before this existed, an error introduced by step.try that no dep declared
+// could not be expressed: `errors` was analyzer-only metadata, and the sole
+// workaround was spelling out all four type parameters of createWorkflow.
+// =============================================================================
+
+async function _test40ErrorsWidensUnion() {
+  const fetchRow = async (id: string): AsyncResult<{ body: string }, "ROW_NOT_FOUND"> =>
+    id ? ok({ body: "{}" }) : err("ROW_NOT_FOUND");
+
+  // No `as const` on the array, and no type parameters on createWorkflow.
+  const wf = createWorkflow("ingest", { fetchRow }, {
+    errors: ["PARSE_FAILED"],
+  });
+
+  const result = await wf.run(async ({ step, deps }) => {
+    const row = await step("fetchRow", () => deps.fetchRow("1"));
+    // Type-checks only because "PARSE_FAILED" is declared above.
+    return await step.try("parse", () => JSON.parse(row.body) as { n: number }, {
+      error: "PARSE_FAILED",
+    });
+  });
+
+  if (!result.ok) {
+    expectType<"ROW_NOT_FOUND" | "PARSE_FAILED" | UnexpectedError>(result.error);
+  }
+
+  // Omitting `errors` leaves the union exactly as inferred from the deps.
+  const plain = createWorkflow("ingest", { fetchRow });
+  const plainResult = await plain.run(async ({ step, deps }) =>
+    step("fetchRow", () => deps.fetchRow("1"))
+  );
+  if (!plainResult.ok) {
+    expectType<"ROW_NOT_FOUND" | UnexpectedError>(plainResult.error);
+  }
+}
+
+// =============================================================================
+// TEST 41: catchUnexpected keeps its literal tag without `as const`
+// =============================================================================
+
+async function _test41CatchUnexpectedLiteral() {
+  const fetchRow = async (): AsyncResult<{ body: string }, "ROW_NOT_FOUND"> =>
+    ok({ body: "{}" });
+
+  const wf = createWorkflow("mapped", { fetchRow }, {
+    // No `as const` — the U type parameter is `const`, so "UNEXPECTED" stays literal.
+    catchUnexpected: (cause) => ({ type: "UNEXPECTED", cause }),
+  });
+
+  const result = await wf.run(async ({ step, deps }) => step("fetchRow", () => deps.fetchRow()));
+
+  if (!result.ok) {
+    expectType<"ROW_NOT_FOUND" | { readonly type: "UNEXPECTED"; readonly cause: unknown }>(
+      result.error
+    );
+  }
+}
+
+// =============================================================================
+// TEST 42: run()'s catchUnexpected keeps its literal too (parity with createWorkflow)
+// =============================================================================
+
+async function _test42RunCatchUnexpectedLiteral() {
+  const getUser = async (id: string): AsyncResult<{ id: string }, "NOT_FOUND"> =>
+    id ? ok({ id }) : err("NOT_FOUND");
+
+  // deps-first, no `as const`
+  const viaDeps = await run(
+    { getUser },
+    async (s) => s.getUser("1"),
+    { catchUnexpected: (cause) => ({ type: "UNEXPECTED", cause }) }
+  );
+  if (!viaDeps.ok) {
+    expectType<"NOT_FOUND" | { readonly type: "UNEXPECTED"; readonly cause: unknown }>(
+      viaDeps.error
+    );
+  }
+
+  // The callback-only form still needs its type parameters: E is inferred from
+  // the callback as well as from catchUnexpected, so the literal does not
+  // survive on its own. This is the documented `run<T, E>(fn, options)` path.
+  const viaCallback = await run<{ id: string }, "NOT_FOUND" | "UNEXPECTED">(
+    async ({ step }) => step("getUser", () => getUser("1")),
+    { catchUnexpected: () => "UNEXPECTED" as const }
+  );
+  if (!viaCallback.ok) {
+    expectType<"NOT_FOUND" | "UNEXPECTED">(viaCallback.error);
+  }
 }

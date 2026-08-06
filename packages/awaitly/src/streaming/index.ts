@@ -105,6 +105,7 @@ export {
 
 export {
   isStreamEnded,
+  isStreamError,
   isStreamWriteError,
   isStreamReadError,
   isStreamStoreError,

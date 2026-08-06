@@ -140,6 +140,8 @@ export const AWAITLY_TIMEOUT = "AWAITLY_TIMEOUT" as const;
 export const tags = <const T extends readonly string[]>(...t: T): T => t;
 
 import { UnexpectedError } from "../errors";
+// Runtime import, but not a cycle: streaming/types imports only `type` from core.
+import { isStreamError } from "../streaming/types";
 import { bindSteps, type BoundSteps, type StepCallable } from "./bound-steps";
 
 export { bindSteps, type BoundSteps } from "./bound-steps";
@@ -462,37 +464,37 @@ export type StepOptions<
    *
    * Must be unique within the workflow.
    */
-  key?: string;
+  key?: string | undefined;
 
   /**
    * Short description for labels/tooltips.
    * Used by static analysis visualization tools.
    */
-  description?: string;
+  description?: string | undefined;
 
   /**
    * Full markdown documentation for the step.
    * Used by static analysis visualization tools.
    */
-  markdown?: string;
+  markdown?: string | undefined;
 
   /**
    * Retry configuration for transient failures.
    * When specified, the step will retry on errors according to this config.
    */
-  retry?: RetryOptions;
+  retry?: RetryOptions | undefined;
 
   /**
    * Timeout configuration for the operation.
    * When specified, each attempt will be aborted after the timeout duration.
    */
-  timeout?: TimeoutOptions;
+  timeout?: TimeoutOptions | undefined;
 
   /**
    * Time-to-live for this step's cache entry in milliseconds.
    * Overrides any global cache TTL. Requires `key` for caching.
    */
-  ttl?: number;
+  ttl?: number | undefined;
 
   // ==========================================================================
   // Static Analysis Options
@@ -514,7 +516,7 @@ export type StepOptions<
    * });
    * ```
    */
-  errors?: Errs;
+  errors?: Errs | undefined;
 
   /**
    * Write the step's return value to this context key.
@@ -526,7 +528,7 @@ export type StepOptions<
    * // Now ctx.cart contains the result
    * ```
    */
-  out?: Out;
+  out?: Out | undefined;
 
   /**
    * Override auto-detected reads from context.
@@ -539,7 +541,7 @@ export type StepOptions<
    * });
    * ```
    */
-  reads?: readonly string[];
+  reads?: readonly string[] | undefined;
 
   /**
    * Hint for dependency source tracking.
@@ -556,7 +558,7 @@ export type StepOptions<
    * });
    * ```
    */
-  dep?: string;
+  dep?: string | undefined;
 
   // ==========================================================================
   // Agent Metadata — Architecture & Intent
@@ -575,7 +577,7 @@ export type StepOptions<
    * });
    * ```
    */
-  intent?: string;
+  intent?: string | undefined;
 
   /**
    * Business domain this step belongs to.
@@ -588,7 +590,7 @@ export type StepOptions<
    * });
    * ```
    */
-  domain?: string;
+  domain?: string | undefined;
 
   /**
    * Team, service, or bounded-context that owns this step.
@@ -600,7 +602,7 @@ export type StepOptions<
    * });
    * ```
    */
-  owner?: string;
+  owner?: string | undefined;
 
   /**
    * Classification tags for this step.
@@ -616,7 +618,7 @@ export type StepOptions<
    * });
    * ```
    */
-  tags?: readonly string[];
+  tags?: readonly string[] | undefined;
 
   // ==========================================================================
   // Agent Metadata — Effects & Dependencies
@@ -636,7 +638,7 @@ export type StepOptions<
    * });
    * ```
    */
-  stateChanges?: readonly string[];
+  stateChanges?: readonly string[] | undefined;
 
   /**
    * Domain events this step produces.
@@ -649,7 +651,7 @@ export type StepOptions<
    * });
    * ```
    */
-  emits?: readonly string[];
+  emits?: readonly string[] | undefined;
 
   /**
    * External systems or services this step calls.
@@ -662,7 +664,7 @@ export type StepOptions<
    * });
    * ```
    */
-  calls?: readonly string[];
+  calls?: readonly string[] | undefined;
 
   // ==========================================================================
   // Agent Metadata — Error Classification
@@ -696,7 +698,7 @@ export type StepOptions<
    * });
    * ```
    */
-  errorMeta?: Record<string, ErrorClassification>;
+  errorMeta?: Record<string, ErrorClassification> | undefined;
 
   /**
    * Compensation action to run if a later step fails.
@@ -717,7 +719,7 @@ export type StepOptions<
    * ```
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  compensate?: (value: any) => void | Promise<void>;
+  compensate?: ((value: any) => void | Promise<void>) | undefined;
 };
 
 /** Shared error classification — used in StepOptions.errorMeta, diagnostics, and wide events. */
@@ -2259,7 +2261,7 @@ export type RunOptionsWithCatch<E, C = void> = {
    * Handler for expected errors.
    * Called when a step fails with a known error type.
    */
-  onError?: (error: E, stepName?: string, ctx?: C) => void;
+  onError?: ((error: E, stepName?: string, ctx?: C) => void) | undefined;
   /**
    * Listener for workflow events (start, success, error, step events).
    * Use this for logging, telemetry, or debugging.
@@ -2267,7 +2269,7 @@ export type RunOptionsWithCatch<E, C = void> = {
    * Context is automatically included in `event.context` when provided via the `context` option.
    * The separate `ctx` parameter is provided for convenience.
    */
-  onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
+  onEvent?: ((event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void) | undefined;
   /**
    * Catch-all mapper for unexpected exceptions.
    * Converts unknown exceptions (and cancellation) into your typed error union E.
@@ -2278,27 +2280,27 @@ export type RunOptionsWithCatch<E, C = void> = {
    * Defaults to a random UUID.
    * Useful for correlating logs across distributed systems.
    */
-  workflowId?: string;
+  workflowId?: string | undefined;
   /**
    * Human-readable workflow name included on emitted events.
    * Useful for observability and visualization.
    */
-  workflowName?: string;
+  workflowName?: string | undefined;
   /**
    * Arbitrary context object passed to onEvent and onError.
    * Useful for passing request IDs, user IDs, or loggers.
    */
-  context?: C;
+  context?: C | undefined;
   /**
    * Declared workflow graph for strict runtime validation.
    * Undeclared step/decision ids fail the workflow immediately.
    */
-  graph?: DeclaredGraph;
+  graph?: DeclaredGraph | undefined;
   /**
    * @internal External signal for workflow-level cancellation.
    * Used by createWorkflow() to pass the workflow signal to steps.
    */
-  _workflowSignal?: AbortSignal;
+  _workflowSignal?: AbortSignal | undefined;
 };
 
 export type RunOptionsWithoutCatch<E, C = void> = {
@@ -2306,32 +2308,32 @@ export type RunOptionsWithoutCatch<E, C = void> = {
    * Handler for expected errors AND unexpected errors.
    * Unexpected errors will be wrapped in `UnexpectedError`.
    */
-  onError?: (error: E | UnexpectedError, stepName?: string, ctx?: C) => void;
+  onError?: ((error: E | UnexpectedError, stepName?: string, ctx?: C) => void) | undefined;
   /**
    * Listener for workflow events (start, success, error, step events).
    *
    * Note: Context is available both on `event.context` and as the separate `ctx` parameter.
    * The `ctx` parameter is provided for convenience and backward compatibility.
    */
-  onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
+  onEvent?: ((event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void) | undefined;
   catchUnexpected?: undefined;
-  workflowId?: string;
+  workflowId?: string | undefined;
   /**
    * Human-readable workflow name included on emitted events.
    * Useful for observability and visualization.
    */
-  workflowName?: string;
-  context?: C;
+  workflowName?: string | undefined;
+  context?: C | undefined;
   /**
    * Declared workflow graph for strict runtime validation.
    * Undeclared step/decision ids fail the workflow immediately.
    */
-  graph?: DeclaredGraph;
+  graph?: DeclaredGraph | undefined;
   /**
    * @internal External signal for workflow-level cancellation.
    * Used by createWorkflow() to pass the workflow signal to steps.
    */
-  _workflowSignal?: AbortSignal;
+  _workflowSignal?: AbortSignal | undefined;
 };
 
 export type RunOptions<E, C = void> = RunOptionsWithCatch<E, C> | RunOptionsWithoutCatch<E, C>;
@@ -2757,6 +2759,12 @@ function runFn<T, E, C = void>(
  * Always adds UnexpectedError to the error union so callers know
  * uncaught exceptions are possible. Step errors pass through as-is.
  * When E is never (default), step is RunStep<unknown> so any operation is allowed.
+ *
+ * ⚠️ Called with neither deps nor type parameters — `run(async ({ step }) => …)` —
+ * E stays `never`, so `result.error` types as `UnexpectedError` alone. Step
+ * errors are still returned at runtime; the compiler simply has nothing to
+ * infer them from, and this reads identically to the form that infers
+ * everything. For typed errors use `run(deps, fn)` or `run<T, E>(fn)`.
  */
 function runFn<T, E = never, C = void>(
   fn: (context: {
@@ -2800,7 +2808,9 @@ function runFn<T, E = never, C = void>(
 function runFn<
   const Deps extends Record<string, AnyFunction>,
   T,
-  U,
+  // `const` so a catchUnexpected returning an object literal keeps its literal
+  // tag — matches createWorkflow, and means no caller writes `as const`.
+  const U,
   C = void,
   E = { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps]
 >(
@@ -5017,6 +5027,17 @@ async function runFn<T, E, C = void>(
           : undefined;
 
       return err(error.error, { cause: originalCause });
+    }
+
+    // A stream the workflow was reading failed. `reader.read()` models that as
+    // a Result; iterating it (via for-await, a transformer, or collect) turns
+    // it back into a throw, and wrapping that in UnexpectedError would file
+    // infrastructure failing under "bug in your code". Surface it as a typed
+    // error instead — same treatment STEP_TIMEOUT gets, matched at the
+    // boundary with `result.error.type ?? result.error`.
+    if (isStreamError(error)) {
+      onError?.(error as E, "stream", context);
+      return err(error as E, { cause: error });
     }
 
     const mapped = effectiveCatchUnexpected(error);

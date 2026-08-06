@@ -355,6 +355,50 @@ try {
 }
 ```
 
+### When iteration fails
+
+`reader.read()` returns a Result, but iterating a reader — `for await`, a
+transformer, or `collect()` — turns a read failure back into a throw. That throw
+reaches the workflow boundary, where awaitly tells its own failures apart from
+yours:
+
+- **A stream error** (`STREAM_READ_ERROR`, `STREAM_STORE_ERROR`, ...) is
+  infrastructure failing, so it arrives as a **typed error value** in
+  `result.error` — the same treatment `STEP_TIMEOUT` gets. It is never wrapped
+  in `UnexpectedError`.
+- **A throw from your own transform callback** is a bug, so it stays an
+  `UnexpectedError` with the original throw on `.cause`.
+
+```typescript
+const result = await workflow.run(async ({ step }) => {
+  const reader = step.getReadable<string>({ namespace: 'lines' });
+  return await collect(reader);
+});
+
+if (!result.ok) {
+  switch (result.error.type ?? result.error) {
+    case 'STREAM_READ_ERROR':
+      return { status: 503 }; // the store is down — retry later
+    case 'STEP_TIMEOUT':
+      return { status: 504 };
+  }
+  if (isUnexpectedError(result.error)) {
+    console.error('Bug:', result.error.cause);
+    return { status: 500 };
+  }
+}
+```
+
+Want it in the static union so the boundary can switch exhaustively? Declare it
+like any other error:
+
+```typescript
+const workflow = createWorkflow('reader', deps, {
+  streamStore,
+  errors: ['STREAM_READ_ERROR'],
+});
+```
+
 ## Multiple Namespaces
 
 Use namespaces to have multiple streams per workflow:

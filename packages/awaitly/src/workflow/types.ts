@@ -166,37 +166,37 @@ export type ExecutionOptions<E, U = UnexpectedError, C = void> = {
    * Event handler for workflow and step lifecycle events.
    * Overrides `onEvent` from creation-time options.
    */
-  onEvent?: (event: WorkflowEvent<E | U, C>, ctx: C) => void;
+  onEvent?: ((event: WorkflowEvent<E | U, C>, ctx: C) => void) | undefined;
   /**
    * Error handler called when a step fails.
    * Overrides `onError` from creation-time options.
    */
-  onError?: (error: E | U, stepName?: string, ctx?: C) => void;
+  onError?: ((error: E | U, stepName?: string, ctx?: C) => void) | undefined;
   /**
    * AbortSignal for workflow-level cancellation.
    * Overrides `signal` from creation-time options.
    */
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   /**
    * Factory to create per-run context. Can be async.
    * Overrides `createContext` from creation-time options.
    */
-  createContext?: () => C | Promise<C>;
+  createContext?: (() => C | Promise<C>) | undefined;
   /**
    * Resume state for workflow replay. Can be a factory function (sync or async).
    * Overrides `resumeState` from creation-time options.
    */
-  resumeState?: ResumeState | (() => ResumeState | Promise<ResumeState>);
+  resumeState?: ResumeState | (() => ResumeState | Promise<ResumeState>) | undefined;
   /**
    * Hook to check if workflow should run (concurrency control).
    * Overrides `shouldRun` from creation-time options.
    */
-  shouldRun?: (workflowId: string, context: C) => boolean | Promise<boolean>;
+  shouldRun?: ((workflowId: string, context: C) => boolean | Promise<boolean>) | undefined;
   /**
    * Hook called before workflow execution starts.
    * Overrides `onBeforeStart` from creation-time options.
    */
-  onBeforeStart?: (workflowId: string, context: C) => boolean | Promise<boolean>;
+  onBeforeStart?: ((workflowId: string, context: C) => boolean | Promise<boolean>) | undefined;
   /**
    * Hook called before each step runs — including steps about to be served
    * from cache or a resume snapshot, and before that stored value is read.
@@ -225,18 +225,18 @@ export type ExecutionOptions<E, U = UnexpectedError, C = void> = {
   /**
    * Enable strict mode for this specific run (analyzer validation only).
    */
-  strict?: boolean;
+  strict?: boolean | undefined;
   /**
    * Declared workflow graph for strict runtime validation.
    * Undeclared step/decision ids fail the run immediately.
    * Overrides `graph` from creation-time options.
    */
-  graph?: DeclaredGraph;
+  graph?: DeclaredGraph | undefined;
   /**
    * Enable development warnings for this run.
    * Only active when NODE_ENV !== 'production'.
    */
-  devWarnings?: boolean;
+  devWarnings?: boolean | undefined;
 };
 
 /**
@@ -245,13 +245,13 @@ export type ExecutionOptions<E, U = UnexpectedError, C = void> = {
  */
 export type RunConfig<E, U = UnexpectedError, C = void, Deps = unknown> = ExecutionOptions<E, U, C> & {
   /** Override creation-time deps (partial merge). */
-  deps?: Partial<Deps>;
+  deps?: Partial<Deps> | undefined;
   /** Step result cache for this run. */
-  cache?: StepCache;
+  cache?: StepCache | undefined;
   /** Restore workflow from a previously saved snapshot. */
-  snapshot?: WorkflowSnapshot | null;
+  snapshot?: WorkflowSnapshot | null | undefined;
   /** Stream store for this run. */
-  streamStore?: StreamStore;
+  streamStore?: StreamStore | undefined;
 };
 
 /**
@@ -260,42 +260,68 @@ export type RunConfig<E, U = UnexpectedError, C = void, Deps = unknown> = Execut
  */
 export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends readonly string[] = readonly string[]> = {
   /** Standard Schema for input validation. Works with Zod, Valibot, ArkType, etc. */
-  inputSchema?: StandardSchemaV1;
+  inputSchema?: StandardSchemaV1 | undefined;
   /** Input data to validate against inputSchema and pass to workflow context. */
   input?: unknown;
   /** Short description for labels/tooltips (static analysis) */
-  description?: string;
+  description?: string | undefined;
   /** Full markdown documentation (static analysis) */
-  markdown?: string;
+  markdown?: string | undefined;
   /**
    * Map uncaught exceptions (and cancellation) to your error type U.
    * When omitted, U = UnexpectedError and the default mapper returns an UnexpectedError instance.
    */
-  catchUnexpected?: (cause: unknown) => U;
+  catchUnexpected?: ((cause: unknown) => U) | undefined;
   /**
-   * Declared errors for the workflow (strict validation).
-   * When provided, the analyzer validates that computed errors match declared errors.
+   * Errors this workflow can produce beyond the ones inferred from its deps.
+   *
+   * Two effects, both from one list:
+   * 1. **Types** — each entry joins the workflow's error union, so a
+   *    `step.try(id, fn, { error: "X" })` whose error no dep declares
+   *    type-checks once `"X"` is listed here. Without it there is no way to
+   *    introduce such an error short of routing it through a dep.
+   * 2. **Static analysis** — the analyzer validates that the computed errors
+   *    match the declared ones.
+   *
+   * No `as const` needed: the option is a `const` type parameter, so
+   * `errors: ["PARSE_FAILED"]` stays a literal.
+   *
+   * @example
+   * ```typescript
+   * const wf = createWorkflow("ingest", { fetchRow }, {
+   *   errors: ["PARSE_FAILED"],
+   * });
+   *
+   * await wf.run(async ({ step, deps }) => {
+   *   const row = await step("fetchRow", () => deps.fetchRow(id));
+   *   // Allowed because "PARSE_FAILED" is declared above
+   *   return await step.try("parse", () => JSON.parse(row.body), {
+   *     error: "PARSE_FAILED",
+   *   });
+   * });
+   * // result.error: "ROW_NOT_FOUND" | "PARSE_FAILED" | UnexpectedError
+   * ```
    */
-  errors?: Errs;
-  onError?: (error: E | U, stepName?: string, ctx?: C) => void;
+  errors?: Errs | undefined;
+  onError?: ((error: E | U, stepName?: string, ctx?: C) => void) | undefined;
   /**
    * Unified event stream for workflow and step lifecycle.
    *
    * Context is automatically included in `event.context` when provided via `createContext`.
    * The separate `ctx` parameter is provided for convenience.
    */
-  onEvent?: (event: WorkflowEvent<E | U, C>, ctx: C) => void;
+  onEvent?: ((event: WorkflowEvent<E | U, C>, ctx: C) => void) | undefined;
   /** Create per-run context for event correlation */
-  createContext?: () => C;
+  createContext?: (() => C) | undefined;
   /** Step result cache - only steps with a `key` option are cached */
-  cache?: StepCache;
+  cache?: StepCache | undefined;
   /** Pre-populate cache from saved state for workflow resume. Prefer `snapshot` option. */
-  resumeState?: ResumeState | (() => ResumeState | Promise<ResumeState>);
+  resumeState?: ResumeState | (() => ResumeState | Promise<ResumeState>) | undefined;
   /**
    * Restore workflow from a previously saved snapshot.
    * Pass `null` for fresh start (e.g., when store.load() returns nothing).
    */
-  snapshot?: WorkflowSnapshot | null;
+  snapshot?: WorkflowSnapshot | null | undefined;
   /**
    * Custom serialization for encoding/decoding values during snapshot operations.
    */
@@ -306,14 +332,14 @@ export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends reado
   snapshotSerialization?: {
     strict?: boolean;
   };
-  onUnknownSteps?: "warn" | "error" | "ignore";
-  onDefinitionChange?: "warn" | "error" | "ignore";
+  onUnknownSteps?: "warn" | "error" | "ignore" | undefined;
+  onDefinitionChange?: "warn" | "error" | "ignore" | undefined;
   /**
    * External AbortSignal for workflow-level cancellation.
    * Cancellation is mapped through catchUnexpected (default: UnexpectedError with cause.thrown = WorkflowCancelledError).
    */
-  signal?: AbortSignal;
-  onBeforeStart?: (workflowId: string, context: C) => boolean | Promise<boolean>;
+  signal?: AbortSignal | undefined;
+  onBeforeStart?: ((workflowId: string, context: C) => boolean | Promise<boolean>) | undefined;
   /**
    * Hook called before each step runs — including steps about to be served
    * from cache or a resume snapshot, and before that stored value is read.
@@ -335,8 +361,8 @@ export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends reado
     workflowId: string,
     context: C
   ) => void | Promise<void>;
-  shouldRun?: (workflowId: string, context: C) => boolean | Promise<boolean>;
-  streamStore?: StreamStore;
+  shouldRun?: ((workflowId: string, context: C) => boolean | Promise<boolean>) | undefined;
+  streamStore?: StreamStore | undefined;
   /**
    * Declared workflow graph for strict runtime validation.
    * When provided, any runtime step/decision id not present in the graph
@@ -344,12 +370,12 @@ export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends reado
    * what actually runs. Produce it with awaitly-analyze's renderWorkflowDSL,
    * or pass a plain list of ids.
    */
-  graph?: DeclaredGraph;
+  graph?: DeclaredGraph | undefined;
   /**
    * Enable development warnings.
    * Only active when NODE_ENV !== 'production'.
    */
-  devWarnings?: boolean;
+  devWarnings?: boolean | undefined;
 };
 
 /**
