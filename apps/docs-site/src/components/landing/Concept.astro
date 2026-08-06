@@ -1,6 +1,4 @@
 ---
-// "How it works": a single visual that shows step() unwrapping Results and short-circuiting.
-// Built with semantic HTML + CSS; no images, no chart libs.
 const steps = [
   { id: 'getOrder', errors: ['ORDER_NOT_FOUND'] },
   { id: 'getUser', errors: ['USER_NOT_FOUND'] },
@@ -11,17 +9,32 @@ const steps = [
 <section class="landing-section concept" aria-labelledby="concept-heading">
   <div class="landing-inner">
     <header class="concept__header">
-      <span class="landing-eyebrow">02 · Mental model</span>
+      <span class="landing-eyebrow landing-eyebrow--code">Mental model</span>
       <h2 class="landing-h2" id="concept-heading">
-        Steps <em>unwrap</em>. Errors <em>short-circuit</em>.
+        Call <em>step()</em>. Get the value or stop.
       </h2>
       <p class="landing-lead">
-        Every dependency that can fail returns a <code>Result</code>.
-        <code>step()</code> hands you the value and continues, or exits the
-        workflow with the error. Your happy path stays linear. Each step you add
-        widens the error union.
+        Each dependency returns a <code>Result</code>.
+        <code>step()</code> unwraps it inside your async function.
+        Add a step and the error union grows; remove one and it shrinks.
       </p>
     </header>
+
+    <div class="concept__type-card mental-model" role="img" aria-label="Result type with success and error parameters">
+      <div class="concept__type-signature">
+        <span class="concept__type-name">Result</span><span class="concept__type-pun">&lt;</span><span class="concept__type-part concept__type-part--ok" data-part="ok">Charge</span><span class="concept__type-pun">, </span><span class="concept__type-part concept__type-part--err" data-part="err">ORDER_NOT_FOUND | USER_NOT_FOUND | …</span><span class="concept__type-pun">&gt;</span>
+      </div>
+      <div class="concept__type-labels panels">
+        <div class="concept__type-label" data-part="ok">
+          <span class="concept__type-label-name">Success</span>
+          <span class="concept__type-label-hint">What you return</span>
+        </div>
+        <div class="concept__type-label" data-part="err">
+          <span class="concept__type-label-name">Error</span>
+          <span class="concept__type-label-hint">What can fail</span>
+        </div>
+      </div>
+    </div>
 
     <div
       class="concept__diagram sl-markdown-no-margin"
@@ -33,8 +46,8 @@ const steps = [
 
         {
           steps.map((s, i) => (
-            <div class="concept__node" style={`--i:${i}`}>
-              <div class="concept__node-frame">
+            <div class="concept__node flows" style={`--i:${i}`}>
+              <div class="concept__node-frame panels">
                 <span class="concept__node-id">
                   step {String(i + 1).padStart(2, '0')}
                 </span>
@@ -91,9 +104,8 @@ const steps = [
     </div>
 
     <p class="concept__caption">
-      Add <code>step.retry()</code>, <code>step.withTimeout()</code>, or
-      <code>{`step('id', fn, { key })`}</code> and the same shape holds.
-      TypeScript still tracks every error your dependencies can produce.
+      <code>step.retry()</code>, <code>step.withTimeout()</code>, and idempotency keys
+      use the same shape. The union still reflects your deps.
     </p>
   </div>
 </section>

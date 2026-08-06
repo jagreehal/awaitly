@@ -1,0 +1,54 @@
+---
+const faqs = [
+  {
+    q: 'Why not use Effect?',
+    a: 'Effect covers fibers, layers, and a full runtime. awaitly targets teams that want typed errors and workflow primitives without leaving async/await. If you already write Effect, see the <a href="comparison/effect-layers-in-awaitly/">Effect layers guide</a>. If you want a lighter entry point, start here.',
+  },
+  {
+    q: 'How long does it take to learn?',
+    a: 'Two ideas: return <code>ok</code>/<code>err</code> instead of throwing, then call <code>run()</code> or <code>createWorkflow()</code> to unwrap Results inside an async function. Most teams wire up a first workflow in an afternoon.',
+  },
+  {
+    q: 'Can I adopt it in an existing codebase?',
+    a: 'Yes. Wrap one handler that returns Results, call it through <code>run()</code>, and leave the rest on try/catch until you touch those files. No rewrite pass required.',
+  },
+  {
+    q: 'What about runtime overhead?',
+    a: 'awaitly adds a thin wrapper around your functions. The cost shows up in clearer types and fewer production surprises, not in extra network hops. Profile your hot paths if latency is tight.',
+  },
+  {
+    q: 'How does it compare to neverthrow?',
+    a: 'neverthrow gives you Result types; you maintain error unions by hand. awaitly infers the union from your dependency graph and adds retries, resume, and step metadata. See the <a href="comparison/awaitly-vs-neverthrow/">neverthrow comparison</a>.',
+  },
+  {
+    q: 'Do I need a database for durable workflows?',
+    a: 'No. Workflows run in memory by default. Plug in Postgres, Mongo, or a file store when you need crash recovery or human-in-the-loop pauses.',
+  },
+];
+---
+
+<section class="landing-section faq" aria-labelledby="faq-heading">
+  <div class="landing-inner faq__inner">
+    <header class="faq__intro">
+      <span class="landing-eyebrow landing-eyebrow--code">FAQ</span>
+      <h2 class="landing-h2" id="faq-heading">Questions we hear often</h2>
+      <p class="landing-lead">
+        Still stuck? Open an issue on
+        <a href="https://github.com/jagreehal/awaitly">GitHub</a>.
+      </p>
+    </header>
+
+    <div class="faq__list sl-markdown-no-margin">
+      {
+        faqs.map(({ q, a }) => (
+          <details class="faq__item">
+            <summary class="faq__question">{q}</summary>
+            <div class="faq__answer">
+              <p set:html={a} />
+            </div>
+          </details>
+        ))
+      }
+    </div>
+  </div>
+</section>

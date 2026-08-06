@@ -1,0 +1,122 @@
+---
+const managers = ['npm', 'pnpm', 'yarn', 'bun'] as const;
+const commands: Record<(typeof managers)[number], string> = {
+  npm: 'npm install awaitly',
+  pnpm: 'pnpm add awaitly',
+  yarn: 'yarn add awaitly',
+  bun: 'bun add awaitly',
+};
+---
+
+<awaitly-install class="install-panel" data-default="npm">
+  <div class="install-panel__bar">
+    <div class="install-panel__pms" role="tablist" aria-label="Package manager">
+      {
+        managers.map((pm, i) => (
+          <button
+            type="button"
+            class:list={['install-panel__pm', i === 0 ? 'install-panel__pm--active' : '']}
+            role="tab"
+            data-pm={pm}
+            aria-selected={i === 0 ? 'true' : 'false'}
+          >
+            {pm}
+          </button>
+        ))
+      }
+    </div>
+    <button
+      type="button"
+      class="install-panel__copy"
+      data-role="copy"
+      aria-label="Copy install command"
+    >
+      <svg
+        class="install-panel__copy-icon install-panel__copy-icon--idle"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+        aria-hidden="true"
+      >
+        <rect x="5" y="5" width="9" height="9" rx="1.5" />
+        <path d="M3 11V3a1 1 0 0 1 1-1h8" stroke-linecap="round" />
+      </svg>
+      <svg
+        class="install-panel__copy-icon install-panel__copy-icon--done"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.75"
+        aria-hidden="true"
+      >
+        <path d="M3 8.5l3 3 7-7" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+  </div>
+  <code class="install-panel__cmd" data-role="command">{commands.npm}</code>
+  <p class="sr-only" role="status" aria-live="polite" data-role="status"></p>
+</awaitly-install>
+
+<script define:vars={{ commands }}>
+  const COMMAND_MAP = commands;
+
+  class AwaitlyInstall extends HTMLElement {
+    #pm = 'npm';
+    #resetTimer;
+
+    connectedCallback() {
+      this.#pm = this.dataset.default || 'npm';
+      this.querySelectorAll('[data-pm]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const pm = btn.getAttribute('data-pm');
+          if (!pm || !(pm in COMMAND_MAP)) return;
+          this.#setPm(pm);
+        });
+      });
+      this.querySelector('[data-role="copy"]')?.addEventListener('click', () => this.#copy());
+      this.#setPm(this.#pm);
+    }
+
+    disconnectedCallback() {
+      if (this.#resetTimer) clearTimeout(this.#resetTimer);
+    }
+
+    #setPm(pm) {
+      this.#pm = pm;
+      this.querySelectorAll('[data-pm]').forEach((btn) => {
+        const active = btn.getAttribute('data-pm') === pm;
+        btn.setAttribute('aria-selected', active ? 'true' : 'false');
+        btn.classList.toggle('install-panel__pm--active', active);
+      });
+      this.#render();
+    }
+
+    #render() {
+      const cmd = this.querySelector('[data-role="command"]');
+      if (cmd) cmd.textContent = COMMAND_MAP[this.#pm];
+    }
+
+    async #copy() {
+      const text = COMMAND_MAP[this.#pm];
+      const status = this.querySelector('[data-role="status"]');
+      const copyBtn = this.querySelector('[data-role="copy"]');
+      try {
+        await navigator.clipboard.writeText(text);
+        copyBtn?.classList.add('install-panel__copy--done');
+        if (status) status.textContent = 'Copied';
+        if (this.#resetTimer) clearTimeout(this.#resetTimer);
+        this.#resetTimer = setTimeout(() => {
+          copyBtn?.classList.remove('install-panel__copy--done');
+          if (status) status.textContent = '';
+        }, 1500);
+      } catch {
+        if (status) status.textContent = 'Copy failed';
+      }
+    }
+  }
+
+  if (!customElements.get('awaitly-install')) {
+    customElements.define('awaitly-install', AwaitlyInstall);
+  }
+</script>

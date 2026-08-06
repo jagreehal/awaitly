@@ -93,6 +93,7 @@ export default defineConfig({
           label: 'Getting Started',
           items: [
             { label: 'Installation', slug: 'getting-started/installation' },
+            { label: 'Why awaitly?', slug: 'getting-started/why-awaitly' },
             { label: 'The Basics', slug: 'getting-started/basics' },
             { label: 'Your First Workflow', slug: 'getting-started/first-workflow' },
             { label: 'What TypeScript Gives You', slug: 'getting-started/types' },

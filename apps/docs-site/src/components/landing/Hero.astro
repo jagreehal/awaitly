@@ -1,29 +1,35 @@
 ---
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import GridBackground from './GridBackground.astro';
+import InstallPanel from './InstallPanel.astro';
 
 const logoPath = fileURLToPath(new URL('../../../public/logo-animated.svg', import.meta.url));
 const logoSvg = readFileSync(logoPath, 'utf-8');
 ---
 
 <section class="landing-section landing-section--first hero">
+  <GridBackground />
   <div class="landing-inner hero__inner">
     <div class="hero__content">
       <div class="hero__eyebrow">
         <span class="hero__logo" aria-hidden="true" set:html={logoSvg} />
-        <span class="landing-eyebrow hero__eyebrow-text">awaitly · v1.30</span>
+        <span class="landing-eyebrow landing-eyebrow--code hero__eyebrow-text">awaitly</span>
       </div>
 
       <h1 class="hero__headline">
-        <span class="hero__line hero__line--1">Errors as data,</span>
-        <span class="hero__line hero__line--2">in <em>async/await</em>.</span>
+        <span class="hero__line hero__line--1">Typed errors in</span>
+        <span class="hero__line hero__line--2">the <em>async/await</em> you write today.</span>
       </h1>
 
       <p class="hero__lead">
-        awaitly returns errors as data, infers their types from your dependencies,
-        and composes async steps without <code>try/catch</code>.
-        You keep writing <code>async/await</code>. TypeScript tracks every failure.
+        When a step fails, TypeScript names the error. You keep plain async functions.
+        Retries, timeouts, and resume land on the steps that need them.
       </p>
+
+      <div class="hero__install-wrap">
+        <InstallPanel />
+      </div>
 
       <div class="hero__actions">
         <a href="getting-started/installation/" class="landing-btn landing-btn--primary">
@@ -32,31 +38,21 @@ const logoSvg = readFileSync(logoPath, 'utf-8');
             <path d="M3 8h10M9 4l4 4-4 4" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </a>
-        <a href="getting-started/basics/" class="landing-btn landing-btn--ghost">
-          Read the basics
+        <a href="getting-started/why-awaitly/" class="landing-btn landing-btn--ghost">
+          Why awaitly
         </a>
       </div>
 
-      <div class="hero__quick">
-        <code class="hero__install">npm install awaitly</code>
-        <a href="https://github.com/jagreehal/awaitly" class="hero__github" aria-label="View source on GitHub">
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2c-3.2.7-3.87-1.36-3.87-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.24 3.34.95.1-.74.4-1.24.72-1.53-2.55-.29-5.23-1.27-5.23-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.17a10.96 10.96 0 0 1 5.74 0c2.19-1.48 3.15-1.17 3.15-1.17.62 1.58.23 2.75.11 3.04.74.8 1.18 1.82 1.18 3.07 0 4.4-2.69 5.36-5.25 5.65.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5Z"/>
-          </svg>
-          <span>jagreehal/awaitly</span>
-        </a>
-      </div>
-
-      <aside class="hero__strip" aria-hidden="true">
-        <div class="hero__strip-item">
+      <aside class="hero__strip panels" aria-hidden="true">
+        <div class="hero__strip-item panels">
           <span class="hero__strip-label">Bundled</span>
           <span class="hero__strip-value">Result · Workflow · step()</span>
         </div>
-        <div class="hero__strip-item">
+        <div class="hero__strip-item panels">
           <span class="hero__strip-label">Built in</span>
           <span class="hero__strip-value">Retries · Timeouts · Resume · Idempotency</span>
         </div>
-        <div class="hero__strip-item">
+        <div class="hero__strip-item panels">
           <span class="hero__strip-label">Inferred</span>
           <span class="hero__strip-value">Error unions from your deps</span>
         </div>

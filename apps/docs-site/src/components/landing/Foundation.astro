@@ -1,23 +1,21 @@
 ---
 // The atom: one function returns a Result. TypeScript knows the error.
-// Reuses .diff__code token classes for syntax highlighting.
 ---
 
 <section class="landing-section foundation" aria-labelledby="foundation-heading">
   <div class="landing-inner">
     <header class="foundation__header">
-      <span class="landing-eyebrow">01 · The atom</span>
+      <span class="landing-eyebrow landing-eyebrow--code">One function</span>
       <h2 class="landing-h2" id="foundation-heading">
-        One function. <em>A typed error.</em>
+        Return <em>ok</em> or <em>err</em>. Read the error from the type.
       </h2>
       <p class="landing-lead">
-        Expected failures return <code>ok</code> or <code>err</code>. TypeScript
-        tracks the error as part of the return type, so you handle
-        <code>'NOT_FOUND'</code> the same way you handle the value.
+        Failures belong in the return type, not in a catch block.
+        Handle <code>'NOT_FOUND'</code> the same way you handle the value.
       </p>
     </header>
 
-    <article class="foundation__panel">
+    <article class="foundation__panel shots">
       <pre
         class="diff__code foundation__code"
         is:raw
@@ -39,7 +37,7 @@
           >
         </span>
         <p class="diff__note">
-          No throw. No <code>unknown</code>. The error name is in the type.
+          No throw. No <code>unknown</code>. The error name sits in the type.
         </p>
       </footer>
     </article>

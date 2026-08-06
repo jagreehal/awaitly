@@ -1,40 +1,47 @@
 ---
+import GridBackground from './GridBackground.astro';
+import InstallPanel from './InstallPanel.astro';
 ---
 
 <section class="landing-section cta">
+  <GridBackground />
   <div class="landing-inner cta__inner">
     <div class="cta__lockup">
-      <span class="landing-eyebrow">Start writing it</span>
+      <p class="cta__import">
+        <span class="cta__import-dim">import</span>
+        {' { '}
+        <span class="cta__import-name">run</span>
+        {' } from '}
+        <span class="cta__import-str">"awaitly"</span>
+      </p>
       <h2 class="cta__headline">
-        Async code your compiler can <em>typecheck.</em>
+        Stop hand-rolling <em>error unions.</em>
       </h2>
       <p class="cta__lead">
-        Five minutes to your first typed workflow: <code>async/await</code> and
-        inferred error unions.
+        Install awaitly, wrap one handler with <code>run()</code>, and let the compiler track what can fail.
       </p>
 
+      <div class="cta__install">
+        <InstallPanel />
+      </div>
+
       <div class="cta__actions">
-        <a href="getting-started/installation/" class="landing-btn landing-btn--primary">
-          Install awaitly
+        <a href="getting-started/first-workflow/" class="landing-btn landing-btn--primary">
+          First workflow
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
             <path d="M3 8h10M9 4l4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </a>
-        <a href="getting-started/first-workflow/" class="landing-btn landing-btn--ghost">
-          Build your first workflow
+        <a href="https://github.com/jagreehal/awaitly" class="landing-btn landing-btn--ghost">
+          GitHub
         </a>
       </div>
-    </div>
-
-    <div class="cta__glyph" aria-hidden="true">
-      <span class="cta__tick">awaitly</span>
-      <span class="cta__sig">Good things come to those who a-<em>wait</em>-ly.</span>
     </div>
   </div>
 
   <footer class="cta__footer">
     <div class="landing-inner cta__footer-inner">
-      <span class="cta__footer-meta">awaitly · MIT licensed · v1.30.2</span>
+      <span class="cta__footer-meta">awaitly · MIT licensed</span>
       <nav class="cta__footer-nav" aria-label="Footer">
         <a href="reference/api/">API</a>
         <a href="comparison/">Comparison</a>

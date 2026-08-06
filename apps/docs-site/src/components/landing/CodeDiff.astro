@@ -7,19 +7,18 @@
 <section class="landing-section diff" aria-labelledby="diff-heading">
   <div class="landing-inner">
     <header class="diff__header">
-      <span class="landing-eyebrow">03 · The diff</span>
+      <span class="landing-eyebrow landing-eyebrow--code">The diff</span>
       <h2 class="landing-h2" id="diff-heading">
-        Same handler. <em>One returns <code>unknown</code>.</em>
+        Same transfer. <em>One side types the errors.</em>
       </h2>
       <p class="landing-lead">
-        Both versions handle a money transfer that can fail four ways. On the
-        left, every error collapses to <code>error: unknown</code>. On the right,
-        inference names each error and unions them.
+        Both handlers move money and can fail four ways. try/catch leaves you with
+        <code>unknown</code>. awaitly names each failure and unions them in the result type.
       </p>
     </header>
 
     <div class="diff__grid sl-markdown-no-margin">
-      <article class="diff__panel diff__panel--before">
+      <article class="diff__panel diff__panel--before shots">
         <header class="diff__panel-head">
           <span class="diff__tag diff__tag--rust">today</span>
           <span class="diff__title">try / catch</span>
@@ -48,14 +47,13 @@
             >
           </span>
           <p class="diff__note">
-            Three different failures collapse into one
-            <code>string</code>. The boundary can't tell <em>not found</em>
-            from <em>declined</em>.
+            Three failures, one <code>string</code>. The handler cannot tell
+            <em>not found</em> from <em>declined</em>.
           </p>
         </footer>
       </article>
 
-      <article class="diff__panel diff__panel--after">
+      <article class="diff__panel diff__panel--after shots">
         <header class="diff__panel-head">
           <span class="diff__tag diff__tag--amber">with awaitly</span>
           <span class="diff__title">step() + Result</span>
@@ -91,8 +89,7 @@
             >
           </span>
           <p class="diff__note">
-            Add a step and the error union widens. Remove one and it narrows.
-            TypeScript updates the type as you edit.
+            Add a step and the union widens. Delete one and it narrows.
           </p>
         </footer>
       </article>

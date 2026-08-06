@@ -1,88 +1,19 @@
 ---
-const pillars = [
+const cards = [
   {
-    n: '01',
-    title: 'Errors as data.',
-    body: 'Functions that fail return Result types for expected failures. The compiler tracks every variant.',
-    code: [
-      { kind: 'cm', text: '// expected failures become typed values' },
-      { kind: 'kw', text: 'return ' },
-      { kind: 'fn', text: 'ok' },
-      { kind: 'pun', text: '({ id, name });' },
-      { kind: 'br' },
-      { kind: 'kw', text: 'return ' },
-      { kind: 'fn', text: 'err' },
-      { kind: 'pun', text: '({ ' },
-      { kind: 'id', text: 'type' },
-      { kind: 'pun', text: ': ' },
-      { kind: 'str ok', text: "'USER_NOT_FOUND'" },
-      { kind: 'pun', text: ', userId });' },
-    ],
+    problem: 'catch (e) is unknown. You read the function body to learn what failed.',
+    title: 'Errors as data',
+    items: ['Return ok or err', 'Errors live in the type', 'Handle by name at the edge'],
   },
   {
-    n: '02',
-    title: 'Composes with await.',
-    body: 'step() unwraps Results inside a normal async function. The happy path reads top-to-bottom, errors short-circuit the rest.',
-    code: [
-      { kind: 'kw', text: 'const ' },
-      { kind: 'id', text: 'user' },
-      { kind: 'pun', text: '  = ' },
-      { kind: 'kw', text: 'await ' },
-      { kind: 'fn', text: 'step' },
-      { kind: 'pun', text: '(' },
-      { kind: 'str', text: "'getUser'" },
-      { kind: 'pun', text: ', () => deps.' },
-      { kind: 'fn', text: 'getUser' },
-      { kind: 'pun', text: '(id));' },
-      { kind: 'br' },
-      { kind: 'kw', text: 'const ' },
-      { kind: 'id', text: 'order' },
-      { kind: 'pun', text: ' = ' },
-      { kind: 'kw', text: 'await ' },
-      { kind: 'fn', text: 'step' },
-      { kind: 'pun', text: '(' },
-      { kind: 'str', text: "'getOrder'" },
-      { kind: 'pun', text: ', () => deps.' },
-      { kind: 'fn', text: 'getOrder' },
-      { kind: 'pun', text: '(user.id));' },
-      { kind: 'br' },
-      { kind: 'kw', text: 'return ' },
-      { kind: 'id', text: 'order' },
-      { kind: 'pun', text: ';' },
-    ],
+    problem: 'You unwrap Results by hand in every async handler.',
+    title: 'Composes with await',
+    items: ['step() inside async fn', 'Happy path reads straight down', 'First error exits the workflow'],
   },
   {
-    n: '03',
-    title: 'Reliability built in.',
-    body: 'Retries, timeouts, idempotency keys, save and resume ship as primitives. Add them where you need them; leave the rest untouched.',
-    code: [
-      { kind: 'kw', text: 'await ' },
-      { kind: 'fn', text: 'step.retry' },
-      { kind: 'pun', text: '(' },
-      { kind: 'str', text: "'charge'" },
-      { kind: 'pun', text: ', () => deps.' },
-      { kind: 'fn', text: 'charge' },
-      { kind: 'pun', text: '(amt), {' },
-      { kind: 'br' },
-      { kind: 'pun', text: '  ' },
-      { kind: 'id', text: 'attempts' },
-      { kind: 'pun', text: ': ' },
-      { kind: 'str ok', text: '3' },
-      { kind: 'pun', text: ',' },
-      { kind: 'br' },
-      { kind: 'pun', text: '  ' },
-      { kind: 'id', text: 'backoff' },
-      { kind: 'pun', text: ': ' },
-      { kind: 'str', text: "'exponential'" },
-      { kind: 'pun', text: ',' },
-      { kind: 'br' },
-      { kind: 'pun', text: '  ' },
-      { kind: 'id', text: 'key' },
-      { kind: 'pun', text: ': ' },
-      { kind: 'str', text: '`charge:${order.idempotencyKey}`' },
-      { kind: 'br' },
-      { kind: 'pun', text: '});' },
-    ],
+    problem: 'Retries mean another helper library and another config shape.',
+    title: 'Reliability built in',
+    items: ['step.retry() with backoff', 'Timeouts on any step', 'Resume and idempotency keys'],
   },
 ];
 ---
@@ -93,35 +24,89 @@ const pillars = [
 >
   <div class="landing-inner">
     <header class="pillars__header">
-      <span class="landing-eyebrow">04 · Why awaitly</span>
+      <span class="landing-eyebrow landing-eyebrow--code">What awaitly solves</span>
       <h2 class="landing-h2" id="pillars-heading">
-        The whole library is <em>three ideas.</em>
+        Three problems, <em>three primitives.</em>
       </h2>
     </header>
 
     <div class="pillars__grid">
-      {
-        pillars.map((p) => (
-          <article class="pillar">
-            <div class="pillar__num" aria-hidden="true">
-              {p.n}
-            </div>
-            <h3 class="pillar__title">{p.title}</h3>
-            <p class="pillar__body">{p.body}</p>
-            <pre class="pillar__code">
-              <code>
-                {p.code.map((t) =>
-                  t.kind === 'br' ? (
-                    <br />
-                  ) : (
-                    <span class={t.kind}>{t.text}</span>
-                  ),
-                )}
-              </code>
-            </pre>
-          </article>
-        ))
-      }
+      <article class="pillar panels">
+        <p class="pillar__problem">{cards[0].problem}</p>
+        <div class="pillar__arrow" aria-hidden="true">
+          <span class="pillar__arrow-line" />
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M8 3v10M4 9l4 4 4-4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span class="pillar__arrow-line" />
+        </div>
+        <h3 class="pillar__title">{cards[0].title}</h3>
+        <ul class="pillar__items">
+          {cards[0].items.map((item) => (
+            <li>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                <path d="M3 8.5l3 3 7-7" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              {item}
+            </li>
+          ))}
+        </ul>
+        <pre class="pillar__code" is:raw><code><span class="cm">// expected failures become typed values</span>
+<span class="kw">return </span><span class="fn">ok</span><span class="pun">({ id, name });</span>
+<span class="kw">return </span><span class="fn">err</span><span class="pun">({ </span><span class="id">type</span><span class="pun">: </span><span class="str ok">'USER_NOT_FOUND'</span><span class="pun">, userId });</span></code></pre>
+      </article>
+
+      <article class="pillar panels">
+        <p class="pillar__problem">{cards[1].problem}</p>
+        <div class="pillar__arrow" aria-hidden="true">
+          <span class="pillar__arrow-line" />
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M8 3v10M4 9l4 4 4-4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span class="pillar__arrow-line" />
+        </div>
+        <h3 class="pillar__title">{cards[1].title}</h3>
+        <ul class="pillar__items">
+          {cards[1].items.map((item) => (
+            <li>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                <path d="M3 8.5l3 3 7-7" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              {item}
+            </li>
+          ))}
+        </ul>
+        <pre class="pillar__code" is:raw><code><span class="kw">const </span><span class="id">user</span><span class="pun">  = </span><span class="kw">await </span><span class="fn">step</span><span class="pun">(</span><span class="str">'getUser'</span><span class="pun">, () =&gt; deps.</span><span class="fn">getUser</span><span class="pun">(id));</span>
+<span class="kw">const </span><span class="id">order</span><span class="pun"> = </span><span class="kw">await </span><span class="fn">step</span><span class="pun">(</span><span class="str">'getOrder'</span><span class="pun">, () =&gt; deps.</span><span class="fn">getOrder</span><span class="pun">(user.id));</span>
+<span class="kw">return </span><span class="id">order</span><span class="pun">;</span></code></pre>
+      </article>
+
+      <article class="pillar panels">
+        <p class="pillar__problem">{cards[2].problem}</p>
+        <div class="pillar__arrow" aria-hidden="true">
+          <span class="pillar__arrow-line" />
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M8 3v10M4 9l4 4 4-4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span class="pillar__arrow-line" />
+        </div>
+        <h3 class="pillar__title">{cards[2].title}</h3>
+        <ul class="pillar__items">
+          {cards[2].items.map((item) => (
+            <li>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                <path d="M3 8.5l3 3 7-7" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              {item}
+            </li>
+          ))}
+        </ul>
+        <pre class="pillar__code" is:raw><code><span class="kw">await </span><span class="fn">step.retry</span><span class="pun">(</span><span class="str">'charge'</span><span class="pun">, () =&gt; deps.</span><span class="fn">charge</span><span class="pun">(amt), {</span>
+<span class="pun">  </span><span class="id">attempts</span><span class="pun">: </span><span class="str ok">3</span><span class="pun">,</span>
+<span class="pun">  </span><span class="id">backoff</span><span class="pun">: </span><span class="str">'exponential'</span><span class="pun">,</span>
+<span class="pun">  </span><span class="id">key</span><span class="pun">: </span><span class="str">`charge:${order.idempotencyKey}`</span>
+<span class="pun">});</span></code></pre>
+      </article>
     </div>
   </div>
 </section>
