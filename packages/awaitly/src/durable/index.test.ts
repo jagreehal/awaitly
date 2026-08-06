@@ -1251,3 +1251,83 @@ describe("durable.run with streamStore", () => {
     expect(result).toEqual({ ok: true, value: [2, 4] });
   });
 });
+
+describe("durable.run with declared errors", () => {
+  const fetchRow = async (id: string): AsyncResult<{ body: string }, "ROW_NOT_FOUND"> =>
+    id === "1" ? ok({ body: '{"n":1}' }) : err("ROW_NOT_FOUND");
+
+  it("lets a step.try error that no dep produces reach the result", async () => {
+    const result = await durable.run(
+      { fetchRow },
+      async ({ step, deps }) => {
+        const row = await step("fetchRow", () => deps.fetchRow("1"));
+        return await step.try("parse", () => JSON.parse(row.body) as { n: number }, {
+          error: "PARSE_FAILED",
+        });
+      },
+      { id: `declared-ok-${Math.random()}`, errors: ["PARSE_FAILED"] }
+    );
+
+    expect(result).toEqual({ ok: true, value: { n: 1 } });
+  });
+
+  it("surfaces the declared error when the throwing step fails", async () => {
+    const result = await durable.run(
+      { fetchRow },
+      async ({ step, deps }) => {
+        await step("fetchRow", () => deps.fetchRow("1"));
+        return await step.try("parse", () => JSON.parse("nope") as { n: number }, {
+          error: "PARSE_FAILED",
+        });
+      },
+      { id: `declared-err-${Math.random()}`, errors: ["PARSE_FAILED"] }
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("PARSE_FAILED");
+  });
+
+  it("declares a stream error so the boundary switch can be exhaustive", async () => {
+    const { createMemoryStreamStore } = await import("../streaming/stores/memory");
+    const { collect } = await import("../streaming/transformers");
+
+    const inner = createMemoryStreamStore();
+    const failing = {
+      ...inner,
+      read: async () =>
+        err({ type: "STREAM_STORE_ERROR", reason: "read_error", message: "down" }),
+    } as unknown as typeof inner;
+
+    const result = await durable.run(
+      { fetchRow },
+      async ({ step, deps }) => {
+        await step("fetchRow", () => deps.fetchRow("1"));
+        const reader = step.getReadable<string>({ namespace: "lines" });
+        return await collect(reader);
+      },
+      {
+        id: `declared-stream-${Math.random()}`,
+        streamStore: failing,
+        errors: ["STREAM_READ_ERROR"],
+      }
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect((result.error as { type?: string }).type ?? result.error).toBe(
+        "STREAM_READ_ERROR"
+      );
+    }
+  });
+
+  it("leaves the union alone when errors is omitted", async () => {
+    const result = await durable.run(
+      { fetchRow },
+      async ({ step, deps }) => step("fetchRow", () => deps.fetchRow("missing")),
+      { id: `declared-none-${Math.random()}` }
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("ROW_NOT_FOUND");
+  });
+});

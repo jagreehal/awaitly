@@ -187,6 +187,36 @@ const store: SnapshotStore = {
 };
 ```
 
+## Declaring Extra Errors
+
+A durable run infers its error union from its deps, the same as `createWorkflow`. An error introduced by `step.try` — or a system error you want in the static union — is declared with `errors`:
+
+```typescript
+const result = await durable.run(
+  { fetchRow },
+  async ({ step, deps }) => {
+    const row = await step('fetchRow', () => deps.fetchRow(id));
+    // type-checks because 'PARSE_FAILED' is declared below
+    return await step.try('parse', () => JSON.parse(row.body), {
+      error: 'PARSE_FAILED',
+    });
+  },
+  { id: `ingest-${jobId}`, errors: ['PARSE_FAILED'] }
+);
+```
+
+No `as const` — the option is a `const` type parameter. Omitting `errors` leaves the union exactly as the deps infer it.
+
+This is also how a stream failure gets into the static union. `STREAM_READ_ERROR` already arrives as a typed value rather than an `UnexpectedError`, but declaring it lets a boundary `switch` stay exhaustive:
+
+```typescript
+await durable.run(deps, fn, {
+  id: `import-${jobId}`,
+  streamStore,
+  errors: ['STREAM_READ_ERROR'],
+});
+```
+
 ## Version Management
 
 Awaitly **fails fast on version mismatch**: if stored state was written by a different workflow version, resume is rejected with `VersionMismatchError`. The error includes `workflowId`, `storedVersion`, `requestedVersion`, and an actionable message.

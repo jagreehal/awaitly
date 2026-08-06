@@ -326,7 +326,34 @@ function hasWorkflowLock(
 /**
  * Options for durable workflow execution.
  */
-export interface DurableOptions<C = void> {
+export interface DurableOptions<
+  C = void,
+  Errs extends readonly string[] = readonly string[]
+> {
+  /**
+   * Errors this run can produce beyond the ones inferred from its deps.
+   *
+   * Same contract as `createWorkflow`'s `errors`: each entry joins the run's
+   * error union, so a `step.try(id, fn, { error: "X" })` whose error no dep
+   * declares type-checks once `"X"` is listed here, and the analyzer validates
+   * the declared list against the computed one.
+   *
+   * Reach for it to put a system error into the static union too — a stream
+   * read failure arrives as a typed value either way, but declaring it lets a
+   * boundary `switch` stay exhaustive:
+   *
+   * ```typescript
+   * await durable.run(deps, fn, {
+   *   id: `import-${jobId}`,
+   *   streamStore,
+   *   errors: ["STREAM_READ_ERROR"],
+   * });
+   * ```
+   *
+   * No `as const` needed — the option is a `const` type parameter.
+   */
+  errors?: Errs;
+
   /**
    * Unique workflow execution ID.
    * Used as the key for state persistence.
@@ -592,7 +619,10 @@ export const durable = {
   async run<
     const Deps extends Readonly<Record<string, AnyResultFn>>,
     T,
-    C = void
+    C = void,
+    // `const` so `errors: ["X"]` stays a literal without `as const`; the empty
+    // tuple default means an omitted `errors` widens the union by `never`.
+    const Errs extends readonly string[] = readonly []
   >(
     deps: Deps,
     fn: (
@@ -600,16 +630,19 @@ export const durable = {
       // renders as the concrete literal union in hovers instead of the opaque
       // `ErrorsOfDeps<{ ...whole deps... }>`. See createWorkflow / run(deps, fn).
       context: {
-        step: RunStep<{ [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps]>;
+        step: RunStep<
+          { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps] | Errs[number]
+        >;
         deps: Deps;
         ctx: WorkflowContext<C>;
       }
     ) => T | Promise<T>,
-    options: DurableOptions<C>
+    options: DurableOptions<C, Errs>
   ): Promise<
     Result<
       T,
       | { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps]
+      | Errs[number]
       | UnexpectedError
       | WorkflowCancelledError
       | VersionMismatchError
@@ -637,6 +670,7 @@ export const durable = {
       idempotencyKey,
       input,
       streamStore,
+      errors,
     } = options;
 
     const effectiveStore = storeOption ?? getDefaultStore();
@@ -867,7 +901,9 @@ export const durable = {
       }
 
       // Define error type for this workflow
-      type E = ErrorsOfDeps<Deps>;
+      // Deps errors plus anything declared via `errors`, which is what steps in
+    // this run are allowed to fail with.
+    type E = ErrorsOfDeps<Deps> | Errs[number];
 
       // Wrapper to emit durable-specific events
       const emitDurableEvent = (event: DurableWorkflowEvent<E, C>, ctx: C): void => {
@@ -900,9 +936,9 @@ export const durable = {
       let shapeDrift: { index: number; expected: string; actual: string } | undefined;
 
       // Build workflow options with proper types (U = UnexpectedError by default)
-      // `readonly []` for Errs: durable declares no extra errors of its own, so
-      // the workflow's union stays exactly the deps' errors.
-      const workflowOptions: WorkflowOptions<E, UnexpectedError, C, readonly []> = {
+      const workflowOptions: WorkflowOptions<E, UnexpectedError, C, Errs> = {
+        // Declared errors reach the analyzer and the union alike.
+        ...(errors ? { errors } : {}),
         // Restore from existing snapshot
         snapshot: existingSnapshot,
 
@@ -1067,7 +1103,7 @@ export const durable = {
         // E is passed explicitly: the overload's default writes the deps error
         // union inline (for readable hovers), which does not unify with the
         // `ErrorsOfDeps<Deps>` alias while Deps is still generic here.
-        workflowInstance = createWorkflow<Deps, UnexpectedError, C, E>(id, deps, workflowOptions);
+        workflowInstance = createWorkflow<Deps, UnexpectedError, C, E, Errs>(id, deps, workflowOptions);
       } catch (createError) {
         if (createError instanceof SnapshotFormatError) {
           const error: PersistenceError = {

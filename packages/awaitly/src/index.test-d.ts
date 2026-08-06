@@ -38,6 +38,15 @@ import {
 import { run, type WorkflowEvent } from "./run-entry";
 import { createWorkflow, ErrorsOfDeps, withDeps } from "./workflow-entry";
 import { pendingApproval } from "./hitl-entry";
+import {
+  durable,
+  type WorkflowCancelledError,
+  type VersionMismatchError,
+  type ConcurrentExecutionError,
+  type PersistenceError,
+  type LeaseExpiredError,
+  type IdempotencyConflictError,
+} from "./durable-entry";
 import { Duration, type DurationType } from "./duration";
 // These are exported via awaitly/match and awaitly/retry entry points.
 // We import from source here because tsd can't resolve self-referencing package imports.
@@ -2127,5 +2136,63 @@ async function _test42RunCatchUnexpectedLiteral() {
   );
   if (!viaCallback.ok) {
     expectType<"NOT_FOUND" | "UNEXPECTED">(viaCallback.error);
+  }
+}
+
+// =============================================================================
+// TEST 43: durable.run declares extra errors, like createWorkflow
+//
+// Without this, a step.try error that no dep produces could be declared on a
+// createWorkflow run but not on a durable one — and a system error such as
+// STREAM_READ_ERROR could never be put in the durable static union at all.
+// =============================================================================
+
+async function _test43DurableDeclaredErrors() {
+  const fetchRow = async (id: string): AsyncResult<{ body: string }, "ROW_NOT_FOUND"> =>
+    id ? ok({ body: "{}" }) : err("ROW_NOT_FOUND");
+
+  const result = await durable.run(
+    { fetchRow },
+    async ({ step, deps }) => {
+      const row = await step("fetchRow", () => deps.fetchRow("1"));
+      // Type-checks only because "PARSE_FAILED" is declared below.
+      return await step.try("parse", () => JSON.parse(row.body) as { n: number }, {
+        error: "PARSE_FAILED",
+      });
+    },
+    { id: "ingest-1", errors: ["PARSE_FAILED"] } // no `as const`
+  );
+
+  if (!result.ok) {
+    expectType<
+      | "ROW_NOT_FOUND"
+      | "PARSE_FAILED"
+      | UnexpectedError
+      | WorkflowCancelledError
+      | VersionMismatchError
+      | ConcurrentExecutionError
+      | PersistenceError
+      | LeaseExpiredError
+      | IdempotencyConflictError
+    >(result.error);
+  }
+
+  // Omitting `errors` leaves the union exactly as inferred from the deps.
+  const plain = await durable.run(
+    { fetchRow },
+    async ({ step, deps }) => step("fetchRow", () => deps.fetchRow("1")),
+    { id: "ingest-2" }
+  );
+  if (!plain.ok) {
+    expectType<
+      | "ROW_NOT_FOUND"
+      | UnexpectedError
+      | WorkflowCancelledError
+      | VersionMismatchError
+      | ConcurrentExecutionError
+      | PersistenceError
+      | LeaseExpiredError
+      | IdempotencyConflictError
+    >(plain.error);
   }
 }
