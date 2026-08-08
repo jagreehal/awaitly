@@ -204,7 +204,7 @@ const data = await step.try(
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   },
-  { error: 'FETCH_FAILED' as const }
+  { error: 'FETCH_FAILED' }
 );
 /*
 Output (success):

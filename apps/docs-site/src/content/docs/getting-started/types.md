@@ -102,7 +102,7 @@ it lives on `createWorkflow` (at creation) and on `run.strict`:
 ```typescript
 // On a workflow — deps still infer as normal
 const wf = createWorkflow('loadUser', { getUser }, {
-  catchUnexpected: (thrown) => ({ type: 'CRASHED' as const, thrown }),
+  catchUnexpected: (thrown) => ({ type: 'CRASHED', thrown }),
 });
 // result.error: 'NOT_FOUND' | { type: 'CRASHED'; thrown: unknown }
 ```
