@@ -60,15 +60,14 @@
         </header>
         <pre
           class="diff__code"
-          is:raw><code><span class="kw">import</span> { <span class="fn">createWorkflow</span> } <span class="kw">from</span> <span class="str">'awaitly/workflow'</span>;
-<span class="kw">import</span> { <span class="fn">isUnexpectedError</span> } <span class="kw">from</span> <span class="str">'awaitly'</span>;
+          is:raw><code><span class="kw">import</span> { <span class="fn">createWorkflow</span>, <span class="fn">isUnexpectedError</span> } <span class="kw">from</span> <span class="str">'awaitly'</span>;
 
 <span class="kw">const</span> <span class="id">transfer</span> = <span class="fn">createWorkflow</span>(<span class="str">'transfer'</span>, { <span class="id">getUser</span>, <span class="id">charge</span>, <span class="id">checkFunds</span> });
 
 <span class="kw">const</span> <span class="id">result</span> = <span class="kw">await</span> <span class="id">transfer</span>.<span class="fn">run</span>(<span class="kw">async</span> ({ <span class="id">step</span>, <span class="id">deps</span> }) =&gt; {
-  <span class="kw">const</span> <span class="id">user</span>  = <span class="kw">await</span> <span class="fn">step</span>(<span class="str">'getUser'</span>,    () =&gt; <span class="id">deps</span>.<span class="fn">getUser</span>(<span class="id">id</span>));
-  <span class="kw">await</span>             <span class="fn">step</span>(<span class="str">'checkFunds'</span>, () =&gt; <span class="id">deps</span>.<span class="fn">checkFunds</span>(<span class="id">user</span>, <span class="id">amt</span>));
-  <span class="kw">return</span> <span class="kw">await</span>     <span class="fn">step</span>(<span class="str">'charge'</span>,     () =&gt; <span class="id">deps</span>.<span class="fn">charge</span>(<span class="id">user</span>, <span class="id">amt</span>));
+  <span class="kw">const</span> <span class="id">user</span> = <span class="kw">await</span> <span class="fn">step</span>(<span class="str">'getUser'</span>, () =&gt; <span class="id">deps</span>.<span class="fn">getUser</span>(<span class="id">id</span>));
+  <span class="kw">await</span> <span class="fn">step</span>(<span class="str">'checkFunds'</span>, () =&gt; <span class="id">deps</span>.<span class="fn">checkFunds</span>(<span class="id">user</span>, <span class="id">amt</span>));
+  <span class="kw">return</span> <span class="kw">await</span> <span class="fn">step</span>(<span class="str">'charge'</span>, () =&gt; <span class="id">deps</span>.<span class="fn">charge</span>(<span class="id">user</span>, <span class="id">amt</span>));
 });
 
 <span class="kw">if</span> (!<span class="id">result</span>.<span class="id">ok</span>) {
