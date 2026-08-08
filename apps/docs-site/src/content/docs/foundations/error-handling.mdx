@@ -449,7 +449,7 @@ const workflow = createWorkflow('workflow', { fetchUser, fetchPosts },
 // run() — same option available
 const result = await run<User, 'NOT_FOUND'>(
   async ({ step }) => { /* ... */ },
-  { catchUnexpected: (thrown) => ({ type: 'UNEXPECTED' as const, message: String(thrown) }) }
+  { catchUnexpected: (thrown) => ({ type: 'UNEXPECTED', message: String(thrown) }) }
 );
 // result.error is: 'NOT_FOUND' | { type: 'UNEXPECTED', message: string }
 ```

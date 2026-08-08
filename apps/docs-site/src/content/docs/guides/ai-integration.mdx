@@ -350,7 +350,7 @@ const result = await workflow.run(async ({ step, deps }) => {
       model: 'gpt-4o',
       messages: [{ role: 'user', content: prompt }],
     }),
-    { error: 'AI_ERROR' as const }
+    { error: 'AI_ERROR' }
   );
 
   return response.choices[0].message.content;

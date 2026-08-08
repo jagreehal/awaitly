@@ -97,7 +97,7 @@ const result = await workflow.run(async ({ step, deps }) => {
   const response = await step.try(
     'fetchApi',
     () => fetch('/api').then(r => r.json()),
-    { error: 'FETCH_FAILED' as const }
+    { error: 'FETCH_FAILED' }
   );
   return response;
 });

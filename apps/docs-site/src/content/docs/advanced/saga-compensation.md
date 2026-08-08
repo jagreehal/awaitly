@@ -102,7 +102,7 @@ const result = await runSaga<OrderResult, OrderError>(async ({ step }) => {
     'charge-payment',
     () => externalPaymentApi.charge(amount), // May throw
     {
-      error: 'PAYMENT_FAILED' as const,
+      error: 'PAYMENT_FAILED',
       compensate: (p) => externalPaymentApi.refund(p.txId),
     }
   );
