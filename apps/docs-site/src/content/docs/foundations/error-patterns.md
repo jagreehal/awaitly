@@ -169,13 +169,13 @@ const result = await workflow.run(async ({ step }) => {
   const data = await step.try(
     'parseInput',
     () => JSON.parse(rawInput),
-    { error: 'INVALID_JSON' as const }
+    { error: 'INVALID_JSON' }
   );
 
   const token = await step.try(
     'verify',
     () => jwt.verify(data.token, secret),
-    { error: 'INVALID_TOKEN' as const }
+    { error: 'INVALID_TOKEN' }
   );
 
   return token;

@@ -20,7 +20,7 @@ const result = await workflow.run(async ({ step }) => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     },
-    { error: 'FETCH_FAILED' as const }
+    { error: 'FETCH_FAILED' }
   );
   return data;
 });

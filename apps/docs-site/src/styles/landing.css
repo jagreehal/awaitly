@@ -407,6 +407,11 @@
 /* ===== Install panel ===== */
 .install-panel {
     display: block;
+    /* Hold the width of the longest command (--install-cmd-ch is set by the
+       component from the commands map) so the panel does not resize when
+       switching package managers. Clamped to the container so it can still
+       shrink on narrow screens. */
+    min-width: min(100%, calc(var(--install-cmd-ch, 24) * 1ch + 2rem));
     border: 1px solid var(--line);
     border-radius: 10px;
     background: var(--ink-2);
@@ -484,6 +489,9 @@
     font-size: 0.8125rem;
     color: var(--cream-2);
     letter-spacing: -0.01em;
+    /* Scroll rather than wrap: a wrapped command would change the panel's
+       height between tabs, which is what overflow-x already assumed. */
+    white-space: nowrap;
     overflow-x: auto;
   }
 

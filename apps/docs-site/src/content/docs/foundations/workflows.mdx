@@ -123,7 +123,7 @@ or `run.strict`, where you supply `E` yourself:
 
 ```typescript
 const wf = createWorkflow('loadUser', { fetchUser, sendEmail }, {
-  catchUnexpected: (thrown) => ({ type: 'UNEXPECTED' as const, message: String(thrown) }),
+  catchUnexpected: (thrown) => ({ type: 'UNEXPECTED', message: String(thrown) }),
 });
 // result.error: 'NOT_FOUND' | 'EMAIL_FAILED' | { type: 'UNEXPECTED', message: string }
 ```
@@ -313,7 +313,7 @@ const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED'>(
     await step('sendEmail', () => sendEmail(user.email));
     return user;
   },
-  { catchUnexpected: (cause) => ({ type: 'UNEXPECTED' as const, cause }) }
+  { catchUnexpected: (cause) => ({ type: 'UNEXPECTED', cause }) }
 );
 // result.error: 'NOT_FOUND' | 'EMAIL_FAILED' | { type: 'UNEXPECTED', cause: unknown }
 ```

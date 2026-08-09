@@ -4,6 +4,12 @@ const steps = [
   { id: 'getUser', errors: ['USER_NOT_FOUND'] },
   { id: 'charge', errors: ['CHARGE_DECLINED', 'INSUFFICIENT_FUNDS'] },
 ];
+
+// Derived, not written twice: the whole point of the section is that the union
+// is exactly what the steps can fail with, so truncating it or letting it drift
+// from the diagram undercuts the claim. UnexpectedError is always in there.
+const errorUnion = [...steps.flatMap((s) => s.errors), 'UnexpectedError'].join(' | ');
+const resultType = `Result<Charge, ${errorUnion}>`;
 ---
 
 <section class="landing-section concept" aria-labelledby="concept-heading">
@@ -22,7 +28,7 @@ const steps = [
 
     <div class="concept__type-card mental-model" role="img" aria-label="Result type with success and error parameters">
       <div class="concept__type-signature">
-        <span class="concept__type-name">Result</span><span class="concept__type-pun">&lt;</span><span class="concept__type-part concept__type-part--ok" data-part="ok">Charge</span><span class="concept__type-pun">, </span><span class="concept__type-part concept__type-part--err" data-part="err">ORDER_NOT_FOUND | USER_NOT_FOUND | …</span><span class="concept__type-pun">&gt;</span>
+        <span class="concept__type-name">Result</span><span class="concept__type-pun">&lt;</span><span class="concept__type-part concept__type-part--ok" data-part="ok">Charge</span><span class="concept__type-pun">, </span><span class="concept__type-part concept__type-part--err" data-part="err">{errorUnion}</span><span class="concept__type-pun">&gt;</span>
       </div>
       <div class="concept__type-labels panels">
         <div class="concept__type-label" data-part="ok">
@@ -95,10 +101,7 @@ const steps = [
         }
         <div class="concept__exit-target">
           <span class="concept__exit-label">err</span>
-          <code class="concept__exit-type"
-            >Result&lt;Charge, ORDER_NOT_FOUND | USER_NOT_FOUND |
-            CHARGE_DECLINED | …&gt;</code
-          >
+          <code class="concept__exit-type">{resultType}</code>
         </div>
       </div>
     </div>

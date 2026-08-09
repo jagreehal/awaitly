@@ -198,7 +198,7 @@ export const parallelWorkflow = createWorkflow('workflow', { fetchUser, fetchPos
 );
 
 export async function runParallelWorkflow(id: string) {
-  return await parallelWorkflow(async (step) => {
+  return await parallelWorkflow.run(async ({ step, deps }) => {
     // Named object form (recommended - better type inference)
     const { user, posts, comments } = await step.all("Fetch all data", {
       user: () => deps.fetchUser(id),
@@ -240,7 +240,7 @@ export const raceWorkflow = createWorkflow('workflow', { fetchFromPrimary, fetch
 );
 
 export async function runRaceWorkflow() {
-  return await raceWorkflow(async (step) => {
+  return await raceWorkflow.run(async ({ step, deps }) => {
     const result = await step.race("Fastest API", () =>
       anyAsync([deps.fetchFromPrimary(), deps.fetchFromFallback()])
     );
@@ -437,7 +437,7 @@ export const aiWorkflow = createWorkflow('workflow', { },
 );
 
 export async function runAIWorkflow(prompt: string) {
-  return await aiWorkflow(async (step) => {
+  return await aiWorkflow.run(async ({ step }) => {
     const writer = step.getWritable<string>({ namespace: "ai-tokens" });
 
     await step('streamText', () => streamText({
@@ -553,7 +553,7 @@ export const simpleWorkflow = createWorkflow('workflow', { add },
 );
 
 export async function simple(i: number) {
-  return await simpleWorkflow(async (step, { add }) => {
+  return await simpleWorkflow.run(async ({ step, deps: { add } }) => {
     const a = await step('add', () => add(i, 7), { key: "add-1" });
     const b = await step('add', () => add(a, 8), { key: "add-2" });
     return b;
@@ -590,7 +590,7 @@ export const batchWorkflow = createWorkflow('workflow', { processItem },
 );
 
 export async function runBatchWorkflow(items: string[]) {
-  return await batchWorkflow(async (step, { processItem }) => {
+  return await batchWorkflow.run(async ({ step, deps: { processItem } }) => {
     // processInBatches(items, process, config, options) — progress hooks live
     // in the 4th argument, not the config.
     const result = await step('processInBatches', () => processInBatches(
