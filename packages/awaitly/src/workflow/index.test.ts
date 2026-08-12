@@ -25,6 +25,7 @@ import {
   StepTimeoutError,
   isWorkflowCancelled,
   WorkflowCancelledError,
+  type WorkflowFn,
 } from "../workflow-entry";
 // Import legacy types from internal module (not public API)
 import {
@@ -3101,6 +3102,44 @@ describe("direct AsyncResult with keys", () => {
       expect(result.ok).toBe(false);
       expect(resumeState.steps.size).toBe(1);
       expect(resumeState.steps.has("user:999")).toBe(true);
+    });
+
+    it("replays a recorded failure on resume instead of retrying it", async () => {
+      // The consequence of the test above, and the one that surprises people:
+      // resuming a crashed run reproduces the recorded error without calling the
+      // dependency again. Filter the failed entries out when you want a retry.
+      const calls: string[] = [];
+      let gatewayUp = false;
+      const charge = async (): AsyncResult<{ id: string }, "GATEWAY_DOWN"> => {
+        calls.push("charge");
+        return gatewayUp ? ok({ id: "ch_1" }) : err("GATEWAY_DOWN");
+      };
+      const deps = { charge };
+      const workflow = createWorkflow("checkout", deps);
+      // Resuming runs the same function twice, so it has to be named. WorkflowFn
+      // is the annotation that makes a shared workflow body typecheck.
+      const flow: WorkflowFn<{ id: string }, "GATEWAY_DOWN", typeof deps> = async ({
+        step,
+        deps,
+      }) => step("charge", () => deps.charge(), { key: "pay" });
+
+      const { resumeState } = await workflow.runWithState(flow);
+      expect(calls).toEqual(["charge"]);
+
+      // The gateway recovers, but the recorded err is replayed as-is.
+      gatewayUp = true;
+      calls.length = 0;
+      const replayed = await workflow.run(flow, { resumeState });
+      expect(replayed).toEqual({ ok: false, error: "GATEWAY_DOWN" });
+      expect(calls).toEqual([]);
+
+      // Dropping the failed entries lets the step run again.
+      const retryable = {
+        steps: new Map([...resumeState.steps].filter(([, entry]) => entry.result.ok)),
+      };
+      const resumed = await workflow.run(flow, { resumeState: retryable });
+      expect(resumed.ok).toBe(true);
+      expect(calls).toEqual(["charge"]);
     });
 
     it("supports name and config overloads", async () => {
@@ -6588,6 +6627,36 @@ describe("createWorkflow saga compensation via step({ compensate })", () => {
       expect(e.originalError).toBe("CHARGE_ERROR");
       expect(e.compensationErrors).toHaveLength(1);
       expect(e.compensationErrors?.[0]?.stepName).toBe("reserve");
+    }
+  });
+
+  it("treats an err Result returned by compensation as a failure", async () => {
+    const reserve = async (): AsyncResult<{ id: string }, "RESERVE_ERROR"> =>
+      ok({ id: "r1" });
+    const release = async (): AsyncResult<void, "RELEASE_ERROR"> =>
+      err("RELEASE_ERROR");
+    const charge = async (): AsyncResult<void, "CHARGE_ERROR"> =>
+      err("CHARGE_ERROR");
+    const wf = createWorkflow("checkout", { reserve, release, charge });
+
+    const result = await wf.run(async ({ step, deps }) => {
+      const reservation = await step("reserve", () => deps.reserve(), {
+        compensate: (value) => deps.release(value.id),
+      });
+      await step("charge", () => deps.charge());
+      return reservation;
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const failure = result.error as {
+        type?: string;
+        originalError?: unknown;
+        compensationErrors?: Array<{ error: unknown }>;
+      };
+      expect(failure.type).toBe("SAGA_COMPENSATION_ERROR");
+      expect(failure.originalError).toBe("CHARGE_ERROR");
+      expect(failure.compensationErrors?.[0]?.error).toBe("RELEASE_ERROR");
     }
   });
 

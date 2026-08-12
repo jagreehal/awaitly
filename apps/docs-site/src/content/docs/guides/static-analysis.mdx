@@ -36,7 +36,7 @@ Imperative control flow (`if`, `for`, computed step ids) produces diagrams with 
 - Use `step.forEach` for loops. Each iteration gets a structured id.
 - Use literal step ids and put dynamic parts in `key`. Each node keeps a stable identity.
 
-Native `if`/`else`, `for...of`, and `while` are analyzed too: the analyzer derives a stable branch id from the condition and a stable loop id from the iterable, so plain TypeScript produces deterministic diagrams without any DSL. Run `--assert-diagrammable` in CI — it flags only control flow whose condition or iterable cannot be read statically (a call result, a computed member), which you fix by hoisting it into a named variable.
+The analyzer reads native `if`/`else`, `for...of`, and `while` blocks. It derives a branch id from the condition and a loop id from the iterable, so plain TypeScript produces deterministic diagrams without a DSL. Run `--assert-diagrammable` in CI. It flags conditions and iterables that require runtime values, such as a call result or computed member. Hoist the value into a named variable to give the graph a stable identity.
 
 See [Control flow and diagrammability](foundations/control-flow/#stepif-for-labelled-branches) for the workflow authoring patterns.
 
@@ -58,7 +58,7 @@ npx awaitly-analyze --diff v1.ts v2.ts
 # Strict diagnostics
 npx awaitly-analyze ./src/workflows/checkout.ts --doctor
 
-# CI gate: fail if any workflow is not fully diagrammable
+# CI gate: fail if a workflow has unstable graph identities
 npx awaitly-analyze ./src/workflows/checkout.ts --assert-diagrammable
 
 # Overlay a recorded run's executed path onto the static diagram
@@ -75,6 +75,98 @@ npx awaitly-analyze ./src/workflows/checkout.ts --dev --port=5000
 - Workflow and step docs from `description` and `markdown`.
 - JSDoc descriptions as `jsdocDescription` fallback.
 - Optional step metadata: `intent`, `domain`, `owner`, `tags`, `stateChanges`, `emits`, `calls`, `errorMeta`.
+
+## Follow one checkout through the analyzer
+
+This checkout has a free-order branch and a paid branch. The payment dependency carries a timeout and retry policy. The receipt dependency has a fallback, so `RECEIPT_FAILED` does not reach the final error union.
+
+```typescript
+import { fallback, ok, retry, run, timeout } from 'awaitly';
+import { charge, loadCart, sendReceipt } from './checkout-deps';
+
+export const checkout = (cartId: string) =>
+  run(
+    {
+      loadCart,
+      charge: retry(timeout(charge, 2_000), {
+        attempts: 3,
+        delay: 100,
+        backoff: 'exponential',
+      }),
+      sendReceipt: fallback(sendReceipt, () => ok({ queued: true })),
+    },
+    async (steps) => {
+      const cart = await steps.loadCart(cartId);
+
+      if (cart.total === 0) {
+        return { kind: 'free' as const, cart };
+      }
+
+      const payment = await steps.charge(cart.total);
+      const receipt = await steps.sendReceipt(cart.email);
+      return { kind: 'paid' as const, cart, payment, receipt };
+    },
+  );
+```
+
+Use this file to answer four review questions without charging a card.
+
+### Check the resilience policy
+
+Read the dependency facts from JSON:
+
+```bash
+npx awaitly-analyze ./checkout.ts --format=json --no-types \
+  | jq '.workflows[0].root.dependencies[] | { name, errorTypes, policies }'
+```
+
+The `charge` record contains the timeout followed by the retry wrapper. The `sendReceipt` record shows a fallback. Reviewers can inspect the exact policy chain without tracing through wrapper types or running the workflow.
+
+### Generate tests from both branches
+
+```typescript
+import {
+  analyze,
+  formatTestMatrixMarkdown,
+  generatePaths,
+  generateTestMatrix,
+} from 'awaitly-analyze';
+
+const workflow = analyze('./checkout.ts').single();
+const paths = generatePaths(workflow);
+const matrix = generateTestMatrix(paths, {}, workflow);
+
+console.log(formatTestMatrixMarkdown(matrix));
+```
+
+The matrix includes the `cart.total === 0` path and the paid path through `charge` and `sendReceipt`. Pass the workflow IR as the third argument to rank paths using `errorMeta` when your steps classify business and infrastructure failures.
+
+### Block diagram drift in CI
+
+```yaml
+- name: Check workflow diagrams
+  run: |
+    pnpm exec awaitly-analyze src/workflows/checkout.ts \
+      --doctor --format=json --no-types
+    pnpm exec awaitly-analyze src/workflows/checkout.ts \
+      --assert-diagrammable --no-types
+```
+
+The first command reports source-level diagnostics, including missing ids and unmodeled awaits. Each diagnostic includes a location. The second command returns a non-zero exit code when the analyzer cannot assign stable identities to the graph.
+
+### Review the executed path after a failure
+
+Capture `WorkflowEvent[]` from `onEvent`, save the array as `run-events.json`, and overlay it:
+
+```bash
+npx awaitly-analyze ./checkout.ts \
+  --trace=./run-events.json --no-types \
+  -o --suffix=failed-run
+```
+
+The output keeps both checkout branches visible and marks the steps from that run. `unmatched` trace ids expose runtime steps that have no node in the static graph.
+
+Browse [Analyzer Showcase](guides/analyzer-showcase/) for source and generated diagrams covering retries, resources, loops, workflow composition, and sagas.
 
 ## CLI reference
 
@@ -108,7 +200,7 @@ npx awaitly-analyze ./src/workflows/checkout.ts --dev --port=5000
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--assert-diagrammable` | off | Exit non-zero if any workflow's diagram is not fully deterministic (CI gate) |
+| `--assert-diagrammable` | off | Exit non-zero if a workflow has unstable graph identities |
 | `--trace=<path>` | - | Overlay a recorded run's executed path onto the static Mermaid diagram |
 | `--dev` | off | Serve a live workflow inspector at `http://localhost:4747` (SSE + runtime trace overlay) |
 | `--port=<n>` | `4747` | Port for `--dev` (use with `--dev`) |
@@ -128,7 +220,7 @@ Wire `onEvent` to stream runs into the inspector. Use `devEvents` from `awaitly-
 
 ## Lock the diagram to reality
 
-Pass a declared `graph` at workflow creation or per run so every step and decision id must appear in the graph. Any runtime id not in the graph fails the workflow immediately, so the static diagram and execution stay aligned.
+Pass a declared `graph` at workflow creation or per run so each step and decision id must appear in the graph. Awaitly rejects a runtime id that does not appear in the graph, which keeps execution aligned with the static diagram.
 
 ```typescript
 import { createWorkflow } from 'awaitly';
@@ -186,7 +278,7 @@ const html = generateInteractiveHTML(mermaid, metadata, {
 
 ### Diagrammability
 
-Return a verdict on whether a workflow's diagram is fully deterministic, with each gap naming the first-class construct that closes it:
+Check whether each graph node has a stable identity. Each issue names the construct that closes the gap:
 
 ```typescript
 import { analyze, computeDiagrammability } from 'awaitly-analyze';
@@ -219,7 +311,7 @@ const trace = traceFromEvents(recordedEvents); // WorkflowEvent[] → per-step s
 
 const { mermaid, matched, unmatched } = renderStaticMermaidWithTrace(ir, trace);
 // `unmatched` lists trace steps with no static node; empty when the workflow
-// is fully diagrammable (literal step ids).
+// has stable identities (literal step ids).
 ```
 
 ### Fluent selection helpers
@@ -348,7 +440,7 @@ Node categories:
     {
       choice: '--format=json',
       bestFor: 'CI, automation, and custom tooling.',
-      tradeoff: 'Harder for humans to skim quickly.'
+      tradeoff: 'Harder for humans to scan at a glance.'
     },
     {
       choice: '--html',
@@ -386,7 +478,7 @@ Node categories:
 ## Limitations
 
 - Dynamic step IDs can appear as `<dynamic>`.
-- External workflow references are only resolved when analyzable in context.
+- The analyzer resolves external workflow references when their source is available in the project.
 - An awaited call inside a workflow callback that static analysis cannot model (helper function, bare `await deps.fn()`) surfaces as an `unknown` node with an `UNANALYZED_AWAIT` warning in `--doctor` output rather than being dropped. Wrap the async work in `step()` to close the gap.
 
 ## Next

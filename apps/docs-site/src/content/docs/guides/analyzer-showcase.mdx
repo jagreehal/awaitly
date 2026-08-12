@@ -1,13 +1,28 @@
 ---
 title: Analyzer Showcase
-description: Code → Mermaid for every workflow pattern. See what the static analyzer produces for each step type and control flow.
+description: Compare TypeScript source with generated Mermaid across workflow patterns.
 ---
 
 import { AnalyzerShowcase } from '~/components';
 import showcaseData from '../../../data/analyzer-showcase.data.json';
 
-This page shows **what the analyzer produces** for each workflow pattern: the source code (from real fixture files) and the generated Mermaid diagram. Step-level details (types, errors, retry/timeout) are extracted when the type checker is available.
+Each example comes from a TypeScript fixture in the analyzer test suite. Switch between the diagram and its source. Runtime examples add a recorded-run tab over the same static graph. Open **steps analyzed** to inspect inferred output types, error unions, dependency policies, and step metadata.
+
+Start with the examples that match the work in front of you:
+
+| You need to inspect | Open this example |
+| --- | --- |
+| A short request handler | **Linear steps** |
+| Retry and timeout policy declared on dependencies | **run() with dependency policies** |
+| Branches, parallel work, and iteration in one graph | **Complex (parallel + conditional + forEach)** |
+| Ownership, external calls, state changes, and error severity | **Architecture and error metadata** |
+| Rollback order after a partial failure | **Saga workflow** |
+| Where cancellation stopped work | **Cancellation: recorded run** |
+| Which steps resumed from saved state | **Persistence: resumed run** |
+| Rollback order and a failed undo | **Saga rollback and compensation failure** |
+
+The analyzer generates the diagrams below from the source shown beside them. Recorded runs pass through the same trace overlay used by the CLI and live inspector. Edit a step id, branch, policy, or error type in the fixture and regenerate the data; the diagram and step facts change with the code.
 
 <AnalyzerShowcase entries={showcaseData} client:load />
 
-See [Static Analysis](guides/static-analysis/) for the full API and [Visualization](guides/visualization/) for runtime diagrams.
+Use [Static Analysis](guides/static-analysis/) for CI, diffs, test matrices, and trace overlays. [Visualization](guides/visualization/) covers runtime event streams.

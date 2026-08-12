@@ -15,6 +15,7 @@ const FIXTURES_DIR = join(__dirname, "__fixtures__");
 const testFilePath = join(FIXTURES_DIR, "cli-test-workflow.ts");
 const multiWorkflowFilePath = join(FIXTURES_DIR, "cli-test-multi-workflow.ts");
 const conditionalWorkflowFilePath = join(FIXTURES_DIR, "cli-test-conditional-workflow.ts");
+const anonymousRunFilePath = join(FIXTURES_DIR, "cli-test-anonymous-run.ts");
 const outputMdPath = join(FIXTURES_DIR, "cli-test-workflow.workflow.md");
 const outputJsonPath = join(FIXTURES_DIR, "cli-test-workflow.analysis.json");
 const customSuffixPath = join(FIXTURES_DIR, "cli-test-workflow.diagram.md");
@@ -105,6 +106,27 @@ const NO_WORKFLOW = `
 export const value = 42;
 `;
 
+const ANONYMOUS_RUN = `
+import { ok, run, type AsyncResult } from 'awaitly';
+
+type User = { id: string; name: string };
+type Order = { id: number; total: number };
+
+const loadUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
+  ok({ id, name: 'Alice' });
+const loadOrders = async (userId: string): AsyncResult<Order[], 'FETCH_ERROR'> =>
+  ok([{ id: 1, total: userId.length }]);
+
+export const result = await run(
+  { loadUser, loadOrders },
+  async (steps) => {
+    const user = await steps.loadUser('1');
+    const orders = await steps.loadOrders(user.id);
+    return { user, orders };
+  },
+);
+`;
+
 describe("CLI", () => {
   beforeEach(() => {
     // Create test workflow file
@@ -112,6 +134,7 @@ describe("CLI", () => {
     writeFileSync(multiWorkflowFilePath, MULTI_WORKFLOW);
     writeFileSync(conditionalWorkflowFilePath, CONDITIONAL_WORKFLOW);
     writeFileSync(noWorkflowFilePath, NO_WORKFLOW);
+    writeFileSync(anonymousRunFilePath, ANONYMOUS_RUN);
   });
 
   afterEach(() => {
@@ -121,6 +144,7 @@ describe("CLI", () => {
       multiWorkflowFilePath,
       conditionalWorkflowFilePath,
       noWorkflowFilePath,
+      anonymousRunFilePath,
       outputMdPath,
       outputJsonPath,
       customSuffixPath,
@@ -247,6 +271,47 @@ describe("CLI", () => {
       expect(exitCode).toBe(0);
       expect(stderr).toContain("Wrote");
       expect(stdout).toContain("flowchart");
+    });
+  });
+
+  describe("--types", () => {
+    it("generates compilable types for an anonymous Run", () => {
+      const { stderr, exitCode } = runCli([
+        anonymousRunFilePath,
+        "--types",
+        "--no-test",
+      ]);
+
+      expect(exitCode).toBe(0);
+      const generatedPath = stderr.match(/Wrote types: (.+\.types\.ts)/)?.[1];
+      expect(generatedPath).toBeDefined();
+      expect(generatedPath?.split("/").at(-1)).toMatch(/^[A-Za-z_$][\w$]*\.types\.ts$/);
+
+      const generated = readFileSync(generatedPath!, "utf-8");
+      expect(generated).not.toContain("[object Object]");
+      expect(generated).toContain("user: { id: string; name: string; }");
+      expect(generated).toContain("orders: { id: number; total: number; }[]");
+
+      const compiled = spawnSync(
+        "pnpm",
+        [
+          "exec",
+          "tsc",
+          "--noEmit",
+          "--skipLibCheck",
+          "--target",
+          "ES2022",
+          "--module",
+          "NodeNext",
+          "--moduleResolution",
+          "NodeNext",
+          generatedPath!,
+        ],
+        { encoding: "utf-8" },
+      );
+
+      expect(compiled.stderr || compiled.stdout).toBe("");
+      expect(compiled.status).toBe(0);
     });
   });
 

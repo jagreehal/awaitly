@@ -57,6 +57,14 @@ export interface ShowcaseEntry {
   title: string;
   code: string;
   mermaid: string;
+  traceMermaid?: string;
+  traceLabel?: string;
+  traceSteps?: Array<{
+    stepId: string;
+    status: "success" | "error" | "aborted" | "skipped" | "cache-hit" | "running";
+    durationMs?: number;
+    retries?: number;
+  }>;
   /** Workflow result type (e.g. Promise<{ user; orders }>) */
   resultType?: string;
   /** Inferred or declared error tags for the workflow */
@@ -86,6 +94,19 @@ export interface ShowcaseEntry {
     stepKind?: string;
     try?: boolean;
     compensate?: boolean;
+    compensationCallee?: string;
+    policies?: Array<{ kind: "retry" | "timeout" | "fallback"; options?: string }>;
+    intent?: string;
+    domain?: string;
+    owner?: string;
+    tags?: string[];
+    stateChanges?: string[];
+    emits?: string[];
+    calls?: string[];
+    errorMeta?: Record<
+      string,
+      { retryable?: boolean; severity?: string; description?: string }
+    >;
   }>;
 }
 
@@ -100,7 +121,7 @@ function slug(title: string): string {
     .replace(/[^a-z0-9-]/g, "");
 }
 
-type Tab = "diagram" | "source";
+type Tab = "diagram" | "trace" | "source";
 
 /* ── Diagram icon ── */
 const DiagramIcon = () => (
@@ -217,11 +238,24 @@ function StepDetailsCard({
               {step.depSource && (
                 <StepBadge label={`dep: ${step.depSource}`} variant="gray" />
               )}
+              {step.policies?.map((policy, policyIndex) => (
+                <StepBadge
+                  key={`${policy.kind}-${policyIndex}`}
+                  label={`${policy.kind} policy`}
+                  variant="amber"
+                />
+              ))}
               {step.stepKind && !["step"].includes(step.stepKind) && (
                 <StepBadge label={step.stepKind} variant="purple" />
               )}
               {step.compensate && (
                 <StepBadge label="compensable" variant="green" />
+              )}
+              {step.compensationCallee && (
+                <StepBadge
+                  label={`undo: ${step.compensationCallee.replace(/^deps\./, "")}`}
+                  variant="purple"
+                />
               )}
               {step.try && <StepBadge label="try" variant="amber" />}
               {errors.map((e) => (
@@ -250,7 +284,81 @@ function StepDetailsCard({
                   variant="green"
                 />
               )}
+              {step.domain && <StepBadge label={step.domain} variant="purple" />}
+              {step.owner && <StepBadge label={step.owner} variant="gray" />}
+              {step.tags?.map((tag) => (
+                <StepBadge key={tag} label={tag} variant="blue" />
+              ))}
             </div>
+            {Boolean(
+              step.intent ||
+                step.policies?.length ||
+                step.stateChanges?.length ||
+                step.emits?.length ||
+                step.calls?.length ||
+                (step.errorMeta && Object.keys(step.errorMeta).length),
+            ) && (
+              <dl className="basis-full space-y-1 border-t border-[var(--sl-color-gray-5)] pt-2 text-[var(--sl-color-gray-3)]">
+                {step.intent && (
+                  <div>
+                    <dt className="inline font-semibold text-[var(--sl-color-gray-2)]">Intent: </dt>
+                    <dd className="inline">{step.intent}</dd>
+                  </div>
+                )}
+                {step.policies && step.policies.length > 0 && (
+                  <div>
+                    <dt className="inline font-semibold text-[var(--sl-color-gray-2)]">Policies: </dt>
+                    <dd className="inline font-mono">
+                      {step.policies
+                        .map((policy) =>
+                          `${policy.kind}${policy.options ? `(${policy.options.replace(/\s+/g, " ")})` : ""}`,
+                        )
+                        .join(" → ")}
+                    </dd>
+                  </div>
+                )}
+                {step.calls && step.calls.length > 0 && (
+                  <div>
+                    <dt className="inline font-semibold text-[var(--sl-color-gray-2)]">Calls: </dt>
+                    <dd className="inline">{step.calls.join(", ")}</dd>
+                  </div>
+                )}
+                {step.stateChanges && step.stateChanges.length > 0 && (
+                  <div>
+                    <dt className="inline font-semibold text-[var(--sl-color-gray-2)]">State: </dt>
+                    <dd className="inline">{step.stateChanges.join(", ")}</dd>
+                  </div>
+                )}
+                {step.emits && step.emits.length > 0 && (
+                  <div>
+                    <dt className="inline font-semibold text-[var(--sl-color-gray-2)]">Emits: </dt>
+                    <dd className="inline">{step.emits.join(", ")}</dd>
+                  </div>
+                )}
+                {step.errorMeta && Object.keys(step.errorMeta).length > 0 && (
+                  <div>
+                    <dt className="inline font-semibold text-[var(--sl-color-gray-2)]">Errors: </dt>
+                    <dd className="inline">
+                      {Object.entries(step.errorMeta)
+                        .map(([name, metadata]) =>
+                          [
+                            name,
+                            metadata.severity,
+                            metadata.retryable === true
+                              ? "retryable"
+                              : metadata.retryable === false
+                                ? "no retry"
+                                : undefined,
+                          ]
+                            .filter(Boolean)
+                            .join(" · "),
+                        )
+                        .join("; ")}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            )}
           </div>
         );
       })}
@@ -260,6 +368,14 @@ function StepDetailsCard({
 
 function ShowcaseEntryCard({ entry }: { entry: ShowcaseEntry }) {
   const [tab, setTab] = useState<Tab>("diagram");
+  const traceBadgeVariant = {
+    success: "green",
+    error: "red",
+    aborted: "amber",
+    skipped: "purple",
+    "cache-hit": "blue",
+    running: "amber",
+  } as const;
 
   return (
     <section className="relative">
@@ -318,8 +434,26 @@ function ShowcaseEntryCard({ entry }: { entry: ShowcaseEntry }) {
               ].join(" ")}
             >
               <DiagramIcon />
-              Diagram
+              {entry.traceMermaid ? "Static graph" : "Diagram"}
             </button>
+
+            {entry.traceMermaid && (
+              <button
+                type="button"
+                onClick={() => setTab("trace")}
+                className={[
+                  "m-0 mt-0! relative inline-flex items-center gap-2 px-4 py-3 text-sm font-medium",
+                  "text-[var(--sl-color-gray-3)] hover:text-[var(--sl-color-gray-2)]",
+                  "after:absolute after:inset-x-3 after:-bottom-px after:h-0.5 after:rounded-full after:content-['']",
+                  tab === "trace"
+                    ? "text-[var(--sl-color-accent)] after:bg-[var(--sl-color-accent)]"
+                    : "after:bg-transparent",
+                ].join(" ")}
+              >
+                <DiagramIcon />
+                {entry.traceLabel ?? "Recorded run"}
+              </button>
+            )}
 
             <button
               type="button"
@@ -342,6 +476,22 @@ function ShowcaseEntryCard({ entry }: { entry: ShowcaseEntry }) {
         {/* Tab content */}
         {tab === "diagram" && (
           <MermaidDiagram code={entry.mermaid} className="min-h-[200px]!" />
+        )}
+        {tab === "trace" && entry.traceMermaid && (
+          <div>
+            {entry.traceSteps && entry.traceSteps.length > 0 && (
+              <div className="flex flex-wrap gap-2 border-b border-[var(--sl-color-gray-5)] px-4 py-3">
+                {entry.traceSteps.map((step) => (
+                  <StepBadge
+                    key={step.stepId}
+                    label={`${step.stepId}: ${step.status}${step.durationMs == null ? "" : ` · ${step.durationMs}ms`}`}
+                    variant={traceBadgeVariant[step.status]}
+                  />
+                ))}
+              </div>
+            )}
+            <MermaidDiagram code={entry.traceMermaid} className="min-h-[200px]!" />
+          </div>
         )}
         {tab === "source" && <HighlightedCode code={entry.code} />}
       </div>

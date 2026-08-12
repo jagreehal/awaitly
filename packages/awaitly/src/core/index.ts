@@ -719,8 +719,11 @@ export type StepOptions<
    * ```
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  compensate?: ((value: any) => void | Promise<void>) | undefined;
+  compensate?: CompensationAction<any> | undefined;
 };
+
+/** A rollback action. Returned Results are inspected; an err is a compensation failure. */
+export type CompensationAction<T> = (value: T) => unknown;
 
 /** Shared error classification — used in StepOptions.errorMeta, diagnostics, and wide events. */
 export interface ErrorClassification {
@@ -864,6 +867,12 @@ export type RetryOptions<E = unknown> = {
   initialDelay?: number;
 
   /**
+   * Alias for `initialDelay`, matching the `retry()` dependency policy so the
+   * same spelling works in both places. `initialDelay` wins if both are set.
+   */
+  delay?: number;
+
+  /**
    * Maximum delay cap in milliseconds.
    * Prevents exponential backoff from growing too large.
    * @default 30000 (30 seconds)
@@ -884,6 +893,12 @@ export type RetryOptions<E = unknown> = {
    * @default Always retry on any error
    */
   shouldRetry?: (error: E, attempt: number) => boolean;
+
+  /**
+   * Alias for `shouldRetry`, matching the `retry()` dependency policy so the
+   * same spelling works in both places. `shouldRetry` wins if both are set.
+   */
+  retryIf?: (error: E, attempt: number) => boolean;
 
   /**
    * Callback invoked before each retry attempt.
@@ -1113,7 +1128,7 @@ export interface RunStep<E = unknown> {
           ttl?: number;
           retry?: RetryOptions<Err>;
           timeout?: TimeoutOptions;
-          compensate?: (value: T) => void | Promise<void>;
+          compensate?: CompensationAction<T>;
         }
       | {
           onError: (cause: unknown) => Err;
@@ -1121,7 +1136,7 @@ export interface RunStep<E = unknown> {
           ttl?: number;
           retry?: RetryOptions<Err>;
           timeout?: TimeoutOptions;
-          compensate?: (value: T) => void | Promise<void>;
+          compensate?: CompensationAction<T>;
         }
   ) => Promise<T>;
 
@@ -2494,10 +2509,12 @@ export async function retryAsync<T, E>(
   const attempts = Math.max(1, options.attempts);
   const effective = {
     backoff: options.backoff ?? DEFAULT_RETRY_ASYNC_CONFIG.backoff,
-    initialDelay: options.initialDelay ?? DEFAULT_RETRY_ASYNC_CONFIG.initialDelay,
+    initialDelay:
+      options.initialDelay ?? options.delay ?? DEFAULT_RETRY_ASYNC_CONFIG.initialDelay,
     maxDelay: options.maxDelay ?? DEFAULT_RETRY_ASYNC_CONFIG.maxDelay,
     jitter: options.jitter ?? DEFAULT_RETRY_ASYNC_CONFIG.jitter,
-    shouldRetry: options.shouldRetry ?? DEFAULT_RETRY_ASYNC_CONFIG.shouldRetry,
+    shouldRetry:
+      options.shouldRetry ?? options.retryIf ?? DEFAULT_RETRY_ASYNC_CONFIG.shouldRetry,
     onRetry: options.onRetry ?? DEFAULT_RETRY_ASYNC_CONFIG.onRetry,
   };
 
@@ -3090,10 +3107,16 @@ async function runFn<T, E, C = void>(
         const effectiveRetry = {
           attempts: maxAttempts,
           backoff: retryConfig?.backoff ?? DEFAULT_RETRY_CONFIG.backoff,
-          initialDelay: retryConfig?.initialDelay ?? DEFAULT_RETRY_CONFIG.initialDelay,
+          initialDelay:
+            retryConfig?.initialDelay ??
+            retryConfig?.delay ??
+            DEFAULT_RETRY_CONFIG.initialDelay,
           maxDelay: retryConfig?.maxDelay ?? DEFAULT_RETRY_CONFIG.maxDelay,
           jitter: retryConfig?.jitter ?? DEFAULT_RETRY_CONFIG.jitter,
-          shouldRetry: retryConfig?.shouldRetry ?? DEFAULT_RETRY_CONFIG.shouldRetry,
+          shouldRetry:
+            retryConfig?.shouldRetry ??
+            retryConfig?.retryIf ??
+            DEFAULT_RETRY_CONFIG.shouldRetry,
           onRetry: retryConfig?.onRetry ?? DEFAULT_RETRY_CONFIG.onRetry,
         };
 
@@ -3501,7 +3524,7 @@ async function runFn<T, E, C = void>(
             ttl?: number;
             retry?: RetryOptions<Err>;
             timeout?: TimeoutOptions;
-            compensate?: (value: T) => void | Promise<void>;
+            compensate?: CompensationAction<T>;
           }
         | {
             onError: (cause: unknown) => Err;
@@ -3509,7 +3532,7 @@ async function runFn<T, E, C = void>(
             ttl?: number;
             retry?: RetryOptions<Err>;
             timeout?: TimeoutOptions;
-            compensate?: (value: T) => void | Promise<void>;
+            compensate?: CompensationAction<T>;
           }
     ): Promise<T> => {
       // Validate required string ID
@@ -3766,14 +3789,14 @@ async function runFn<T, E, C = void>(
       // Use key for caching if provided, otherwise use id
       return stepFn(id, operation, {
         key: options.key ?? id,
-        retry: {
-          attempts: options.attempts,
-          backoff: options.backoff,
-          initialDelay: options.initialDelay,
-          maxDelay: options.maxDelay,
-          jitter: options.jitter,
-          shouldRetry: options.shouldRetry as RetryOptions["shouldRetry"],
-          onRetry: options.onRetry as RetryOptions["onRetry"],
+          retry: {
+            attempts: options.attempts,
+            backoff: options.backoff,
+            initialDelay: options.initialDelay ?? options.delay,
+            maxDelay: options.maxDelay,
+            jitter: options.jitter,
+            shouldRetry: (options.shouldRetry ?? options.retryIf) as RetryOptions["shouldRetry"],
+            onRetry: options.onRetry as RetryOptions["onRetry"],
         },
         timeout: options.timeout,
       });

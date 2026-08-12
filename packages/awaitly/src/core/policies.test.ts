@@ -18,6 +18,7 @@ import {
   UnexpectedError,
 } from "./index";
 import { TimeoutError } from "../errors";
+import { Duration } from "../duration";
 import { createWorkflow } from "../workflow";
 
 type User = { id: string; name: string };
@@ -241,5 +242,98 @@ describe("integration with run(deps, fn)", () => {
 
     expect(result.ok).toBe(true);
     expect(calls()).toBe(3);
+  });
+});
+
+describe("retry option vocabulary and validation", () => {
+  const flaky = (failures: number) => {
+    let calls = 0;
+    const fn = async (): AsyncResult<"done", "FETCH_ERROR"> => {
+      calls += 1;
+      return calls > failures ? ok("done") : err("FETCH_ERROR");
+    };
+    return Object.assign(fn, { calls: () => calls });
+  };
+
+  it("accepts initialDelay as an alias for delay", async () => {
+    const fn = flaky(1);
+    const result = await retry(fn, { attempts: 2, initialDelay: 1 })();
+    expect(result).toEqual({ ok: true, value: "done" });
+    expect(fn.calls()).toBe(2);
+  });
+
+  it("accepts shouldRetry as an alias for retryIf", async () => {
+    const fn = flaky(5);
+    const result = await retry(fn, {
+      attempts: 3,
+      shouldRetry: (failure) => failure !== "FETCH_ERROR",
+    })();
+    expect(result).toEqual({ ok: false, error: "FETCH_ERROR" });
+    expect(fn.calls()).toBe(1); // stopped after the predicate said no
+  });
+
+  it("passes the attempt number to retryIf", async () => {
+    const seen: number[] = [];
+    const fn = flaky(5);
+    await retry(fn, {
+      attempts: 3,
+      retryIf: (_failure, attempt) => {
+        seen.push(attempt);
+        return true;
+      },
+    })();
+    expect(seen).toEqual([1, 2, 3]);
+  });
+
+  it("rejects invalid attempts at construction, not at call time", () => {
+    expect(() => retry(flaky(0), { attempts: Number.NaN })).toThrow(
+      /attempts must be a finite number >= 1/
+    );
+    expect(() => retry(flaky(0), { attempts: 0 })).toThrow(/attempts/);
+    expect(() => retry(flaky(0), { attempts: Infinity })).toThrow(/attempts/);
+  });
+
+  it("rejects invalid delays", () => {
+    expect(() => retry(flaky(0), { attempts: 2, delay: Number.NaN })).toThrow(
+      /delay must be a finite, non-negative duration/
+    );
+    expect(() => retry(flaky(0), { attempts: 2, maxDelay: -1 })).toThrow(/maxDelay/);
+  });
+
+  it("accepts Duration.infinity as an explicit maxDelay", () => {
+    expect(() =>
+      retry(flaky(0), { attempts: 2, maxDelay: Duration.infinity })
+    ).not.toThrow();
+  });
+
+  it("forwards delay and retryIf through workflow step.retry", async () => {
+    const fn = flaky(5);
+    const workflow = createWorkflow("retry-aliases", { fn });
+
+    const result = await workflow.run(async ({ step, deps }) =>
+      step.retry("fn", () => deps.fn(), {
+        attempts: 3,
+        delay: 0,
+        retryIf: () => false,
+      })
+    );
+
+    expect(result).toEqual({ ok: false, error: "FETCH_ERROR" });
+    expect(fn.calls()).toBe(1);
+  });
+
+  it("forwards delay and retryIf through core step.retry", async () => {
+    const fn = flaky(5);
+
+    const result = await run(async ({ step }) =>
+      step.retry("fn", fn, {
+        attempts: 3,
+        delay: 0,
+        retryIf: () => false,
+      })
+    );
+
+    expect(result).toEqual({ ok: false, error: "FETCH_ERROR" });
+    expect(fn.calls()).toBe(1);
   });
 });

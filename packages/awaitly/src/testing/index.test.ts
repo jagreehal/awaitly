@@ -696,5 +696,28 @@ describe("Testing Harness", () => {
         true
       );
     });
+
+    it("does not record an err Result compensation as successful", async () => {
+      const failureLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      const harness = createSagaHarness({
+        ...makeDeps(),
+        refundPayment: async (): AsyncResult<undefined, "REFUND_FAILED"> =>
+          err("REFUND_FAILED"),
+      });
+
+      await harness.runSaga(async ({ saga, deps }) => {
+        await saga.step("charge-payment", () => deps.chargePayment(), {
+          compensate: () => deps.refundPayment(),
+        });
+        await saga.step("reserve-inventory", () => deps.reserveInventory());
+      });
+
+      expect(harness.getCompensations()).toEqual([]);
+      expect(failureLog).toHaveBeenCalledWith(
+        'Compensation failed for step "charge-payment":',
+        "REFUND_FAILED"
+      );
+      failureLog.mockRestore();
+    });
   });
 });

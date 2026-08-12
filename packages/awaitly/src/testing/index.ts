@@ -8,6 +8,7 @@
 import type { Result, AsyncResult, StepOptions, WorkflowEvent, Ok, Err } from "../core";
 import { ok, err, isOk, UnexpectedError } from "../core";
 import type { AnyResultFn, ErrorsOfDeps } from "../workflow/types";
+import { isDepResultShaped } from "../core/bound-steps";
 
 // =============================================================================
 // Internal Types
@@ -863,7 +864,7 @@ export interface MockSagaContext<E> {
  * Saga step options with compensation.
  */
 export interface SagaStepOptions<T> {
-  compensate?: (value: T) => void | Promise<void>;
+  compensate?: (value: T) => unknown;
 }
 
 /**
@@ -915,7 +916,7 @@ export function createSagaHarness<
 
   // Track compensations
   let compensations: CompensationInvocation[] = [];
-  let compensationStack: Array<{ name?: string; value: unknown; compensate: (value: unknown) => void | Promise<void> }> = [];
+  let compensationStack: Array<{ name?: string; value: unknown; compensate: (value: unknown) => unknown }> = [];
 
   async function runSaga<T>(
     fn: (context: { saga: MockSagaContext<E>; deps: Deps }) => Promise<T>
@@ -949,7 +950,7 @@ export function createSagaHarness<
             compensationStack.push({
               name,
               value: result.value,
-              compensate: stepOptions.compensate as (value: unknown) => void | Promise<void>,
+              compensate: stepOptions.compensate as (value: unknown) => unknown,
             });
           }
 
@@ -971,7 +972,10 @@ export function createSagaHarness<
 
       for (const { name, value, compensate } of toCompensate) {
         try {
-          await compensate(value);
+          const outcome = await compensate(value);
+          if (isDepResultShaped(outcome) && !outcome.ok) {
+            throw outcome.error;
+          }
           compensations.push({
             stepName: name,
             order: compensations.length,

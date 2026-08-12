@@ -17,7 +17,7 @@ import type {
 } from "../core";
 import type { JSONValue, WorkflowSnapshot } from "../persistence";
 import type { StreamStore } from "../streaming/types";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { StandardSchemaV1 } from "./standard-schema";
 
 // =============================================================================
 // Step Cache Types

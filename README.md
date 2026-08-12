@@ -77,6 +77,12 @@ if (result.ok) {
 
 No exceptions. TypeScript tracks every possible error.
 
+> A `Result` is an object — `{ ok: true, value }` or `{ ok: false, error }` — never a bare
+> error value. Always narrow on `result.ok` first, then read `result.error`. Switching on the
+> `Result` itself (`switch (result)`) gets you
+> `Type 'string' is not comparable to type 'Result<...>'` (TS2678); you want
+> `switch (result.error)`.
+
 ---
 
 ## The Composition Problem
@@ -444,6 +450,8 @@ async function handler(fromUserId: string, toUserId: string, amount: number) {
 ```
 
 **How it works:** TypeScript knows **all possible errors** from your dependencies. Add a step? The errors update automatically. Remove one? They update. You'll never miss an error case.
+
+The `if`/`switch` above spells out the mechanics. Once they're familiar, collapse the whole boundary into one exhaustive [`match`](#mapping-errors-at-the-boundary), which fails to compile the moment a new error joins the union.
 
 ---
 

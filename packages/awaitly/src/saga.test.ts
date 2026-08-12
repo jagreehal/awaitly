@@ -283,4 +283,66 @@ describe("Saga / Compensation Pattern", () => {
       expect(isSagaCompensationError({ type: "OTHER" })).toBe(false);
     });
   });
+
+  describe("compensation that returns a Result", () => {
+    const charge = async (): AsyncResult<{ id: string }, "DECLINED"> =>
+      ok({ id: "ch_1" });
+    const reserve = async (): AsyncResult<{ id: string }, "OUT_OF_STOCK"> =>
+      err("OUT_OF_STOCK");
+
+    it("treats an err from compensate as a failed rollback", async () => {
+      const refund = async (
+        _id: string
+      ): AsyncResult<"refunded", "REFUND_FAILED"> => err("REFUND_FAILED");
+      const saga = createSagaWorkflow("checkout", { charge, reserve, refund });
+
+      const result = await saga.run(async ({ step, deps }) => {
+        await step("charge", () => deps.charge(), {
+          compensate: (p) => deps.refund(p.id),
+        });
+        return step("reserve", () => deps.reserve());
+      });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(isSagaCompensationError(result.error)).toBe(true);
+      if (!isSagaCompensationError(result.error)) return;
+      expect(result.error.originalError).toBe("OUT_OF_STOCK");
+      expect(result.error.compensationErrors).toEqual([
+        { stepName: "charge", error: "REFUND_FAILED" },
+      ]);
+    });
+
+    it("treats an ok from compensate as a clean rollback", async () => {
+      const refund = async (_id: string): AsyncResult<"refunded", never> =>
+        ok("refunded");
+      const saga = createSagaWorkflow("checkout", { charge, reserve, refund });
+
+      const result = await saga.run(async ({ step, deps }) => {
+        await step("charge", () => deps.charge(), {
+          compensate: (p) => deps.refund(p.id),
+        });
+        return step("reserve", () => deps.reserve());
+      });
+
+      expect(result).toEqual({ ok: false, error: "OUT_OF_STOCK" });
+    });
+
+    it("leaves void compensations unchanged", async () => {
+      const release = vi.fn();
+      const saga = createSagaWorkflow("checkout", { charge, reserve });
+
+      const result = await saga.run(async ({ step, deps }) => {
+        await step("charge", () => deps.charge(), {
+          compensate: () => {
+            release();
+          },
+        });
+        return step("reserve", () => deps.reserve());
+      });
+
+      expect(result).toEqual({ ok: false, error: "OUT_OF_STOCK" });
+      expect(release).toHaveBeenCalledOnce();
+    });
+  });
 });

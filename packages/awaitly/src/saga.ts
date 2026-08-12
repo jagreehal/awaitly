@@ -47,7 +47,9 @@ import {
   isEarlyExit,
   createEarlyExit,
   type EarlyExit,
+  type CompensationAction as CoreCompensationAction,
 } from "./core";
+import { isDepResultShaped } from "./core/bound-steps";
 import { createWorkflow } from "./workflow/execute";
 import type {
   Workflow,
@@ -59,8 +61,15 @@ import type {
 // Compensation types
 // =============================================================================
 
-/** A compensation action to run on rollback. */
-export type CompensationAction<T> = (value: T) => void | Promise<void>;
+/**
+ * A compensation action to run on rollback.
+ *
+ * Returning a `Result` is supported and checked: an `err` counts as a failed
+ * compensation and lands in `SAGA_COMPENSATION_ERROR`, exactly like a throw.
+ * That means `compensate: (p) => deps.refund(p.id)` works directly, with no
+ * wrapper, because deps return Results. Anything else returned is ignored.
+ */
+export type CompensationAction<T> = CoreCompensationAction<T>;
 
 /** Options for a saga step (kept for back-compat — `compensate` lives on `StepOptions`). */
 export interface SagaStepOptions<T> {
@@ -314,7 +323,22 @@ export async function runSaga<T, E>(
     for (let i = compensations.length - 1; i >= 0; i--) {
       const comp = compensations[i];
       try {
-        await comp.compensate(comp.value);
+        const outcome = await comp.compensate(comp.value);
+        // A compensation that returns err() failed just as surely as one that
+        // threw. Without this the rollback is reported clean and the money stays
+        // gone. Non-Result returns are ignored, so void compensations are unchanged.
+        if (isDepResultShaped(outcome) && !outcome.ok) {
+          compensationErrors.push({ stepName: comp.name, error: outcome.error });
+          emit({
+            type: "saga_compensation_step",
+            sagaId,
+            stepName: comp.name,
+            ts: Date.now(),
+            success: false,
+            error: outcome.error,
+          });
+          continue;
+        }
         emit({
           type: "saga_compensation_step",
           sagaId,

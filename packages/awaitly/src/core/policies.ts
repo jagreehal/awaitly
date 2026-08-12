@@ -92,18 +92,59 @@ export interface RetryPolicyOptions {
   attempts: number;
   /** Base delay between attempts. Default: no delay. */
   delay?: PolicyDelay;
+  /**
+   * Alias for `delay`, matching step retry options so the same spelling works
+   * in both places. `delay` wins if both are set.
+   */
+  initialDelay?: PolicyDelay;
   /** How the delay grows per attempt. Default: "fixed". */
   backoff?: "fixed" | "linear" | "exponential";
   /** Upper bound for the computed delay. */
   maxDelay?: PolicyDelay;
   /**
    * Decide whether a failure is retryable. Receives the Result error, or
-   * the thrown value for plain functions. Default: retry everything.
+   * the thrown value for plain functions, plus the 1-indexed attempt number.
+   * Default: retry everything.
    */
-  retryIf?: (failure: unknown) => boolean;
+  retryIf?: (failure: unknown, attempt: number) => boolean;
+  /**
+   * Alias for `retryIf`, matching step retry options so the same spelling
+   * works in both places. `retryIf` wins if both are set.
+   */
+  shouldRetry?: (failure: unknown, attempt: number) => boolean;
   /** Observer invoked before each re-attempt. */
   onRetry?: (info: { attempt: number; failure: unknown }) => void;
 }
+
+/**
+ * Reject configuration that would otherwise fail silently or late. Without
+ * this, `attempts: NaN` makes `Math.max(1, Math.trunc(NaN))` NaN, the retry
+ * loop never runs, and the wrapper throws `undefined` at call time with
+ * nothing pointing back at the config.
+ */
+const requirePositiveInt = (value: number, field: string): number => {
+  if (!Number.isFinite(value) || Math.trunc(value) < 1) {
+    throw new TypeError(
+      `retry: ${field} must be a finite number >= 1, received ${String(value)}`
+    );
+  }
+  return Math.trunc(value);
+};
+
+const requireDelay = (
+  value: PolicyDelay | undefined,
+  field: string,
+  allowInfinity = false
+): number | undefined => {
+  if (value === undefined) return undefined;
+  const ms = toMs(value);
+  if (Number.isNaN(ms) || ms < 0 || (!allowInfinity && !Number.isFinite(ms))) {
+    throw new TypeError(
+      `retry: ${field} must be a finite, non-negative duration, received ${String(value)}`
+    );
+  }
+  return ms;
+};
 
 /**
  * Retry a dependency. The error union is unchanged: if all attempts fail,
@@ -114,10 +155,11 @@ export function retry<F extends AnyFunction>(
   fn: F,
   options: RetryPolicyOptions
 ): PolicyFn<F, ErrorOf<F>> {
-  const attempts = Math.max(1, Math.trunc(options.attempts));
-  const baseDelay = options.delay === undefined ? 0 : toMs(options.delay);
-  const maxDelay = options.maxDelay === undefined ? Infinity : toMs(options.maxDelay);
+  const attempts = requirePositiveInt(options.attempts, "attempts");
+  const baseDelay = requireDelay(options.delay ?? options.initialDelay, "delay") ?? 0;
+  const maxDelay = requireDelay(options.maxDelay, "maxDelay", true) ?? Infinity;
   const backoff = options.backoff ?? "fixed";
+  const shouldRetry = options.retryIf ?? options.shouldRetry;
 
   const delayFor = (attempt: number): number => {
     const raw =
@@ -135,7 +177,7 @@ export function retry<F extends AnyFunction>(
       last = await attemptCall(fn, args);
       if (last.kind === "ok") return ok(last.value);
       const failure = last.kind === "err" ? last.error : last.thrown;
-      if (options.retryIf && !options.retryIf(failure)) break;
+      if (shouldRetry && !shouldRetry(failure, attempt)) break;
       if (attempt < attempts) {
         options.onRetry?.({ attempt, failure });
         const ms = delayFor(attempt);

@@ -616,7 +616,8 @@
         "callee": "deps.reserve",
         "depSource": "reserve",
         "try": false,
-        "compensate": true
+        "compensate": true,
+        "compensationCallee": "deps.release"
       },
       {
         "stepId": "Charge",
@@ -641,6 +642,262 @@
       "RELEASE_FAILED",
       "CHARGE_FAILED",
       "NOTIFY_FAILED"
+    ]
+  },
+  {
+    "title": "run() with dependency policies",
+    "code": "/**\n * Showcase: dependency-first run() with policy wrappers.\n * The analyzer reads bound steps, inferred errors, and the retry/timeout chain.\n */\nimport { ok, retry, run, timeout, type AsyncResult } from \"awaitly\";\n\ninterface User {\n  id: string;\n  name: string;\n}\n\ninterface Order {\n  id: string;\n  total: number;\n}\n\nconst getUser = async (id: string): AsyncResult<User, \"USER_NOT_FOUND\"> =>\n  ok({ id, name: \"Alice\" });\n\nconst getOrders = async (userId: string): AsyncResult<Order[], \"ORDERS_UNAVAILABLE\"> =>\n  ok([{ id: `order-${userId}`, total: 99 }]);\n\nexport const result = await run(\n  {\n    getUser,\n    getOrders: retry(timeout(getOrders, 2_000), {\n      attempts: 3,\n      delay: 100,\n      backoff: \"exponential\",\n    }),\n  },\n  async (steps) => {\n    const user = await steps.getUser(\"user-1\");\n    const orders = await steps.getOrders(user.id);\n    return { user, orders };\n  },\n);\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: run@16-run-deps-policies.ts:23\n\n  start((Start))\n  step_1[\"getUser\"]\n  step_2[\"getOrders\"]\n  end_node((End))\n\n  %% Edges\n  step_1 --> step_2\n  start --> step_1\n  step_2 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle\n  class step_2 stepStyle",
+    "stepDetails": [
+      {
+        "stepId": "getUser",
+        "name": "getUser",
+        "callee": "getUser",
+        "errors": [
+          "USER_NOT_FOUND"
+        ],
+        "depSource": "getUser",
+        "inputType": "Parameters<Deps[K]>",
+        "outputType": "User",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "User",
+        "outputTypeText": "User",
+        "errorTypeDisplay": "\"USER_NOT_FOUND\""
+      },
+      {
+        "stepId": "getOrders",
+        "name": "getOrders",
+        "callee": "getOrders",
+        "errors": [
+          "ORDERS_UNAVAILABLE"
+        ],
+        "depSource": "getOrders",
+        "inputType": "Parameters<Deps[K]>",
+        "outputType": "Order[]",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "Order[]",
+        "outputTypeText": "Order[]",
+        "errorTypeDisplay": "\"ORDERS_UNAVAILABLE\"",
+        "policies": [
+          {
+            "kind": "timeout",
+            "options": "2_000"
+          },
+          {
+            "kind": "retry",
+            "options": "{\n      attempts: 3,\n      delay: 100,\n      backoff: \"exponential\",\n    }"
+          }
+        ]
+      }
+    ],
+    "resultType": "Promise<{ user: User; orders: Order[]; }>",
+    "incErrors": [
+      "USER_NOT_FOUND",
+      "ORDERS_UNAVAILABLE",
+      "TimeoutError"
+    ]
+  },
+  {
+    "title": "Architecture and error metadata",
+    "code": "/**\n * Showcase: step metadata for architecture review and generated documentation.\n * Open \"steps analyzed\" to inspect ownership, effects, calls, and error policy.\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\ninterface Payment {\n  id: string;\n}\n\ntype PaymentError = \"CARD_DECLINED\" | \"GATEWAY_TIMEOUT\";\n\nconst chargeCard = async (\n  orderId: string,\n  amount: number,\n): AsyncResult<Payment, PaymentError> => ok({ id: `payment-${orderId}-${amount}` });\n\nexport const paymentWorkflow = createWorkflow(\"paymentWorkflow\", { chargeCard });\n\nexport const result = await paymentWorkflow.run(async ({ step, deps }) => {\n  return step(\"charge-card\", () => deps.chargeCard(\"order-1\", 99), {\n    description: \"Charge the saved card for this order\",\n    intent: \"Collect payment before fulfillment starts\",\n    domain: \"payments\",\n    owner: \"checkout-team\",\n    tags: [\"side-effect\", \"external-api\", \"pci\"],\n    stateChanges: [\"order.paymentStatus -> PAID\"],\n    emits: [\"PaymentCaptured\"],\n    calls: [\"payment-gateway\"],\n    errors: [\"CARD_DECLINED\", \"GATEWAY_TIMEOUT\"],\n    errorMeta: {\n      CARD_DECLINED: {\n        retryable: false,\n        severity: \"business\",\n        description: \"The issuer declined the card\",\n      },\n      GATEWAY_TIMEOUT: {\n        retryable: true,\n        severity: \"infrastructure\",\n        description: \"The payment gateway did not respond\",\n      },\n    },\n  });\n});\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: paymentWorkflow\n\n  start((Start))\n  step_1[\"charge-card (side-effect, external-api, pci)\"]\n  end_node((End))\n\n  %% Edges\n  start --> step_1\n  step_1 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle",
+    "stepDetails": [
+      {
+        "stepId": "charge-card",
+        "name": "charge-card",
+        "callee": "deps.chargeCard",
+        "description": "Charge the saved card for this order",
+        "errors": [
+          "CARD_DECLINED",
+          "GATEWAY_TIMEOUT"
+        ],
+        "depSource": "chargeCard",
+        "inputType": "string, number",
+        "outputType": "Payment",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "Payment",
+        "outputTypeText": "Payment",
+        "errorTypeDisplay": "PaymentError",
+        "intent": "Collect payment before fulfillment starts",
+        "domain": "payments",
+        "owner": "checkout-team",
+        "tags": [
+          "side-effect",
+          "external-api",
+          "pci"
+        ],
+        "stateChanges": [
+          "order.paymentStatus -> PAID"
+        ],
+        "emits": [
+          "PaymentCaptured"
+        ],
+        "calls": [
+          "payment-gateway"
+        ],
+        "errorMeta": {
+          "CARD_DECLINED": {
+            "retryable": false,
+            "severity": "business",
+            "description": "The issuer declined the card"
+          },
+          "GATEWAY_TIMEOUT": {
+            "retryable": true,
+            "severity": "infrastructure",
+            "description": "The payment gateway did not respond"
+          }
+        }
+      }
+    ],
+    "resultType": "Promise<Payment>",
+    "incErrors": [
+      "PaymentError"
+    ]
+  },
+  {
+    "title": "Cancellation: recorded run",
+    "code": "/**\n * Showcase: the static workflow remains visible when a recorded run aborts.\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\ntype Profile = { email: string };\n\nconst loadProfile = async (): AsyncResult<Profile, \"PROFILE_FAILED\"> =>\n  ok({ email: \"alice@example.com\" });\nconst sendEmail = async (_email: string): AsyncResult<\"sent\", \"EMAIL_FAILED\"> =>\n  ok(\"sent\");\n\nexport function notifyUser(signal: AbortSignal) {\n  const notify = createWorkflow(\n    \"notifyUser\",\n    { loadProfile, sendEmail },\n    { signal },\n  );\n\n  return notify.run(async ({ step, deps }) => {\n    const profile = await step(\"loadProfile\", () => deps.loadProfile());\n    await step(\"sendEmail\", () => deps.sendEmail(profile.email));\n    return profile;\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: notifyUser\n\n  start((Start))\n  step_1[\"loadProfile\"]\n  step_2[\"sendEmail\"]\n  end_node((End))\n\n  %% Edges\n  step_1 --> step_2\n  start --> step_1\n  step_2 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle\n  class step_2 stepStyle",
+    "traceMermaid": "flowchart TD\n\n  %% Workflow: notifyUser\n\n  start((Start))\n  step_1[\"loadProfile\"]\n  step_2[\"sendEmail\"]\n  end_node((End))\n\n  %% Edges\n  step_1 --> step_2\n  start --> step_1\n  step_2 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle\n  class step_2 stepStyle\n  classDef trace_aborted fill:#431407,stroke:#f97316,stroke-width:3px,color:#ffedd5\n  class step_1 trace_aborted",
+    "traceLabel": "Cancelled run",
+    "traceSteps": [
+      {
+        "stepId": "loadProfile",
+        "status": "aborted",
+        "durationMs": 8
+      }
+    ],
+    "stepDetails": [
+      {
+        "stepId": "loadProfile",
+        "name": "loadProfile",
+        "callee": "deps.loadProfile",
+        "errors": [
+          "PROFILE_FAILED"
+        ],
+        "depSource": "loadProfile",
+        "outputType": "Profile",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "Profile",
+        "outputTypeText": "Profile",
+        "errorTypeDisplay": "\"PROFILE_FAILED\""
+      },
+      {
+        "stepId": "sendEmail",
+        "name": "sendEmail",
+        "callee": "deps.sendEmail",
+        "errors": [
+          "EMAIL_FAILED"
+        ],
+        "depSource": "sendEmail",
+        "inputType": "string",
+        "outputType": "\"sent\"",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "\"sent\"",
+        "outputTypeText": "\"sent\"",
+        "errorTypeDisplay": "\"EMAIL_FAILED\""
+      }
+    ],
+    "resultType": "Promise<Profile>",
+    "incErrors": [
+      "PROFILE_FAILED",
+      "EMAIL_FAILED"
+    ]
+  },
+  {
+    "title": "Persistence: resumed run",
+    "code": "/**\n * Showcase: completed keyed steps become cache hits after loading resume state.\n */\nimport {\n  createWorkflow,\n  ok,\n  type AsyncResult,\n  type ResumeState,\n} from \"awaitly\";\n\nconst reserveStock = async (): AsyncResult<{ id: string }, \"OUT_OF_STOCK\"> =>\n  ok({ id: \"res_1\" });\nconst charge = async (): AsyncResult<{ id: string }, \"PAYMENT_FAILED\"> =>\n  ok({ id: \"pay_1\" });\n\nconst checkout = createWorkflow(\"resumeCheckout\", { reserveStock, charge });\n\nexport function resumeCheckout(resumeState: ResumeState) {\n  return checkout.run(\n    async ({ step, deps }) => {\n      const reservation = await step(\n        \"reserveStock\",\n        () => deps.reserveStock(),\n        { key: \"reservation\" },\n      );\n      const payment = await step(\"charge\", () => deps.charge(), {\n        key: \"payment\",\n      });\n      return { reservation, payment };\n    },\n    { resumeState },\n  );\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: resumeCheckout\n\n  start((Start))\n  step_1[\"reserveStock (reservation)\"]\n  step_2[\"charge (payment)\"]\n  end_node((End))\n\n  %% Edges\n  step_1 --> step_2\n  start --> step_1\n  step_2 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle\n  class step_2 stepStyle",
+    "traceMermaid": "flowchart TD\n\n  %% Workflow: resumeCheckout\n\n  start((Start))\n  step_1[\"reserveStock (reservation)\"]\n  step_2[\"charge (payment)\"]\n  end_node((End))\n\n  %% Edges\n  step_1 --> step_2\n  start --> step_1\n  step_2 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle\n  class step_2 stepStyle\n  classDef trace_cache-hit fill:#042f2e,stroke:#14b8a6,stroke-width:2px,color:#ccfbf1\n  classDef trace_success fill:#052e16,stroke:#22c55e,stroke-width:3px,color:#dcfce7\n  class step_1 trace_cache-hit\n  class step_2 trace_success",
+    "traceLabel": "Resumed run",
+    "traceSteps": [
+      {
+        "stepId": "reserveStock",
+        "status": "cache-hit"
+      },
+      {
+        "stepId": "charge",
+        "status": "success",
+        "durationMs": 42
+      }
+    ],
+    "stepDetails": [
+      {
+        "stepId": "reserveStock",
+        "name": "reserveStock",
+        "callee": "deps.reserveStock",
+        "key": "reservation",
+        "errors": [
+          "OUT_OF_STOCK"
+        ],
+        "depSource": "reserveStock",
+        "outputType": "{ id: string; }",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "{ id: string; }",
+        "outputTypeText": "{ id: string; }",
+        "errorTypeDisplay": "\"OUT_OF_STOCK\""
+      },
+      {
+        "stepId": "charge",
+        "name": "charge",
+        "callee": "deps.charge",
+        "key": "payment",
+        "errors": [
+          "PAYMENT_FAILED"
+        ],
+        "depSource": "charge",
+        "outputType": "{ id: string; }",
+        "outputTypeKind": "declared",
+        "outputTypeDisplay": "{ id: string; }",
+        "outputTypeText": "{ id: string; }",
+        "errorTypeDisplay": "\"PAYMENT_FAILED\""
+      }
+    ],
+    "resultType": "Promise<{ reservation: { id: string; }; payment: { id: string; }; }>",
+    "incErrors": [
+      "OUT_OF_STOCK",
+      "PAYMENT_FAILED"
+    ]
+  },
+  {
+    "title": "Saga rollback and compensation failure",
+    "code": "/**\n * Showcase: each failure point enters a LIFO rollback path, and an undo can fail.\n */\nimport { err, ok, type AsyncResult } from \"awaitly\";\nimport { createSagaWorkflow } from \"awaitly/durable\";\n\nconst charge = async (): AsyncResult<{ id: string }, \"DECLINED\"> =>\n  ok({ id: \"pay_1\" });\nconst refund = async (_id: string): AsyncResult<void, \"REFUND_FAILED\"> =>\n  err(\"REFUND_FAILED\");\nconst reserve = async (): AsyncResult<{ id: string }, \"OUT_OF_STOCK\"> =>\n  ok({ id: \"res_1\" });\nconst release = async (_id: string): AsyncResult<void, \"RELEASE_FAILED\"> =>\n  ok(undefined);\nconst ship = async (): AsyncResult<never, \"SHIPMENT_FAILED\"> =>\n  err(\"SHIPMENT_FAILED\");\n\nconst checkout = createSagaWorkflow(\"rollbackCheckout\", {\n  charge,\n  refund,\n  reserve,\n  release,\n  ship,\n});\n\nexport function runCheckout() {\n  return checkout.run(async ({ step, deps }) => {\n    const payment = await step(\"charge\", () => deps.charge(), {\n      compensate: async (value) => {\n        const result = await deps.refund(value.id);\n        if (!result.ok) throw new Error(result.error);\n      },\n    });\n    const stock = await step(\"reserve\", () => deps.reserve(), {\n      compensate: async (value) => {\n        await deps.release(value.id);\n      },\n    });\n    await step(\"ship\", () => deps.ship());\n    return { payment, stock };\n  });\n}\n",
+    "mermaid": "flowchart TD\n\n  %% Workflow: rollbackCheckout\n\n  start((Start))\n  saga_step_1[\"charge (compensable)\"]\n  compensation_1[\"undo: refund\"]\n  saga_step_2[\"reserve (compensable)\"]\n  compensation_2[\"undo: release\"]\n  saga_step_3[\"ship\"]\n  saga_original_failure[\"Original failure\"]\n  saga_compensation_failure[\"SagaCompensationError\"]\n  end_node((End))\n\n  %% Edges\n  saga_step_1 --> saga_step_2\n  saga_step_2 --> saga_step_3\n  saga_step_1 -.->|error| saga_original_failure\n  saga_step_2 -.->|error · rollback| compensation_1\n  saga_step_3 -.->|error · rollback| compensation_2\n  compensation_2 -.->|then| compensation_1\n  compensation_2 -.->|failure| saga_compensation_failure\n  compensation_1 -.->|original error| saga_original_failure\n  compensation_1 -.->|failure| saga_compensation_failure\n  start --> saga_step_1\n  saga_step_3 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef streamStyle fill:#e0f7fa,stroke:#006064\n  classDef parallelStyle fill:#e8f5e9,stroke:#1b5e20\n  classDef raceStyle fill:#fff3e0,stroke:#e65100\n  classDef conditionalStyle fill:#fce4ec,stroke:#880e4f\n  classDef mergeStyle fill:#e3f2fd,stroke:#1565c0\n  classDef switchStyle fill:#f3e5f5,stroke:#4a148c\n  classDef loopStyle fill:#f3e5f5,stroke:#4a148c\n  classDef workflowRefStyle fill:#e0f2f1,stroke:#004d40\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  classDef errorExitStyle fill:#ffcdd2,stroke:#c62828,stroke-width:2px\n  classDef compensationStyle fill:#f5f3ff,stroke:#7c3aed,stroke-dasharray:4 3\n  class start startStyle\n  class end_node endStyle\n  class saga_step_1 sagaStepStyle\n  class compensation_1 compensationStyle\n  class saga_step_2 sagaStepStyle\n  class compensation_2 compensationStyle\n  class saga_step_3 sagaStepStyle\n  class saga_original_failure errorExitStyle\n  class saga_compensation_failure errorExitStyle",
+    "stepDetails": [
+      {
+        "stepId": "charge",
+        "name": "charge",
+        "callee": "deps.charge",
+        "depSource": "charge",
+        "try": false,
+        "compensate": true,
+        "compensationCallee": "deps.refund"
+      },
+      {
+        "stepId": "reserve",
+        "name": "reserve",
+        "callee": "deps.reserve",
+        "depSource": "reserve",
+        "try": false,
+        "compensate": true,
+        "compensationCallee": "deps.release"
+      },
+      {
+        "stepId": "ship",
+        "name": "ship",
+        "callee": "deps.ship",
+        "depSource": "ship",
+        "try": false,
+        "compensate": false
+      }
+    ],
+    "resultType": "Promise<{ payment: { id: string; }; stock: { id: string; }; }>",
+    "incErrors": [
+      "DECLINED",
+      "REFUND_FAILED",
+      "OUT_OF_STOCK",
+      "RELEASE_FAILED",
+      "SHIPMENT_FAILED"
     ]
   }
 ]
