@@ -5,7 +5,7 @@
  * @see https://github.com/standard-schema/standard-schema
  */
 
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { StandardSchemaV1 } from "./standard-schema";
 import { ok, err, type Result } from "../core";
 
 /**

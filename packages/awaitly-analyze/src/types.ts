@@ -495,6 +495,8 @@ export interface StaticWorkflowNode extends StaticBaseNode {
   declaredErrors?: string[];
   /** Inferred return type of the workflow callback (from type checker) */
   workflowReturnType?: string;
+  /** Standalone return type with source-local aliases expanded structurally. */
+  workflowPortableReturnType?: string;
   /** Type summary for the entire workflow */
   typeSummary?: {
     /** Union of all possible error types */

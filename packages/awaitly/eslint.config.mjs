@@ -14,6 +14,13 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   eslintConfigPrettier,
   {
+    // Release scripts run in Node, not in the library's bundle.
+    files: ["scripts/**/*.mjs", "scripts/**/*.js"],
+    languageOptions: {
+      globals: { console: "readonly", process: "readonly", URL: "readonly" },
+    },
+  },
+  {
     plugins: {
       awaitly: awaitlyPlugin,
     },

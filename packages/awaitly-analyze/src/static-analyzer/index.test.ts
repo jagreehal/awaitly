@@ -1495,6 +1495,34 @@ async function run() {
       }
     });
 
+    it("should extract compensationCallee from an awaited call in a block body", () => {
+      const source = `
+        const orderSaga = createSagaWorkflow("saga", {});
+
+        async function run() {
+          return await orderSaga(async ({ saga, deps }) => {
+            const order = await saga.step('Create Order', () => deps.createOrder(), {
+              compensate: async (value) => {
+                const result = await deps.cancelOrder(value.id);
+                if (!result.ok) throw new Error('cancel failed');
+              },
+            });
+            return order;
+          });
+        }
+      `;
+
+      const results = analyzeWorkflowSource(source);
+      const children = results[0]?.root.children ?? [];
+      const nodes = children[0]?.type === "sequence" ? children[0].children : children;
+      const sagaStep = nodes.find((node) => node.type === "saga-step");
+
+      expect(sagaStep).toBeDefined();
+      if (sagaStep?.type === "saga-step") {
+        expect(sagaStep.compensationCallee).toBe("deps.cancelOrder");
+      }
+    });
+
     it("should extract description and markdown from saga.step options", () => {
       const source = `
         const orderSaga = createSagaWorkflow("saga", {});

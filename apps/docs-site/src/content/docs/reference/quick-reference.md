@@ -1,9 +1,53 @@
 ---
-title: Quick Reference
-description: Decision guide for choosing the right awaitly APIs
+title: Recipes
+description: Find your situation, copy the smallest API that solves it
 ---
 
-## I want to...
+Find your situation in the headings below. Each recipe shows the smallest API that
+solves it, then links to the guide that goes deeper.
+
+Every snippet here is copied from `packages/awaitly/src/recipes.test.ts`, which runs on
+every build. If you change a recipe, change it there too.
+
+## Four tiers, one `run()`
+
+Most questions on this page reduce to picking a tier. Start at the top and stop as
+soon as one works.
+
+| Your situation | Reach for |
+| --- | --- |
+| Call a dependency, unwrap it, exit on error | `s.getOrders(id)` |
+| Every call to one dependency needs a retry or timeout | `retry(getOrders, { attempts: 3 })` in the deps object |
+| One specific call needs options | `step('getOrders', () => getOrders(id), { retry })` |
+| You need caching, resume, or events | `createWorkflow(deps)` |
+
+```typescript
+import { run, retry, match } from 'awaitly';
+
+const result = await run(
+  { getUser, getOrders: retry(getOrders, { attempts: 3 }) }, // tier 2
+  async (s, { step }) => {
+    const user = await s.getUser('1'); // tier 1
+    const orders = await step('getOrders', () => getOrders(user.id), {
+      timeout: { ms: 5000 }, // tier 3
+    });
+    return { user, orders };
+  }
+);
+
+match(result, {
+  ok: ({ user, orders }) => console.log({ user, orders }),
+  NOT_FOUND: () => console.error('User not found'),
+  VALIDATION_ERROR: () => console.error('Bad input'),
+  FETCH_ERROR: () => console.error('Fetch error'),
+  UnexpectedError: (error) => console.error(error.cause),
+});
+```
+
+Tier 4 costs you a workflow name and a deps object. Skip it until you want the
+caching or the resume.
+
+## Start here
 
 ### Handle errors without exceptions
 
@@ -21,6 +65,21 @@ async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
 
 ### Compose multiple Result-returning functions
 
+Pass them to `run()`. Each call unwraps the `ok` value and exits on the first error.
+
+```typescript
+import { run } from 'awaitly';
+
+const result = await run({ fetchUser, chargeCard }, async (s) => {
+  const user = await s.fetchUser('1');
+  const charge = await s.chargeCard(user.id, 100);
+  return { user, charge };
+});
+// result.error is: 'NOT_FOUND' | 'CARD_DECLINED' | UnexpectedError
+```
+
+Reach for `createWorkflow` when you want caching, resume, or events on top:
+
 ```typescript
 import { createWorkflow } from 'awaitly';
 
@@ -31,8 +90,178 @@ const result = await workflow.run(async ({ step, deps }) => {
   return { user, charge };
 });
 // First arg = label (literal); optional key = instance (cache/identity)
-// result.error is: 'NOT_FOUND' | 'CARD_DECLINED' | UnexpectedError
 ```
+
+### Adopt awaitly without rewriting anything
+
+A plain function that throws is a valid dep. Its value passes through, and its throws
+arrive as `UnexpectedError`. Convert functions to `Result` one at a time.
+
+```typescript
+const parseConfig = async (raw: string) => JSON.parse(raw) as { port: number };
+
+const result = await run({ parseConfig }, async (s) => s.parseConfig(raw));
+// result.error is UnexpectedError, with the SyntaxError on .cause
+```
+
+### Read the result at the boundary
+
+Reach for `match`. One arm per error, plus `ok`, plus `UnexpectedError`:
+
+```typescript
+import { match } from 'awaitly';
+
+match(result, {
+  ok: ({ user, orders }) => console.log({ user, orders }),
+  NOT_FOUND: () => console.error('User not found'),
+  VALIDATION_ERROR: () => console.error('Bad input'),
+  FETCH_ERROR: () => console.error('Fetch error'),
+  UnexpectedError: (error) => console.error(error.cause),
+});
+```
+
+This is exhaustive. Add a dependency that fails a new way and every `match` over that
+result stops compiling until you handle it. String errors key on themselves; tagged
+errors and `TaggedError` classes key on their `type`.
+
+`match` returns whatever the arms return, so it works as an expression:
+
+```typescript
+type Response = { status: number; body: unknown };
+
+const response = match(result, {
+  ok: (value): Response => ({ status: 200, body: value }),
+  NOT_FOUND: () => ({ status: 404, body: 'No such user' }),
+  CARD_DECLINED: () => ({ status: 402, body: 'Payment declined' }),
+  UnexpectedError: () => ({ status: 500, body: 'Internal error' }),
+});
+```
+
+Annotate the `ok` arm when the arms return different shapes. TypeScript infers the
+return type from the first arm it sees, so an unannotated `ok` returning
+`{ status, body: User }` rejects the sibling arms that put a string in `body`.
+
+Want a single catch-all instead of one arm per error? Use the two-arm form,
+`match(result, { ok, err })`.
+
+#### The lower-level form
+
+`if`/`switch` still works, and you need it when the arms do more than return a value.
+A `Result` is an object, so narrow on `result.ok` before you touch `result.error`:
+
+```typescript
+if (result.ok) {
+  return { status: 200, body: result.value };
+}
+if (isUnexpectedError(result.error)) {
+  return { status: 500, body: 'Internal error' };
+}
+switch (result.error) {
+  case 'NOT_FOUND':
+    return { status: 404, body: 'No such user' };
+  case 'CARD_DECLINED':
+    return { status: 402, body: 'Payment declined' };
+}
+```
+
+Two traps live here, and `match` avoids both:
+
+- `switch (result)` instead of `switch (result.error)` gets you
+  `Type 'string' is not comparable to type 'Result<...>'` (TS2678).
+- `isUnexpectedError(result)` instead of `isUnexpectedError(result.error)` compiles
+  and returns `false` every time. Pass the error, never the `Result`.
+
+## Make it survive a bad day
+
+### Retry every call to one dependency
+
+Wrap it where you declare it. Call sites stay untouched, and the
+[analyzer](guides/static-analysis/) reads the policy straight out of the deps literal.
+
+```typescript
+import { run, retry } from 'awaitly';
+
+const result = await run(
+  { fetchApi: retry(fetchUnreliableAPI, { attempts: 3, backoff: 'exponential', delay: 100 }) },
+  async (s) => s.fetchApi()
+);
+```
+
+See [Policies](advanced/policies/) for `retry`, `timeout`, and `fallback`, which compose:
+`retry(timeout(charge, 5000), { attempts: 3 })`.
+
+`delay` and `initialDelay` mean the same thing here, as do `retryIf` and `shouldRetry`,
+so whichever you remember from step options also works on the policy. The defaults still
+differ: policies start at `backoff: 'fixed'` with no delay, step retries start at
+`backoff: 'exponential'` with a 100ms `initialDelay` and jitter on.
+
+### Add timeouts to operations
+
+Same three tiers. Per dependency:
+
+```typescript
+import { run, timeout } from 'awaitly';
+
+const result = await run({ slowOp: timeout(slowOperation, 5000) }, async (s) => s.slowOp());
+// error union gains TimeoutError
+```
+
+Per call, via step options (note the `{ ms }` object):
+
+```typescript
+const data = await step('slowOp', () => slowOperation(), { timeout: { ms: 5000 } });
+```
+
+Inside a workflow, `step.withTimeout('slowOp', () => slowOperation(), { ms: 5000 })` does
+the same thing with a dedicated helper.
+
+### Fall back to a default when a dependency fails
+
+```typescript
+import { run, fallback } from 'awaitly';
+
+const result = await run(
+  { sendEmail: fallback(sendEmail, () => ({ queued: true })) },
+  async (s) => s.sendEmail(user.id)
+);
+// sendEmail's errors are consumed, so they never reach result.error
+```
+
+### Retry one specific call
+
+Take `step` from the second callback argument. You keep the bound steps for
+everything else.
+
+```typescript
+const result = await run({ fetchUser, fetchApi }, async (s, { step }) => {
+  const user = await s.fetchUser('1');
+  const data = await step('fetchApi', () => fetchUnreliableAPI(user.id), {
+    retry: { attempts: 3, backoff: 'exponential', initialDelay: 100 },
+  });
+  return data;
+});
+```
+
+Inside a workflow the same options live on `step`, plus the `step.retry(id, fn, opts)`
+helper. See [Retries & Timeouts](guides/retries-timeouts/).
+
+### Timeout behavior variants
+
+```typescript
+// Default: return error on timeout
+{ ms: 5000, onTimeout: 'error' }
+
+// Return undefined instead of error (optional operation)
+{ ms: 1000, onTimeout: 'option' }
+
+// Return error but let operation finish in background
+{ ms: 2000, onTimeout: 'disconnect' }
+
+// Custom error handler
+{ ms: 5000, onTimeout: ({ name, ms }) => ({ _tag: 'Timeout', name, ms }) }
+```
+
+## Do several things at once
 
 ### Run multiple operations in parallel
 
@@ -60,21 +289,6 @@ const result = await allSettledAsync([op1(), op2(), op3()]);
 if (!result.ok) console.log('Errors:', result.error.map(e => e.error));
 ```
 
-### Compose steps inside a workflow
-
-Inside a workflow callback use `({ step, deps }) => { ... }` when the workflow has deps:
-
-```typescript
-// Unwrap an AsyncResult (cache by passing { key })
-const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
-
-// Chain — just call step again with the success value
-const enriched = await step('enrich', () => enrichUser(user));
-
-// Pattern match — branch on the unwrapped value
-const msg = user.name ? `Hello ${user.name}` : 'Failed';
-```
-
 ### Combine two Results into a tuple
 
 ```typescript
@@ -97,6 +311,128 @@ const dashboard = andThen(
 );
 ```
 
+### Process large datasets in batches
+
+```typescript
+import { processInBatches, batchPresets } from 'awaitly';
+
+const result = await processInBatches(
+  users,
+  async (user) => migrateUser(user),
+  { batchSize: 50, concurrency: 5 },
+  { onProgress: (p) => console.log(`${p.percent}%`) }
+);
+```
+
+### Dedupe concurrent requests
+
+```typescript
+import { singleflight } from 'awaitly';
+
+const fetchUserOnce = singleflight(fetchUser, {
+  key: (id) => `user:${id}`,
+});
+
+// 3 concurrent calls → 1 network request
+const [a, b, c] = await Promise.all([
+  fetchUserOnce('1'),
+  fetchUserOnce('1'),  // Shares request
+  fetchUserOnce('1'),  // Shares request
+]);
+```
+
+## Reach for a workflow
+
+### Compose steps inside a workflow
+
+Inside a workflow callback use `({ step, deps }) => { ... }` when the workflow has deps:
+
+```typescript
+// Unwrap an AsyncResult (cache by passing { key })
+const user = await step('fetchUser', () => fetchUser('1'), { key: 'user:1' });
+
+// Chain — just call step again with the success value
+const enriched = await step('enrich', () => enrichUser(user));
+
+// Pattern match — branch on the unwrapped value
+const msg = user.name ? `Hello ${user.name}` : 'Failed';
+```
+
+### Skip work you already did
+
+Caching is opt-in twice: pass a `cache` to `createWorkflow`, and give each cacheable
+step a `key`. A `key` with no cache configured is inert, so the step runs every time.
+
+```typescript
+const cache = new Map();
+const checkout = createWorkflow('checkout', { charge }, { cache });
+
+await checkout.run(async ({ step, deps }) =>
+  step('charge', () => deps.charge(100), { key: 'order-1' })
+);
+// A second run with the same key reads the cache and does not charge again.
+```
+
+Options passed to `workflow.run()` rather than `createWorkflow()` are ignored in
+silence. See [Caching](guides/caching/).
+
+### Persist and resume workflow state
+
+```typescript
+import { createWorkflow } from 'awaitly';
+import { postgres } from 'awaitly-postgres';
+
+const store = postgres(process.env.DATABASE_URL!);
+const workflow = createWorkflow('workflow', deps);
+
+const { result, resumeState } = await workflow.runWithState(fn);
+await store.save(workflowId, resumeState);
+
+// Resume later (use loadResumeState for type-safe restore)
+const loaded = await store.loadResumeState(workflowId);
+if (loaded) await workflow.run(fn, { resumeState: loaded });
+```
+
+Three things to know before you rely on this:
+
+- **Only keyed steps are recorded.** A step without `key` runs again on every resume.
+- **`resumeState.steps` is a `Map`.** `JSON.stringify` turns it into `{}` and reports no
+  error, so a hand-rolled store saves an empty state. Use `serializeResumeState` and
+  `deserializeResumeState` when you persist as JSON.
+- **Failed steps are recorded too, and replay returns the recorded failure.** Resuming a
+  crashed run reproduces the same error without calling the dependency again. Drop the
+  failures first when you want a retry:
+
+```typescript
+const retryable = {
+  steps: new Map([...loaded.steps].filter(([, entry]) => entry.result.ok)),
+};
+await workflow.run(fn, { resumeState: retryable });
+```
+
+### Cancel workflow from outside
+
+```typescript
+import { createWorkflow, isWorkflowCancelled } from 'awaitly';
+
+const controller = new AbortController();
+const workflow = createWorkflow('workflow', deps, { signal: controller.signal });
+
+const resultPromise = workflow.run(async ({ step, deps }) => {
+  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user' });
+  await step('sendEmail', () => sendEmail(user.email), { key: 'email' });
+  return user;
+});
+
+// Cancel from outside (e.g., timeout, user action)
+setTimeout(() => controller.abort('timeout'), 5000);
+
+const result = await resultPromise;
+if (!result.ok && isWorkflowCancelled(result.cause)) {
+  console.log('Cancelled:', result.cause.reason);
+}
+```
+
 ### Undo completed steps when one fails
 
 ```typescript
@@ -113,6 +449,17 @@ const result = await saga.run(async ({ step, deps }) => {
   });
   return { payment, reservation };
 });
+```
+
+A rollback that fails is reported, not swallowed. If `refund` returns `err(...)` or throws,
+the saga returns `SAGA_COMPENSATION_ERROR` carrying both the original error and every
+compensation that failed:
+
+```typescript
+if (!result.ok && isSagaCompensationError(result.error)) {
+  console.error('rollback incomplete', result.error.compensationErrors);
+  console.error('what started it', result.error.originalError);
+}
 ```
 
 ### Wait for human approval
@@ -147,123 +494,6 @@ if (!result.ok && isPendingApproval(result.error)) {
   const state = collector.getResumeState();
   await store.save(workflowId, state);
 }
-```
-
-### Persist and resume workflow state
-
-```typescript
-import { createWorkflow } from 'awaitly';
-import { postgres } from 'awaitly-postgres';
-
-const store = postgres(process.env.DATABASE_URL!);
-const workflow = createWorkflow('workflow', deps);
-
-const { result, resumeState } = await workflow.runWithState(fn);
-await store.save(workflowId, resumeState);
-
-// Resume later (use loadResumeState for type-safe restore)
-const loaded = await store.loadResumeState(workflowId);
-if (loaded) await workflow.run(fn, { resumeState: loaded });
-```
-
-### Retry failed operations
-
-```typescript
-import { createWorkflow } from 'awaitly';
-
-const workflow = createWorkflow('workflow', deps);
-const result = await workflow.run(async ({ step, deps }) => {
-  // Retry up to 3 times with exponential backoff
-  const data = await step.retry(
-    'fetchApi',
-    () => fetchUnreliableAPI(),
-    { attempts: 3, backoff: 'exponential', initialDelay: 100 }
-  );
-  return data;
-});
-```
-
-### Add timeouts to operations
-
-```typescript
-const result = await workflow.run(async ({ step, deps }) => {
-  // Timeout after 5 seconds
-  const data = await step.withTimeout(
-    'slowOp',
-    () => slowOperation(),
-    { ms: 5000 }
-  );
-  return data;
-});
-```
-
-### Timeout behavior variants
-
-```typescript
-// Default: return error on timeout
-{ ms: 5000, onTimeout: 'error' }
-
-// Return undefined instead of error (optional operation)
-{ ms: 1000, onTimeout: 'option' }
-
-// Return error but let operation finish in background
-{ ms: 2000, onTimeout: 'disconnect' }
-
-// Custom error handler
-{ ms: 5000, onTimeout: ({ name, ms }) => ({ _tag: 'Timeout', name, ms }) }
-```
-
-### Cancel workflow from outside
-
-```typescript
-import { createWorkflow, isWorkflowCancelled } from 'awaitly';
-
-const controller = new AbortController();
-const workflow = createWorkflow('workflow', deps, { signal: controller.signal });
-
-const resultPromise = workflow.run(async ({ step, deps }) => {
-  const user = await step('fetchUser', () => fetchUser('1'), { key: 'user' });
-  await step('sendEmail', () => sendEmail(user.email), { key: 'email' });
-  return user;
-});
-
-// Cancel from outside (e.g., timeout, user action)
-setTimeout(() => controller.abort('timeout'), 5000);
-
-const result = await resultPromise;
-if (!result.ok && isWorkflowCancelled(result.cause)) {
-  console.log('Cancelled:', result.cause.reason);
-}
-```
-
-### Dedupe concurrent requests
-
-```typescript
-import { singleflight } from 'awaitly';
-
-const fetchUserOnce = singleflight(fetchUser, {
-  key: (id) => `user:${id}`,
-});
-
-// 3 concurrent calls → 1 network request
-const [a, b, c] = await Promise.all([
-  fetchUserOnce('1'),
-  fetchUserOnce('1'),  // Shares request
-  fetchUserOnce('1'),  // Shares request
-]);
-```
-
-### Process large datasets in batches
-
-```typescript
-import { processInBatches, batchPresets } from 'awaitly';
-
-const result = await processInBatches(
-  users,
-  async (user) => migrateUser(user),
-  { batchSize: 50, concurrency: 5 },
-  { onProgress: (p) => console.log(`${p.percent}%`) }
-);
 ```
 
 ### Prevent cascading failures

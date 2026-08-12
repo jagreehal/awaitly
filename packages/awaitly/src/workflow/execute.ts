@@ -30,7 +30,7 @@ import {
   bindSteps,
   type ErrorOf,
 } from "../core";
-import type { StepCallable } from "../core/bound-steps";
+import { isDepResultShaped, type StepCallable } from "../core/bound-steps";
 
 import type {
   StreamStore,
@@ -377,7 +377,7 @@ export function createWorkflow<
     const compensations: Array<{
       stepName: string;
       value: unknown;
-      compensate: (value: unknown) => void | Promise<void>;
+      compensate: (value: unknown) => unknown;
     }> = [];
 
     // ===========================================================================
@@ -919,7 +919,7 @@ export function createWorkflow<
             compensations.push({
               stepName: name,
               value,
-              compensate: opts.compensate as (v: unknown) => void | Promise<void>,
+              compensate: opts.compensate as (v: unknown) => unknown,
             });
           }
           // Cache successful result if key provided
@@ -960,8 +960,8 @@ export function createWorkflow<
         id: string,
         operation: () => StepT | Promise<StepT>,
         opts:
-          | { error: Err; key?: string; ttl?: number; compensate?: (value: StepT) => void | Promise<void> }
-          | { onError: (cause: unknown) => Err; key?: string; ttl?: number; compensate?: (value: StepT) => void | Promise<void> }
+          | { error: Err; key?: string; ttl?: number; compensate?: (value: StepT) => unknown }
+          | { onError: (cause: unknown) => Err; key?: string; ttl?: number; compensate?: (value: StepT) => unknown }
       ): Promise<StepT> => {
         const { ttl } = opts;
         const key = opts.key ?? id; // step.try caches by id when key omitted (for resume)
@@ -1002,7 +1002,7 @@ export function createWorkflow<
             compensations.push({
               stepName: name,
               value,
-              compensate: opts.compensate as (v: unknown) => void | Promise<void>,
+              compensate: opts.compensate as (v: unknown) => unknown,
             });
           }
           if (cache) {
@@ -1209,10 +1209,10 @@ export function createWorkflow<
           retry: {
             attempts: options.attempts,
             backoff: options.backoff,
-            initialDelay: options.initialDelay,
+            initialDelay: options.initialDelay ?? options.delay,
             maxDelay: options.maxDelay,
             jitter: options.jitter,
-            shouldRetry: options.shouldRetry,
+            shouldRetry: options.shouldRetry ?? options.retryIf,
             onRetry: options.onRetry,
           },
           timeout: options.timeout,
@@ -1952,7 +1952,13 @@ export function createWorkflow<
       for (let i = compensations.length - 1; i >= 0; i--) {
         const comp = compensations[i];
         try {
-          await comp.compensate(comp.value);
+          const outcome = await comp.compensate(comp.value);
+          // A compensation that returns err() failed just as surely as one that
+          // threw. Without this the rollback is reported clean and the money
+          // stays gone. Non-Result returns are ignored, so void is unchanged.
+          if (isDepResultShaped(outcome) && !outcome.ok) {
+            compensationErrors.push({ stepName: comp.stepName, error: outcome.error });
+          }
         } catch (compErr) {
           compensationErrors.push({ stepName: comp.stepName, error: compErr });
         }

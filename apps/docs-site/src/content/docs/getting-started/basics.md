@@ -96,6 +96,32 @@ for the full rules.
 
 ## Handling it at the boundary
 
+`match` gives you one arm per error, and the compiler checks you covered them all:
+
+```typescript
+import { match } from 'awaitly';
+
+type Response = { status: number; data?: unknown };
+
+const response = match(result, {
+  ok: (value): Response => ({ status: 200, data: value }),
+  NOT_FOUND: () => ({ status: 404 }),
+  FETCH_ERROR: () => ({ status: 502 }),
+  UnexpectedError: (error) => {
+    console.error(error.cause); // the original thrown value
+    return { status: 500 };
+  },
+});
+```
+
+Annotate the `ok` arm when the arms return different shapes. TypeScript takes the
+return type from the first arm, so an unannotated `ok` would reject the others.
+
+Add a fourth dep that fails a new way and this stops compiling until you handle it.
+
+The `if`/`switch` form does the same job when your arms need statements rather than a
+returned value. Narrow on `result.ok` first, then read `result.error`:
+
 ```typescript
 import { isUnexpectedError } from 'awaitly';
 
@@ -113,6 +139,9 @@ switch (result.error) {
   case 'FETCH_ERROR': return { status: 502 };
 }
 ```
+
+Pass `isUnexpectedError` the error, never the whole `Result`. `isUnexpectedError(result)`
+takes `unknown`, so it compiles, and it returns `false` on every call.
 
 ## Next
 

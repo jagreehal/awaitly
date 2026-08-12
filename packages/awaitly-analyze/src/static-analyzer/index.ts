@@ -17,7 +17,7 @@ import { extname } from "path";
 // These provide type checking without creating a runtime dependency on ts-morph
 import type { SourceFile, Project, Node } from "ts-morph";
 import type * as ts from "typescript";
-import { loadTsMorph } from "../ts-morph-loader";
+import { loadTsMorph, loadTypescript } from "../ts-morph-loader";
 import { deriveIdFromExpression } from "../derive-id";
 
 import {
@@ -500,8 +500,12 @@ function analyzeWorkflowCall(
     const inferred =
       callbackForReturnType &&
       getWorkflowCallbackReturnTypeFromChecker(callbackForReturnType, sourceFile);
-    if (inferred) {
+    if (inferred && callbackForReturnType) {
       root.workflowReturnType = inferred;
+      root.workflowPortableReturnType = getWorkflowCallbackPortableReturnTypeFromChecker(
+        callbackForReturnType,
+        sourceFile,
+      );
     } else if (callbackForReturnType) {
       const fallback = getWorkflowCallbackReturnType(callbackForReturnType);
       if (fallback) root.workflowReturnType = fallback;
@@ -570,6 +574,103 @@ function getWorkflowCallbackReturnTypeFromChecker(
   } catch {
     return undefined;
   }
+}
+
+function getWorkflowCallbackPortableReturnTypeFromChecker(
+  cb: Node,
+  sourceFile: SourceFile,
+): string | undefined {
+  const { Node } = loadTsMorph();
+  let node: Node = cb;
+  while (Node.isParenthesizedExpression(node)) {
+    node = node.getExpression();
+  }
+  try {
+    const checker = sourceFile.getProject().getTypeChecker().compilerObject as ts.TypeChecker;
+    const tsNode = (node as unknown as { compilerNode: ts.Node }).compilerNode;
+    const signature = checker.getTypeAtLocation(tsNode).getCallSignatures?.()[0];
+    return signature
+      ? portableTypeToString(signature.getReturnType(), checker, tsNode)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function portableTypeToString(
+  type: ts.Type,
+  checker: ts.TypeChecker,
+  location: ts.Node,
+  seen: Set<ts.Type> = new Set(),
+  depth = 0,
+): string {
+  const tsLib = loadTypescript();
+  if (depth > 12) return "unknown";
+
+  if (type.isUnion()) {
+    return type.types
+      .map((member) => portableTypeToString(member, checker, location, seen, depth + 1))
+      .join(" | ");
+  }
+  if (type.isIntersection()) {
+    return type.types
+      .map((member) => portableTypeToString(member, checker, location, seen, depth + 1))
+      .join(" & ");
+  }
+
+  const typeFlags = type.flags;
+  const scalarFlags =
+    tsLib.TypeFlags.Any |
+    tsLib.TypeFlags.Unknown |
+    tsLib.TypeFlags.Never |
+    tsLib.TypeFlags.Void |
+    tsLib.TypeFlags.Undefined |
+    tsLib.TypeFlags.Null |
+    tsLib.TypeFlags.StringLike |
+    tsLib.TypeFlags.NumberLike |
+    tsLib.TypeFlags.BooleanLike |
+    tsLib.TypeFlags.BigIntLike |
+    tsLib.TypeFlags.ESSymbolLike |
+    tsLib.TypeFlags.TypeParameter;
+  if (typeFlags & scalarFlags) return checker.typeToString(type);
+
+  if (checker.isArrayType(type)) {
+    const element = checker.getTypeArguments(type as ts.TypeReference)[0];
+    return `${element ? portableTypeToString(element, checker, location, seen, depth + 1) : "unknown"}[]`;
+  }
+
+  if (checker.isTupleType(type)) {
+    const elements = checker.getTypeArguments(type as ts.TypeReference);
+    return `[${elements
+      .map((element) => portableTypeToString(element, checker, location, seen, depth + 1))
+      .join(", ")}]`;
+  }
+
+  const symbolName = type.aliasSymbol?.getName() ?? type.getSymbol()?.getName();
+  if (symbolName === "Promise" || symbolName === "PromiseLike") {
+    const value = checker.getTypeArguments(type as ts.TypeReference)[0];
+    return `${symbolName}<${value ? portableTypeToString(value, checker, location, seen, depth + 1) : "unknown"}>`;
+  }
+
+  if (typeFlags & tsLib.TypeFlags.Object) {
+    if (seen.has(type)) return "unknown";
+    const properties = checker.getPropertiesOfType(type);
+    if (properties.length > 0 && type.getCallSignatures().length === 0) {
+      const nextSeen = new Set(seen).add(type);
+      const fields = properties.map((property) => {
+        const declaration = property.valueDeclaration ?? property.declarations?.[0] ?? location;
+        const propertyType = checker.getTypeOfSymbolAtLocation(property, declaration);
+        const optional = property.flags & tsLib.SymbolFlags.Optional ? "?" : "";
+        const propertyName = /^[A-Za-z_$][\w$]*$/.test(property.getName())
+          ? property.getName()
+          : JSON.stringify(property.getName());
+        return `${propertyName}${optional}: ${portableTypeToString(propertyType, checker, declaration, nextSeen, depth + 1)};`;
+      });
+      return `{ ${fields.join(" ")} }`;
+    }
+  }
+
+  return checker.typeToString(type);
 }
 
 /**
@@ -2964,6 +3065,18 @@ function extractSagaStepOptions(optionsNode: Node): {
             const expr = returnStmt.getExpression();
             if (expr && Node.isCallExpression(expr)) {
               result.compensationCallee = expr.getExpression().getText();
+            }
+          }
+          if (!result.compensationCallee) {
+            const calls = body
+              .getDescendants()
+              .filter((descendant) => Node.isCallExpression(descendant));
+            const dependencyCall = calls.find((call) =>
+              call.getExpression().getText().startsWith("deps."),
+            );
+            const call = dependencyCall ?? calls[0];
+            if (call && Node.isCallExpression(call)) {
+              result.compensationCallee = call.getExpression().getText();
             }
           }
         }

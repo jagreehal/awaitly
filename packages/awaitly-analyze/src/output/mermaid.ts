@@ -44,6 +44,8 @@ export interface MermaidOptions {
   sameLevelConditionals?: boolean;
   /** Group steps by domain into Mermaid subgraphs */
   groupByDomain?: boolean;
+  /** Show saga error entry points, LIFO compensation order, and rollback failure */
+  showSagaCompensations?: boolean;
   /** Custom node styles */
   styles?: MermaidStyles;
 }
@@ -64,6 +66,7 @@ export interface MermaidStyles {
   end?: string;
   errorExit?: string;
   retryLogic?: string;
+  compensation?: string;
 }
 
 const DEFAULT_OPTIONS: Required<MermaidOptions> = {
@@ -75,6 +78,7 @@ const DEFAULT_OPTIONS: Required<MermaidOptions> = {
   expandRetry: false,
   sameLevelConditionals: false,
   groupByDomain: false,
+  showSagaCompensations: false,
   styles: {
     step: "fill:#e1f5fe,stroke:#01579b",
     sagaStep: "fill:#e8eaf6,stroke:#1a237e",
@@ -90,6 +94,7 @@ const DEFAULT_OPTIONS: Required<MermaidOptions> = {
     end: "fill:#ffcdd2,stroke:#c62828",
     errorExit: "fill:#ffcdd2,stroke:#c62828,stroke-width:2px",
     retryLogic: "fill:#fff3e0,stroke:#e65100",
+    compensation: "fill:#f5f3ff,stroke:#7c3aed,stroke-dasharray:4 3",
   },
 };
 
@@ -116,6 +121,7 @@ function renderStaticMermaidInternal(
     decisionIdMap: new Map(),
     stepLabelAnnotations,
     domainNodes: new Map(),
+    sagaSteps: [],
   };
 
   const lines: string[] = [];
@@ -138,6 +144,10 @@ function renderStaticMermaidInternal(
     context,
     lines
   );
+
+  if (opts.showSagaCompensations && context.sagaSteps.length > 0) {
+    renderSagaCompensationPaths(context, lines);
+  }
 
   // Connect start to first node
   if (firstNodeId) {
@@ -186,10 +196,11 @@ function renderStaticMermaidInternal(
   lines.push("");
   lines.push("  %% Edges");
   for (const edge of context.edges) {
+    const arrow = edge.dashed ? "-.->" : "-->";
     if (edge.label && opts.showConditions) {
-      lines.push(`  ${edge.from} -->|${escapeLabel(edge.label)}| ${edge.to}`);
+      lines.push(`  ${edge.from} ${arrow}|${escapeLabel(edge.label)}| ${edge.to}`);
     } else {
-      lines.push(`  ${edge.from} --> ${edge.to}`);
+      lines.push(`  ${edge.from} ${arrow} ${edge.to}`);
     }
   }
 
@@ -208,11 +219,14 @@ function renderStaticMermaidInternal(
   lines.push(`  classDef workflowRefStyle ${opts.styles.workflowRef}`);
   lines.push(`  classDef startStyle ${opts.styles.start}`);
   lines.push(`  classDef endStyle ${opts.styles.end}`);
-  if (opts.showInlineErrors) {
+  if (opts.showInlineErrors || opts.showSagaCompensations) {
     lines.push(`  classDef errorExitStyle ${opts.styles.errorExit}`);
   }
   if (opts.expandRetry) {
     lines.push(`  classDef retryLogicStyle ${opts.styles.retryLogic}`);
+  }
+  if (opts.showSagaCompensations) {
+    lines.push(`  classDef compensationStyle ${opts.styles.compensation}`);
   }
 
   // Apply styles
@@ -335,12 +349,15 @@ interface RenderContext {
   inLoop?: { loopType: string; iterSource?: string };
   /** Map from domain name to mermaid node IDs belonging to that domain */
   domainNodes: Map<string, string[]>;
+  /** Saga steps in source order, used to draw possible LIFO rollback paths */
+  sagaSteps: Array<{ nodeId: string; compensationNodeId?: string }>;
 }
 
 interface Edge {
   from: string;
   to: string;
   label?: string;
+  dashed?: boolean;
 }
 
 interface Subgraph {
@@ -631,10 +648,79 @@ function renderSagaStepNode(
   lines.push(`  ${nodeId}["${escapeLabel(label)}"]`);
   context.styleClasses.set(nodeId, "sagaStepStyle");
 
+  if (node.name) {
+    context.stepIdMap.set(node.name, nodeId);
+  }
+
+  let compensationNodeId: string | undefined;
+  if (context.opts.showSagaCompensations && node.hasCompensation) {
+    const compensationIndex = context.sagaSteps.filter(
+      (step) => step.compensationNodeId,
+    ).length + 1;
+    compensationNodeId = `compensation_${compensationIndex}`;
+    const compensationLabel = node.compensationCallee
+      ? `undo: ${extractFunctionName(node.compensationCallee)}`
+      : `undo: ${node.name ?? "step"}`;
+    lines.push(`  ${compensationNodeId}["${escapeLabel(compensationLabel)}"]`);
+    context.styleClasses.set(compensationNodeId, "compensationStyle");
+  }
+
+  context.sagaSteps.push({ nodeId, compensationNodeId });
+
   return {
     firstNodeId: nodeId,
     lastNodeIds: [nodeId],
   };
+}
+
+/**
+ * Draw every possible saga failure entry point. A failure rolls back the
+ * compensable steps that completed before it, in reverse source order.
+ */
+function renderSagaCompensationPaths(
+  context: RenderContext,
+  lines: string[],
+): void {
+  const originalFailureId = "saga_original_failure";
+  const compensationFailureId = "saga_compensation_failure";
+  lines.push(`  ${originalFailureId}["Original failure"]`);
+  lines.push(`  ${compensationFailureId}["SagaCompensationError"]`);
+  context.styleClasses.set(originalFailureId, "errorExitStyle");
+  context.styleClasses.set(compensationFailureId, "errorExitStyle");
+
+  for (let index = 0; index < context.sagaSteps.length; index++) {
+    const step = context.sagaSteps[index]!;
+    const priorCompensations = context.sagaSteps
+      .slice(0, index)
+      .map((entry) => entry.compensationNodeId)
+      .filter((id): id is string => Boolean(id))
+      .reverse();
+    context.edges.push({
+      from: step.nodeId,
+      to: priorCompensations[0] ?? originalFailureId,
+      label: priorCompensations.length > 0 ? "error · rollback" : "error",
+      dashed: true,
+    });
+  }
+
+  const compensations = context.sagaSteps
+    .map((entry) => entry.compensationNodeId)
+    .filter((id): id is string => Boolean(id));
+  for (let index = compensations.length - 1; index >= 0; index--) {
+    const compensationId = compensations[index]!;
+    context.edges.push({
+      from: compensationId,
+      to: compensations[index - 1] ?? originalFailureId,
+      label: index > 0 ? "then" : "original error",
+      dashed: true,
+    });
+    context.edges.push({
+      from: compensationId,
+      to: compensationFailureId,
+      label: "failure",
+      dashed: true,
+    });
+  }
 }
 
 function renderStreamNode(

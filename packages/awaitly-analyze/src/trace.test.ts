@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { traceFromEvents, type WorkflowTrace } from "./trace";
 import { renderStaticMermaidWithTrace } from "./output/mermaid";
+import { renderStaticMermaid } from "./output/mermaid";
 import { analyzeWorkflowSource } from "./static-analyzer";
 import type { WorkflowEvent } from "awaitly";
 
@@ -164,5 +165,40 @@ describe("renderStaticMermaidWithTrace", () => {
     expect(matched).toContain("premium-check");
     expect(mermaid).toContain("classDef trace_decision");
     expect(mermaid).toMatch(/class decision_\d+ trace_decision/);
+  });
+});
+
+describe("saga compensation rendering", () => {
+  it("shows each failure entry point, LIFO rollback, and compensation failure", () => {
+    const source = `
+      import { createSagaWorkflow } from "awaitly/durable";
+      const saga = createSagaWorkflow("checkout", { charge, refund, reserve, release, ship });
+      export async function runIt() {
+        return saga.run(async ({ step, deps }) => {
+          const payment = await step("charge", () => deps.charge(), {
+            compensate: () => deps.refund(),
+          });
+          const stock = await step("reserve", () => deps.reserve(), {
+            compensate: () => deps.release(),
+          });
+          await step("ship", () => deps.ship());
+          return { payment, stock };
+        });
+      }
+      declare const charge: () => Promise<any>;
+      declare const refund: () => Promise<any>;
+      declare const reserve: () => Promise<any>;
+      declare const release: () => Promise<any>;
+      declare const ship: () => Promise<any>;
+    `;
+    const [ir] = analyzeWorkflowSource(source);
+    const mermaid = renderStaticMermaid(ir, { showSagaCompensations: true });
+
+    expect(mermaid).toContain('compensation_1["undo: refund"]');
+    expect(mermaid).toContain('compensation_2["undo: release"]');
+    expect(mermaid).toMatch(/saga_step_\d+ -\.->\|error · rollback\| compensation_2/);
+    expect(mermaid).toContain("compensation_2 -.->|then| compensation_1");
+    expect(mermaid).toContain('saga_compensation_failure["SagaCompensationError"]');
+    expect(mermaid).toContain("compensation_1 -.->|failure| saga_compensation_failure");
   });
 });

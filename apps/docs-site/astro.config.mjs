@@ -90,6 +90,12 @@ export default defineConfig({
       ],
       sidebar: [
         {
+          label: 'Recipes',
+          items: [
+            { label: 'Find your situation', slug: 'reference/quick-reference' },
+          ],
+        },
+        {
           label: 'Getting Started',
           items: [
             { label: 'Installation', slug: 'getting-started/installation' },
@@ -200,7 +206,6 @@ export default defineConfig({
         {
           label: 'Reference',
           items: [
-            { label: 'Quick Reference', slug: 'reference/quick-reference' },
             { label: 'API', slug: 'reference/api' },
             { label: 'Slug Spine', slug: 'reference/spine' },
           ],

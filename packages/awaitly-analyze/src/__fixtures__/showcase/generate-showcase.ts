@@ -15,18 +15,29 @@ import { fileURLToPath } from "url";
 import {
   analyze,
   renderStaticMermaid,
+  renderStaticMermaidWithTrace,
   getStaticChildren,
   isStaticStepNode,
   isStaticSagaStepNode,
 } from "../../index";
 import type { StaticFlowNode, StaticStepNode, StaticWorkflowIR } from "../../types.js";
+import type { WorkflowTrace } from "../../trace.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const showcaseDir = __dirname;
 const fixturesDir = join(showcaseDir, "..");
 const pkgRoot = join(showcaseDir, "..", "..", "..");
 
-const SHOWCASE_ENTRIES = [
+interface ShowcaseConfig {
+  file: string;
+  title: string;
+  workflowName?: string;
+  mermaidOptions?: Parameters<typeof renderStaticMermaid>[1];
+  trace?: WorkflowTrace;
+  traceLabel?: string;
+}
+
+const SHOWCASE_ENTRIES: ShowcaseConfig[] = [
   { file: "01-linear-steps.ts", title: "Linear steps" },
   { file: "02-step-sleep.ts", title: "step.sleep" },
   { file: "03-step-retry.ts", title: "step.retry" },
@@ -42,6 +53,33 @@ const SHOWCASE_ENTRIES = [
   { file: "13-workflow-ref.ts", title: "Workflow ref", workflowName: "parentWorkflow" },
   { file: "14-complex.ts", title: "Complex (parallel + conditional + forEach)" },
   { file: "15-saga.ts", title: "Saga workflow" },
+  { file: "16-run-deps-policies.ts", title: "run() with dependency policies" },
+  { file: "17-step-metadata.ts", title: "Architecture and error metadata" },
+  {
+    file: "18-cancelled-run.ts",
+    title: "Cancellation: recorded run",
+    traceLabel: "Cancelled run",
+    trace: {
+      steps: [{ stepId: "loadProfile", status: "aborted", durationMs: 8 }],
+    },
+  },
+  {
+    file: "19-resumed-run.ts",
+    title: "Persistence: resumed run",
+    mermaidOptions: { showKeys: true },
+    traceLabel: "Resumed run",
+    trace: {
+      steps: [
+        { stepId: "reserveStock", status: "cache-hit" },
+        { stepId: "charge", status: "success", durationMs: 42 },
+      ],
+    },
+  },
+  {
+    file: "20-saga-rollback.ts",
+    title: "Saga rollback and compensation failure",
+    mermaidOptions: { showSagaCompensations: true },
+  },
 ];
 
 const tsConfigPath = join(pkgRoot, "tsconfig.json");
@@ -87,6 +125,15 @@ interface StepDetailRecord {
   try?: boolean;
   compensate?: boolean;
   compensationCallee?: string;
+  policies?: Array<{ kind: "retry" | "timeout" | "fallback"; options?: string }>;
+  intent?: string;
+  domain?: string;
+  owner?: string;
+  tags?: string[];
+  stateChanges?: string[];
+  emits?: string[];
+  calls?: string[];
+  errorMeta?: StaticStepNode["errorMeta"];
 }
 
 interface LoopCtx {
@@ -131,6 +178,14 @@ function collectStepDetails(
         outputTypeDisplay: display,
         outputTypeText: outputTypeText ?? undefined,
         errorTypeDisplay: stepNode.errorTypeInfo?.display,
+        intent: stepNode.intent,
+        domain: stepNode.domain,
+        owner: stepNode.owner,
+        tags: stepNode.tags,
+        stateChanges: stepNode.stateChanges,
+        emits: stepNode.emits,
+        calls: stepNode.calls,
+        errorMeta: stepNode.errorMeta,
       };
       if (stepNode.resourceOps) {
         step.kind = "resource";
@@ -170,9 +225,26 @@ function collectStepDetails(
 }
 
 function main(): void {
-  const results: Array<{ title: string; code: string; mermaid: string; stepDetails: StepDetailRecord[] }> = [];
+  const results: Array<{
+    title: string;
+    code: string;
+    mermaid: string;
+    traceMermaid?: string;
+    traceLabel?: string;
+    traceSteps?: WorkflowTrace["steps"];
+    stepDetails: StepDetailRecord[];
+    resultType?: string;
+    incErrors?: string[];
+  }> = [];
 
-  for (const { file, title, workflowName } of SHOWCASE_ENTRIES) {
+  for (const {
+    file,
+    title,
+    workflowName,
+    mermaidOptions,
+    trace,
+    traceLabel,
+  } of SHOWCASE_ENTRIES) {
     const absPath = join(showcaseDir, file);
     let code: string;
     try {
@@ -191,8 +263,20 @@ function main(): void {
       process.exit(1);
     }
 
-    const mermaid = renderStaticMermaid(ir, { sameLevelConditionals: true });
-    const stepDetails = collectStepDetails(ir.root.children);
+    const renderOptions = { sameLevelConditionals: true, ...mermaidOptions };
+    const mermaid = renderStaticMermaid(ir, renderOptions);
+    const traceMermaid = trace
+      ? renderStaticMermaidWithTrace(ir, trace, renderOptions).mermaid
+      : undefined;
+    const policiesByDependency = new Map(
+      ir.root.dependencies.map((dependency) => [dependency.name, dependency.policies]),
+    );
+    const stepDetails = collectStepDetails(ir.root.children).map((step) => ({
+      ...step,
+      ...(step.depSource && policiesByDependency.get(step.depSource)?.length
+        ? { policies: policiesByDependency.get(step.depSource) }
+        : {}),
+    }));
     const resultType = ir.root.workflowReturnType ?? undefined;
     const incErrors =
       (ir.root.declaredErrors?.length ? ir.root.declaredErrors : ir.root.errorTypes) ?? undefined;
@@ -200,6 +284,9 @@ function main(): void {
       title,
       code,
       mermaid,
+      ...(traceMermaid && { traceMermaid }),
+      ...(traceLabel && { traceLabel }),
+      ...(trace && { traceSteps: trace.steps }),
       stepDetails,
       ...(resultType && { resultType }),
       ...(incErrors?.length && { incErrors }),

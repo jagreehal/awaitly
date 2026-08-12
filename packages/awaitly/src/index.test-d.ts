@@ -2196,3 +2196,27 @@ async function _test43DurableDeclaredErrors() {
     >(plain.error);
   }
 }
+
+// =============================================================================
+// TEST 44: compensation callbacks may return dependency Results directly
+// =============================================================================
+
+async function _test44ResultReturningCompensation() {
+  const charge = async (): AsyncResult<{ id: string }, "DECLINED"> =>
+    ok({ id: "payment-1" });
+  const refund = async (_id: string): AsyncResult<void, "REFUND_FAILED"> =>
+    ok(undefined);
+  const ship = async (): AsyncResult<void, "SHIP_FAILED"> => err("SHIP_FAILED");
+  const checkout = createWorkflow("checkout-compensation-types", {
+    charge,
+    refund,
+    ship,
+  });
+
+  await checkout.run(async ({ step, deps }) => {
+    await step("charge", () => deps.charge(), {
+      compensate: (payment) => deps.refund(payment.id),
+    });
+    return step("ship", () => deps.ship());
+  });
+}
