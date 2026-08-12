@@ -192,12 +192,12 @@ console.log(viz.render()); // ASCII diagram with all steps
 
 ```mermaid
 flowchart TD
-    start((\"▶ Start\"))
+    start(("▶ Start"))
     step_fetch_order[✓ Fetch order 12ms]:::success
     start --> step_fetch_order
     step_charge_card[✓ Charge card 45ms]:::success
     step_fetch_order --> step_charge_card
-    finish((\"✓ Done\")):::success
+    finish(("✓ Done")):::success
     step_charge_card --> finish
 ```
 
@@ -307,7 +307,7 @@ flowchart TD
         race_1_start --> step_primary
         race_1_start --> step_fallback
         step_primary ==>|🏆 Winner| race_1_end
-        step_fallback -. cancelled .-> race_1_end
+        step_fallback -.->|cancelled| race_1_end
     end
 ```
 
@@ -614,7 +614,7 @@ Best for documentation that renders in GitHub, Confluence, or other Markdown vie
 ```typescript
 const mermaid = viz.renderAs('mermaid');
 // flowchart TD
-//     start((\"▶ Start\"))
+//     start(("▶ Start"))
 //     step_1[✓ Fetch order 12ms]:::success
 //     ...
 ```
