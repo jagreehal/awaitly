@@ -11,6 +11,7 @@ import noDoubleWrapResult from './rules/no-double-wrap-result.js';
 import noDynamicImport from './rules/no-dynamic-import.js';
 import stepNoBareAwait from './rules/step-no-bare-await.js';
 import stepNoTryCatchWrap from './rules/step-no-try-catch-wrap.js';
+import stepNoDepsBypass from './rules/step-no-deps-bypass.js';
 import concurrencyNoPromiseAll from './rules/concurrency-no-promise-all.js';
 import concurrencyNoPromiseRace from './rules/concurrency-no-promise-race.js';
 import concurrencyNoPromiseAllSettled from './rules/concurrency-no-promise-allsettled.js';
@@ -30,6 +31,7 @@ const rules = {
   'step-stable-cache-keys': stableCacheKeys,
   'step-no-bare-await': stepNoBareAwait,
   'step-no-try-catch-wrap': stepNoTryCatchWrap,
+  'step-no-deps-bypass': stepNoDepsBypass,
   // workflow-*
   'workflow-no-floating': noFloatingWorkflow,
   'workflow-options-position': noOptionsOnExecutor,
@@ -71,6 +73,7 @@ const configs: Record<string, Linter.Config[]> = {
         'awaitly/workflow-no-dynamic-import': 'error',
         'awaitly/step-no-bare-await': 'error',
         'awaitly/step-no-try-catch-wrap': 'error',
+        'awaitly/step-no-deps-bypass': 'error',
         'awaitly/concurrency-no-promise-all': 'error',
         'awaitly/concurrency-no-promise-race': 'error',
         'awaitly/concurrency-no-promise-allsettled': 'error',
@@ -106,6 +109,7 @@ const configs: Record<string, Linter.Config[]> = {
         "awaitly/workflow-no-dynamic-import": "error",
         "awaitly/step-no-bare-await": "error",
         "awaitly/step-no-try-catch-wrap": "error",
+        "awaitly/step-no-deps-bypass": "error",
         "awaitly/concurrency-no-promise-all": "error",
         "awaitly/concurrency-no-promise-race": "error",
         "awaitly/concurrency-no-promise-allsettled": "error",

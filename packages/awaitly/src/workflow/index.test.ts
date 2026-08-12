@@ -409,7 +409,7 @@ describe("run() - do-notation style", () => {
     });
 
     it("preserves Result cause in the error chain", async () => {
-      const opWithCause = (): Result<number, string, Error> =>
+      const opWithCause = (): Result<number, string> =>
         err("DB_ERROR", { cause: new Error("connection refused") });
 
       const result = await run(
@@ -1853,7 +1853,7 @@ describe("createWorkflow()", () => {
 
       it("passes context to onAfterStep", async () => {
         type Context = { requestId: string };
-        const onAfterStep = vi.fn().mockImplementation((_stepKey: string, _result: Result<unknown, unknown, unknown>, _workflowId: string, _ctx: Context) => Promise.resolve());
+        const onAfterStep = vi.fn().mockImplementation((_stepKey: string, _result: Result<unknown, unknown>, _workflowId: string, _ctx: Context) => Promise.resolve());
         const createContext = (): Context => ({ requestId: "req-456" });
         const workflow = createWorkflow("workflow", { fetchUser }, { onAfterStep, createContext });
 
@@ -2999,7 +2999,7 @@ describe("direct AsyncResult with keys", () => {
   });
 
   it("populates cache for direct AsyncResult steps with keys", async () => {
-    const cacheMap = new Map<string, Result<unknown, unknown, unknown>>();
+    const cacheMap = new Map<string, Result<unknown, unknown>>();
 
     const createUser = async (email: string): AsyncResult<{ id: string }, "ERROR"> =>
       ok({ id: "user-123" });
@@ -3212,7 +3212,7 @@ describe("direct AsyncResult with keys", () => {
   });
 
   it("caches error results for direct AsyncResult steps", async () => {
-    const cacheMap = new Map<string, Result<unknown, unknown, unknown>>();
+    const cacheMap = new Map<string, Result<unknown, unknown>>();
     const createUser = async (_email: string): AsyncResult<{ id: string }, "EMAIL_INVALID"> =>
       err("EMAIL_INVALID" as const, { cause: "bad format" });
 
@@ -3254,8 +3254,8 @@ describe("direct AsyncResult with keys", () => {
   it("same behavior for function-wrapped vs direct AsyncResult with keys", async () => {
     const eventsWrapped: WorkflowEvent<unknown>[] = [];
     const eventsDirect: WorkflowEvent<unknown>[] = [];
-    const cacheWrapped = new Map<string, Result<unknown, unknown, unknown>>();
-    const cacheDirect = new Map<string, Result<unknown, unknown, unknown>>();
+    const cacheWrapped = new Map<string, Result<unknown, unknown>>();
+    const cacheDirect = new Map<string, Result<unknown, unknown>>();
 
     const createUser = async (email: string): AsyncResult<{ id: string }, "ERROR"> =>
       ok({ id: "user-123" });

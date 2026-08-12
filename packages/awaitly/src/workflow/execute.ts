@@ -200,7 +200,7 @@ import {
  * const getPosts = createWorkflow(
  *   { fetchUser, fetchPosts },
  *   {
- *     catchUnexpected: () => 'UNEXPECTED' as const
+ *     catchUnexpected: () => 'UNEXPECTED'
  *   }
  * );
  * // result.error: 'NOT_FOUND' | 'FETCH_ERROR' | 'UNEXPECTED'
@@ -288,7 +288,7 @@ export function createWorkflow<
 >(
   deps: Deps,
   options?: WorkflowOptions<NoInfer<E>, U, C, Errs>
-): Workflow<NoInfer<E> | Errs[number], U, Deps, C>;
+): Workflow<E | Errs[number], U, Deps, C>;
 
 // Overload: no deps (single argument); callback receives deps: unknown
 export function createWorkflow<
@@ -320,7 +320,7 @@ export function createWorkflow<
   workflowName: string,
   deps: Deps,
   options?: WorkflowOptions<NoInfer<E>, U, C, Errs>
-): Workflow<NoInfer<E> | Errs[number], U, Deps, C>;
+): Workflow<E | Errs[number], U, Deps, C>;
 
 // Implementation (deps optional for 1-arg overload compatibility)
 export function createWorkflow<
@@ -365,7 +365,7 @@ export function createWorkflow<
     runName: string | undefined,
     userFn: WorkflowFn<T, E | ExtraE, Deps, C>,
     config?: RunConfig<E, U, C, Deps>
-  ): Promise<Result<T, E | ExtraE | U, unknown>> {
+  ): Promise<Result<T, E | ExtraE | U>> {
     // Generate workflowId for this run
     const workflowId = runName ?? crypto.randomUUID();
 
@@ -449,7 +449,7 @@ export function createWorkflow<
     const onAfterStepHook = (config?.onAfterStep ?? (optionsActual as any)?.onAfterStep) as
       | ((
           stepKey: string,
-          result: Result<unknown, unknown, unknown>,
+          result: Result<unknown, unknown>,
           workflowId: string,
           context: C
         ) => void | Promise<void>)
@@ -528,13 +528,13 @@ export function createWorkflow<
     };
 
     // Helper to create cancellation result (always map through catchUnexpected)
-    const createCancelledResult = (reason?: string, lastStepKey?: string): Result<T, E | ExtraE | U, unknown> => {
+    const createCancelledResult = (reason?: string, lastStepKey?: string): Result<T, E | ExtraE | U> => {
       const cancelledError: WorkflowCancelledError = {
         type: "WORKFLOW_CANCELLED",
         reason,
         lastStepKey,
       };
-      return err(catchUnexpected(cancelledError), { cause: cancelledError }) as Result<T, E | ExtraE | U, unknown>;
+      return err(catchUnexpected(cancelledError), { cause: cancelledError }) as Result<T, E | ExtraE | U>;
     };
 
     // Check if signal is already aborted before starting
@@ -570,7 +570,7 @@ export function createWorkflow<
         });
         if (!shouldRunResult) {
           const skipCause = new Error("Workflow skipped by shouldRun hook");
-          return err(catchUnexpected(skipCause), { cause: skipCause }) as Result<T, E | ExtraE | U, unknown>;
+          return err(catchUnexpected(skipCause), { cause: skipCause }) as Result<T, E | ExtraE | U>;
         }
       } catch (thrown) {
         const hookDuration = performance.now() - hookStartTime;
@@ -583,7 +583,7 @@ export function createWorkflow<
           error: thrown as E,
         });
         // Hook threw - map through catchUnexpected
-        return err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | ExtraE | U, unknown>;
+        return err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | ExtraE | U>;
       }
     }
 
@@ -603,7 +603,7 @@ export function createWorkflow<
         });
         if (!beforeStartResult) {
           const skipCause = new Error("Workflow skipped by onBeforeStart hook");
-          return err(catchUnexpected(skipCause), { cause: skipCause }) as Result<T, E | ExtraE | U, unknown>;
+          return err(catchUnexpected(skipCause), { cause: skipCause }) as Result<T, E | ExtraE | U>;
         }
       } catch (thrown) {
         const hookDuration = performance.now() - hookStartTime;
@@ -615,7 +615,7 @@ export function createWorkflow<
           durationMs: hookDuration,
           error: thrown as E,
         });
-        return err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | ExtraE | U, unknown>;
+        return err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | ExtraE | U>;
       }
     }
 
@@ -627,7 +627,7 @@ export function createWorkflow<
     if (inputSchema) {
       const validationResult = await validateInput(inputSchema, inputValue);
       if (!validationResult.ok) {
-        return err(validationResult.error) as Result<T, E | ExtraE | U, unknown>;
+        return err(validationResult.error) as Result<T, E | ExtraE | U>;
       }
       // Assign validated input to workflow context
       (workflowContext as { input: unknown }).input = validationResult.value;
@@ -653,7 +653,7 @@ export function createWorkflow<
 
     // If resumeState is provided but cache isn't, auto-create an in-memory cache
     if (resumeStateOption && !cache) {
-      cache = new Map<string, Result<unknown, unknown, unknown>>();
+      cache = new Map<string, Result<unknown, unknown>>();
     }
 
     // Pre-populate cache from resumeState (lazily evaluated)
@@ -701,7 +701,7 @@ export function createWorkflow<
     if (snapshotOption && !resumeStateOption) {
       // Auto-create cache if needed
       if (!cache) {
-        cache = new Map<string, Result<unknown, unknown, unknown>>();
+        cache = new Map<string, Result<unknown, unknown>>();
       }
 
       const snapshot = snapshotOption;
@@ -783,7 +783,7 @@ export function createWorkflow<
     // Helper to call onAfterStep hook with event emission
     const callOnAfterStepHook = async (
       stepKey: string,
-      result: Result<unknown, unknown, unknown>,
+      result: Result<unknown, unknown>,
       _meta?: StepFailureMeta
     ): Promise<void> => {
       if (!onAfterStepHook) return;
@@ -821,9 +821,9 @@ export function createWorkflow<
 
       // Wrap the main step function with backward-compatible signature
       // Supports: step('id', fn, opts), step(fn, opts?), step(result, opts?)
-      const cachedStepFn = async <StepT, StepE extends E, StepC = unknown>(
-        idOrOperationOrResult: string | (() => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>) | Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>,
-        operationOrOptions?: (() => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>) | StepOptions | string,
+      const cachedStepFn = async <StepT, StepE extends E>(
+        idOrOperationOrResult: string | (() => Result<StepT, StepE> | AsyncResult<StepT, StepE>) | Result<StepT, StepE> | AsyncResult<StepT, StepE>,
+        operationOrOptions?: (() => Result<StepT, StepE> | AsyncResult<StepT, StepE>) | StepOptions | string,
         stepOptions?: StepOptions
       ): Promise<StepT> => {
         // Validate required string ID as first argument
@@ -1032,7 +1032,7 @@ export function createWorkflow<
       // Wrap step.fromResult - delegate to real step (caching handled by key in opts)
       cachedStepFn.fromResult = async <StepT, ResultE, Err extends E>(
         id: string,
-        operation: () => Result<StepT, ResultE, unknown> | AsyncResult<StepT, ResultE, unknown>,
+        operation: () => Result<StepT, ResultE> | AsyncResult<StepT, ResultE>,
         opts:
           | { error: Err; key?: string; ttl?: number }
           | { onError: (resultError: ResultE) => Err; key?: string; ttl?: number }
@@ -1199,9 +1199,9 @@ export function createWorkflow<
       };
 
       // Wrap step.retry - pass key explicitly so "no key" means don't cache (cachedStepFn treats key: undefined as no cache)
-      cachedStepFn.retry = <StepT, StepE extends E, StepC = unknown>(
+      cachedStepFn.retry = <StepT, StepE extends E>(
         id: string,
-        operation: () => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>,
+        operation: () => Result<StepT, StepE> | AsyncResult<StepT, StepE>,
         options: RetryOptions & { key?: string; timeout?: TimeoutOptions; ttl?: number }
       ): Promise<StepT> => {
         const stepOptions = {
@@ -1223,12 +1223,16 @@ export function createWorkflow<
       };
 
       // Wrap step.withTimeout - pass key explicitly so "no key" means don't cache
-      cachedStepFn.withTimeout = <StepT, StepE extends E, StepC = unknown>(
+      cachedStepFn.withTimeout = <
+        StepT,
+        StepE extends E,
+        const TErr extends E = never
+      >(
         id: string,
         operation:
-          | (() => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>)
-          | ((signal: AbortSignal) => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>),
-        options: TimeoutOptions & { key?: string; ttl?: number }
+          | (() => Result<StepT, StepE> | AsyncResult<StepT, StepE>)
+          | ((signal: AbortSignal) => Result<StepT, StepE> | AsyncResult<StepT, StepE>),
+        options: TimeoutOptions<TErr> & { key?: string; ttl?: number }
       ): Promise<StepT> => {
         const stepOptions = {
           key: options.key,
@@ -1238,7 +1242,7 @@ export function createWorkflow<
 
         return cachedStepFn(
           id,
-          operation as () => Result<StepT, StepE, StepC> | AsyncResult<StepT, StepE, StepC>,
+          operation as () => Result<StepT, StepE> | AsyncResult<StepT, StepE>,
           stepOptions
         );
       };
@@ -1880,7 +1884,7 @@ export function createWorkflow<
       // step.workflow: run sub-workflow (or any AsyncResult getter) as a step; cache + onAfterStep apply
       cachedStepFn.workflow = (
         id: string,
-        getter: () => AsyncResult<unknown, E, unknown>,
+        getter: () => AsyncResult<unknown, E>,
         options?: StepOptions
       ) => cachedStepFn(id, getter, options) as Promise<unknown>;
       // Match core: all() with no key = no cache (core parallel doesn't pass key, so no cache by id)
@@ -1895,7 +1899,7 @@ export function createWorkflow<
       cachedStepFn.map = (
         id: string,
         items: unknown[],
-        mapper: (item: unknown, index: number) => AsyncResult<unknown, E, unknown>,
+        mapper: (item: unknown, index: number) => AsyncResult<unknown, E>,
         options?: { concurrency?: number; key?: string }
       ) => {
         const opts =
@@ -1924,7 +1928,7 @@ export function createWorkflow<
     };
 
     // Always use run() with catchUnexpected (default or user-provided). Closed error union E | ExtraE | U.
-    let result: Result<T, E | ExtraE | U | UnexpectedError | WorkflowCancelledError, unknown>;
+    let result: Result<T, E | ExtraE | U | UnexpectedError | WorkflowCancelledError>;
 
     try {
       result = await run<T, E | ExtraE | U, C>(wrappedFn as (context: { step: RunStep<E | ExtraE | U> }) => Promise<T> | T, {
@@ -2027,9 +2031,9 @@ export function createWorkflow<
         });
         // Path 2: We synthesized cancelledError from AbortError - ensure result.cause is WorkflowCancelledError
         if (cancelledError && !isWorkflowCancelled(result.cause)) {
-          return err(result.error, { cause: cancelledError }) as Result<T, E | ExtraE | U, unknown>;
+          return err(result.error, { cause: cancelledError }) as Result<T, E | ExtraE | U>;
         }
-        return result as Result<T, E | ExtraE | U, unknown>;
+        return result as Result<T, E | ExtraE | U>;
       }
     }
 
@@ -2058,7 +2062,7 @@ export function createWorkflow<
         reason,
         lastStepKey,
       };
-      return err(catchUnexpected(cancelledError), { cause: cancelledError }) as Result<T, E | ExtraE | U, unknown>;
+      return err(catchUnexpected(cancelledError), { cause: cancelledError }) as Result<T, E | ExtraE | U>;
     }
 
     // Emit workflow_success or workflow_error
@@ -2088,7 +2092,7 @@ export function createWorkflow<
     // 2. Steps that are defined but not executed in this particular run
     // Use workflowId matching in snapshot metadata to detect wrong snapshots instead.
 
-    return result as Result<T, E | ExtraE | U, unknown>;
+    return result as Result<T, E | ExtraE | U>;
   }
 
   // ==========================================================================
@@ -2098,7 +2102,7 @@ export function createWorkflow<
     fnOrName: string | WorkflowFn<T, E | ExtraE, Deps, C>,
     maybeFnOrConfig?: WorkflowFn<T, E | ExtraE, Deps, C> | RunConfig<E, U, C, Deps>,
     maybeConfig?: RunConfig<E, U, C, Deps>
-  ): Promise<Result<T, E | ExtraE | U, unknown>> {
+  ): Promise<Result<T, E | ExtraE | U>> {
     let runName: string | undefined;
     let fn: WorkflowFn<T, E | ExtraE, Deps, C>;
     let config: RunConfig<E, U, C, Deps> | undefined;
@@ -2122,7 +2126,7 @@ export function createWorkflow<
     fnOrName: string | WorkflowFn<T, E | ExtraE, Deps, C>,
     maybeFnOrConfig?: WorkflowFn<T, E | ExtraE, Deps, C> | RunConfig<E, U, C, Deps>,
     maybeConfig?: RunConfig<E, U, C, Deps>
-  ): Promise<{ result: Result<T, E | ExtraE | U, unknown>; resumeState: ResumeState }> {
+  ): Promise<{ result: Result<T, E | ExtraE | U>; resumeState: ResumeState }> {
     let runName: string | undefined;
     let fn: WorkflowFn<T, E | ExtraE, Deps, C>;
     let config: RunConfig<E, U, C, Deps> | undefined;
@@ -2151,7 +2155,7 @@ export function createWorkflow<
       onEvent: mergedOnEvent as RunConfig<E, U, C, Deps>["onEvent"],
     };
 
-    let result: Result<T, E | ExtraE | U, unknown>;
+    let result: Result<T, E | ExtraE | U>;
     let resumeState: ResumeState;
     try {
       result = await internalExecute<T, ExtraE>(runName, fn, mergedConfig);
@@ -2159,7 +2163,7 @@ export function createWorkflow<
       // runWithState follows "never throw, always Result"; map thrown to Result
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const catchUnexpected = (optionsActual as any)?.catchUnexpected ?? defaultCatchUnexpected;
-      result = err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | ExtraE | U, unknown>;
+      result = err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | ExtraE | U>;
     } finally {
       resumeState = collector.getResumeState();
     }

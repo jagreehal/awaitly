@@ -384,14 +384,14 @@ const safeFetchUser = async (id: string): AsyncResult<User, 'FETCH_ERROR'> => {
 // Or use fromPromise to wrap a Promise directly
 const safeResult = await fromPromise(
   legacyFetchUser('123'),
-  () => 'FETCH_ERROR' as const
+  () => 'FETCH_ERROR'
 );
 
 // Sync: from(fn, onError) for throwing functions
 const safeJsonParse = (s: string) =>
   from(
     () => JSON.parse(s),
-    () => 'PARSE_ERROR' as const
+    () => 'PARSE_ERROR'
   );
 
 // Inside workflows: step.try('id', () => …, { error: 'MY_ERROR' })

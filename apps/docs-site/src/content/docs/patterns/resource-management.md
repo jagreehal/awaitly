@@ -67,7 +67,7 @@ const result = await withScope(async (scope) => {
 
   const user = await db.query('SELECT * FROM users WHERE id = ?', ['123']);
   if (!user) {
-    return err('NOT_FOUND' as const);
+    return err('NOT_FOUND');
   }
 
   return ok(user);
@@ -218,7 +218,7 @@ const transferFunds = async (from: string, to: string, amount: number) => {
     );
 
     if (fromAccount.balance < 0) {
-      return err('INSUFFICIENT_FUNDS' as const);
+      return err('INSUFFICIENT_FUNDS');
       // Transaction rolled back automatically
     }
 
@@ -312,7 +312,7 @@ const result = await withScope(async (scope) => {
   );
 
   if (!dbResource.ok) {
-    return err('DB_CONNECTION_FAILED' as const);
+    return err('DB_CONNECTION_FAILED');
   }
 
   const db = scope.add(dbResource.value);
@@ -437,7 +437,7 @@ const processOrder = async (orderId: string) => {
       const tx = txScope.add(await createTransaction(db));
 
       const order = await tx.query('SELECT * FROM orders WHERE id = ?', [orderId]);
-      if (!order) return err('ORDER_NOT_FOUND' as const);
+      if (!order) return err('ORDER_NOT_FOUND');
 
       // Processing scope for each line item
       for (const item of order.items) {
@@ -543,7 +543,7 @@ const processMultipleOrders = async (orderIds: string[]) => {
     // Aggregate results
     const failures = results.filter(r => !r.ok);
     if (failures.length > 0) {
-      return err({ failedOrders: failures } as const);
+      return err({ failedOrders: failures });
     }
 
     return ok(results.map(r => r.value));
@@ -626,7 +626,7 @@ const result = await withScope(async (scope) => {
   try {
     resources.db = scope.add(await createDbResource());
   } catch (error) {
-    return err({ type: 'DB_FAILED', error } as const);
+    return err({ type: 'DB_FAILED', error });
   }
 
   try {
@@ -639,7 +639,7 @@ const result = await withScope(async (scope) => {
   try {
     resources.api = scope.add(await createApiClient());
   } catch (error) {
-    return err({ type: 'API_FAILED', error } as const);
+    return err({ type: 'API_FAILED', error });
   }
 
   return ok(resources);

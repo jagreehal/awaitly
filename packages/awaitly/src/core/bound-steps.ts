@@ -48,7 +48,7 @@ export type BoundSteps<Deps extends Record<string, AnyFunction>> = {
  */
 export type StepCallable = (
   id: string,
-  operation: () => AsyncResult<unknown, unknown, unknown>,
+  operation: () => AsyncResult<unknown, unknown>,
   options?: { argsFingerprint?: string }
 ) => Promise<unknown>;
 
@@ -61,7 +61,7 @@ export type StepCallable = (
  */
 export const isDepResultShaped = (
   value: unknown
-): value is Result<unknown, unknown, unknown> =>
+): value is Result<unknown, unknown> =>
   typeof value === "object" &&
   value !== null &&
   "ok" in value &&

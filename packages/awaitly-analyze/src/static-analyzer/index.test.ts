@@ -6594,3 +6594,27 @@ describe("infer errors from errorTypeInfo", () => {
     expect(stepNode.errorsSource).toBe("inferred");
   });
 });
+
+describe("named run overload", () => {
+  beforeEach(() => {
+    resetIdCounter();
+  });
+
+  it("finds the steps when the run callback follows a run id", () => {
+    const source = `
+      const workflow = createWorkflow("checkout", { validateCart, chargeCard });
+      workflow.run("checkout-run", async ({ step, deps }) => {
+        await step("validateCart", () => deps.validateCart(cart));
+        return await step("chargeCard", () => deps.chargeCard(cart));
+      });
+    `;
+
+    const results = analyzeWorkflowSource(source, undefined, {
+      assumeImported: true,
+    });
+
+    expect(results).toHaveLength(1);
+    const stepIds = collectStepNodes(results[0].root).map((s) => s.stepId);
+    expect(stepIds).toEqual(["validateCart", "chargeCard"]);
+  });
+});

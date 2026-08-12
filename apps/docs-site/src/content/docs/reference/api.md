@@ -62,7 +62,7 @@ Checks if a Result is a failure.
 When to use: Prefer functional-style checks or array filtering.
 
 ```typescript
-isErr(r: Result<T, E, C>): (value: Err<E, C>) => boolean
+isErr(r: Result<T, E>): (value: Err<E, unknown>) => boolean
 ```
 
 ### isOk
@@ -72,7 +72,7 @@ Checks if a Result is successful.
 When to use: Prefer functional-style checks or array filtering.
 
 ```typescript
-isOk(r: Result<T, E, C>): (value: Ok<T>) => boolean
+isOk(r: Result<T, E>): (value: Ok<T>) => boolean
 ```
 
 ### isUnexpectedError
@@ -102,7 +102,7 @@ Extracts the value from an Ok result, or throws UnwrapError if it's an Err.
 When to use: Only at boundaries or tests where a failure should be fatal.
 
 ```typescript
-unwrap(r: Result<T, E, C>): T
+unwrap(r: Result<T, E>): T
 ```
 
 ### unwrapOr
@@ -112,7 +112,7 @@ Extracts the value from an Ok result, or returns a default value if it's an Err.
 When to use: Provide a safe fallback without branching.
 
 ```typescript
-unwrapOr(r: Result<T, E, C>, defaultValue: T): T
+unwrapOr(r: Result<T, E>, defaultValue: T): T
 ```
 
 ### unwrapOrElse
@@ -122,7 +122,7 @@ Extracts the value from an Ok result, or calls a function to get a default value
 When to use: Compute a fallback from the error (logging, metrics, or derived defaults).
 
 ```typescript
-unwrapOrElse(r: Result<T, E, C>, fn: (error: E, cause?: C) => T): T
+unwrapOrElse(r: Result<T, E>, fn: (error: E, cause?: unknown) => T): T
 ```
 
 ## Wrap
@@ -168,19 +168,19 @@ map(r: Ok<T>, fn: (value: T) => U): Ok<U>
 ### mapError
 
 ```typescript
-mapError(r: Result<T, E, C>, fn: (error: E, cause?: C) => F): Result<T, F, C>
+mapError(r: Result<T, E>, fn: (error: E, cause?: unknown) => F): Result<T, F>
 ```
 
 ### mapErrorTry
 
 ```typescript
-mapErrorTry(r: Result<T, E, C>, fn: (error: E) => F, onError: (thrown: unknown) => G): Result<T, F | G, unknown>
+mapErrorTry(r: Result<T, E>, fn: (error: E) => F, onError: (thrown: unknown) => G): Result<T, F | G>
 ```
 
 ### mapTry
 
 ```typescript
-mapTry(r: Result<T, E, C>, fn: (value: T) => U, onError: (thrown: unknown) => F): Result<U, E | F, unknown>
+mapTry(r: Result<T, E>, fn: (value: T) => U, onError: (thrown: unknown) => F): Result<U, E | F>
 ```
 
 ### match
@@ -192,37 +192,37 @@ TypeScript will error if any variant in the error union is not handled.
 When to use: You want compile-time enforcement that every tagged variant is handled.
 
 ```typescript
-match(handlers: unknown): (r: Result<T, E, C>) => R
+match(handlers: unknown): (r: Result<T, E>) => R
 ```
 
 ### orElse
 
 ```typescript
-orElse(r: Result<T, E, C>, fn: (error: E, cause?: C) => Result<T, E2, C2>): Result<T, E2, C | C2>
+orElse(r: Result<T, E>, fn: (error: E, cause?: unknown) => Result<T, E2>): Result<T, E2>
 ```
 
 ### recover
 
 ```typescript
-recover(r: Result<T, E, C>, fn: (error: E, cause?: C) => T): Ok<T>
+recover(r: Result<T, E>, fn: (error: E, cause?: unknown) => T): Ok<T>
 ```
 
 ### recoverAsync
 
 ```typescript
-recoverAsync(r: Result<T, E, C> | Promise<Result<T, E, C>>, fn: (error: E, cause?: C) => T | Promise<T>): Promise<Ok<T>>
+recoverAsync(r: Result<T, E> | Promise<Result<T, E>>, fn: (error: E, cause?: unknown) => T | Promise<T>): Promise<Ok<T>>
 ```
 
 ### tap
 
 ```typescript
-tap(r: Result<T, E, C>, fn: (value: T) => void): Result<T, E, C>
+tap(r: Result<T, E>, fn: (value: T) => void): Result<T, E>
 ```
 
 ### tapError
 
 ```typescript
-tapError(r: Result<T, E, C>, fn: (error: E, cause?: C) => void): Result<T, E, C>
+tapError(r: Result<T, E>, fn: (error: E, cause?: unknown) => void): Result<T, E>
 ```
 
 ## Policies

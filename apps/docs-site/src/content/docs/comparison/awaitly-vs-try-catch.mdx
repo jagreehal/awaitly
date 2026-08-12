@@ -399,18 +399,18 @@ You don't have to rewrite everything. Wrap existing code:
 import { from, fromPromise } from 'awaitly';
 
 // Sync: from(fn, onError)
-const result1 = from(() => JSON.parse(jsonString), () => 'PARSE_ERROR' as const);
+const result1 = from(() => JSON.parse(jsonString), () => 'PARSE_ERROR');
 
 // Async (outside workflows): fromPromise(promise, onError)
 const result2 = await fromPromise(
   fetch('/api/data').then(r => r.json()),
-  () => 'FETCH_ERROR' as const
+  () => 'FETCH_ERROR'
 );
 
 // With error context from the cause
 const result3 = from(
   () => JSON.parse(data),
-  (cause) => ({ type: 'PARSE_ERROR' as const, message: String(cause) })
+  (cause) => ({ type: 'PARSE_ERROR', message: String(cause) })
 );
 
 // Inside workflows: step.try('id', () => …, { error: 'MY_ERROR' })

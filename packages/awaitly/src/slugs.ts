@@ -23,6 +23,7 @@ export const AWAITLY_SLUGS = {
   "step-require-thunk-for-key": "step-require-thunk-for-key",
   "step-no-bare-await": "step-no-bare-await",
   "step-no-try-catch-wrap": "step-no-try-catch-wrap",
+  "step-no-deps-bypass": "step-no-deps-bypass",
   "step-stable-cache-keys": "step-stable-cache-keys",
 
   // --- workflow-* ---

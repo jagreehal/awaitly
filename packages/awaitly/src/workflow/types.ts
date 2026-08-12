@@ -41,14 +41,14 @@ import type { StandardSchemaV1 } from "./standard-schema";
  * await step(fetchUser("1"), { key: "user:1" });
  * ```
  *
- * Note: Cache stores Result<unknown, unknown, unknown> because different steps
+ * Note: Cache stores Result<unknown, unknown> because different steps
  * have different value/error/cause types. The actual runtime values are preserved;
  * only the static types are widened. For error results, the cause value is encoded
  * in CachedErrorCause to preserve metadata for proper replay.
  *
  * @example
  * // Simple in-memory cache
- * const cache = new Map<string, Result<unknown, unknown, unknown>>();
+ * const cache = new Map<string, Result<unknown, unknown>>();
  *
  * // Or implement custom cache with TTL, LRU, etc.
  * const cache: StepCache = {
@@ -60,8 +60,8 @@ import type { StandardSchemaV1 } from "./standard-schema";
  * };
  */
 export interface StepCache {
-  get(key: string): Result<unknown, unknown, unknown> | undefined;
-  set(key: string, result: Result<unknown, unknown, unknown>, options?: { ttl?: number }): void;
+  get(key: string): Result<unknown, unknown> | undefined;
+  set(key: string, result: Result<unknown, unknown>, options?: { ttl?: number }): void;
   has(key: string): boolean;
   delete(key: string): boolean;
   clear(): void;
@@ -72,7 +72,7 @@ export interface StepCache {
  * The meta field preserves origin information for proper replay.
  */
 export interface ResumeStateEntry {
-  result: Result<unknown, unknown, unknown>;
+  result: Result<unknown, unknown>;
   /** Optional metadata for error origin (from step_complete event) */
   meta?: StepFailureMeta;
 }
@@ -113,7 +113,7 @@ export interface ResumeState {
  * Used by createWorkflow to ensure only valid functions are passed
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyResultFn = (...args: any[]) => Result<any, any, any> | Promise<Result<any, any, any>>;
+export type AnyResultFn = (...args: any[]) => Result<any, any> | Promise<Result<any, any>>;
 
 /**
  * Extract union of error types from a deps object
@@ -126,7 +126,7 @@ export type ErrorsOfDeps<Deps extends Record<string, AnyResultFn>> = {
 
 /**
  * Extract union of cause types from a deps object.
- * Example: CausesOfDeps<{ fetchUser: typeof fetchUser }> where fetchUser returns Result<User, "NOT_FOUND", Error>
+ * Example: CausesOfDeps<{ fetchUser: typeof fetchUser }> where fetchUser returns Result<User, "NOT_FOUND">
  * yields: Error
  *
  * Note: This represents the domain cause types from declared functions.
@@ -218,7 +218,7 @@ export type ExecutionOptions<E, U = UnexpectedError, C = void> = {
    */
   onAfterStep?: (
     stepKey: string,
-    result: Result<unknown, unknown, unknown>,
+    result: Result<unknown, unknown>,
     workflowId: string,
     context: C
   ) => void | Promise<void>;
@@ -357,7 +357,7 @@ export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends reado
   ) => void | Promise<void>;
   onAfterStep?: (
     stepKey: string,
-    result: Result<unknown, unknown, unknown>,
+    result: Result<unknown, unknown>,
     workflowId: string,
     context: C
   ) => void | Promise<void>;
@@ -530,7 +530,7 @@ export type WorkflowFn<T, E, Deps, C = void> = (context: {
  * resumeState is always present, even when the run fails or returns an error Result.
  */
 export type RunWithStateResult<T, E, U> = {
-  result: Result<T, E | U, unknown>;
+  result: Result<T, E | U>;
   resumeState: ResumeState;
 };
 
@@ -556,22 +556,22 @@ export interface Workflow<E, U = UnexpectedError, Deps = unknown, C = void> {
    * inference can sometimes fall back to `any`; adding an explicit return type to the callback (e.g.
    * `async (ctx): Promise<{ user: User; enriched: Enriched }> => { ... }`) gives the compiler a target and preserves types.
    */
-  run<T, ExtraE = never>(fn: WorkflowFn<T, E | ExtraE, Deps, C>): AsyncResult<T, E | ExtraE | U, unknown>;
+  run<T, ExtraE = never>(fn: WorkflowFn<T, E | ExtraE, Deps, C>): AsyncResult<T, E | ExtraE | U>;
 
   /**
    * Execute workflow with config overrides.
    */
-  run<T, ExtraE = never>(fn: WorkflowFn<T, E | ExtraE, Deps, C>, config: RunConfig<E, U, C, Deps>): AsyncResult<T, E | ExtraE | U, unknown>;
+  run<T, ExtraE = never>(fn: WorkflowFn<T, E | ExtraE, Deps, C>, config: RunConfig<E, U, C, Deps>): AsyncResult<T, E | ExtraE | U>;
 
   /**
    * Execute named workflow run (for logging, tracing, resume).
    */
-  run<T, ExtraE = never>(name: string, fn: WorkflowFn<T, E | ExtraE, Deps, C>): AsyncResult<T, E | ExtraE | U, unknown>;
+  run<T, ExtraE = never>(name: string, fn: WorkflowFn<T, E | ExtraE, Deps, C>): AsyncResult<T, E | ExtraE | U>;
 
   /**
    * Execute named workflow run with config overrides.
    */
-  run<T, ExtraE = never>(name: string, fn: WorkflowFn<T, E | ExtraE, Deps, C>, config: RunConfig<E, U, C, Deps>): AsyncResult<T, E | ExtraE | U, unknown>;
+  run<T, ExtraE = never>(name: string, fn: WorkflowFn<T, E | ExtraE, Deps, C>, config: RunConfig<E, U, C, Deps>): AsyncResult<T, E | ExtraE | U>;
 
   /**
    * Execute workflow and return result plus resume state for persistence.

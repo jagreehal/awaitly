@@ -42,7 +42,7 @@ const callApi = async (): AsyncResult<Data, ApiError> =>
 
 const result = await workflow.run(async ({ step }) => {
   return step.fromResult('callApi', () => callApi(), {
-    onError: (e) => ({ type: 'API_ERROR' as const, code: e.code, message: e.message }),
+    onError: (e) => ({ type: 'API_ERROR', code: e.code, message: e.message }),
   });
 });
 ```

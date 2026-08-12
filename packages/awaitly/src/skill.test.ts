@@ -347,7 +347,7 @@ describe("Skill Examples", () => {
           const order = await step('createOrder', () => createOrder());
           return order;
         },
-        { catchUnexpected: () => "UNEXPECTED" as const }
+        { catchUnexpected: () => "UNEXPECTED" }
       );
 
       expect(result.ok).toBe(false);
@@ -393,7 +393,7 @@ describe("Skill Examples", () => {
             const order = await step('createOrder', () => createOrder(user));
             return order;
           },
-          { catchUnexpected: () => "UNEXPECTED" as const }
+          { catchUnexpected: () => "UNEXPECTED" }
         );
 
         if (result.ok) {
@@ -867,7 +867,7 @@ describe("Skill Examples", () => {
         const [user, posts] = await step('fetchUserAndPosts', () => allAsync([
           deps.getUser("1"),
           deps.getPosts("1"),
-        ]) as AsyncResult<readonly [{ id: string; name: string }, { id: string; title: string }[]], "NOT_FOUND" | "FETCH_ERROR">);
+        ]) as AsyncResult<readonly [{ id: string; name: string }, { id: string; title: string }[]]>);
 
         return { user, posts };
       });

@@ -48,8 +48,8 @@ export type SingleflightOptions<Args extends unknown[]> = {
 /**
  * Internal cache entry for TTL-based caching.
  */
-interface CacheEntry<T, E, C> {
-  result: Result<T, E, C>;
+interface CacheEntry<T, E> {
+  result: Result<T, E>;
   expiresAt: number;
 }
 
@@ -112,17 +112,17 @@ interface CacheEntry<T, E, C> {
  * const user3 = await fetchUserCached('1');  // Fetches again
  * ```
  */
-export function singleflight<Args extends unknown[], T, E, C = unknown>(
-  operation: (...args: Args) => AsyncResult<T, E, C>,
+export function singleflight<Args extends unknown[], T, E>(
+  operation: (...args: Args) => AsyncResult<T, E>,
   options: SingleflightOptions<Args>
-): (...args: Args) => AsyncResult<T, E, C> {
+): (...args: Args) => AsyncResult<T, E> {
   // In-flight requests by key
-  const inflight = new Map<string, Promise<Result<T, E, C>>>();
+  const inflight = new Map<string, Promise<Result<T, E>>>();
 
   // Cached results by key (only if TTL is set)
-  const cache = options.ttl ? new Map<string, CacheEntry<T, E, C>>() : null;
+  const cache = options.ttl ? new Map<string, CacheEntry<T, E>>() : null;
 
-  return async (...args: Args): AsyncResult<T, E, C> => {
+  return async (...args: Args): AsyncResult<T, E> => {
     const key = options.key(...args);
 
     // Check TTL cache first (if enabled)
@@ -191,14 +191,14 @@ export function singleflight<Args extends unknown[], T, E, C = unknown>(
  * group.clear();
  * ```
  */
-export function createSingleflightGroup<T, E, C = unknown>(): {
+export function createSingleflightGroup<T, E = unknown>(): {
   /**
    * Execute or join an in-flight request for the given key.
    */
   execute: (
     key: string,
-    operation: () => AsyncResult<T, E, C>
-  ) => AsyncResult<T, E, C>;
+    operation: () => AsyncResult<T, E>
+  ) => AsyncResult<T, E>;
 
   /**
    * Check if a request is currently in-flight for the key.
@@ -215,13 +215,13 @@ export function createSingleflightGroup<T, E, C = unknown>(): {
    */
   clear: () => void;
 } {
-  const inflight = new Map<string, Promise<Result<T, E, C>>>();
+  const inflight = new Map<string, Promise<Result<T, E>>>();
 
   return {
     execute: async (
       key: string,
-      operation: () => AsyncResult<T, E, C>
-    ): AsyncResult<T, E, C> => {
+      operation: () => AsyncResult<T, E>
+    ): AsyncResult<T, E> => {
       // Return existing in-flight promise if present
       const existing = inflight.get(key);
       if (existing) {

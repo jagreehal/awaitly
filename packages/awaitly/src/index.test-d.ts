@@ -6,11 +6,11 @@
  * These tests define REALISTIC expected behavior based on TypeScript's capabilities.
  */
 /* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 import { expectType } from "tsd";
 import {
   ok,
   err,
+  matchError,
   TaggedError,
   isOk,
   isErr,
@@ -176,6 +176,38 @@ function _test1dMatchErrorLiteralConflict() {
   };
   const error: AppError | UnexpectedError = "A" as AppError | UnexpectedError;
   const result = matchErrorCore(error, handlers);
+  expectType<number>(result);
+}
+
+// =============================================================================
+// TEST 1E: matchError over a union mixing string tags and TaggedError classes
+// =============================================================================
+
+function _test1eMatchErrorMixedUnion() {
+  class ValidationError extends TaggedError("ValidationError")<{
+    userId: string;
+  }> {}
+  type AppError = "NOT_FOUND" | ValidationError;
+
+  const error = "NOT_FOUND" as AppError | UnexpectedError;
+
+  const result = matchError(error, {
+    NOT_FOUND: (e) => {
+      expectType<"NOT_FOUND">(e);
+      return 1;
+    },
+    // The class member is keyed by its tag and arrives narrowed, so its props
+    // are reachable without an instanceof check.
+    ValidationError: (e) => {
+      expectType<ValidationError>(e);
+      expectType<string>(e.userId);
+      return 2;
+    },
+    UnexpectedError: (e) => {
+      expectType<UnexpectedError>(e);
+      return 3;
+    },
+  });
   expectType<number>(result);
 }
 
@@ -383,14 +415,14 @@ async function _test5() {
 // =============================================================================
 
 function _test6() {
-  // Clean type display! ok() returns Ok<T>, not Result<number, never, never>
+  // Clean type display! ok() returns Ok<T>, not Result<number, never>
   const success = ok(42);
   expectType<Ok<number>>(success);
   if (success.ok) {
     expectType<number>(success.value);
   }
 
-  // Clean type display! err() returns Err<E>, not Result<never, "NOT_FOUND", unknown>
+  // Clean type display! err() returns Err<E>, not Result<never, "NOT_FOUND">
   const failure = err("NOT_FOUND" as const);
   expectType<Err<"NOT_FOUND">>(failure);
   if (!failure.ok) {
@@ -508,7 +540,7 @@ async function _test6ac() {
 
 function _test6b() {
   // Use a function return to prevent TypeScript from narrowing based on literal value
-  const getResult = (): Result<number, "NOT_FOUND", Error> => ok(42);
+  const getResult = (): Result<number, "NOT_FOUND"> => ok(42);
   const result = getResult();
 
   // isOk() narrows to Ok<T> - clean predicate, not { ok: true; value: T }
@@ -517,11 +549,13 @@ function _test6b() {
     expectType<number>(result.value);
   }
 
-  // isErr() narrows to Err<E, C> - clean predicate, not { ok: false; error: E; cause?: C }
+  // isErr() narrows to Err<E> - clean predicate, not { ok: false; error: E }
   if (isErr(result)) {
-    expectType<Err<"NOT_FOUND", Error>>(result);
+    expectType<Err<"NOT_FOUND">>(result);
     expectType<"NOT_FOUND">(result.error);
-    expectType<Error | undefined>(result.cause);
+    // `Result` carries no cause type, so cause is unknown once widened to one.
+    // err() still returns Err<E, C> with the cause typed — see TEST 14.
+    expectType<unknown>(result.cause);
   }
 }
 
@@ -532,7 +566,7 @@ function _test6b() {
 function _test6c() {
   const mayFail: Result<number, "NOT_FOUND"> = err("NOT_FOUND");
 
-  // recover() always returns Ok<T> - clean type, not Result<number, never, never>
+  // recover() always returns Ok<T> - clean type, not Result<number, never>
   const recovered = recover(mayFail, () => 0);
   expectType<Ok<number>>(recovered);
   expectType<number>(recovered.value);
@@ -886,17 +920,17 @@ function _test14TypedCause() {
 // =============================================================================
 
 function _test15MapErrorPreservesCause() {
-  // Use type assertion to get a properly typed Result for testing cause preservation
-  const original = err("A", { cause: new Error() }) as Result<number, "A", Error>;
+  const original = err("A", { cause: new Error() }) as Result<number, "A">;
 
   const mapped = mapError(original, () => "B" as const);
 
-  // Error type is transformed, cause type is preserved
-  expectType<Result<number, "B", Error>>(mapped);
+  // Error type is transformed
+  expectType<Result<number, "B">>(mapped);
 
   if (!mapped.ok) {
-    // Cause is preserved through mapError
-    expectType<Error | undefined>(mapped.cause);
+    // The cause value still travels at runtime; `Result` just does not carry
+    // its type, so it reads as unknown rather than Error.
+    expectType<unknown>(mapped.cause);
   }
 }
 
@@ -905,15 +939,15 @@ function _test15MapErrorPreservesCause() {
 // =============================================================================
 
 function _test16MatchTypedCause() {
-  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR", Error>;
+  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR">;
 
   const matched = match(result, {
     ok: (v) => String(v),
     err: (error, cause) => {
       expectType<"ERROR">(error);
-      // Cause is typed as Error | undefined
-      expectType<Error | undefined>(cause);
-      return cause?.message ?? error;
+      // `Result` carries no cause type, so handlers receive unknown
+      expectType<unknown>(cause);
+      return error;
     }
   });
   expectType<string>(matched);
@@ -924,13 +958,11 @@ function _test16MatchTypedCause() {
 // =============================================================================
 
 function _test17TapErrorTypedCause() {
-  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR", Error>;
+  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR">;
 
   tapError(result, (error, cause) => {
     expectType<"ERROR">(error);
-    expectType<Error | undefined>(cause);
-    // Can access Error properties
-    console.log(cause?.message);
+    expectType<unknown>(cause);
   });
 }
 
@@ -939,14 +971,13 @@ function _test17TapErrorTypedCause() {
 // =============================================================================
 
 function _test18MapPreservesCause() {
-  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR", Error>;
+  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR">;
   const mapped = map(result, (n) => n.toString());
 
-  // Cause type preserved through map
-  expectType<Result<string, "ERROR", Error>>(mapped);
+  expectType<Result<string, "ERROR">>(mapped);
 
   if (!mapped.ok) {
-    expectType<Error | undefined>(mapped.cause);
+    expectType<unknown>(mapped.cause);
   }
 }
 
@@ -959,19 +990,18 @@ function _test19AndThenCauseUnion() {
   type CauseB = { typeB: number };
 
   // Use type assertions to get properly typed Results
-  const resultA = ok(42) as Result<number, "A", CauseA>;
-  const resultB = ok("hello") as Result<string, "B", CauseB>;
+  const resultA = ok(42) as Result<number, "A">;
+  const resultB = ok("hello") as Result<string, "B">;
 
   const chained = andThen(resultA, (n) =>
-    n > 0 ? resultB : (err("B" as const, { cause: { typeB: 0 } }) as Result<string, "B", CauseB>)
+    n > 0 ? resultB : (err("B" as const, { cause: { typeB: 0 } }) as Result<string, "B">)
   );
 
   // Both error and cause types are unioned
-  expectType<Result<string, "A" | "B", CauseA | CauseB>>(chained);
+  expectType<Result<string, "A" | "B">>(chained);
 
   if (!chained.ok) {
-    // Cause is union of input causes
-    expectType<CauseA | CauseB | undefined>(chained.cause);
+    expectType<unknown>(chained.cause);
   }
 }
 
@@ -980,11 +1010,11 @@ function _test19AndThenCauseUnion() {
 // =============================================================================
 
 function _test20ExtractCause() {
-  type R = Result<number, "ERROR", Error>;
-  type Cause = ExtractCause<R>;
+  // `Result` carries no cause type, so extracting from one yields unknown.
+  expectType<unknown>({} as ExtractCause<Result<number, "ERROR">>);
 
-  // ExtractCause extracts C from the type, which is Error (the cause field is cause?: C)
-  expectType<Error>({} as Cause);
+  // It still reads a real cause off the Err that err() returns.
+  expectType<Error>({} as ExtractCause<Err<"ERROR", Error>>);
 }
 
 // =============================================================================
@@ -992,18 +1022,18 @@ function _test20ExtractCause() {
 // =============================================================================
 
 // Test helper functions for CauseOf tests
-declare const fetchWithCause: (id: string) => Result<User, "NOT_FOUND", Error>;
-declare const asyncFetchWithCause: (id: string) => AsyncResult<User, "NOT_FOUND", TypeError>;
-declare const fetchUserWithCause: (id: string) => AsyncResult<User, "NOT_FOUND", Error>;
+declare const fetchWithCause: (id: string) => Result<User, "NOT_FOUND">;
+declare const asyncFetchWithCause: (id: string) => AsyncResult<User, "NOT_FOUND">;
+declare const fetchUserWithCause: (id: string) => AsyncResult<User, "NOT_FOUND">;
+declare const fetchErrWithCause: (id: string) => Err<"NOT_FOUND", TypeError>;
 
 function _test21CauseOf() {
-  // Function returning Result with typed cause
-  type FetchCause = CauseOf<typeof fetchWithCause>;
-  expectType<Error>({} as FetchCause);
+  // A function annotated to return Result reports no cause type.
+  expectType<unknown>({} as CauseOf<typeof fetchWithCause>);
+  expectType<unknown>({} as CauseOf<typeof asyncFetchWithCause>);
 
-  // Async function
-  type AsyncFetchCause = CauseOf<typeof asyncFetchWithCause>;
-  expectType<TypeError>({} as AsyncFetchCause);
+  // One returning Err<E, C> still reports it.
+  expectType<TypeError>({} as CauseOf<typeof fetchErrWithCause>);
 }
 
 // =============================================================================
@@ -1015,10 +1045,8 @@ async function _test22AsyncResultTypedCause() {
 
   if (!result.ok) {
     expectType<"NOT_FOUND">(result.error);
-    expectType<Error | undefined>(result.cause);
-    // Can access Error properties directly
-    result.cause?.message;
-    result.cause?.stack;
+    // AsyncResult carries no cause type; narrow the value to use it.
+    expectType<unknown>(result.cause);
   }
 }
 
@@ -1133,7 +1161,7 @@ async function _test26WorkflowPrimitiveArgs() {
 
 async function _test27WorkflowCauseIsUnknown() {
   // Function that returns a typed cause
-  const fetchWithTypedCause = async (id: string): AsyncResult<User, "NOT_FOUND", Error> => {
+  const fetchWithTypedCause = async (id: string): AsyncResult<User, "NOT_FOUND"> => {
     try {
       if (id === "1") return ok({ id, name: "Alice" });
       throw new Error("Not found");
@@ -1164,8 +1192,8 @@ async function _test27WorkflowCauseIsUnknown() {
 
 function _test28BatchPreservesCause() {
   // Results with typed causes
-  const resultA = ok(42) as Result<number, "A", Error>;
-  const resultB = ok("hello") as Result<string, "B", TypeError>;
+  const resultA = ok(42) as Result<number, "A">;
+  const resultB = ok("hello") as Result<string, "B">;
 
   const combined = all([resultA, resultB]);
 
@@ -1174,18 +1202,15 @@ function _test28BatchPreservesCause() {
     expectType<readonly [number, string]>(combined.value);
   }
 
-  // Test error path: error and cause types are unions
+  // Test error path: errors union; causes are not tracked on Result
   if (!combined.ok) {
     expectType<"A" | "B">(combined.error);
-    // Cause is union of input causes
-    expectType<Error | TypeError | undefined>(combined.cause);
+    expectType<unknown>(combined.cause);
   }
 
-  // Test any() preserves cause types too
   const anyResult = any([resultA, resultB]);
   if (!anyResult.ok) {
-    // Cause should be union of input causes
-    expectType<Error | TypeError | undefined>(anyResult.cause);
+    expectType<unknown>(anyResult.cause);
   }
 }
 
@@ -1735,9 +1760,11 @@ function _test45MapErrOverload() {
   // via contravariance (never is assignable to T).
   const mapped = map(errResult, (n: number) => n.toString());
 
-  // When input is Err<E, C>, output is Err<E, C>
-  expectType<Err<string, Error>>(mapped);
-  expectType<string>(mapped.error);
+  // When input is Err<E, C>, output is Err<E, C>. The error stays the literal
+  // "ERROR" rather than widening to string — err() takes a `const` type param
+  // so discriminants survive without the caller writing `as const`.
+  expectType<Err<"ERROR", Error>>(mapped);
+  expectType<"ERROR">(mapped.error);
   expectType<Error | undefined>(mapped.cause);
 }
 
@@ -1755,7 +1782,7 @@ function _test45bMapErrCallbackType() {
 }
 
 function _test45cMapErrAfterNarrowKeepsValueType() {
-  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR", Error>;
+  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR">;
 
   if (!result.ok) {
     map(result, (value) => {
@@ -1768,7 +1795,7 @@ function _test45cMapErrAfterNarrowKeepsValueType() {
 }
 
 function _test45dMapErrAfterNarrowStillLosesValue() {
-  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR", Error>;
+  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR">;
 
   if (!result.ok) {
     map(result, (value) => {
@@ -1802,11 +1829,11 @@ function _test46AndThenOkToErr() {
 
 function _test46AndThenOkToResult() {
   const okResult = ok(42);
-  const getResult = (): Result<string, "ERROR", TypeError> => ok("hello");
+  const getResult = (): Result<string, "ERROR"> => ok("hello");
   const chained = andThen(okResult, (_n) => getResult());
 
   // Ok -> Result returns Result (no E from input since Ok has no error)
-  expectType<Result<string, "ERROR", TypeError>>(chained);
+  expectType<Result<string, "ERROR">>(chained);
 }
 
 function _test46AndThenErrOverload() {
@@ -1833,7 +1860,7 @@ function _test46bAndThenErrCallbackType() {
 }
 
 function _test46cAndThenErrAfterNarrowKeepsValueType() {
-  const result = err("NOT_FOUND" as const, { cause: new Error() }) as Result<number, "NOT_FOUND", Error>;
+  const result = err("NOT_FOUND" as const, { cause: new Error() }) as Result<number, "NOT_FOUND">;
 
   if (!result.ok) {
     andThen(result, (value) => {
@@ -1846,7 +1873,7 @@ function _test46cAndThenErrAfterNarrowKeepsValueType() {
 }
 
 function _test46dAndThenErrAfterNarrowStillLosesValue() {
-  const result = err("NOT_FOUND" as const, { cause: new Error() }) as Result<number, "NOT_FOUND", Error>;
+  const result = err("NOT_FOUND" as const, { cause: new Error() }) as Result<number, "NOT_FOUND">;
 
   if (!result.ok) {
     andThen(result, (value) => {
@@ -1950,7 +1977,7 @@ async function _test52WorkflowRunInference() {
   const result1 = await workflow.run(async ({ step }) => {
     return 123;
   });
-  expectType<Result<number, "NOT_FOUND" | UnexpectedError, unknown>>(result1);
+  expectType<Result<number, "NOT_FOUND" | UnexpectedError>>(result1);
 
   // workflow.run(fn, exec) with exec options
   const result2 = await workflow.run(
@@ -1959,7 +1986,7 @@ async function _test52WorkflowRunInference() {
     },
     { onEvent: () => {} }
   );
-  expectType<Result<string, "NOT_FOUND" | UnexpectedError, unknown>>(result2);
+  expectType<Result<string, "NOT_FOUND" | UnexpectedError>>(result2);
 }
 
 // =============================================================================

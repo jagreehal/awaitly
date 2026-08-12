@@ -69,6 +69,16 @@ Disallow wrapping step calls in try/catch; prefer step.try().
 Do not wrap step() in try/catch. Use step.try() with explicit error mapping.
 ```
 
+### `step-no-deps-bypass` \{#step-no-deps-bypass\}
+
+Disallow calling a registered dependency directly inside a workflow callback. Call it through `deps.fn()` or the bound steps parameter so the injected implementation is the one that runs.
+
+- **ESLint rule:** `awaitly/step-no-deps-bypass`
+
+```text
+'{{name}}' is registered as a workflow dependency but called directly, so the injected implementation is ignored and tests cannot substitute it. Use deps.{{name}}(...) instead.
+```
+
 ### `step-stable-cache-keys` \{#step-stable-cache-keys\}
 
 Disallow non-deterministic values in cache keys. Using Date.now(), Math.random(), etc. means the cache will never hit.

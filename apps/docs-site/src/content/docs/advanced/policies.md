@@ -19,13 +19,13 @@ import { ok, run, retry, timeout, fallback, tryAsync, createWorkflow } from 'awa
 const charge = (amount: number) =>
   tryAsync(
     () => paymentGateway.charge(amount),
-    (cause) => ({ type: 'CHARGE_FAILED' as const, cause })
+    (cause) => ({ type: 'CHARGE_FAILED', cause })
   );
 
 const sendEmail = (to: string) =>
   tryAsync(
     () => emailService.send(to),
-    (cause) => ({ type: 'SEND_FAILED' as const, cause })
+    (cause) => ({ type: 'SEND_FAILED', cause })
   );
 
 // Standalone composition with run()

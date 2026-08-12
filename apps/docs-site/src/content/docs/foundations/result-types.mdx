@@ -300,7 +300,7 @@ import { tryAsync } from 'awaitly';
 
 const result = await tryAsync(
   () => fetch('/api/data').then(r => r.json()),
-  (thrown) => ({ type: 'FETCH_FAILED' as const, cause: thrown })
+  (thrown) => ({ type: 'FETCH_FAILED', cause: thrown })
 );
 // Success: { ok: true, value: { ...data } }
 // Failure: { ok: false, error: { type: 'FETCH_FAILED', cause: Error } }
@@ -483,7 +483,7 @@ import { tryAsync, retry } from 'awaitly';
 const fetchData = () =>
   tryAsync(
     () => fetch('/api/data').then(r => r.json()),
-    (cause) => ({ type: 'FETCH_FAILED' as const, cause })
+    (cause) => ({ type: 'FETCH_FAILED', cause })
   );
 
 const result = await retry(fetchData, {
@@ -505,7 +505,7 @@ import { tryAsync, timeout } from 'awaitly';
 const fetchData = () =>
   tryAsync(
     () => fetch('/api/data').then(r => r.json()),
-    (cause) => ({ type: 'FETCH_FAILED' as const, cause })
+    (cause) => ({ type: 'FETCH_FAILED', cause })
   );
 
 const result = await timeout(fetchData, 5000)();
@@ -524,7 +524,7 @@ import { ok, fallback, tryAsync } from 'awaitly';
 const fetchPrimary = () =>
   tryAsync(
     () => primaryCache.get(key),
-    () => ({ type: 'CACHE_MISS' as const })
+    () => ({ type: 'CACHE_MISS' })
   );
 
 const result = await fallback(fetchPrimary, () => ok({ value: 'default' }))();

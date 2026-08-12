@@ -592,6 +592,31 @@ export interface WorkflowInvocation {
 }
 
 /**
+ * Pick the workflow callback out of a `.run(...)` argument list.
+ *
+ * `run` is overloaded: the callback is first in `run(fn)` and `run(fn, config)`,
+ * but second in the named form `run('run-id', fn)`. Taking `args[0]` blindly
+ * selects the string literal for the named form, which leaves the callback
+ * unanalyzed and the workflow reported with zero steps.
+ *
+ * An inline function wins. Failing that the first non-string argument is used,
+ * which keeps `run(handler)` and `run('run-id', handler)` working where the
+ * callback is passed by identifier and resolved downstream.
+ */
+function findCallbackArgument(args: Node[]): Node | undefined {
+  const { Node: TsNode } = loadTsMorph();
+  const inlineFunction = args.find(
+    (arg) => TsNode.isArrowFunction(arg) || TsNode.isFunctionExpression(arg)
+  );
+  if (inlineFunction) return inlineFunction;
+
+  return args.find(
+    (arg) =>
+      !TsNode.isStringLiteral(arg) && !TsNode.isNoSubstitutionTemplateLiteral(arg)
+  );
+}
+
+/**
  * Check if a node is contained within another node (is a descendant).
  */
 function isDescendantOf(node: Node, potentialAncestor: Node): boolean {
@@ -816,7 +841,7 @@ export function findWorkflowInvocations(
         const args = node.getArguments();
         invocations.push({
           callExpression: node,
-          callbackArg: args[0],
+          callbackArg: findCallbackArgument(args),
         });
       }
     }

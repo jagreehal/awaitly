@@ -6,7 +6,7 @@
  * policy exported from the root `awaitly` entry.
  */
 
-import type { AsyncResult } from "./index";
+import type { AsyncResult, ErrorValue } from "./index";
 import { ok, err, tryAsync } from "./index";
 import type { RetryOptions } from "../core";
 import { UnexpectedError } from "../errors";
@@ -49,7 +49,7 @@ const sleep = (ms: number) =>
  * ```typescript
  * const result = await tryAsyncRetry(
  *   () => fetch('/api/data').then(r => r.json()),
- *   (cause) => ({ type: 'FETCH_FAILED' as const, cause }),
+ *   (cause) => ({ type: 'FETCH_FAILED', cause }),
  *   { retry: { attempts: 3, initialDelay: 100, backoff: 'exponential' } }
  * );
  * ```
@@ -58,7 +58,7 @@ export function tryAsyncRetry<T>(
   fn: () => Promise<T>,
   config: { retry: RetryOptions<unknown> }
 ): AsyncResult<T, unknown>;
-export function tryAsyncRetry<T, E>(
+export function tryAsyncRetry<T, const E extends ErrorValue>(
   fn: () => Promise<T>,
   onError: (cause: unknown) => E,
   config: { retry: RetryOptions<E> }
@@ -118,7 +118,7 @@ export async function tryAsyncRetry<T, E>(
  * });
  * ```
  */
-export function tryAsyncBoundary<T, E>(
+export function tryAsyncBoundary<T, const E extends ErrorValue>(
   config: TryAsyncBoundaryConfig<T, E>
 ): AsyncResult<T, E>;
 export function tryAsyncBoundary<T>(
@@ -127,7 +127,7 @@ export function tryAsyncBoundary<T>(
     retry?: RetryOptions<UnexpectedError>;
   }
 ): AsyncResult<T, UnexpectedError>;
-export function tryAsyncBoundary<T, E>(
+export function tryAsyncBoundary<T, const E extends ErrorValue>(
   config:
     | { try: () => Promise<T>; retry?: RetryOptions<UnexpectedError> }
     | TryAsyncBoundaryConfig<T, E>

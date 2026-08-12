@@ -176,7 +176,7 @@ const generateEmbeddings = async (documents: Document[]) => {
       });
 
       if (!response.ok) {
-        return err('EMBED_FAILED' as const);
+        return err('EMBED_FAILED');
       }
 
       return ok({
@@ -368,7 +368,7 @@ async function processWithRecovery(items: Item[]): Promise<Result<void, unknown>
         return ok(item.id);
       } catch (error) {
         progress.failedIds.push(item.id);
-        return err('ITEM_FAILED' as const);
+        return err('ITEM_FAILED');
       }
     },
     batchPresets.conservative,

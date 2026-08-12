@@ -169,6 +169,8 @@ matchError(result.error, {
 });
 ```
 
+Handlers are keyed by **tag**: a string error is its own tag, a `TaggedError` class is keyed by its `type`. A union may mix the two — `AsyncResult<Order, 'NOT_FOUND' | ValidationError>` matches with `NOT_FOUND` and `ValidationError` keys, and the matched member arrives narrowed, so a class's props are reachable without a guard. **MUST NOT** use a `switch` for class errors: `case ValidationError:` compares an instance to the constructor and never matches.
+
 ### R5: All async work inside workflows must go through step()
 
 **MUST** use `step()` or a step helper for every async operation. **MUST NOT** use bare `await` on async deps inside workflow callbacks. Replace with `await step('id', () => deps.fn())`.
@@ -457,7 +459,7 @@ const result = await run<Order, MyErrors>(
     const order = await step('createOrder', () => createOrder(user));
     return order;
   },
-  { catchUnexpected: () => 'UNEXPECTED' as const }
+  { catchUnexpected: () => 'UNEXPECTED' }
 );
 // result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED' (custom unexpected)
 ```
@@ -821,7 +823,7 @@ const result = await run<Order, MyErrors>(
     const order = await step('createOrder', () => createOrder(user));
     return order;
   },
-  { catchUnexpected: () => 'UNEXPECTED' as const }
+  { catchUnexpected: () => 'UNEXPECTED' }
 );
 // result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED' (custom unexpected)
 ```
