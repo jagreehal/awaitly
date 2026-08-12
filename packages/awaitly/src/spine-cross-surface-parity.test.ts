@@ -17,6 +17,7 @@ const EXPECTED_LINT_SLUGS = new Set([
   'step-stable-cache-keys',
   'step-no-bare-await',
   'step-no-try-catch-wrap',
+  'step-no-deps-bypass',
   'workflow-no-floating',
   'workflow-options-position',
   'workflow-callback-shape',

@@ -115,36 +115,31 @@ async function fetchApi(): AsyncResult<Data, 'FETCH_FAILED'> {
   </TabItem>
 </Tabs>
 
-### Error type is `unknown` instead of my expected types
+### My error type is wider than I expected
 
-This happens when TypeScript can't infer your error types.
+`err()` takes a `const` type parameter, so error literals keep their literal
+type on their own — no `as const` required:
 
-<Tabs>
-  <TabItem label="Problem">
 ```typescript
-// Error type is unknown
 const fetchUser = async (id: string) => {
   const user = await db.find(id);
   return user ? ok(user) : err('NOT_FOUND');
 };
+// error type is 'NOT_FOUND', not string
 ```
-  </TabItem>
-  <TabItem label="Solution">
+
+Annotating the return type is still worth doing when you want one named error
+union that the compiler checks every branch against:
+
 ```typescript
-// Use explicit return type annotation
 const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
   const user = await db.find(id);
   return user ? ok(user) : err('NOT_FOUND');
 };
-
-// Or use 'as const' for literal types
-const fetchUser = async (id: string) => {
-  const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND' as const);
-};
 ```
-  </TabItem>
-</Tabs>
+
+Annotating also keeps inferred error *objects* free of `readonly` modifiers,
+which matters if an error carries an array you later assign to a mutable type.
 
 ## Runtime Errors
 
@@ -350,21 +345,6 @@ await Promise.all(ids.map(id => fetchUserOnce(id)));
 ```
 
 ## Common Mistakes
-
-### Forgetting `as const` for error literals
-
-```typescript
-// Bad: error type is string
-return err('NOT_FOUND');
-
-// Good: error type is 'NOT_FOUND'
-return err('NOT_FOUND' as const);
-
-// Best: explicit return type handles this
-async function fn(): AsyncResult<User, 'NOT_FOUND'> {
-  return err('NOT_FOUND');  // Automatically literal
-}
-```
 
 ### Using step() outside workflow
 

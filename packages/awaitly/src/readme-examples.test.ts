@@ -137,7 +137,7 @@ describe("README: createWorkflow", () => {
 
 describe("README: Smart Caching (never double-charge)", () => {
   it("skips a keyed step whose result is already cached", async () => {
-    const cache: StepCache = new Map<string, Result<unknown, unknown, unknown>>();
+    const cache: StepCache = new Map<string, Result<unknown, unknown>>();
     const chargeCard = vi.fn(
       async (amount: number): AsyncResult<Payment, "DECLINED"> =>
         ok({ id: "p-1", amount })

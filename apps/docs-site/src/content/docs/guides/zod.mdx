@@ -281,7 +281,7 @@ const deps = {
     return Promise.resolve(
       parsed.success
         ? ok(parsed.data)
-        : err({ type: 'VALIDATION' as const, issues: parsed.error.issues })
+        : err({ type: 'VALIDATION', issues: parsed.error.issues })
     );
   },
 

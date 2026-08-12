@@ -515,7 +515,7 @@ export interface MemoryCacheOptions {
 export function createMemoryCache(options: MemoryCacheOptions = {}): StepCache {
   const { maxSize, ttl } = options;
   const cache = new Map<string, {
-    result: Result<unknown, unknown, unknown>;
+    result: Result<unknown, unknown>;
     timestamp: number;
     entryTtl?: number;
   }>();
@@ -554,7 +554,7 @@ export function createMemoryCache(options: MemoryCacheOptions = {}): StepCache {
   };
 
   return {
-    get(key: string): Result<unknown, unknown, unknown> | undefined {
+    get(key: string): Result<unknown, unknown> | undefined {
       evictExpired();
       const entry = cache.get(key);
       if (!entry) return undefined;
@@ -565,7 +565,7 @@ export function createMemoryCache(options: MemoryCacheOptions = {}): StepCache {
       return entry.result;
     },
 
-    set(key: string, result: Result<unknown, unknown, unknown>, options?: { ttl?: number }): void {
+    set(key: string, result: Result<unknown, unknown>, options?: { ttl?: number }): void {
       evictExpired();
       evictOldest();
       cache.set(key, { result, timestamp: Date.now(), entryTtl: options?.ttl });

@@ -649,8 +649,7 @@ export const durable = {
       | ConcurrentExecutionError
       | PersistenceError
       | LeaseExpiredError
-      | IdempotencyConflictError,
-      unknown
+      | IdempotencyConflictError
     >
   > {
     const {
@@ -685,7 +684,7 @@ export const durable = {
       // In-process dedup (synchronous check — prevents TOCTOU race between concurrent async loads)
       const pending = pendingIdempotencyRuns.get(idemId);
       if (pending) {
-        return (await pending) as Result<T, ErrorsOfDeps<Deps> | UnexpectedError | WorkflowCancelledError | VersionMismatchError | ConcurrentExecutionError | PersistenceError | LeaseExpiredError | IdempotencyConflictError, unknown>;
+        return (await pending) as Result<T, ErrorsOfDeps<Deps> | UnexpectedError | WorkflowCancelledError | VersionMismatchError | ConcurrentExecutionError | PersistenceError | LeaseExpiredError | IdempotencyConflictError>;
       }
 
       // Register ourselves synchronously before any async work
@@ -715,7 +714,7 @@ export const durable = {
           // If completed with a stored result, return it
           if (idemSnapshot.execution.status === "completed" && idemSnapshot.metadata?.finalResult !== undefined) {
             // Return the stored result directly
-            const result = idemSnapshot.metadata.finalResult as Result<T, ErrorsOfDeps<Deps> | UnexpectedError | WorkflowCancelledError | VersionMismatchError | ConcurrentExecutionError | PersistenceError | LeaseExpiredError | IdempotencyConflictError, unknown>;
+            const result = idemSnapshot.metadata.finalResult as Result<T, ErrorsOfDeps<Deps> | UnexpectedError | WorkflowCancelledError | VersionMismatchError | ConcurrentExecutionError | PersistenceError | LeaseExpiredError | IdempotencyConflictError>;
             resolveIdempotencyRun!(result);
             pendingIdempotencyRuns.delete(idemId);
             resolveIdempotencyRun = undefined;
@@ -1119,7 +1118,7 @@ export const durable = {
       }
 
       // Execute workflow (snapshot validation may throw SnapshotFormatError at run time)
-      let result: Result<T, E | UnexpectedError | PersistenceError, unknown>;
+      let result: Result<T, E | UnexpectedError | PersistenceError>;
       try {
         result = await workflowInstance!.run(fn);
         if (shapeDrift) {

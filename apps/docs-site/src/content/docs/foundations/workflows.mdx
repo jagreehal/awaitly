@@ -295,7 +295,7 @@ const result = await workflow.run(async ({ step, deps }) => { /* ... */ });
 // Custom unexpected - your shape replaces UnexpectedError
 const workflow = createWorkflow('workflow', deps, {
   catchUnexpected: (cause) => ({
-    type: 'UNEXPECTED' as const,
+    type: 'UNEXPECTED',
     cause
   })
 });
@@ -394,7 +394,7 @@ const result = await workflow.run(async ({ step, deps, ctx }) => {
 
   // Check if cancelled
   if (ctx.signal?.aborted) {
-    return err('CANCELLED' as const);
+    return err('CANCELLED');
   }
   return ok(response);
 });

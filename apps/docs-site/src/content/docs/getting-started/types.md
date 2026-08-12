@@ -12,12 +12,18 @@ without you writing that list down. This page states exactly what you get and wh
 Everything is one of these:
 
 ```typescript
-type Ok<T>        = { ok: true;  value: T };
-type Err<E, C>    = { ok: false; error: E; cause?: C };
+type Ok<T>             = { ok: true;  value: T };
+type Err<E, C = unknown> = { ok: false; error: E; cause?: C };
 
-type Result<T, E, C = unknown>      = Ok<T> | Err<E, C>;
-type AsyncResult<T, E, C = unknown> = Promise<Result<T, E, C>>;
+type Result<T, E = unknown>      = Ok<T> | Err<E>;
+type AsyncResult<T, E = unknown> = Promise<Result<T, E>>;
 ```
+
+`Result` takes two type parameters, not three. `cause` is always present at
+runtime — it carries whatever was originally thrown — but its *type* is only
+tracked on `Err`, where `err(error, { cause })` infers it. Once a value is
+widened to a `Result`, which is what annotating a function's return type does,
+`cause` reads as `unknown` and you narrow it yourself.
 
 `AsyncResult<T, E>` is just `Promise<Result<T, E>>`. Use it as the return type of any
 async operation that can fail.

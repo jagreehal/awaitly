@@ -144,7 +144,7 @@ For input-dependent behaviour, pass a plain dep function — it returns a
 ```typescript
 const harness = createWorkflowHarness({
   fetchUser: async (id: string) =>
-    id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND' as const),
+    id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND'),
 });
 ```
 
@@ -190,7 +190,7 @@ const result = await testWorkflow.run(
   async ({ step, deps }) => step('chargeCard', () => deps.chargeCard(100)),
   {
     deps: {
-      chargeCard: async () => err('DECLINED' as const),
+      chargeCard: async () => err('DECLINED'),
     },
   }
 );
@@ -389,7 +389,7 @@ describe('payment saga', () => {
     // Deps are functions returning Results.
     const harness = createSagaHarness({
       chargePayment: async () => ok({ id: 'pay_1', amount: 100 }),
-      reserveInventory: async () => err('OUT_OF_STOCK' as const),
+      reserveInventory: async () => err('OUT_OF_STOCK'),
       refundPayment: async () => ok(undefined),
     });
 

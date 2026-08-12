@@ -33,7 +33,8 @@ export type DiagrammabilityIssueKind =
   | "raw-conditional"
   | "raw-loop"
   | "unbounded-loop"
-  | "unknown-node";
+  | "unknown-node"
+  | "empty-diagram";
 
 export interface DiagrammabilityIssue {
   /** What kind of determinism gap this is */
@@ -51,7 +52,7 @@ export interface DiagrammabilityIssue {
 export interface DiagrammabilityReport {
   /** True iff the diagram is fully deterministic (no issues) */
   deterministic: boolean;
-  /** 0-100: share of flow nodes with no determinism gap (100 when empty) */
+  /** 0-100: share of flow nodes with no determinism gap (0 when nothing resolved) */
   score: number;
   /** Total flow nodes considered */
   totalNodes: number;
@@ -99,8 +100,31 @@ export function computeDiagrammability(
 
   visit(ir.root.children);
 
+  // A workflow that resolved to no flow nodes has no diagram to score. Calling
+  // that "fully diagrammable" hands a CI gate a pass on a workflow the analyzer
+  // could not read — the failure mode `--assert-diagrammable` exists to catch.
+  // Report it as a gap so the gate fails and the reason is visible.
+  if (total === 0) {
+    return {
+      deterministic: false,
+      score: 0,
+      totalNodes: 0,
+      deterministicNodes: 0,
+      issues: [
+        {
+          kind: "empty-diagram",
+          message:
+            "Workflow resolved to no diagrammable nodes, so there is no diagram to verify.",
+          suggestion:
+            "Check that the workflow's callback is passed inline to run(); a callback the analyzer cannot resolve produces an empty diagram.",
+          nodeId: ir.root.id,
+        },
+      ],
+    };
+  }
+
   const deterministicNodes = total - flagged;
-  const score = total === 0 ? 100 : Math.round((deterministicNodes / total) * 100);
+  const score = Math.round((deterministicNodes / total) * 100);
 
   return {
     deterministic: issues.length === 0,

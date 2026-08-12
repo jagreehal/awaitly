@@ -435,7 +435,7 @@ export interface SimpleHandlerConfig<TInput, TOutput, TError, TBody = unknown> {
  *   },
  *   handler: async ({ id }) => {
  *     const user = await db.findUser(id);
- *     return user ? ok(user) : err('NOT_FOUND' as const);
+ *     return user ? ok(user) : err('NOT_FOUND');
  *   },
  *   mapResult: (result) => {
  *     if (result.ok) return { status: 200, body: result.value };

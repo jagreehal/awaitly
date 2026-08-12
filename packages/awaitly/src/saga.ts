@@ -193,13 +193,13 @@ export type SagaEvent =
   | { type: "saga_compensation_step"; sagaId: string; stepName?: string; ts: number; success: boolean; error?: unknown }
   | { type: "saga_compensation_end"; sagaId: string; ts: number; durationMs: number; success: boolean; failedCount: number };
 
-export type SagaResult<T, E> = Result<T, E | UnexpectedError | SagaCompensationError, unknown>;
+export type SagaResult<T, E> = Result<T, E | UnexpectedError | SagaCompensationError>;
 
 /** Saga step function — like RunStep but every step takes an optional compensate. */
 export interface SagaStep<E = unknown> {
-  <T, StepE extends E, StepC = unknown>(
+  <T, StepE extends E>(
     name: string,
-    operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
+    operation: () => Result<T, StepE> | AsyncResult<T, StepE>,
     options?: SagaStepOptions<T>
   ): Promise<T>;
   try: <T, Err extends E>(
@@ -237,9 +237,9 @@ export async function runSaga<T, E>(
 
   emit({ type: "saga_start", sagaId, ts: Date.now() });
 
-  const stepFn = async <V, StepE extends E, StepC = unknown>(
+  const stepFn = async <V, StepE extends E>(
     name: string,
-    operation: () => Result<V, StepE, StepC> | AsyncResult<V, StepE, StepC>,
+    operation: () => Result<V, StepE> | AsyncResult<V, StepE>,
     stepOptions?: SagaStepOptions<V>
   ): Promise<V> => {
     if (typeof name !== "string" || name.length === 0) {

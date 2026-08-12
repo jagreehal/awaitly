@@ -10,6 +10,7 @@ const CANONICAL_LINT_SLUGS = [
   'step-stable-cache-keys',
   'step-no-bare-await',
   'step-no-try-catch-wrap',
+  'step-no-deps-bypass',
   'workflow-no-floating',
   'workflow-options-position',
   'workflow-callback-shape',

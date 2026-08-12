@@ -200,3 +200,13 @@ describe("computeDiagrammability (integration)", () => {
     expect(report.issues.map((i) => i.kind)).toContain("raw-conditional");
   });
 });
+
+describe("workflows that resolved to no nodes", () => {
+  it("does not report an empty diagram as fully diagrammable", () => {
+    const report = computeDiagrammability(makeIR([]));
+
+    expect(report.deterministic).toBe(false);
+    expect(report.score).toBe(0);
+    expect(report.issues.map((i) => i.kind)).toEqual(["empty-diagram"]);
+  });
+});

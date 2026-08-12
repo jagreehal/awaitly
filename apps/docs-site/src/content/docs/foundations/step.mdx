@@ -216,7 +216,8 @@ Workflow returns { ok: false, error: 'FETCH_FAILED' }
 ```
 
 <Aside type="tip" title="Error type safety">
-The `as const` assertion is important. It tells TypeScript this is the literal string `'FETCH_FAILED'`, not just `string`.
+No `as const` needed — `error` is a `const` type parameter, so TypeScript keeps
+the literal string `'FETCH_FAILED'` rather than widening it to `string`.
 </Aside>
 
 The error type is added to the workflow's error union automatically.
@@ -237,7 +238,7 @@ const data = await step.fromResult(
   () => callApi(),
   {
     onError: (apiError) => ({
-      type: 'API_ERROR' as const,
+      type: 'API_ERROR',
       ...apiError,
     }),
   }

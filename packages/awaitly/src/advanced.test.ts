@@ -375,7 +375,7 @@ describe('Advanced Examples', () => {
         ok([{ id: 1, title: 'Hello' }]);
 
       const userResult = await fetchUser('1');
-      const userPosts = await (andThen as <T, U, E, F, C1, C2>(r: Result<T, E, C1>, fn: (value: T) => Result<U, F, C2> | AsyncResult<U, F, C2>) => Result<U, E | F, C1 | C2> | AsyncResult<U, E | F, C1 | C2>)(userResult, (user) => fetchPosts(user.id));
+      const userPosts = await (andThen as <T, U, E, F, C1, C2>(r: Result<T, E>, fn: (value: T) => Result<U, F> | AsyncResult<U, F>) => Result<U, E | F> | AsyncResult<U, E | F>)(userResult, (user) => fetchPosts(user.id));
 
       expect(userPosts.ok).toBe(true);
       if (userPosts.ok) {

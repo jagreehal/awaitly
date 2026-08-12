@@ -80,13 +80,34 @@ export type Err<E, C = unknown> = {
  * @template E - The type of the error value (defaults to unknown)
  * @template C - The type of the cause (defaults to unknown)
  */
-export type Result<T, E = unknown, C = unknown> = Ok<T> | Err<E, C>;
+export type Result<T, E = unknown> = Ok<T> | Err<E>;
 
 /**
  * A Promise that resolves to a Result.
  * Use this for asynchronous operations that might fail.
  */
-export type AsyncResult<T, E = unknown, C = unknown> = Promise<Result<T, E, C>>;
+export type AsyncResult<T, E = unknown> = Promise<Result<T, E>>;
+
+/**
+ * Constraint used on error type parameters that are inferred from a callback's
+ * return value, e.g. the `onError` of {@link tryAsync} or {@link from}.
+ *
+ * This is `unknown` written out as a union of its constituents, so it accepts
+ * exactly what `unknown` accepts and rejects nothing. The spelling is what
+ * matters: a bare `const E` does not produce literal inference through a
+ * function's return position, so `() => 'PARSE_ERROR'` widens to `string`,
+ * while `const E extends ErrorValue` keeps the literal. Object literals keep
+ * theirs either way — only primitives need the constraint.
+ */
+export type ErrorValue =
+  | string
+  | number
+  | bigint
+  | boolean
+  | symbol
+  | object
+  | null
+  | undefined;
 
 /** Discriminant for PromiseRejectedError type - use in switch statements */
 export const PROMISE_REJECTED = "PROMISE_REJECTED" as const;
@@ -171,7 +192,7 @@ export type PromiseRejectedError = { type: typeof PROMISE_REJECTED; cause: unkno
 /** Cause type for promise rejections in async batch helpers */
 export type PromiseRejectionCause = { type: "PROMISE_REJECTION"; reason: unknown };
 export type EmptyInputError = { type: "EMPTY_INPUT"; message: string };
-export type MaybeAsyncResult<T, E, C = unknown> = Result<T, E, C> | Promise<Result<T, E, C>>;
+export type MaybeAsyncResult<T, E = unknown> = Result<T, E> | Promise<Result<T, E>>;
 
 // =============================================================================
 // Result Constructors
@@ -218,10 +239,23 @@ export function ok<T>(value: T): Ok<T> {
  *
  * // Error with context (include in error object)
  * const r2 = err({ type: "PROCESSING_FAILED", cause: originalError });
- * // Type: Err<{ type: string; cause: Error }>
+ * // Type: Err<{ readonly type: "PROCESSING_FAILED"; readonly cause: Error }>
  * ```
  */
-export function err<E, C = unknown>(error: E, options?: { cause?: C }): Err<E, C> {
+// `const E` so the discriminant survives inference. Without it,
+// `err({ type: "NOT_FOUND" })` widens to `{ type: string }`, which silently
+// destroys the discriminated union for any dep that doesn't annotate its
+// return type — no exhaustive switch, no narrowing on `.type`. Callers used to
+// need `as const` to get this back; now they don't.
+//
+// The cost is `readonly` modifiers on inferred error literals, so an inferred
+// error object containing an array (`{ fields: ["email"] }`) is a readonly
+// tuple and won't assign to a mutable `string[]`. Annotating the function's
+// return type — the documented pattern — makes it contextual and avoids this.
+// Deliberately NOT unwrapped with a `Mutable<E>` helper: that flattens
+// `Error`/`TaggedError` instances into structural objects, which is a worse
+// and far more common regression than the readonly-array papercut it fixes.
+export function err<const E, C = unknown>(error: E, options?: { cause?: C }): Err<E, C> {
   const cause = options?.cause;
   return { ok: false as const, error, ...(cause !== undefined ? { cause } : {}) } as Err<E, C>;
 }
@@ -251,7 +285,7 @@ export function err<E, C = unknown>(error: E, options?: { cause?: C }): Err<E, C
  * }
  * ```
  */
-export const isOk = <T, E, C>(r: Result<T, E, C>): r is Ok<T> => r.ok;
+export const isOk = <T, E>(r: Result<T, E>): r is Ok<T> => r.ok;
 
 /**
  * Checks if a Result is a failure.
@@ -271,7 +305,7 @@ export const isOk = <T, E, C>(r: Result<T, E, C>): r is Ok<T> => r.ok;
  * // Proceed with success case
  * ```
  */
-export const isErr = <T, E, C>(r: Result<T, E, C>): r is Err<E, C> => !r.ok;
+export const isErr = <T, E>(r: Result<T, E>): r is Err<E> => !r.ok;
 
 /**
  * Checks if an error is an UnexpectedError.
@@ -312,8 +346,36 @@ export const isPromiseRejectedError = (e: unknown): e is PromiseRejectedError =>
  * Type for exhaustive error handlers mapping string literal errors and UnexpectedError.
  * Each key in E gets a handler, plus UnexpectedError is required.
  */
-export type MatchErrorHandlers<E extends string, R> = {
-  [K in Exclude<E, "UnexpectedError">]: (error: K) => R;
+/**
+ * The discriminant of one member of an error union.
+ *
+ * A bare string error is its own tag; a tagged object or `TaggedError` class
+ * is keyed by its `type` (with the deprecated `_tag` accepted as a fallback),
+ * so one set of handlers covers a union that mixes both shapes.
+ */
+export type ErrorTagOf<E> = E extends string
+  ? E
+  : E extends { readonly type: infer T extends string }
+    ? T
+    : E extends { readonly _tag: infer T extends string }
+      ? T
+      : never;
+
+/** The member of error union `E` carrying tag `K`. */
+export type ErrorByTag<E, K extends string> = E extends string
+  ? E extends K
+    ? E
+    : never
+  : E extends { readonly type: K }
+    ? E
+    : E extends { readonly _tag: K }
+      ? E
+      : never;
+
+export type MatchErrorHandlers<E, R> = {
+  [K in Exclude<ErrorTagOf<E>, "UnexpectedError">]: (
+    error: ErrorByTag<E, K>
+  ) => R;
 } & {
   UnexpectedError: (error: UnexpectedError) => R;
 };
@@ -340,14 +402,14 @@ export type MatchErrorHandlers<E extends string, R> = {
  * }
  * ```
  */
-export function matchError<E extends string, R>(
+export function matchError<E, R>(
   handlers: MatchErrorHandlers<E, R>
 ): (error: E | UnexpectedError) => R;
-export function matchError<E extends string, R>(
+export function matchError<E, R>(
   error: E | UnexpectedError,
   handlers: MatchErrorHandlers<E, R>
 ): R;
-export function matchError<E extends string, R>(
+export function matchError<E, R>(
   errorOrHandlers: E | UnexpectedError | MatchErrorHandlers<E, R>,
   handlers?: MatchErrorHandlers<E, R>
 ): R | ((error: E | UnexpectedError) => R) {
@@ -360,9 +422,23 @@ export function matchError<E extends string, R>(
   if (isUnexpectedError(error)) {
     return handlers.UnexpectedError(error as UnexpectedError);
   }
-  // Handle string literal errors
-  type StringErrors = Exclude<E, "UnexpectedError">;
-  return handlers[error as StringErrors](error as StringErrors);
+  // A bare string error is its own tag; anything else is keyed by `type`,
+  // falling back to the deprecated `_tag`. This is what lets one handler
+  // object cover a union that mixes string tags and TaggedError classes.
+  const tag =
+    typeof error === "string"
+      ? error
+      : ((error as { type?: string; _tag?: string } | null)?.type ??
+        (error as { _tag?: string } | null)?._tag);
+  const handler = (handlers as unknown as Record<string, (e: unknown) => R>)[
+    tag as string
+  ];
+  if (!handler) {
+    throw new Error(
+      `[awaitly] matchError: no handler for error tag ${JSON.stringify(tag)}`
+    );
+  }
+  return handler(error);
 }
 
 // =============================================================================
@@ -915,16 +991,16 @@ export type RetryOptions<E = unknown> = {
  * - 'disconnect': Let the operation complete in background, return timeout error immediately
  * - function: Custom handler to generate the timeout error
  */
-export type TimeoutBehavior =
+export type TimeoutBehavior<TErr = unknown> =
   | "error"
   | "option"
   | "disconnect"
-  | ((stepInfo: { name?: string; key?: string; ms: number }) => unknown);
+  | ((stepInfo: { name?: string; key?: string; ms: number }) => TErr);
 
 /**
  * Configuration for step timeout behavior.
  */
-export type TimeoutOptions = {
+export type TimeoutOptions<TErr = unknown> = {
   /**
    * Timeout duration in milliseconds per attempt.
    * When combined with retry, each attempt gets its own timeout.
@@ -933,9 +1009,14 @@ export type TimeoutOptions = {
 
   /**
    * Custom error to use when timeout occurs.
+   *
+   * On `step.withTimeout` this is checked against the workflow's error union,
+   * so a tag that is not in it is a compile error rather than a silent
+   * `unknown`. Add new tags with `errors: [...]`.
+   *
    * @default StepTimeoutError with step details
    */
-  error?: unknown;
+  error?: TErr;
 
   /**
    * Whether to pass an AbortSignal to the operation.
@@ -966,14 +1047,19 @@ export type TimeoutOptions = {
    * // Disconnect: Don't wait for slow operation
    * step.withTimeout(() => fireAndForget(), { ms: 5000, onTimeout: 'disconnect' });
    *
-   * // Custom error
-   * step.withTimeout(() => apiCall(), {
-   *   ms: 5000,
-   *   onTimeout: ({ name, ms }) => ({ type: 'API_TIMEOUT', name, ms })
-   * });
+   * // Custom error — the tag must be in the workflow's error union, so
+   * // declare it with `errors: [...]` on createWorkflow. An undeclared tag
+   * // is a compile error rather than a silent `unknown`.
+   * const workflow = createWorkflow({ apiCall }, { errors: ['API_TIMEOUT'] });
+   * await workflow.run(async ({ step, deps }) =>
+   *   step.withTimeout('apiCall', () => deps.apiCall(), {
+   *     ms: 5000,
+   *     onTimeout: () => 'API_TIMEOUT',
+   *   })
+   * );
    * ```
    */
-  onTimeout?: TimeoutBehavior;
+  onTimeout?: TimeoutBehavior<TErr>;
 };
 
 /**
@@ -1084,9 +1170,9 @@ export interface RunStep<E = unknown> {
    * });
    * ```
    */
-  <T, StepE extends E, StepC = unknown>(
+  <T, StepE extends E>(
     id: string,
-    operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
+    operation: () => Result<T, StepE> | AsyncResult<T, StepE>,
     options?: StepOptions
   ): Promise<T>;
 
@@ -1112,7 +1198,7 @@ export interface RunStep<E = unknown> {
    *
    * // With retry + timeout
    * const data = await step.try("api-call", () => callApi(), {
-   *   onError: (e) => "API_ERROR" as const,
+   *   onError: (e) => "API_ERROR",
    *   retry: { attempts: 3, initialDelay: 100 },
    *   timeout: { ms: 5000 },
    * });
@@ -1170,7 +1256,7 @@ export interface RunStep<E = unknown> {
    */
   fromResult: <T, ResultE, const Err extends E>(
     id: string,
-    operation: () => Result<T, ResultE, unknown> | AsyncResult<T, ResultE, unknown>,
+    operation: () => Result<T, ResultE> | AsyncResult<T, ResultE>,
     options:
       | { error: Err; key?: string; ttl?: number }
       | { onError: (resultError: ResultE) => Err; key?: string; ttl?: number }
@@ -1191,7 +1277,7 @@ export interface RunStep<E = unknown> {
    * const user = await step.fromNullable(
    *   'getUser',
    *   () => db.users.findById(id),
-   *   () => ({ type: 'NOT_FOUND' as const, id })
+   *   () => ({ type: 'NOT_FOUND', id })
    * );
    * ```
    */
@@ -1239,7 +1325,7 @@ export interface RunStep<E = unknown> {
     <
       TOperations extends Record<
         string,
-        () => MaybeAsyncResult<unknown, E, unknown>
+        () => MaybeAsyncResult<unknown, E>
       >
     >(
       name: string,
@@ -1247,8 +1333,7 @@ export interface RunStep<E = unknown> {
     ): Promise<{
       [K in keyof TOperations]: TOperations[K] extends () => MaybeAsyncResult<
         infer V,
-        E,
-        unknown
+        E
       >
         ? V
         : never;
@@ -1273,9 +1358,9 @@ export interface RunStep<E = unknown> {
     }>;
 
     // Array form: step.all(name, () => allAsync([...]))
-    <T, StepE extends E, StepC = unknown>(
+    <T, StepE extends E>(
       name: string,
-      operation: () => Result<T[], StepE, StepC> | AsyncResult<T[], StepE, StepC>
+      operation: () => Result<T[], StepE> | AsyncResult<T[], StepE>
     ): Promise<T[]>;
   };
 
@@ -1296,9 +1381,9 @@ export interface RunStep<E = unknown> {
    * );
    * ```
    */
-  race: <T, StepE extends E, StepC = unknown>(
+  race: <T, StepE extends E>(
     name: string,
-    operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>
+    operation: () => Result<T, StepE> | AsyncResult<T, StepE>
   ) => Promise<T>;
 
   /**
@@ -1411,9 +1496,9 @@ export interface RunStep<E = unknown> {
    * );
    * ```
    */
-  retry: <T, StepE extends E, StepC = unknown>(
+  retry: <T, StepE extends E>(
     id: string,
-    operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
+    operation: () => Result<T, StepE> | AsyncResult<T, StepE>,
     options: RetryOptions<StepE> & { key?: string; timeout?: TimeoutOptions }
   ) => Promise<T>;
 
@@ -1449,12 +1534,12 @@ export interface RunStep<E = unknown> {
    * );
    * ```
    */
-  withTimeout: <T, StepE extends E, StepC = unknown>(
+  withTimeout: <T, StepE extends E, const TErr extends E = never>(
     id: string,
     operation:
-      | (() => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>)
-      | ((signal: AbortSignal) => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>),
-    options: TimeoutOptions & { key?: string }
+      | (() => Result<T, StepE> | AsyncResult<T, StepE>)
+      | ((signal: AbortSignal) => Result<T, StepE> | AsyncResult<T, StepE>),
+    options: TimeoutOptions<TErr> & { key?: string }
   ) => Promise<T>;
 
   /**
@@ -1795,9 +1880,9 @@ export interface RunStep<E = unknown> {
    * const authResult = await step.workflow("authorize", () => authorizeWorkflow.run(fn));
    * ```
    */
-  workflow: <T, SubE extends E, StepC = unknown>(
+  workflow: <T, SubE extends E>(
     id: string,
-    getter: () => AsyncResult<T, SubE, StepC>,
+    getter: () => AsyncResult<T, SubE>,
     options?: StepOptions
   ) => Promise<T>;
 
@@ -1821,10 +1906,10 @@ export interface RunStep<E = unknown> {
    * // Automatic parallel execution with error union
    * ```
    */
-  map: <T, U, StepE extends E, StepC = unknown>(
+  map: <T, U, StepE extends E>(
     id: string,
     items: T[],
-    mapper: (item: T, index: number) => AsyncResult<U, StepE, StepC>,
+    mapper: (item: T, index: number) => AsyncResult<U, StepE>,
     options?: { concurrency?: number; key?: string }
   ) => Promise<U[]>;
 
@@ -1843,7 +1928,7 @@ export type ParallelOperationDescriptor<
   Errs extends readonly string[] = readonly [],
 > = {
   /** The operation function */
-  fn: () => MaybeAsyncResult<T, unknown, unknown>;
+  fn: () => MaybeAsyncResult<T, unknown>;
   /** Declared errors for this operation (for static analysis) */
   errors?: Errs;
 };
@@ -2047,7 +2132,7 @@ export interface StreamEndedMarkerType {
 /**
  * Unified event stream for workflow execution.
  *
- * Note: step_complete.result uses Result<unknown, unknown, unknown> because events
+ * Note: step_complete.result uses Result<unknown, unknown> because events
  * aggregate results from heterogeneous steps. At runtime, the actual Result object
  * preserves its original types, but the event type cannot statically represent them.
  * Use runtime checks or the meta field to interpret cause values.
@@ -2065,7 +2150,7 @@ export type WorkflowEvent<E, C = unknown> =
   | { type: "step_success"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; metadata?: StepMetadata; context?: C }
   | { type: "step_error"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; error: E; metadata?: StepMetadata; diagnostics?: StepErrorDiagnostics; context?: C }
   | { type: "step_aborted"; workflowId: string; workflowName?: string; stepId: string; stepKey?: string; name?: string; description?: string; ts: number; durationMs: number; metadata?: StepMetadata; context?: C }
-  | { type: "step_complete"; workflowId: string; workflowName?: string; stepKey: string; name?: string; description?: string; ts: number; durationMs: number; result: Result<unknown, unknown, unknown>; meta?: StepFailureMeta; metadata?: StepMetadata; context?: C }
+  | { type: "step_complete"; workflowId: string; workflowName?: string; stepKey: string; name?: string; description?: string; ts: number; durationMs: number; result: Result<unknown, unknown>; meta?: StepFailureMeta; metadata?: StepMetadata; context?: C }
   | { type: "step_cache_hit"; workflowId: string; workflowName?: string; stepKey: string; name?: string; ts: number; metadata?: StepMetadata; context?: C }
   | { type: "step_cache_miss"; workflowId: string; workflowName?: string; stepKey: string; name?: string; ts: number; metadata?: StepMetadata; context?: C }
   | { type: "step_skipped"; workflowId: string; workflowName?: string; stepKey?: string; name?: string; reason?: string; decisionId?: string; ts: number; metadata?: StepMetadata; context?: C }
@@ -2769,7 +2854,7 @@ const DEFAULT_RETRY_CONFIG = {
 function runFn<T, E, C = void>(
   fn: (context: { step: RunStep<E> }) => Promise<T> | T,
   options: RunOptionsWithCatch<E, C>
-): AsyncResult<T, E, unknown>;
+): AsyncResult<T, E>;
 
 /**
  * run() without catchUnexpected.
@@ -2797,7 +2882,7 @@ function runFn<T, E = never, C = void>(
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
   }
-): AsyncResult<T, E | UnexpectedError, unknown>;
+): AsyncResult<T, E | UnexpectedError>;
 
 /**
  * run() with dependencies: auto-bound steps and automatic error inference.
@@ -2855,7 +2940,7 @@ function runFn<
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
   }
-): AsyncResult<T, NoInfer<E> | U, unknown>;
+): AsyncResult<T, E | U>;
 
 /**
  * run() with dependencies, no catchUnexpected: auto-bound steps, automatic
@@ -2903,7 +2988,7 @@ function runFn<
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
   }
-): AsyncResult<T, NoInfer<E> | UnexpectedError, unknown>;
+): AsyncResult<T, E | UnexpectedError>;
 
 // Implementation
 async function runFn<T, E, C = void>(
@@ -3058,7 +3143,7 @@ async function runFn<T, E, C = void>(
   };
 
   // Helper to check if a value is a Result (has ok property) vs a function
-  const isResultLike = (value: unknown): value is Result<unknown, unknown, unknown> | Promise<Result<unknown, unknown, unknown>> => {
+  const isResultLike = (value: unknown): value is Result<unknown, unknown> | Promise<Result<unknown, unknown>> => {
     if (typeof value === 'function') return false;
     if (value && typeof value === 'object' && 'ok' in value) return true;
     // Check for Promise<Result> - it will have a then method
@@ -3070,7 +3155,7 @@ async function runFn<T, E, C = void>(
     // Step function: requires step('id', fn, opts) or step('id', result, opts)
     const stepFn = <T, StepE, StepC = unknown>(
       id: string,
-      operationOrResult: (() => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>) | Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
+      operationOrResult: (() => Result<T, StepE> | AsyncResult<T, StepE>) | Result<T, StepE> | AsyncResult<T, StepE>,
       stepOptions?: StepOptions
     ): Promise<T> => {
       return (async () => {
@@ -3098,8 +3183,8 @@ async function runFn<T, E, C = void>(
         // Determine if this is a direct Result or a function
         const isDirectResult = isResultLike(operationOrResult);
         const operation = isDirectResult
-          ? () => operationOrResult as Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>
-          : operationOrResult as () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>;
+          ? () => operationOrResult as Result<T, StepE> | AsyncResult<T, StepE>
+          : operationOrResult as () => Result<T, StepE> | AsyncResult<T, StepE>;
 
         // Build effective retry config with defaults
         // Ensure at least 1 attempt (0 would skip the loop entirely and crash)
@@ -3134,19 +3219,19 @@ async function runFn<T, E, C = void>(
           });
         }
 
-        let lastResult: Result<T, StepE, StepC> | undefined;
+        let lastResult: Result<T, StepE> | undefined;
 
         for (let attempt = 1; attempt <= effectiveRetry.attempts; attempt++) {
           const attemptStartTime = hasEventListeners ? performance.now() : 0;
 
           try {
             // Execute operation with optional timeout
-            let result: Result<T, StepE, StepC>;
+            let result: Result<T, StepE>;
 
             if (timeoutConfig) {
               // Wrap with timeout, passing workflow signal for { signal: true } steps
               result = await executeWithTimeout(
-                operation as () => Promise<Result<T, StepE, StepC>>,
+                operation as () => Promise<Result<T, StepE>>,
                 timeoutConfig,
                 { name: stepName, key: stepKey, attempt },
                 _workflowSignal
@@ -3647,7 +3732,7 @@ async function runFn<T, E, C = void>(
     // step.fromResult: Execute a Result-returning function and map its typed error
     stepFn.fromResult = <T, ResultE, Err>(
       id: string,
-      operation: () => Result<T, ResultE, unknown> | AsyncResult<T, ResultE, unknown>,
+      operation: () => Result<T, ResultE> | AsyncResult<T, ResultE>,
       opts:
         | { error: Err; key?: string }
         | { onError: (resultError: ResultE) => Err; key?: string }
@@ -3772,9 +3857,9 @@ async function runFn<T, E, C = void>(
     };
 
     // step.retry: Execute an operation with retry and optional timeout
-    stepFn.retry = <T, StepE, StepC = unknown>(
+    stepFn.retry = <T, StepE = unknown>(
       id: string,
-      operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
+      operation: () => Result<T, StepE> | AsyncResult<T, StepE>,
       options: RetryOptions<StepE> & { key?: string; timeout?: TimeoutOptions }
     ): Promise<T> => {
       // Validate required string ID
@@ -3803,11 +3888,11 @@ async function runFn<T, E, C = void>(
     };
 
     // step.withTimeout: Execute an operation with a timeout
-    stepFn.withTimeout = <T, StepE, StepC = unknown>(
+    stepFn.withTimeout = <T, StepE = unknown>(
       id: string,
       operation:
-        | (() => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>)
-        | ((signal: AbortSignal) => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>),
+        | (() => Result<T, StepE> | AsyncResult<T, StepE>)
+        | ((signal: AbortSignal) => Result<T, StepE> | AsyncResult<T, StepE>),
       options: TimeoutOptions & { key?: string }
     ): Promise<T> => {
       // Validate required string ID
@@ -3823,7 +3908,7 @@ async function runFn<T, E, C = void>(
       // Use key for caching if provided, otherwise use id
       return stepFn(
         id,
-        operation as () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>,
+        operation as () => Result<T, StepE> | AsyncResult<T, StepE>,
         {
           key: options.key ?? id,
           timeout: options,
@@ -3906,10 +3991,10 @@ async function runFn<T, E, C = void>(
       const name = args[0] as string;
       const second = args[1];
       if (typeof second === "function") {
-        return executeParallelArray(name, second as () => MaybeAsyncResult<unknown[], unknown, unknown>);
+        return executeParallelArray(name, second as () => MaybeAsyncResult<unknown[], unknown>);
       }
       if (second && typeof second === "object" && !Array.isArray(second)) {
-        const rawOperations = second as Record<string, (() => MaybeAsyncResult<unknown, unknown, unknown>) | ParallelOperationDescriptor<unknown, readonly string[]>>;
+        const rawOperations = second as Record<string, (() => MaybeAsyncResult<unknown, unknown>) | ParallelOperationDescriptor<unknown, readonly string[]>>;
         const normalizedOperations = normalizeParallelOperations(rawOperations);
         return executeParallelNamed(normalizedOperations, { name });
       }
@@ -3919,9 +4004,9 @@ async function runFn<T, E, C = void>(
     }) as RunStep<E>["all"];
 
     function normalizeParallelOperations(
-      rawOperations: Record<string, (() => MaybeAsyncResult<unknown, unknown, unknown>) | ParallelOperationDescriptor<unknown, readonly string[]>>
-    ): Record<string, () => MaybeAsyncResult<unknown, unknown, unknown>> {
-      const out: Record<string, () => MaybeAsyncResult<unknown, unknown, unknown>> = {};
+      rawOperations: Record<string, (() => MaybeAsyncResult<unknown, unknown>) | ParallelOperationDescriptor<unknown, readonly string[]>>
+    ): Record<string, () => MaybeAsyncResult<unknown, unknown>> {
+      const out: Record<string, () => MaybeAsyncResult<unknown, unknown>> = {};
       for (const [key, value] of Object.entries(rawOperations)) {
         if (typeof value === "function") {
           out[key] = value;
@@ -3937,7 +4022,7 @@ async function runFn<T, E, C = void>(
     // Array form implementation
     function executeParallelArray<T>(
       name: string,
-      operation: () => MaybeAsyncResult<T[], unknown, unknown>
+      operation: () => MaybeAsyncResult<T[], unknown>
     ): Promise<T[]> {
       const scopeId = `scope_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -3999,7 +4084,7 @@ async function runFn<T, E, C = void>(
 
     // Named object form implementation - execute each operation in parallel
     function executeParallelNamed<T extends Record<string, unknown>>(
-      operations: Record<string, () => MaybeAsyncResult<unknown, unknown, unknown>>,
+      operations: Record<string, () => MaybeAsyncResult<unknown, unknown>>,
       options: { name?: string }
     ): Promise<T> {
       const keys = Object.keys(operations);
@@ -4040,7 +4125,7 @@ async function runFn<T, E, C = void>(
 
         try {
           // Execute all operations in parallel, fail-fast on first error
-          const results = await new Promise<{ key: string; result: Result<unknown, unknown, unknown> }[]>((resolve) => {
+          const results = await new Promise<{ key: string; result: Result<unknown, unknown> }[]>((resolve) => {
             if (keys.length === 0) {
               resolve([]);
               return;
@@ -4048,7 +4133,7 @@ async function runFn<T, E, C = void>(
 
             let settled = false;
             let pendingCount = keys.length;
-            const resultArray: { key: string; result: Result<unknown, unknown, unknown> }[] = new Array(keys.length);
+            const resultArray: { key: string; result: Result<unknown, unknown> }[] = new Array(keys.length);
 
             for (let i = 0; i < keys.length; i++) {
               const key = keys[i];
@@ -4105,9 +4190,9 @@ async function runFn<T, E, C = void>(
     }
 
     // step.race: Execute a race operation with scope events
-    stepFn.race = <T, StepE, StepC>(
+    stepFn.race = <T, StepE>(
       name: string,
-      operation: () => Result<T, StepE, StepC> | AsyncResult<T, StepE, StepC>
+      operation: () => Result<T, StepE> | AsyncResult<T, StepE>
     ): Promise<T> => {
       const scopeId = `scope_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -4328,19 +4413,19 @@ async function runFn<T, E, C = void>(
     // ===========================================================================
 
     // step.workflow: Run sub-workflow (or any AsyncResult getter) as a step; same engine as step(id, getter, opts)
-    stepFn.workflow = <T, SubE, StepC = unknown>(
+    stepFn.workflow = <T, SubE = unknown>(
       id: string,
-      getter: () => AsyncResult<T, SubE, StepC>,
+      getter: () => AsyncResult<T, SubE>,
       options?: StepOptions
     ): Promise<T> => {
-      return stepFn(id, getter as () => AsyncResult<T, E, StepC>, options);
+      return stepFn(id, getter as () => AsyncResult<T, E>, options);
     };
 
     // step.map: Map over array with parallel execution
-    stepFn.map = async <T, U, StepE, StepC = unknown>(
+    stepFn.map = async <T, U, StepE = unknown>(
       id: string,
       items: T[],
-      mapper: (item: T, index: number) => AsyncResult<U, StepE, StepC>,
+      mapper: (item: T, index: number) => AsyncResult<U, StepE>,
       options?: { concurrency?: number; key?: string }
     ): Promise<U[]> => {
       const concurrency = options?.concurrency ?? items.length;
@@ -4361,7 +4446,7 @@ async function runFn<T, E, C = void>(
                 const batchResult = await allAsync(
                   batch.map((item, batchIndex) => mapper(item, i + batchIndex))
                 );
-                // allAsync returns Result<U[], E, C>, so we need to check if it's ok
+                // allAsync returns Result<U[], E>, so we need to check if it's ok
                 if (!batchResult.ok) {
                   return batchResult; // Propagate the error
                 }
@@ -5112,7 +5197,7 @@ const runStrict = <T, E, C = void>(
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
   }
-): AsyncResult<T, E, unknown> => {
+): AsyncResult<T, E> => {
   return runFn<T, E, C>(fn, options);
 };
 
@@ -5184,9 +5269,9 @@ export class UnwrapError<E = unknown, C = unknown> extends Error {
  * const value = unwrap(someOperation()); // May throw!
  * ```
  */
-export const unwrap = <T, E, C>(r: Result<T, E, C>): T => {
+export const unwrap = <T, E>(r: Result<T, E>): T => {
   if (r.ok) return r.value;
-  throw new UnwrapError<E, C>(r.error, r.cause);
+  throw new UnwrapError<E, unknown>(r.error, r.cause);
 };
 
 /**
@@ -5223,7 +5308,7 @@ export const unwrap = <T, E, C>(r: Result<T, E, C>): T => {
  * const config = unwrapOr(loadConfig(), getDefaultConfig());
  * ```
  */
-export const unwrapOr = <T, E, C>(r: Result<T, E, C>, defaultValue: T): T =>
+export const unwrapOr = <T, E>(r: Result<T, E>, defaultValue: T): T =>
   r.ok ? r.value : defaultValue;
 
 /**
@@ -5270,9 +5355,8 @@ export const unwrapOr = <T, E, C>(r: Result<T, E, C>, defaultValue: T): T =>
  * });
  * ```
  */
-export const unwrapOrElse = <T, E, C>(
-  r: Result<T, E, C>,
-  fn: (error: E, cause?: C) => T
+export const unwrapOrElse = <T, E>(  r: Result<T, E>,
+  fn: (error: E, cause?: unknown) => T
 ): T => (r.ok ? r.value : fn(r.error, r.cause));
 
 /**
@@ -5284,7 +5368,7 @@ export const unwrapOrElse = <T, E, C>(
  * @returns The success value if the Result is successful
  * @throws {UnwrapError} If the Result is an error (includes the error and cause)
  */
-export const runOrThrow = <T, E, C>(r: Result<T, E, C>): T => unwrap(r);
+export const runOrThrow = <T, E>(r: Result<T, E>): T => unwrap(r);
 
 /**
  * Awaits a Promise of a Result, then returns the success value or rejects.
@@ -5295,8 +5379,7 @@ export const runOrThrow = <T, E, C>(r: Result<T, E, C>): T => unwrap(r);
  * @param ar - A Promise or thenable that resolves to a Result
  * @returns A Promise that resolves with the success value or rejects with UnwrapError
  */
-export const runOrThrowAsync = <T, E, C>(
-  ar: PromiseLike<Result<T, E, C>>
+export const runOrThrowAsync = <T, E>(  ar: PromiseLike<Result<T, E>>
 ): Promise<T> => Promise.resolve(ar).then(unwrap);
 
 /**
@@ -5305,7 +5388,7 @@ export const runOrThrowAsync = <T, E, C>(
  * @param r - The Result to unwrap
  * @returns The success value if successful, otherwise null
  */
-export const runOrNull = <T, E, C>(r: Result<T, E, C>): T | null =>
+export const runOrNull = <T, E>(r: Result<T, E>): T | null =>
   r.ok ? r.value : null;
 
 /**
@@ -5314,7 +5397,7 @@ export const runOrNull = <T, E, C>(r: Result<T, E, C>): T | null =>
  * @param r - The Result to unwrap
  * @returns The success value if successful, otherwise undefined
  */
-export const runOrUndefined = <T, E, C>(r: Result<T, E, C>): T | undefined =>
+export const runOrUndefined = <T, E>(r: Result<T, E>): T | undefined =>
   r.ok ? r.value : undefined;
 
 // =============================================================================
@@ -5369,19 +5452,19 @@ export function from<T>(fn: () => T): Ok<T> | Err<unknown, unknown>;
  * // Map exceptions to typed errors
  * const parsed = from(
  *   () => JSON.parse(input),
- *   (cause) => ({ type: 'PARSE_ERROR' as const, cause })
+ *   (cause) => ({ type: 'PARSE_ERROR', cause })
  * );
  * // parsed.error: { type: 'PARSE_ERROR', cause: SyntaxError }
  *
  * // Map to simple error codes
  * const value = from(
  *   () => riskyOperation(),
- *   () => 'OPERATION_FAILED' as const
+ *   () => 'OPERATION_FAILED'
  * );
  * ```
  */
-export function from<T, E>(fn: () => T, onError: (cause: unknown) => E): Ok<T> | Err<E, unknown>;
-export function from<T, E>(fn: () => T, onError?: (cause: unknown) => E) {
+export function from<T, const E extends ErrorValue>(fn: () => T, onError: (cause: unknown) => E): Ok<T> | Err<E, unknown>;
+export function from<T, const E extends ErrorValue>(fn: () => T, onError?: (cause: unknown) => E) {
   try {
     return ok(fn());
   } catch (cause) {
@@ -5439,18 +5522,18 @@ export function fromPromise<T>(promise: Promise<T>): Promise<Ok<T> | Err<unknown
  *     if (!r.ok) throw new Error(`HTTP ${r.status}`);
  *     return r.json();
  *   }),
- *   () => 'FETCH_FAILED' as const
+ *   () => 'FETCH_FAILED'
  * );
  * // result.error: 'FETCH_FAILED' if fetch failed
  *
  * // Map with error details
  * const data = await fromPromise(
  *   db.query(sql),
- *   (cause) => ({ type: 'DB_ERROR' as const, message: String(cause) })
+ *   (cause) => ({ type: 'DB_ERROR', message: String(cause) })
  * );
  * ```
  */
-export function fromPromise<T, E>(
+export function fromPromise<T, const E extends ErrorValue>(
   promise: Promise<T>,
   onError: (cause: unknown) => E
 ): Promise<Ok<T> | Err<E, unknown>>;
@@ -5511,17 +5594,17 @@ export function tryAsync<T>(fn: () => Promise<T>): AsyncResult<T, unknown>;
  * // Map errors to typed errors
  * const result = await tryAsync(
  *   async () => await fetchData(),
- *   () => 'FETCH_ERROR' as const
+ *   () => 'FETCH_ERROR'
  * );
  *
  * // Map with error details
  * const data = await tryAsync(
  *   async () => await processFile(path),
- *   (cause) => ({ type: 'PROCESSING_ERROR' as const, cause })
+ *   (cause) => ({ type: 'PROCESSING_ERROR', cause })
  * );
  * ```
  */
-export function tryAsync<T, E>(
+export function tryAsync<T, const E extends ErrorValue>(
   fn: () => Promise<T>,
   onError: (cause: unknown) => E
 ): AsyncResult<T, E>;
@@ -5565,23 +5648,23 @@ export async function tryAsync<T, E>(
  * // Convert DOM element lookup
  * const element = fromNullable(
  *   document.getElementById('app'),
- *   () => 'ELEMENT_NOT_FOUND' as const
+ *   () => 'ELEMENT_NOT_FOUND'
  * );
  *
  * // Convert optional property
  * const userId = fromNullable(
  *   user.id,
- *   () => 'USER_ID_MISSING' as const
+ *   () => 'USER_ID_MISSING'
  * );
  *
  * // Convert database query result
  * const record = fromNullable(
  *   await db.find(id),
- *   () => ({ type: 'NOT_FOUND' as const, id })
+ *   () => ({ type: 'NOT_FOUND', id })
  * );
  * ```
  */
-export function fromNullable<T, E>(
+export function fromNullable<T, const E extends ErrorValue>(
   value: T | null | undefined,
   onNull: () => E
 ): Result<T, E> {
@@ -5634,7 +5717,7 @@ export function fromNullable<T, E>(
  */
 export function map<T, U>(r: Ok<T>, fn: (value: T) => U): Ok<U>;
 export function map<T, U, E, C>(r: Err<E, C>, fn: (value: T) => U): Err<E, C>;
-export function map<T, U, E, C>(r: Result<T, E, C>, fn: (value: T) => U): Result<U, E, C>;
+export function map<T, U, E>(r: Result<T, E>, fn: (value: T) => U): Result<U, E>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function map(r: any, fn: any): any {
   return r.ok ? ok(fn(r.value)) : r;
@@ -5673,7 +5756,7 @@ export function map(r: any, fn: any): any {
  * // Convert error types
  * const typed = mapError(
  *   err('404'),
- *   code => ({ type: 'HTTP_ERROR' as const, status: parseInt(code) })
+ *   code => ({ type: 'HTTP_ERROR', status: parseInt(code) })
  * );
  *
  * // Format error messages
@@ -5683,10 +5766,10 @@ export function map(r: any, fn: any): any {
  * );
  * ```
  */
-export function mapError<T, E, F, C>(
-  r: Result<T, E, C>,
+export function mapError<T, E, const F extends ErrorValue>(
+  r: Result<T, E>,
   fn: (error: E) => F
-): Result<T, F, C> {
+): Result<T, F> {
   return r.ok ? r : err(fn(r.error), { cause: r.cause });
 }
 
@@ -5737,15 +5820,15 @@ export function mapError<T, E, F, C>(
  * });
  * ```
  */
-export function match<T, E, C, R>(handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): (r: Result<T, E, C>) => R;
-export function match<T, E, C, R>(r: Ok<T>, handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): R;
-export function match<T, E, C, R>(r: Err<E, C>, handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): R;
-export function match<T, E, C, R>(r: Result<T, E, C>, handlers: { ok: (value: T) => R; err: (error: E, cause?: C) => R }): R;
+export function match<T, E, R>(handlers: { ok: (value: T) => R; err: (error: E, cause?: unknown) => R }): (r: Result<T, E>) => R;
+export function match<T, E, R>(r: Ok<T>, handlers: { ok: (value: T) => R; err: (error: E, cause?: unknown) => R }): R;
+export function match<T, E, C, R>(r: Err<E, C>, handlers: { ok: (value: T) => R; err: (error: E, cause?: unknown) => R }): R;
+export function match<T, E, R>(r: Result<T, E>, handlers: { ok: (value: T) => R; err: (error: E, cause?: unknown) => R }): R;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function match(r: any, handlers?: any): any {
   if (handlers === undefined) {
     const h = r;
-    return (result: Result<unknown, unknown, unknown>) => match(result, h);
+    return (result: Result<unknown, unknown>) => match(result, h);
   }
   return r.ok ? handlers.ok(r.value) : handlers.err(r.error, r.cause);
 }
@@ -5810,9 +5893,9 @@ export function match(r: any, handlers?: any): any {
  */
 export function andThen<T, U>(r: Ok<T>, fn: (value: T) => Ok<U>): Ok<U>;
 export function andThen<T, F, C2>(r: Ok<T>, fn: (value: T) => Err<F, C2>): Err<F, C2>;
-export function andThen<T, U, F, C2>(r: Ok<T>, fn: (value: T) => Result<U, F, C2>): Result<U, F, C2>;
-export function andThen<T, U, E, F, C1, C2>(r: Err<E, C1>, fn: (value: T) => Result<U, F, C2>): Err<E, C1>;
-export function andThen<T, U, E, F, C1, C2>(r: Result<T, E, C1>, fn: (value: T) => Result<U, F, C2>): Result<U, E | F, C1 | C2>;
+export function andThen<T, U, F>(r: Ok<T>, fn: (value: T) => Result<U, F>): Result<U, F>;
+export function andThen<T, U, E, F, C1>(r: Err<E, C1>, fn: (value: T) => Result<U, F>): Err<E, C1>;
+export function andThen<T, U, E, F>(r: Result<T, E>, fn: (value: T) => Result<U, F>): Result<U, E | F>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function andThen(r: any, fn: any): any {
   return r.ok ? fn(r.value) : r;
@@ -5861,10 +5944,9 @@ export function andThen(r: any, fn: any): any {
  * });
  * ```
  */
-export function tap<T, E, C>(
-  r: Result<T, E, C>,
+export function tap<T, E>(  r: Result<T, E>,
   fn: (value: T) => void
-): Result<T, E, C> {
+): Result<T, E> {
   if (r.ok) fn(r.value);
   return r;
 }
@@ -5913,10 +5995,9 @@ export function tap<T, E, C>(
  * );
  * ```
  */
-export function tapError<T, E, C>(
-  r: Result<T, E, C>,
-  fn: (error: E, cause?: C) => void
-): Result<T, E, C> {
+export function tapError<T, E>(  r: Result<T, E>,
+  fn: (error: E, cause?: unknown) => void
+): Result<T, E> {
   if (!r.ok) fn(r.error, r.cause);
   return r;
 }
@@ -5954,29 +6035,29 @@ export function tapError<T, E, C>(
  * const parsed = mapTry(
  *   ok('{"key": "value"}'),
  *   JSON.parse,
- *   () => 'PARSE_ERROR' as const
+ *   () => 'PARSE_ERROR'
  * );
  *
  * // Safe date parsing
  * const date = mapTry(
  *   ok('2024-01-01'),
  *   str => new Date(str),
- *   () => 'INVALID_DATE' as const
+ *   () => 'INVALID_DATE'
  * );
  *
  * // Transform with error details
  * const processed = mapTry(
  *   result,
  *   value => riskyTransform(value),
- *   (cause) => ({ type: 'TRANSFORM_ERROR' as const, cause })
+ *   (cause) => ({ type: 'TRANSFORM_ERROR', cause })
  * );
  * ```
  */
-export function mapTry<T, U, E, F, C>(
-  result: Result<T, E, C>,
+export function mapTry<T, U, E, const F extends ErrorValue>(
+  result: Result<T, E>,
   transform: (value: T) => U,
   onError: (cause: unknown) => F
-): Result<U, E | F, C | unknown> {
+): Result<U, E | F> {
   if (!result.ok) return result;
   try {
     return ok(transform(result.value));
@@ -6018,22 +6099,22 @@ export function mapTry<T, U, E, F, C>(
  * const formatted = mapErrorTry(
  *   err('not_found'),
  *   e => e.toUpperCase(), // Might throw if e is not a string
- *   () => 'FORMAT_ERROR' as const
+ *   () => 'FORMAT_ERROR'
  * );
  *
  * // Complex error transformation
  * const normalized = mapErrorTry(
  *   result,
  *   error => ({ type: 'NORMALIZED', message: String(error) }),
- *   () => 'TRANSFORM_ERROR' as const
+ *   () => 'TRANSFORM_ERROR'
  * );
  * ```
  */
-export function mapErrorTry<T, E, F, G, C>(
-  result: Result<T, E, C>,
+export function mapErrorTry<T, E, const F extends ErrorValue, const G extends ErrorValue>(
+  result: Result<T, E>,
   transform: (error: E) => F,
   onError: (cause: unknown) => G
-): Result<T, F | G, C | unknown> {
+): Result<T, F | G> {
   if (result.ok) return result;
   try {
     return err(transform(result.error), { cause: result.cause });
@@ -6088,11 +6169,11 @@ export function mapErrorTry<T, E, F, G, C>(
  * );
  * ```
  */
-export function bimap<T, U, E, F, C>(
-  r: Result<T, E, C>,
+export function bimap<T, U, E, F>(
+  r: Result<T, E>,
   onOk: (value: T) => U,
   onErr: (error: E) => F
-): Result<U, F, C> {
+): Result<U, F> {
   return r.ok ? ok(onOk(r.value)) : err(onErr(r.error), { cause: r.cause });
 }
 
@@ -6135,7 +6216,7 @@ export function bimap<T, U, E, F, C>(
  *     fetchFromCache(key),
  *     () => fetchFromDatabase(key)
  *   ),
- *   () => err('DATA_UNAVAILABLE' as const)
+ *   () => err('DATA_UNAVAILABLE')
  * );
  *
  * // Convert specific errors to success
@@ -6145,10 +6226,10 @@ export function bimap<T, U, E, F, C>(
  * );
  * ```
  */
-export function orElse<T, E, E2, C, C2>(
-  r: Result<T, E, C>,
-  fn: (error: E, cause?: C) => Result<T, E2, C2>
-): Result<T, E2, C2> {
+export function orElse<T, E, E2>(
+  r: Result<T, E>,
+  fn: (error: E, cause?: unknown) => Result<T, E2>
+): Result<T, E2> {
   return r.ok ? r : fn(r.error, r.cause);
 }
 
@@ -6173,10 +6254,10 @@ export function orElse<T, E, E2, C, C2>(
  * );
  * ```
  */
-export async function orElseAsync<T, E, E2, C, C2>(
-  r: Result<T, E, C> | Promise<Result<T, E, C>>,
-  fn: (error: E, cause?: C) => Result<T, E2, C2> | Promise<Result<T, E2, C2>>
-): Promise<Result<T, E2, C2>> {
+export async function orElseAsync<T, E, E2>(
+  r: Result<T, E> | Promise<Result<T, E>>,
+  fn: (error: E, cause?: unknown) => Result<T, E2> | Promise<Result<T, E2>>
+): Promise<Result<T, E2>> {
   const resolved = await r;
   return resolved.ok ? resolved : fn(resolved.error, resolved.cause);
 }
@@ -6224,9 +6305,8 @@ export async function orElseAsync<T, E, E2, C, C2>(
  * );
  * ```
  */
-export function recover<T, E, C>(
-  r: Result<T, E, C>,
-  fn: (error: E, cause?: C) => T
+export function recover<T, E>(  r: Result<T, E>,
+  fn: (error: E, cause?: unknown) => T
 ): Ok<T> {
   return r.ok ? ok(r.value) : ok(fn(r.error, r.cause));
 }
@@ -6247,9 +6327,8 @@ export function recover<T, E, C>(
  * );
  * ```
  */
-export async function recoverAsync<T, E, C>(
-  r: Result<T, E, C> | Promise<Result<T, E, C>>,
-  fn: (error: E, cause?: C) => T | Promise<T>
+export async function recoverAsync<T, E>(  r: Result<T, E> | Promise<Result<T, E>>,
+  fn: (error: E, cause?: unknown) => T | Promise<T>
 ): Promise<Ok<T>> {
   const resolved = await r;
   if (resolved.ok) return ok(resolved.value);
@@ -6291,7 +6370,7 @@ export async function recoverAsync<T, E, C>(
  * const result = hydrate<Data, ServiceError>(rpcResponse);
  * ```
  */
-export function hydrate<T, E, C = unknown>(value: unknown): Result<T, E, C> | null {
+export function hydrate<T, E = unknown>(value: unknown): Result<T, E> | null {
   if (
     value !== null &&
     typeof value === "object" &&
@@ -6299,10 +6378,10 @@ export function hydrate<T, E, C = unknown>(value: unknown): Result<T, E, C> | nu
     typeof value.ok === "boolean"
   ) {
     if (value.ok === true && "value" in value) {
-      return value as Result<T, E, C>;
+      return value as Result<T, E>;
     }
     if (value.ok === false && "error" in value) {
-      return value as Result<T, E, C>;
+      return value as Result<T, E>;
     }
   }
   return null;
@@ -6317,7 +6396,7 @@ export function hydrate<T, E, C = unknown>(value: unknown): Result<T, E, C> | nu
  * @example
  * ```typescript
  * if (isSerializedResult(data)) {
- *   // data is Result<unknown, unknown, unknown>
+ *   // data is Result<unknown, unknown>
  *   if (data.ok) {
  *     console.log(data.value);
  *   }
@@ -6326,7 +6405,7 @@ export function hydrate<T, E, C = unknown>(value: unknown): Result<T, E, C> | nu
  */
 export function isSerializedResult(
   value: unknown
-): value is Result<unknown, unknown, unknown> {
+): value is Result<unknown, unknown> {
   return hydrate(value) !== null;
 }
 
@@ -6334,40 +6413,29 @@ export function isSerializedResult(
 // Batch Operations
 // =============================================================================
 
-type AllValues<T extends readonly Result<unknown, unknown, unknown>[]> = {
+type AllValues<T extends readonly Result<unknown, unknown>[]> = {
   [K in keyof T]: T[K] extends Ok<infer V>
     ? V
     : T[K] extends Err<unknown, unknown>
       ? never
-      : T[K] extends Result<infer V, unknown, unknown>
+      : T[K] extends Result<infer V, unknown>
         ? V
         : never;
 };
-type AllErrors<T extends readonly Result<unknown, unknown, unknown>[]> = {
+type AllErrors<T extends readonly Result<unknown, unknown>[]> = {
   [K in keyof T]: T[K] extends Ok<unknown>
     ? never
     : T[K] extends Err<infer E, unknown>
       ? E
-      : T[K] extends Result<unknown, infer E, unknown>
+      : T[K] extends Result<unknown, infer E>
         ? E
         : never;
 }[number];
-type AllCauses<T extends readonly Result<unknown, unknown, unknown>[]> = {
-  [K in keyof T]: T[K] extends Ok<unknown>
-    ? never
-    : T[K] extends Err<unknown, infer C>
-      ? C
-      : T[K] extends Result<unknown, unknown, infer C>
-        ? C
-        : never;
-}[number];
-
 // Conditional type: returns Ok<...> when there are no errors, Result<...> otherwise
-// Note: We only check AllErrors, not AllCauses - causes only matter when there are errors
-type AllResult<T extends readonly Result<unknown, unknown, unknown>[]> =
+type AllResult<T extends readonly Result<unknown, unknown>[]> =
   [AllErrors<T>] extends [never]
     ? Ok<AllValues<T>>
-    : Result<AllValues<T>, AllErrors<T>, AllCauses<T>>;
+    : Result<AllValues<T>, AllErrors<T>>;
 
 /**
  * Combines multiple Results into one, requiring all to succeed.
@@ -6416,7 +6484,7 @@ type AllResult<T extends readonly Result<unknown, unknown, unknown>[]> =
  * // data.value: [user, posts, comments] if all succeed
  * ```
  */
-export function all<const T extends readonly Result<unknown, unknown, unknown>[]>(
+export function all<const T extends readonly Result<unknown, unknown>[]>(
   results: T
 ): AllResult<T> {
   const values: unknown[] = [];
@@ -6474,22 +6542,20 @@ export function all<const T extends readonly Result<unknown, unknown, unknown>[]
  * ```
  */
 export async function allAsync<
-  const T extends readonly (Result<unknown, unknown, unknown> | Promise<Result<unknown, unknown, unknown>>)[]
+  const T extends readonly (Result<unknown, unknown> | Promise<Result<unknown, unknown>>)[]
 >(
   results: T
 ): Promise<
   Result<
-    { [K in keyof T]: T[K] extends Result<infer V, unknown, unknown> | Promise<Result<infer V, unknown, unknown>> ? V : never },
-    { [K in keyof T]: T[K] extends Result<unknown, infer E, unknown> | Promise<Result<unknown, infer E, unknown>> ? E : never }[number],
-    { [K in keyof T]: T[K] extends Result<unknown, unknown, infer C> | Promise<Result<unknown, unknown, infer C>> ? C : never }[number]
+    { [K in keyof T]: T[K] extends Result<infer V, unknown> | Promise<Result<infer V, unknown>> ? V : never },
+    { [K in keyof T]: T[K] extends Result<unknown, infer E> | Promise<Result<unknown, infer E>> ? E : never }[number]
   >
 > {
-  type Values = { [K in keyof T]: T[K] extends Result<infer V, unknown, unknown> | Promise<Result<infer V, unknown, unknown>> ? V : never };
-  type Errors = { [K in keyof T]: T[K] extends Result<unknown, infer E, unknown> | Promise<Result<unknown, infer E, unknown>> ? E : never }[number];
-  type Causes = { [K in keyof T]: T[K] extends Result<unknown, unknown, infer C> | Promise<Result<unknown, unknown, infer C>> ? C : never }[number];
+  type Values = { [K in keyof T]: T[K] extends Result<infer V, unknown> | Promise<Result<infer V, unknown>> ? V : never };
+  type Errors = { [K in keyof T]: T[K] extends Result<unknown, infer E> | Promise<Result<unknown, infer E>> ? E : never }[number];
 
   if (results.length === 0) {
-    return ok([]) as Result<Values, Errors, Causes>;
+    return ok([]) as Result<Values, Errors>;
   }
 
   return new Promise((resolve, reject) => {
@@ -6505,7 +6571,7 @@ export async function allAsync<
 
           if (!result.ok) {
             settled = true;
-            resolve(result as Result<Values, Errors, Causes>);
+            resolve(result as Result<Values, Errors>);
             return;
           }
 
@@ -6513,7 +6579,7 @@ export async function allAsync<
           pendingCount--;
 
           if (pendingCount === 0) {
-            resolve(ok(values) as Result<Values, Errors, Causes>);
+            resolve(ok(values) as Result<Values, Errors>);
           }
         },
         // A rejection is a thrown exception rather than a modelled failure, so it
@@ -6531,10 +6597,10 @@ export async function allAsync<
 export type SettledError<E, C = unknown> = { error: E; cause?: C };
 
 // Conditional type: returns Ok<...> when there are no errors, Result<...> otherwise
-type AllSettledResult<T extends readonly Result<unknown, unknown, unknown>[]> =
+type AllSettledResult<T extends readonly Result<unknown, unknown>[]> =
   [AllErrors<T>] extends [never]
     ? Ok<AllValues<T>>
-    : Result<AllValues<T>, SettledError<AllErrors<T>, AllCauses<T>>[]>;
+    : Result<AllValues<T>, SettledError<AllErrors<T>>[]>;
 
 /**
  * Combines multiple Results, collecting all errors instead of short-circuiting.
@@ -6588,7 +6654,7 @@ type AllSettledResult<T extends readonly Result<unknown, unknown, unknown>[]> =
  * // Can see which succeeded and which failed
  * ```
  */
-export function allSettled<const T extends readonly Result<unknown, unknown, unknown>[]>(
+export function allSettled<const T extends readonly Result<unknown, unknown>[]>(
   results: T
 ): AllSettledResult<T> {
   const values: unknown[] = [];
@@ -6660,8 +6726,7 @@ export function allSettled<const T extends readonly Result<unknown, unknown, unk
  * fetchErrors.forEach(error => logError(error));
  * ```
  */
-export function partition<T, E, C>(
-  results: readonly Result<T, E, C>[]
+export function partition<T, E>(  results: readonly Result<T, E>[]
 ): { values: T[]; errors: E[] } {
   const values: T[] = [];
   const errors: E[] = [];
@@ -6677,15 +6742,11 @@ export function partition<T, E, C>(
   return { values, errors };
 }
 
-type AnyValue<T extends readonly Result<unknown, unknown, unknown>[]> =
-  T[number] extends Result<infer U, unknown, unknown> ? U : never;
-type AnyErrors<T extends readonly Result<unknown, unknown, unknown>[]> = {
-  -readonly [K in keyof T]: T[K] extends Result<unknown, infer E, unknown> ? E : never;
+type AnyValue<T extends readonly Result<unknown, unknown>[]> =
+  T[number] extends Result<infer U, unknown> ? U : never;
+type AnyErrors<T extends readonly Result<unknown, unknown>[]> = {
+  -readonly [K in keyof T]: T[K] extends Result<unknown, infer E> ? E : never;
 }[number];
-type AnyCauses<T extends readonly Result<unknown, unknown, unknown>[]> = {
-  -readonly [K in keyof T]: T[K] extends Result<unknown, unknown, infer C> ? C : never;
-}[number];
-
 /**
  * Returns the first successful Result from an array (succeeds fast).
  *
@@ -6739,14 +6800,14 @@ type AnyCauses<T extends readonly Result<unknown, unknown, unknown>[]> = {
  */
 export function any<
   const T extends readonly [
-    Result<unknown, unknown, unknown>,
-    ...Result<unknown, unknown, unknown>[]
+    Result<unknown, unknown>,
+    ...Result<unknown, unknown>[]
   ],
 >(
   results: T
-): Result<AnyValue<T>, AnyErrors<T>, AnyCauses<T>> {
-  type ReturnErr = Result<never, AnyErrors<T>, AnyCauses<T>>;
-  type ReturnOk = Result<AnyValue<T>, never, AnyCauses<T>>;
+): Result<AnyValue<T>, AnyErrors<T>> {
+  type ReturnErr = Result<never, AnyErrors<T>>;
+  type ReturnOk = Result<AnyValue<T>, never>;
 
   if (results.length === 0) {
     return err({
@@ -6754,7 +6815,7 @@ export function any<
       message: "any() requires at least one Result",
     }) as ReturnErr;
   }
-  let firstError: Result<never, unknown, unknown> | null = null;
+  let firstError: Result<never, unknown> | null = null;
   for (const result of results) {
     if (result.ok) return result as ReturnOk;
     if (!firstError) firstError = result;
@@ -6762,19 +6823,13 @@ export function any<
   return firstError as ReturnErr;
 }
 
-type AnyAsyncValue<T extends readonly MaybeAsyncResult<unknown, unknown, unknown>[]> =
-  Awaited<T[number]> extends Result<infer U, unknown, unknown> ? U : never;
-type AnyAsyncErrors<T extends readonly MaybeAsyncResult<unknown, unknown, unknown>[]> = {
-  -readonly [K in keyof T]: Awaited<T[K]> extends Result<unknown, infer E, unknown>
+type AnyAsyncValue<T extends readonly MaybeAsyncResult<unknown, unknown>[]> =
+  Awaited<T[number]> extends Result<infer U, unknown> ? U : never;
+type AnyAsyncErrors<T extends readonly MaybeAsyncResult<unknown, unknown>[]> = {
+  -readonly [K in keyof T]: Awaited<T[K]> extends Result<unknown, infer E>
     ? E
     : never;
 }[number];
-type AnyAsyncCauses<T extends readonly MaybeAsyncResult<unknown, unknown, unknown>[]> = {
-  -readonly [K in keyof T]: Awaited<T[K]> extends Result<unknown, unknown, infer C>
-    ? C
-    : never;
-}[number];
-
 /**
  * Returns the first successful Result from an array of Results or Promises (async version of `any`).
  *
@@ -6820,14 +6875,14 @@ type AnyAsyncCauses<T extends readonly MaybeAsyncResult<unknown, unknown, unknow
  */
 export async function anyAsync<
   const T extends readonly [
-    MaybeAsyncResult<unknown, unknown, unknown>,
-    ...MaybeAsyncResult<unknown, unknown, unknown>[]
+    MaybeAsyncResult<unknown, unknown>,
+    ...MaybeAsyncResult<unknown, unknown>[]
   ],
 >(
   results: T
-): Promise<Result<AnyAsyncValue<T>, AnyAsyncErrors<T>, AnyAsyncCauses<T>>> {
-  type ReturnErr = Result<never, AnyAsyncErrors<T>, AnyAsyncCauses<T>>;
-  type ReturnOk = Result<AnyAsyncValue<T>, never, AnyAsyncCauses<T>>;
+): Promise<Result<AnyAsyncValue<T>, AnyAsyncErrors<T>>> {
+  type ReturnErr = Result<never, AnyAsyncErrors<T>>;
+  type ReturnOk = Result<AnyAsyncValue<T>, never>;
 
   if (results.length === 0) {
     return err({
@@ -6839,7 +6894,7 @@ export async function anyAsync<
   return new Promise((resolve, reject) => {
     let settled = false;
     let pendingCount = results.length;
-    let firstTypedError: Result<never, unknown, unknown> | null = null;
+    let firstTypedError: Result<never, unknown> | null = null;
     let firstRejection: { reason: unknown } | null = null;
 
     const finish = (): void => {
@@ -6876,16 +6931,12 @@ export async function anyAsync<
   });
 }
 
-type AllAsyncValues<T extends readonly MaybeAsyncResult<unknown, unknown, unknown>[]> = {
-  [K in keyof T]: Awaited<T[K]> extends Result<infer V, unknown, unknown> ? V : never;
+type AllAsyncValues<T extends readonly MaybeAsyncResult<unknown, unknown>[]> = {
+  [K in keyof T]: Awaited<T[K]> extends Result<infer V, unknown> ? V : never;
 };
-type AllAsyncErrors<T extends readonly MaybeAsyncResult<unknown, unknown, unknown>[]> = {
-  [K in keyof T]: Awaited<T[K]> extends Result<unknown, infer E, unknown> ? E : never;
+type AllAsyncErrors<T extends readonly MaybeAsyncResult<unknown, unknown>[]> = {
+  [K in keyof T]: Awaited<T[K]> extends Result<unknown, infer E> ? E : never;
 }[number];
-type AllAsyncCauses<T extends readonly MaybeAsyncResult<unknown, unknown, unknown>[]> = {
-  [K in keyof T]: Awaited<T[K]> extends Result<unknown, unknown, infer C> ? C : never;
-}[number];
-
 /**
  * Combines multiple Results or Promises of Results, collecting all errors (async version of `allSettled`).
  *
@@ -6946,10 +6997,10 @@ type AllAsyncCauses<T extends readonly MaybeAsyncResult<unknown, unknown, unknow
  * ```
  */
 export async function allSettledAsync<
-  const T extends readonly MaybeAsyncResult<unknown, unknown, unknown>[],
+  const T extends readonly MaybeAsyncResult<unknown, unknown>[],
 >(
   results: T
-): Promise<Result<AllAsyncValues<T>, SettledError<AllAsyncErrors<T> | PromiseRejectedError, AllAsyncCauses<T> | PromiseRejectionCause>[]>> {
+): Promise<Result<AllAsyncValues<T>, SettledError<AllAsyncErrors<T> | PromiseRejectedError>[]>> {
   const settled = await Promise.all(
     results.map((item) =>
       Promise.resolve(item)
@@ -6976,9 +7027,9 @@ export async function allSettledAsync<
   }
 
   if (errors.length > 0) {
-    return err(errors) as unknown as Result<AllAsyncValues<T>, SettledError<AllAsyncErrors<T> | PromiseRejectedError, AllAsyncCauses<T> | PromiseRejectionCause>[]>;
+    return err(errors) as unknown as Result<AllAsyncValues<T>, SettledError<AllAsyncErrors<T> | PromiseRejectedError>[]>;
   }
-  return ok(values) as unknown as Result<AllAsyncValues<T>, SettledError<AllAsyncErrors<T> | PromiseRejectedError, AllAsyncCauses<T> | PromiseRejectionCause>[]>;
+  return ok(values) as unknown as Result<AllAsyncValues<T>, SettledError<AllAsyncErrors<T> | PromiseRejectedError>[]>;
 }
 
 /**
@@ -7013,7 +7064,7 @@ export async function allSettledAsync<
  * const userResult = await fetchUser('1');
  * const postsResult = await fetchPosts('1');
  * const combined = zip(userResult, postsResult);
- * // combined: Result<[User, Post[]], UserError | PostsError>
+ * // combined: Result<[User, Post[]]>
  *
  * // Use with andThen for chaining
  * const result = andThen(
@@ -7032,13 +7083,13 @@ export async function allSettledAsync<
  * }
  * ```
  */
-export function zip<A, EA, CA, B, EB, CB>(
-  a: Result<A, EA, CA>,
-  b: Result<B, EB, CB>
-): Result<[A, B], EA | EB, CA | CB> {
-  if (!a.ok) return a as Result<never, EA, CA>;
-  if (!b.ok) return b as Result<never, EB, CB>;
-  return ok([a.value, b.value]) as Result<[A, B], never, never>;
+export function zip<A, EA, B, EB>(
+  a: Result<A, EA>,
+  b: Result<B, EB>
+): Result<[A, B], EA | EB> {
+  if (!a.ok) return a as Result<never, EA>;
+  if (!b.ok) return b as Result<never, EB>;
+  return ok([a.value, b.value]) as Result<[A, B], never>;
 }
 
 /**
@@ -7077,7 +7128,7 @@ export function zip<A, EA, CA, B, EB, CB>(
  *   fetchPosts('1')
  * );
  * // Both fetches run in parallel
- * // result: Result<[User, Post[]], UserError | PostsError>
+ * // result: Result<[User, Post[]]>
  *
  * // Mix sync and async
  * const combined = await zipAsync(
@@ -7090,14 +7141,13 @@ export function zip<A, EA, CA, B, EB, CB>(
  *   .then(result => andThen(result, ([user, posts]) => createDashboard(user, posts)));
  * ```
  */
-export async function zipAsync<A, EA, CA, B, EB, CB>(
-  a: Result<A, EA, CA> | Promise<Result<A, EA, CA>>,
-  b: Result<B, EB, CB> | Promise<Result<B, EB, CB>>
-): AsyncResult<[A, B], EA | EB | PromiseRejectedError, CA | CB | PromiseRejectionCause> {
+export async function zipAsync<A, EA, B, EB>(
+  a: Result<A, EA> | Promise<Result<A, EA>>,
+  b: Result<B, EB> | Promise<Result<B, EB>>
+): AsyncResult<[A, B], EA | EB | PromiseRejectedError> {
   // Wrap rejections into PromiseRejectedError (consistent with allAsync)
-  const wrapRejection = <T, E, C>(
-    p: Result<T, E, C> | Promise<Result<T, E, C>>
-  ): Promise<Result<T, E | PromiseRejectedError, C | PromiseRejectionCause>> =>
+  const wrapRejection = <T, E>(    p: Result<T, E> | Promise<Result<T, E>>
+  ): Promise<Result<T, E | PromiseRejectedError>> =>
     Promise.resolve(p).catch((reason) =>
       err(
         { type: "PROMISE_REJECTED" as const, cause: reason } as PromiseRejectedError,

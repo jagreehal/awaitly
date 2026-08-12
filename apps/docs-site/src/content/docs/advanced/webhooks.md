@@ -169,7 +169,7 @@ const handler = createSimpleHandler({
   },
   handler: async (input: { userId: string }) => {
     const user = await db.users.find(input.userId);
-    if (!user) return err('NOT_FOUND' as const);
+    if (!user) return err('NOT_FOUND');
     return ok(user);
   },
   // `mapResult` is required — it turns the Result into an HTTP response.

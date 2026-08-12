@@ -238,18 +238,14 @@ const data = await step.withTimeout(
   </TabItem>
   <TabItem label="custom">
 ```typescript
-// Custom error type
-const data = await step.withTimeout(
-  'apiCall',
-  () => apiCall(),
-  {
+// Custom error type — declare the tag so it joins the error union
+const workflow = createWorkflow({ apiCall }, { errors: ['API_TIMEOUT'] });
+
+const result = await workflow.run(async ({ step, deps }) =>
+  step.withTimeout('apiCall', () => deps.apiCall(), {
     ms: 5000,
-    onTimeout: ({ name, ms }) => ({
-      type: 'API_TIMEOUT' as const,
-      operation: name,
-      waited: ms,
-    }),
-  }
+    onTimeout: () => 'API_TIMEOUT',
+  })
 );
 ```
   </TabItem>
@@ -439,7 +435,7 @@ To replace `UnexpectedError` with a custom type, pass `catchUnexpected`:
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts },
   {
     catchUnexpected: (thrown) => ({
-      type: 'UNEXPECTED' as const,
+      type: 'UNEXPECTED',
       message: String(thrown),
     }),
   }

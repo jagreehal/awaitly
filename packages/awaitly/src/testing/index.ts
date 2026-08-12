@@ -1204,8 +1204,8 @@ export function assertEventNotEmitted(
  * console.log(result.value.name); // TypeScript knows this exists
  * ```
  */
-export function expectOk<T, E, C = unknown>(
-  result: Result<T, E, C>
+export function expectOk<T, E = unknown>(
+  result: Result<T, E>
 ): asserts result is Ok<T> {
   if (!result.ok) {
     throw new Error(
@@ -1226,7 +1226,7 @@ export function expectOk<T, E, C = unknown>(
  * ```
  */
 export function expectErr<T, E, C = unknown>(
-  result: Result<T, E, C>
+  result: Result<T, E>
 ): asserts result is Err<E, C> {
   if (result.ok) {
     throw new Error(
@@ -1244,7 +1244,7 @@ export function expectErr<T, E, C = unknown>(
  * expect(user.name).toBe('Alice');
  * ```
  */
-export function unwrapOk<T, E, C = unknown>(result: Result<T, E, C>): T {
+export function unwrapOk<T, E = unknown>(result: Result<T, E>): T {
   expectOk(result);
   return result.value;
 }
@@ -1258,7 +1258,7 @@ export function unwrapOk<T, E, C = unknown>(result: Result<T, E, C>): T {
  * expect(error).toBe('NOT_FOUND');
  * ```
  */
-export function unwrapErr<T, E, C = unknown>(result: Result<T, E, C>): E {
+export function unwrapErr<T, E = unknown>(result: Result<T, E>): E {
   expectErr(result);
   return result.error;
 }
@@ -1272,8 +1272,8 @@ export function unwrapErr<T, E, C = unknown>(result: Result<T, E, C>): E {
  * expect(user.name).toBe('Alice');
  * ```
  */
-export async function unwrapOkAsync<T, E, C = unknown>(
-  result: AsyncResult<T, E, C>
+export async function unwrapOkAsync<T, E = unknown>(
+  result: AsyncResult<T, E>
 ): Promise<T> {
   return unwrapOk(await result);
 }
@@ -1287,8 +1287,8 @@ export async function unwrapOkAsync<T, E, C = unknown>(
  * expect(error).toBe('NOT_FOUND');
  * ```
  */
-export async function unwrapErrAsync<T, E, C = unknown>(
-  result: AsyncResult<T, E, C>
+export async function unwrapErrAsync<T, E = unknown>(
+  result: AsyncResult<T, E>
 ): Promise<E> {
   return unwrapErr(await result);
 }

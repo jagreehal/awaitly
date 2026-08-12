@@ -96,6 +96,27 @@ step('fetch', () => fetch(id), { key: `user:${Math.random()}` });
 step('fetch', () => fetch(id), { key: `user:${userId}` });
 ```
 
+### `awaitly/step-no-deps-bypass` (error)
+
+Catches a workflow that registers a dependency and then calls the module-level function instead of the injected one. The code compiles and the tests pass, while `deps` is reduced to a name registry and nothing can substitute the implementation.
+
+```typescript
+const wf = createWorkflow('checkout', { validateCart, chargeCard });
+
+// BAD - registers validateCart, then calls the module-level function directly.
+// Passing { deps: mockDeps } to .run() has no effect on this step.
+wf.run(async ({ step }) => {
+  const cart = await step('validateCart', () => validateCart(input));
+});
+
+// GOOD - the injected implementation is the one that runs
+wf.run(async ({ step, deps }) => {
+  const cart = await step('validateCart', () => deps.validateCart(input));
+});
+```
+
+Applies to `createWorkflow`, `createSagaWorkflow`, and the deps-first `run(deps, fn)` form, where the bound steps parameter (`s.validateCart(...)`) counts as correct usage. A dep name shadowed by a callback parameter is left alone, and a deps object built with a spread is skipped because its keys cannot be enumerated statically.
+
 ### `awaitly/workflow-options-position` (error)
 
 Prevents passing workflow options in the wrong argument position. Use `workflow.run(fn, config)` or `workflow.run(name, fn, config)`, where the callback comes before config.

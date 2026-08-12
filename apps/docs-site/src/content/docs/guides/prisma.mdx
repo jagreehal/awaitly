@@ -181,7 +181,7 @@ const zodToResult = <T>(schema: z.ZodSchema<T>, data: unknown) => {
   const parsed = schema.safeParse(data);
   return parsed.success
     ? ok(parsed.data)
-    : err({ type: 'VALIDATION' as const, issues: parsed.error.issues });
+    : err({ type: 'VALIDATION', issues: parsed.error.issues });
 };
 
 const workflow = createWorkflow('workflow', { validateInput: (deps: unknown) => zodToResult(CreateUserSchema, raw),
@@ -331,7 +331,7 @@ const deps = {
     return Promise.resolve(
       parsed.success
         ? ok(parsed.data)
-        : err({ type: 'VALIDATION' as const, issues: parsed.error.issues })
+        : err({ type: 'VALIDATION', issues: parsed.error.issues })
     );
   },
 
