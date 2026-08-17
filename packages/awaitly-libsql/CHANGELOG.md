@@ -1,5 +1,12 @@
 # awaitly-libsql
 
+## 32.0.0
+
+### Patch Changes
+
+- Updated dependencies [de708b1]
+  - awaitly@4.5.0
+
 ## 31.0.0
 
 ### Patch Changes

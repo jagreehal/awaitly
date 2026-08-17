@@ -1,6 +1,6 @@
 {
   "name": "awaitly-libsql",
-  "version": "31.0.0",
+  "version": "32.0.0",
   "type": "module",
   "description": "libSQL / SQLite persistence adapter for awaitly workflows",
   "main": "./dist/index.cjs",
