@@ -88,7 +88,7 @@ const result = await workflow.run(async ({ step, deps }) => { /* ... */ });
 
 Add a new dependency? The error union updates automatically.
 
-That comment is exactly what you see on hover: `result.error` resolves to the concrete literal union (`'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | UnexpectedError`), not an opaque internal alias — so a typo like `result.error === 'NOT_FUOND'` is a compile error, and `switch`/`matchError` stay exhaustive. The deps-first `run(deps, fn)` form infers and displays the same way.
+That comment is exactly what you see on hover: `result.error` resolves to the concrete literal union (`'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | UnexpectedError`), not an opaque internal alias, so a typo like `result.error === 'NOT_FUOND'` is a compile error, and `switch`/`matchError` stay exhaustive. The deps-first `run(deps, fn)` form infers and displays the same way.
 
 ## `UnexpectedError`
 
@@ -278,6 +278,10 @@ const data = await step.retry(
 );
 ```
 
+<Aside type="tip" title="Default does not retry bugs">
+By default, retry skips `UnexpectedError` and untagged throws. Typed errors (including timeouts) still retry. Narrow further with `shouldRetry`. Pass `retryIf: () => true` only if you want to retry throws. Drive delays in tests with `createTestClock()`. See [Retries & Timeouts](guides/retries-timeouts/#testing-with-a-clock).
+</Aside>
+
 ### Backoff Strategies
 
 ```text
@@ -459,7 +463,8 @@ const result = await run<User, 'NOT_FOUND'>(
 | `initialDelay` | `number` | `0` | Base delay in milliseconds |
 | `maxDelay` | `number` | `undefined` | Maximum delay cap |
 | `jitter` | `boolean` | `false` | Add random variation |
-| `shouldRetry` | `(error) => boolean` | `() => true` | Condition for retry |
+| `shouldRetry` | `(error) => boolean` | typed errors only | Condition for retry. Does not retry `UnexpectedError` or untagged throws. |
+| `clock` | `Clock` | run/workflow clock | Time source for delays. Pass `createTestClock()` in tests. |
 
 ## Complete Example
 

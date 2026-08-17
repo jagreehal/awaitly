@@ -94,7 +94,7 @@ const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
 ```
 
 <Aside type="tip" title="AsyncResult vs Promise">
-`AsyncResult<T, E>` is just `Promise<Result<T, E>>`. Use it to make async function signatures cleaner.
+`AsyncResult<T, E>` is `Promise<Result<T, E>>`. Use it to make async function signatures cleaner.
 </Aside>
 
 ## Checking Results
@@ -185,7 +185,7 @@ const failed = andThen(negative, (n) =>
 
 ### match - Pattern Match
 
-Handle both cases in one expression. The discriminant is `type` everywhere — string errors match themselves, tagged objects match on `type`, and `TaggedError` instances expose `.type` as the canonical field (`._tag` remains as a deprecated alias).
+Handle both cases in one expression. The discriminant is `type` everywhere, string errors match themselves, tagged objects match on `type`, and `TaggedError` instances expose `.type` as the canonical field (`._tag` remains as a deprecated alias).
 
 **Two-arm catch-all:**
 
@@ -200,7 +200,7 @@ const message = match(result, {
 // "Success: 5"
 ```
 
-**Exhaustive per-type arms** — dispatch across string literals, tagged objects, and `TaggedError` classes in one call:
+**Exhaustive per-type arms**: dispatch across string literals, tagged objects, and `TaggedError` classes in one call:
 
 ```typescript
 import { match, ok, err, type Result } from 'awaitly';
@@ -330,6 +330,14 @@ const failed = all(withError);
 // { ok: false, error: 'FAILED' }
 ```
 
+Combining operations typed as `Result<void, E>` produces `Result<void[], E>`. The ts-eslint `strict` preset rejects `void[]` through `@typescript-eslint/no-invalid-void-type`. Use `undefined` for functions that return no value when you plan to combine their Results:
+
+```typescript
+declare const revoke: (id: string) => Result<undefined, Forbidden>;
+
+const revoked: Result<undefined[], Forbidden> = all(ids.map(revoke));
+```
+
 ### allSettled - Collect All Outcomes
 
 Returns `Ok` with every value when all succeed, or `Err` with an array of `{ error, cause? }` entries when any fail:
@@ -354,7 +362,7 @@ const failed = allSettled(mixed);
 
 ### partition - Separate Successes and Failures
 
-Returns a `{ values, errors }` object — never fails:
+Returns a `{ values, errors }` object, never fails:
 
 ```typescript
 import { partition } from 'awaitly';
@@ -475,7 +483,7 @@ const parsed = await tryAsync(
 
 ## Retry with the `retry` Policy
 
-Retry async operations without the full workflow engine. `retry` wraps any Result-returning (or plain) function and keeps its error union unchanged — if all attempts fail, the last failure propagates:
+Retry async operations without the full workflow engine. `retry` wraps any Result-returning (or plain) function and keeps its error union unchanged, if all attempts fail, the last failure propagates:
 
 ```typescript
 import { tryAsync, retry } from 'awaitly';
@@ -493,11 +501,13 @@ const result = await retry(fetchData, {
 })();
 ```
 
+By default, `retry` skips `UnexpectedError` and untagged throws. Typed errors still retry. Pass `retryIf: () => true` to opt back into retrying throws. In tests, pass `createTestClock()` as `clock` so delays do not wait on real time. Policy wrappers do not pick up `run({ clock })`.
+
 The same wrapped function drops straight into a `run()` deps object, so the policy is visible where the dependency is declared.
 
 ## Timeout with the `timeout` Policy
 
-Bound a dependency's execution time. On timeout, resolves to `err(TimeoutError)` — adding `TimeoutError` to the error union:
+Bound a dependency's execution time. On timeout, resolves to `err(TimeoutError)`, adding `TimeoutError` to the error union:
 
 ```typescript
 import { tryAsync, timeout } from 'awaitly';
@@ -512,7 +522,7 @@ const result = await timeout(fetchData, 5000)();
 // result.error may be 'FETCH_FAILED' | TimeoutError
 ```
 
-Accepts milliseconds or duration strings (`'5s'`, `'500ms'`).
+Accepts milliseconds or duration strings (`'5s'`, `'500ms'`). Optional third argument `{ clock }` uses that clock for the deadline instead of wall time.
 
 ## Fallback with the `fallback` Policy
 

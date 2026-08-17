@@ -46,7 +46,7 @@ Both libraries can give you typed errors, retries, resource cleanup, and composi
 
 ## First impressions: the same code you'd write today
 
-If you can write `async/await`, you already know awaitly. There is no generator DSL or custom runtime to adopt. You write code that looks like the code you wrote yesterday — and you get typed errors and step-level observability by default, with retries available through the step engine when you need them.
+If you can write `async/await`, you already know awaitly. There is no generator DSL or custom runtime to adopt. You write code that looks like the code you wrote yesterday, and you get typed errors and step-level observability by default, with retries available through the step engine when you need them.
 
 <Tabs>
   <TabItem label="awaitly">
@@ -84,11 +84,11 @@ const result = await Effect.runPromise(Effect.either(program));
   </TabItem>
 </Tabs>
 
-awaitly stays in `async/await`. In workflow-style APIs (`run`, `createWorkflow`), errors are inferred from your dependency object — no manual annotations, no `Effect<A, E, R>` to thread through. When you're ready for more (retries, sagas, durable execution, dependency injection), you opt in as needed.
+awaitly stays in `async/await`. In workflow-style APIs (`run`, `createWorkflow`), errors are inferred from your dependency object, no manual annotations, no `Effect<A, E, R>` to thread through. When you're ready for more (retries, sagas, durable execution, dependency injection), you opt in as needed.
 
 ## Closest Equivalent to `Effect.gen`: `run()` deps-first
 
-The deps-first form `run(deps, fn)` gives you Effect-like sequential composition while staying in native async/await. The body is just async/await; each dep call on the bound steps object is automatically a tracked step using its property name as the id, and errors are inferred from the deps' return types.
+The deps-first form `run(deps, fn)` gives you Effect-like sequential composition while staying in native async/await. The body is async/await; each dep call on the bound steps object is automatically a tracked step using its property name as the id, and errors are inferred from the deps' return types.
 
 <Tabs>
   <TabItem label="awaitly">
@@ -182,7 +182,7 @@ This table compares Effect core/stdlib with awaitly core plus optional awaitly m
 
 ## Step helpers
 
-awaitly's step helpers are deliberately small. The core helpers cover the 80% — every other concern lives as an option on `step` itself.
+awaitly's step helpers are deliberately small. The core helpers cover the 80%. Every other concern lives as an option on `step` itself.
 
 | awaitly | Effect equivalent |
 |---|---|
@@ -790,7 +790,7 @@ const program = Effect.forEach(
 
 ## Resource Management
 
-Both libraries provide scoped resource management with automatic cleanup in LIFO order. Effect's `Scope` is deeply integrated with the runtime; awaitly's `withScope` is explicit and library-level.
+Both libraries provide scoped resource management with automatic cleanup in LIFO order. Effect's `Scope` is integrated into the runtime; awaitly's `withScope` is explicit and library-level.
 
 <Tabs>
   <TabItem label="awaitly">
@@ -908,7 +908,7 @@ Effect's Stream is more comprehensive (backpressure, chunking, advanced combinat
 
 ## Functional Composition
 
-Effect leans on `pipe`/`flow` to thread a value through combinators. awaitly deliberately has no `pipe`/`flow`: you compose Results with the plain combinator functions (`map`, `andThen`, `mapError`) or, more often, just stay in `async/await`.
+Effect leans on `pipe`/`flow` to thread a value through combinators. awaitly deliberately has no `pipe`/`flow`: you compose Results with the plain combinator functions (`map`, `andThen`, `mapError`) or, more often, stay in `async/await`.
 
 <Tabs>
   <TabItem label="awaitly">
@@ -958,7 +958,7 @@ const result = processNumber(Effect.succeed(5));
 </Tabs>
 
 <Aside type="note">
-Effect's functional toolkit is far more extensive (`pipe`, `flow`, `identity`, `constVoid`, `absurd`, etc.). awaitly intentionally ships none of them — it keeps a small set of Result combinators and leans on `async/await` + `run()` for sequencing, so there's no combinator vocabulary to learn.
+Effect's functional toolkit is far more extensive (`pipe`, `flow`, `identity`, `constVoid`, `absurd`, etc.). awaitly intentionally ships none of them. It keeps a small set of Result combinators and leans on `async/await` + `run()` for sequencing, so there's no combinator vocabulary to learn.
 </Aside>
 
 ## Tagged Errors
@@ -1145,7 +1145,7 @@ const program = Effect.gen(function* () {
 </Tabs>
 
 <Aside type="note">
-Manual compensation can become verbose as steps grow — each new step needs to undo all previous ones. awaitly's saga helper tracks compensations and runs them in reverse automatically.
+Manual compensation can become verbose as steps grow. Each new step needs to undo all previous ones. awaitly's saga helper tracks compensations and runs them in reverse automatically.
 </Aside>
 
 ## Durable Execution
@@ -1246,35 +1246,26 @@ if (execution.status === 'paused') {
 <Tabs>
   <TabItem label="awaitly">
 ```typescript
-import { createWorkflow, type WorkflowEvent } from 'awaitly';
+import { init } from 'autotel';
+import { createWorkflow } from 'awaitly';
 
-// Every workflow emits a typed event stream — build metrics/spans from it,
-// no awaitly-specific adapter required.
-const metrics = {
-  stepDurations: [] as { name?: string; durationMs: number; success: boolean }[],
-  retryCount: 0,
-  errorCount: 0,
-  cacheHits: 0,
-};
+init({ service: 'checkout-api' });
 
-const workflow = createWorkflow('checkout', deps, {
-  onEvent: (event: WorkflowEvent<unknown>) => {
-    if (event.type === 'step_success')
-      metrics.stepDurations.push({ name: event.name, durationMs: event.durationMs, success: true });
-    if (event.type === 'step_error') {
-      metrics.stepDurations.push({ name: event.name, durationMs: event.durationMs, success: false });
-      metrics.errorCount++;
-    }
-    if (event.type === 'step_cache_hit') metrics.cacheHits++;
-  },
+const workflow = createWorkflow('checkout', deps);
+
+const result = await workflow.run(async ({ step, deps }) => {
+  const user = await step('fetch-user', () => deps.fetchUser('1'));
+  return step('charge', () => deps.charge(user));
 });
+
+// awaitly creates run, step, retry, scope, and compensation spans.
 ```
   </TabItem>
   <TabItem label="Effect">
 ```typescript
+import * as NodeSdk from '@effect/opentelemetry/NodeSdk';
 import { Effect } from 'effect';
 
-// Effect has built-in tracing via spans
 const program = Effect.gen(function* () {
   const user = yield* fetchUser('1');
   return user;
@@ -1282,22 +1273,25 @@ const program = Effect.gen(function* () {
   Effect.withSpan('fetchUser')
 );
 
-// Requires OpenTelemetry SDK setup for export
+// Provide the OpenTelemetry layer, then run the Effect program.
+const OtelLive = NodeSdk.layer(() => sdkConfig);
+const runnable = program.pipe(Effect.provide(OtelLive));
+await Effect.runPromise(runnable);
 ```
   </TabItem>
 </Tabs>
 
 <Aside type="note">
-Effect's tracing is deeper: spans are part of the runtime and propagate automatically through fibers. awaitly's approach is event-based: the workflow emits events, and the otel adapter translates them into spans and metrics. Simpler to set up, but you're instrumenting at the step level rather than at every function call.
+Effect lets any Effect become a span and propagates context through fibers. Its OpenTelemetry package bridges the Effect tracer, metrics, and logger through a Layer. awaitly instruments its orchestration boundaries automatically through the global OpenTelemetry API. A configured provider and a registered `ContextManager` are enough; there is no awaitly adapter or alternate runner. Custom metrics and logs still use `onEvent`, which keeps the small `run` bundle free of metric and log SDK code.
 </Aside>
 
 ## When to Choose Each
 
 ### The migration question
 
-**If you rely heavily on scoped resources and structured concurrency** — Effect remains the better tool. Fibers, Scope, and interruption are built in; awaitly doesn't model that level of lifecycle.
+**If you rely heavily on scoped resources and structured concurrency**: Effect remains the better tool. Fibers, Scope, and interruption are built in; awaitly doesn't model that level of lifecycle.
 
-**If your team finds the runtime and abstraction surface too heavy** — awaitly offers a simpler mental model: same async/await, typed errors in the return type, deps passed as values. No generators, no Layer graph.
+**If your team finds the runtime and abstraction surface too heavy**. awaitly offers a simpler mental model: same async/await, typed errors in the return type, deps passed as values. No generators, no Layer graph.
 
 Both get you typed errors and composition. The trade-off is runtime power and type-level architecture (Effect) against application-level simplicity (awaitly).
 

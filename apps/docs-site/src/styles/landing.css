@@ -36,20 +36,28 @@
   }
 
   .landing-root {
-    /* === Design tokens (dark-first, warm ink) === */
-    --ink:        oklch(0.155 0.012 60);   /* near-black, warm */
-    --ink-2:      oklch(0.205 0.012 60);   /* raised surface */
-    --ink-3:      oklch(0.255 0.012 60);   /* card / hover */
-    --line:       oklch(0.305 0.010 60);   /* divider */
-    --line-soft:  oklch(0.245 0.008 60);   /* hairline */
-    --cream:      oklch(0.965 0.012 80);   /* primary text */
-    --cream-2:    oklch(0.840 0.012 80);   /* secondary text */
-    --cream-3:    oklch(0.640 0.012 80);   /* tertiary text */
-    --amber:      oklch(0.815 0.155 65);   /* primary accent — ok */
-    --amber-2:    oklch(0.720 0.155 60);   /* hover */
-    --amber-dim:  oklch(0.480 0.110 60);   /* low-key accent */
-    --rust:       oklch(0.640 0.140 28);   /* err accent */
-    --rust-dim:   oklch(0.420 0.090 28);
+    /* === Design tokens (dark-first, cool slate) ===
+       Neutrals sit on a cool blue-grey axis (hue 250) and the single accent is
+       teal (hue 200). Token names are kept from the previous warm palette so
+       the 1500 lines of component CSS below need no edits; only these values
+       and their light counterparts define the page's colour. */
+    --ink:        oklch(0.205 0.014 254);  /* page background */
+    --ink-2:      oklch(0.253 0.016 254);  /* raised surface / card */
+    --ink-3:      oklch(0.298 0.017 254);  /* hover / elevated card */
+    --line:       oklch(0.352 0.016 254);  /* divider */
+    --line-soft:  oklch(0.292 0.013 254);  /* hairline */
+    --cream:      oklch(0.955 0.005 254);  /* primary text */
+    --cream-2:    oklch(0.812 0.011 254);  /* secondary text */
+    --cream-3:    oklch(0.702 0.014 254);  /* tertiary text, 4.5:1 on raised surfaces */
+    --amber:      oklch(0.812 0.108 205);  /* primary accent (ok / links) */
+    --amber-2:    oklch(0.878 0.088 205);  /* hover, brighter on dark */
+    --amber-dim:  oklch(0.512 0.072 205);  /* low-key accent */
+    --rust:       oklch(0.712 0.152 18);   /* err accent, semantic red */
+    --rust-dim:   oklch(0.468 0.104 18);
+    /* Foreground for anything filled with --amber. Dark mode's accent is light,
+       so this is near-black; the light-mode override flips it to white. */
+    --on-accent:  oklch(0.200 0.016 254);
+    --syn-str:    oklch(0.812 0.116 152);  /* string / number literals */
 
     --display: 'Schibsted Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
     --mono: 'Geist Mono', ui-monospace, 'SF Mono', 'JetBrains Mono', monospace;
@@ -68,21 +76,26 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Light counterpart — Starlight uses data-theme="light" */
+  /* Light counterpart. Starlight sets data-theme="light".
+     Designed as its own palette rather than an inversion: the accent darkens
+     to hold 4.5:1 on white, and surfaces stay near-white so code panels read
+     as the darkest element on the page. */
   :where([data-theme='light']) .landing-root {
-    --ink:        oklch(0.985 0.008 80);
-    --ink-2:      oklch(0.955 0.012 80);
-    --ink-3:      oklch(0.925 0.012 80);
-    --line:       oklch(0.860 0.012 80);
-    --line-soft:  oklch(0.910 0.010 80);
-    --cream:      oklch(0.180 0.015 60);
-    --cream-2:    oklch(0.380 0.012 60);
-    --cream-3:    oklch(0.540 0.012 60);
-    --amber:      oklch(0.580 0.155 55);
-    --amber-2:    oklch(0.500 0.155 55);
-    --amber-dim:  oklch(0.700 0.090 55);
-    --rust:       oklch(0.480 0.150 28);
-    --rust-dim:   oklch(0.640 0.080 28);
+    --ink:        oklch(1 0 0);            /* page background, pure white */
+    --ink-2:      oklch(0.976 0.003 254);  /* raised surface / card */
+    --ink-3:      oklch(0.945 0.006 254);  /* hover / elevated card */
+    --line:       oklch(0.884 0.008 254);  /* divider */
+    --line-soft:  oklch(0.928 0.005 254);  /* hairline */
+    --cream:      oklch(0.278 0.021 254);  /* primary text */
+    --cream-2:    oklch(0.438 0.019 254);  /* secondary text */
+    --cream-3:    oklch(0.512 0.019 254);  /* tertiary text, 4.5:1 on white */
+    --amber:      oklch(0.492 0.104 217);  /* primary accent, 4.5:1 on white and on its own 14% tint */
+    --amber-2:    oklch(0.442 0.098 217);  /* hover */
+    --amber-dim:  oklch(0.742 0.058 217);  /* low-key accent */
+    --rust:       oklch(0.528 0.192 22);   /* err accent, semantic red */
+    --rust-dim:   oklch(0.712 0.104 22);
+    --on-accent:  oklch(1 0 0);
+    --syn-str:    oklch(0.482 0.108 152);
   }
 
   .landing-root *,
@@ -141,12 +154,6 @@
     opacity: 1;
     letter-spacing: 0;
     margin-right: 0.35rem;
-  }
-
-  .landing-divider {
-    border: 0;
-    border-top: 1px solid var(--line-soft);
-    margin: 0;
   }
 
   .sr-only {
@@ -210,7 +217,7 @@
 
   .landing-btn--primary {
     background: var(--amber);
-    color: oklch(0.16 0.012 60);
+    color: var(--on-accent);
     border-color: var(--amber);
   }
   .landing-btn--primary:hover {
@@ -256,15 +263,15 @@
     position: absolute;
     inset: 0;
     background:
-      radial-gradient(900px 500px at 8% -10%, oklch(0.30 0.04 65 / 0.55), transparent 60%),
-      radial-gradient(700px 400px at 100% 110%, oklch(0.28 0.03 60 / 0.45), transparent 60%);
+      radial-gradient(900px 500px at 8% -10%, oklch(0.34 0.045 217 / 0.42), transparent 60%),
+      radial-gradient(700px 400px at 100% 110%, oklch(0.30 0.030 254 / 0.38), transparent 60%);
     pointer-events: none;
     z-index: 0;
   }
   :where([data-theme='light']) .hero::before {
     background:
-      radial-gradient(900px 500px at 8% -10%, oklch(0.92 0.04 65 / 0.65), transparent 60%),
-      radial-gradient(700px 400px at 100% 110%, oklch(0.94 0.03 60 / 0.55), transparent 60%);
+      radial-gradient(900px 500px at 8% -10%, oklch(0.955 0.028 217 / 0.70), transparent 60%),
+      radial-gradient(700px 400px at 100% 110%, oklch(0.965 0.018 254 / 0.60), transparent 60%);
   }
   .hero__inner { position: relative; z-index: 1; }
 
@@ -294,8 +301,11 @@
   .hero__headline {
     font-family: var(--display);
     font-weight: 700;
-    font-size: clamp(2rem, 5.6vw, 4.75rem);
-    line-height: 1.02;
+    /* Sized so the second line fits the 960px content column without
+       wrapping: at 4.75rem it landed exactly on the boundary and broke to a
+       third line, pushing the CTA past the fold. */
+    font-size: clamp(1.875rem, 4.4vw, 3.875rem);
+    line-height: 1.06;
     letter-spacing: -0.035em;
     margin: 0;
     color: var(--cream);
@@ -676,10 +686,10 @@
     font-style: italic;
   }
   .diff__code .str {
-    color: oklch(0.78 0.1 100);
+    color: var(--syn-str);
   }
   .diff__code .num {
-    color: oklch(0.78 0.1 100);
+    color: var(--syn-str);
   }
   .diff__code .cm {
     color: var(--cream-3);
@@ -1196,7 +1206,7 @@
     color: var(--cream-2);
   }
   .pillar__code .str {
-    color: oklch(0.78 0.1 100);
+    color: var(--syn-str);
   }
   .pillar__code .ok {
     color: var(--amber);
@@ -1377,7 +1387,7 @@
   }
   .cta__import-dim { color: var(--cream-3); }
   .cta__import-name { color: var(--cream); }
-  .cta__import-str { color: oklch(0.78 0.1 100); }
+  .cta__import-str { color: var(--syn-str); }
 
   .cta__install {
     margin-top: 1.5rem;
@@ -1590,4 +1600,167 @@
     border-radius: 3px;
     border: 1px solid var(--line-soft);
     color: var(--cream);
+  }
+
+  /* ===== Run showcase ===== */
+  /* Sits directly under the hero: the first code a visitor meets should be
+     the thing awaitly does that a plain Result library does not. */
+  .runshow {
+    padding-block: clamp(4rem, 8vw, 7rem);
+  }
+
+  .runshow__header {
+    max-width: 46rem;
+  }
+  .runshow__header .landing-h2 {
+    margin-top: 0;
+  }
+
+  .runshow__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: clamp(1.5rem, 3vw, 3rem);
+    align-items: start;
+    margin-top: clamp(2rem, 4vw, 3.25rem);
+  }
+
+  .runshow__panel {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--ink-2);
+    overflow: hidden;
+  }
+
+  .runshow__panel-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.125rem;
+    border-bottom: 1px solid var(--line-soft);
+    background: var(--ink-3);
+  }
+  .runshow__file {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.02em;
+    color: var(--cream-3);
+  }
+
+  .runshow__code {
+    padding: 1.25rem 1.375rem;
+    font-size: 0.8125rem;
+    line-height: 1.75;
+    overflow-x: auto;
+  }
+
+  .runshow__foot {
+    padding: 1rem 1.375rem 1.25rem;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .runshow__callouts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 1px;
+    background: var(--line-soft);
+    border: 1px solid var(--line-soft);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  .runshow__callout {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.875rem;
+    align-items: start;
+    padding: 1.125rem 1.25rem;
+    background: var(--ink);
+  }
+
+  .runshow__marker {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    line-height: 1.6;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    background: oklch(from var(--amber) l c h / 0.14);
+    color: var(--amber);
+    white-space: nowrap;
+  }
+
+  .runshow__callout-title {
+    font-family: var(--display);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    color: var(--cream);
+  }
+
+  .runshow__callout-text {
+    font-size: 0.875rem;
+    line-height: 1.55;
+    margin: 0.3rem 0 0;
+    color: var(--cream-2);
+  }
+
+  @media (max-width: 60rem) {
+    .runshow__grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 40rem) {
+    .runshow__callout {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.5rem;
+    }
+    .runshow__marker {
+      justify-self: start;
+    }
+  }
+
+  /* ===== Capabilities strip ===== */
+  /* Was inside the hero. Kept deliberately quiet: it is scannable context,
+     not a section that needs a heading of its own. */
+  .caps {
+    padding-block: clamp(1.75rem, 3vw, 2.5rem);
+  }
+
+  .caps__grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: clamp(1.25rem, 3vw, 3rem);
+    margin: 0;
+  }
+
+  .caps__item {
+    display: grid;
+    gap: 0.375rem;
+  }
+
+  .caps__label {
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--cream-3);
+  }
+
+  .caps__value {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--cream-2);
+  }
+
+  @media (max-width: 48rem) {
+    .caps__grid {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1rem;
+    }
   }

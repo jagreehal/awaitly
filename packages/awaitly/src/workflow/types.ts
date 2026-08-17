@@ -18,6 +18,7 @@ import type {
 import type { JSONValue, WorkflowSnapshot } from "../persistence";
 import type { StreamStore } from "../streaming/types";
 import type { StandardSchemaV1 } from "./standard-schema";
+import type { Clock } from "../clock";
 
 // =============================================================================
 // Step Cache Types
@@ -167,6 +168,8 @@ export type ExecutionOptions<E, U = UnexpectedError, C = void> = {
    * Overrides `onEvent` from creation-time options.
    */
   onEvent?: ((event: WorkflowEvent<E | U, C>, ctx: C) => void) | undefined;
+  /** Disable automatic OpenTelemetry spans for this execution. */
+  telemetry?: boolean | undefined;
   /**
    * Error handler called when a step fails.
    * Overrides `onError` from creation-time options.
@@ -177,6 +180,11 @@ export type ExecutionOptions<E, U = UnexpectedError, C = void> = {
    * Overrides `signal` from creation-time options.
    */
   signal?: AbortSignal | undefined;
+  /**
+   * Clock for retry delays, `step.sleep`, and `step.withTimeout`.
+   * Overrides `clock` from creation-time options.
+   */
+  clock?: Clock | undefined;
   /**
    * Factory to create per-run context. Can be async.
    * Overrides `createContext` from creation-time options.
@@ -311,6 +319,8 @@ export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends reado
    * The separate `ctx` parameter is provided for convenience.
    */
   onEvent?: ((event: WorkflowEvent<E | U, C>, ctx: C) => void) | undefined;
+  /** Disable automatic OpenTelemetry spans for this workflow. */
+  telemetry?: boolean | undefined;
   /** Create per-run context for event correlation */
   createContext?: (() => C) | undefined;
   /** Step result cache - only steps with a `key` option are cached */
@@ -339,6 +349,11 @@ export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends reado
    * Cancellation is mapped through catchUnexpected (default: UnexpectedError with cause.thrown = WorkflowCancelledError).
    */
   signal?: AbortSignal | undefined;
+  /**
+   * Clock for retry delays, `step.sleep`, and `step.withTimeout`.
+   * Defaults to the system clock. Pass `createTestClock()` in tests.
+   */
+  clock?: Clock | undefined;
   onBeforeStart?: ((workflowId: string, context: C) => boolean | Promise<boolean>) | undefined;
   /**
    * Hook called before each step runs — including steps about to be served

@@ -240,7 +240,7 @@ Total max wait: 3000ms (without cap)
 
 ### Delay Calculation Helper
 
-Here's how each strategy calculates delays:
+Each strategy calculates delays differently:
 
 ```typescript
 // Helper to visualize backoff delays
@@ -325,7 +325,7 @@ Time →                          Time →
 ```
 
 <Aside type="note" title="Why jitter matters">
-According to [AWS Architecture Blog on Exponential Backoff and Jitter](https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/), adding jitter dramatically reduces collision rates when many clients retry simultaneously.
+According to [AWS Architecture Blog on Exponential Backoff and Jitter](https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/), adding jitter cuts collision rates when many clients retry simultaneously.
 
 Without jitter, if 1000 clients all fail at the same time, they all retry at the same time. With jitter, those retries spread across a time window.
 </Aside>
@@ -369,7 +369,7 @@ const user = await step.retry(
 ```
 
 <Aside type="tip" title="Retry only transient failures">
-Retrying `NOT_FOUND` or `UNAUTHORIZED` wastes time and resources. Only retry errors that might succeed on another attempt: network failures, timeouts, rate limits, and server errors (5xx).
+By default, retry skips `UnexpectedError` and untagged throws (bugs). Typed errors still retry. Narrow further with `shouldRetry` so `NOT_FOUND` or `UNAUTHORIZED` are not retried either. Pass `retryIf: () => true` only if you want to retry throws.
 </Aside>
 
 ### Common retry patterns
@@ -540,7 +540,8 @@ Output (immediate failure, no retries):
 | `initialDelay` | `number` | `0` | Base delay in milliseconds |
 | `maxDelay` | `number` | `undefined` | Maximum delay cap |
 | `jitter` | `boolean` | `false` | Add random variation |
-| `shouldRetry` | `(error) => boolean` | `() => true` | Condition for retry |
+| `shouldRetry` | `(error) => boolean` | typed errors only | Condition for retry. Does not retry `UnexpectedError` or untagged throws. Alias: `retryIf`. |
+| `clock` | `Clock` | run/workflow clock, else `systemClock` | Time source for delays. Pass `createTestClock()` in tests. Policy `retry()` / `timeout()` need `clock` at wrap time. |
 
 ## Deps-level policies
 
@@ -572,7 +573,49 @@ await checkout.run(async ({ steps }) => {
 
 Policies compose inside-out: `retry(timeout(fn, ms), opts)` times out each attempt, then retries on failure. See [Policies](advanced/policies/) for `fallback`, error-union rules, and legacy StepOptions bundles.
 
-Inside a workflow body you can still use **`step.retry`** and **`step.withTimeout`** when retry or timeout is the primary verb for a one-off operation — see sections above.
+Inside a workflow body you can still use **`step.retry`** and **`step.withTimeout`** when retry or timeout is the primary verb for a one-off operation. See the sections above.
+
+## Testing with a clock
+
+Pass `createTestClock()` from `awaitly/testing` so retry delays, `step.sleep`, `step.withTimeout`, and circuit-breaker windows do not wait on real time. On `step.retry` / `retryAsync`, set `jitter: false` so delays are exact.
+
+The same `clock` option exists on `run()`, `createWorkflow` / `workflow.run` (per-run overrides creation-time), `retry()`, `timeout(fn, after, { clock })`, and `createCircuitBreaker`.
+
+```typescript
+import { run, retry, timeout, createCircuitBreaker } from 'awaitly';
+import { createTestClock } from 'awaitly/testing';
+
+const clock = createTestClock();
+
+const pending = run(
+  async ({ step }) => {
+    await step.sleep('wait', '1s');
+    return 'ok';
+  },
+  { clock }
+);
+
+clock.advance(1000);
+const result = await pending;
+
+// Policy wrappers do not pick up run({ clock }) — pass clock at wrap time:
+const resilient = retry(fetchUser, {
+  attempts: 3,
+  delay: 1000,
+  backoff: 'fixed',
+  clock,
+});
+
+const timed = timeout(slowOp, 500, { clock });
+
+const breaker = createCircuitBreaker('api', {
+  failureThreshold: 1,
+  resetTimeout: 30_000,
+  clock,
+});
+```
+
+See [Testing](guides/testing/#testing-time-dependent-workflows) for harness timestamps vs control-flow time.
 
 ## Next
 

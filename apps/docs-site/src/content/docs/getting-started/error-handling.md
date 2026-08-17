@@ -27,7 +27,7 @@ const result = await workflow.run(async ({ step }) => {
 // result.error now includes 'FETCH_FAILED' instead of UnexpectedError
 ```
 
-Without `step.try`, that throw would still be caught — it would just arrive as an
+Without `step.try`, that throw would still be caught. It would arrive as an
 opaque `UnexpectedError` rather than something you can `switch` on.
 
 ## Keeping error detail
@@ -71,7 +71,7 @@ switch (result.error) {
 ```
 
 Handle `UnexpectedError` first and the remaining `switch` is over your own domain
-errors only — which is what makes an exhaustiveness check meaningful.
+errors only, which is what makes an exhaustiveness check meaningful.
 
 ## Choosing an error shape
 
@@ -91,7 +91,7 @@ TypeScript not narrowing the way you expect? See [Troubleshooting](guides/troubl
 ## Next
 
 You now know everything needed to use awaitly day to day.
-[Foundations](foundations/) goes deeper on each piece — Result combinators, step
+[Foundations](foundations/) goes deeper on each piece, Result combinators, step
 options, control flow, retries, persistence, and streaming.
 
 [Continue to Foundations →](foundations/)

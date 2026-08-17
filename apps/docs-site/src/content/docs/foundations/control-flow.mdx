@@ -290,7 +290,7 @@ if (user.isPremium) {
 }
 ```
 
-For single guarded steps (no else branch), prefer [`when`](guides/conditional-execution/) or [`unless`](guides/conditional-execution/) — they emit skip events and integrate with the visualizer.
+For single guarded steps (no else branch), prefer [`when`](guides/conditional-execution/) or [`unless`](guides/conditional-execution/): they emit skip events and integrate with the visualizer.
 
 `step.if` emits a `decision` event on each evaluation. The visualizer and `awaitly-analyze` consume it automatically; no `trackIf` wiring needed. See [Visualization →](guides/visualization/#decision-tracking).
 
@@ -311,7 +311,7 @@ for (const item of order.items) {
 ```
 
 The one thing that defeats it is a condition or iterable the analyzer can't read from
-the source — a call result (`if (checkEligibility(user))`) or a computed member
+the source, a call result (`if (checkEligibility(user))`) or a computed member
 (`items[i].ready`). Hoist those into a named variable and the diagram comes back:
 
 ```typescript
@@ -319,9 +319,9 @@ const isEligible = checkEligibility(user);   // now readable
 if (isEligible) { /* ... */ }
 ```
 
-`--assert-diagrammable` flags only those genuinely unreadable cases. Reach for
-`step.if` / `step.forEach` when you want their **runtime** features — skip events,
-bounded iteration, per-iteration keys — not to satisfy the analyzer.
+`--assert-diagrammable` flags only the unreadable cases. Reach for
+`step.if` / `step.forEach` when you want their **runtime** features, skip events,
+bounded iteration, per-iteration keys, not to satisfy the analyzer.
 </Aside>
 
 ### step.forEach for Static Analyzability

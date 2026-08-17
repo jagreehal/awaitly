@@ -1,245 +1,245 @@
 ---
 title: OpenTelemetry
-description: Observability with traces and metrics
+description: Automatic traces for runs, steps, retries, scopes, sagas, and durable execution
 ---
 
-Every workflow emits a typed event stream through the `onEvent` option. Wiring those events into OpenTelemetry gives you spans and metrics without any awaitly-specific adapter.
+awaitly emits OpenTelemetry spans on its own. You write no adapter, no `onEvent` bridge, and no `runOtel` wrapper.
 
-:::note
-A first-class OpenTelemetry adapter is planned as a separate ecosystem package. Until it ships, the event stream shown below is the supported integration point.
-:::
+Configure a provider once at startup and every `run()` and `workflow.run()` joins the active trace. Without a provider, the same code hits OpenTelemetry's no-op implementation and costs about 0.2 microseconds per step.
 
-## The event stream
+## What you get that an event bridge cannot give you
 
-`createWorkflow` accepts an `onEvent` callback that receives a `WorkflowEvent` for everything the engine does — workflow lifecycle, step lifecycle, retries, timeouts, and cache activity:
+awaitly runs each step inside its own active span. Any client you have already instrumented, your database driver, your HTTP client, your own custom spans, lands underneath the step that called it:
 
-```typescript
-import { ok, err, type Result, createWorkflow, type WorkflowEvent } from 'awaitly';
-
-// Define your dependencies with Result-returning functions
-type UserNotFound = { type: 'USER_NOT_FOUND'; id: string };
-type CardDeclined = { type: 'CARD_DECLINED'; reason: string };
-
-const deps = {
-  fetchUser: async (id: string): Promise<Result<User, UserNotFound>> => {
-    const user = await db.users.find(id);
-    return user ? ok(user) : err({ type: 'USER_NOT_FOUND', id });
-  },
-  chargeCard: async (amount: number): Promise<Result<Charge, CardDeclined>> => {
-    const result = await paymentGateway.charge(amount);
-    return result.success
-      ? ok(result.charge)
-      : err({ type: 'CARD_DECLINED', reason: result.error });
-  },
-};
-
-const workflow = createWorkflow('checkout', deps, {
-  onEvent: (event) => {
-    if (event.type === 'step_start') {
-      console.log(`Step ${event.name ?? event.stepId} started`);
-    }
-    if (event.type === 'step_success') {
-      console.log(`Step ${event.name ?? event.stepId} took ${event.durationMs}ms`);
-    }
-  },
-});
-
-await workflow.run(async ({ step, deps }) => {
-  const user = await step('fetch-user', () => deps.fetchUser(id));
-  const charge = await step('charge-card', () => deps.chargeCard(100));
-  return { user, charge };
-});
+```text
+POST /checkout
+└─ run checkout
+   ├─ step load-cart
+   │  └─ pg.query          ← your database instrumentation, not awaitly's
+   ├─ step charge
+   │  ├─ attempt charge
+   │  └─ attempt charge
+   └─ parallel send-receipts
+      ├─ undici.request
+      └─ audit write
 ```
 
-## Spans from workflow events
+Building this from the `onEvent` stream is not possible. A callback fires beside the step rather than inside it, so spans you start from `step_start` cannot become the parent of work the step goes on to do. Your database spans end up in a flat pile next to the workflow instead of inside it.
 
-Map workflow and step events onto OpenTelemetry spans. Start a span on `step_start`, end it on `step_success`/`step_error`, and use `stepId` to correlate:
+## You need a ContextManager
 
-```typescript
-import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
-import { createWorkflow, type WorkflowEvent } from 'awaitly';
+That nesting depends on a registered `ContextManager`. Register one or every span starts its own trace:
 
-const tracer = trace.getTracer('checkout-service');
-
-function createSpanHandler() {
-  let workflowSpan: Span | undefined;
-  const stepSpans = new Map<string, Span>();
-
-  return (event: WorkflowEvent<unknown>) => {
-    switch (event.type) {
-      case 'workflow_start':
-        workflowSpan = tracer.startSpan(`workflow ${event.workflowName ?? event.workflowId}`);
-        break;
-
-      case 'workflow_success':
-        workflowSpan?.setStatus({ code: SpanStatusCode.OK });
-        workflowSpan?.end();
-        break;
-
-      case 'workflow_error':
-        workflowSpan?.setStatus({ code: SpanStatusCode.ERROR });
-        workflowSpan?.end();
-        break;
-
-      case 'step_start': {
-        const span = tracer.startSpan(`step ${event.name ?? event.stepId}`, {
-          attributes: {
-            'workflow.id': event.workflowId,
-            'workflow.step.id': event.stepId,
-            'workflow.step.key': event.stepKey,
-          },
-        });
-        stepSpans.set(event.stepId, span);
-        break;
-      }
-
-      case 'step_success': {
-        const span = stepSpans.get(event.stepId);
-        span?.setAttribute('workflow.step.duration_ms', event.durationMs);
-        span?.setStatus({ code: SpanStatusCode.OK });
-        span?.end();
-        stepSpans.delete(event.stepId);
-        break;
-      }
-
-      case 'step_error': {
-        const span = stepSpans.get(event.stepId);
-        span?.setAttribute('workflow.step.duration_ms', event.durationMs);
-        span?.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: String(event.error),
-        });
-        span?.end();
-        stepSpans.delete(event.stepId);
-        break;
-      }
-    }
-  };
-}
-
-const workflow = createWorkflow('checkout', deps, {
-  onEvent: createSpanHandler(),
-});
+```text
+without a ContextManager          with a ContextManager
+─────────────────────────         ─────────────────────────
+pg.query      trace 42a2…         POST /checkout  trace 2076…
+step load-cart trace dc70…        └─ run checkout
+run checkout  trace 0cf9…            └─ step load-cart
+                                        └─ pg.query
 ```
 
-## Metrics from workflow events
-
-The same stream drives counters and histograms. Retry and cache events are first-class, so you do not have to derive them:
+`NodeSDK` registers one for you. A hand-built `BasicTracerProvider` does not, so add `AsyncLocalStorageContextManager` yourself:
 
 ```typescript
-import { metrics } from '@opentelemetry/api';
-import { createWorkflow, type WorkflowEvent } from 'awaitly';
+import { context, trace } from '@opentelemetry/api';
+import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
+import { BasicTracerProvider } from '@opentelemetry/sdk-trace-base';
 
-const meter = metrics.getMeter('checkout-service');
-
-const stepDuration = meter.createHistogram('workflow.step.duration', { unit: 'ms' });
-const stepErrors = meter.createCounter('workflow.step.errors');
-const stepRetries = meter.createCounter('workflow.step.retries');
-const cacheHits = meter.createCounter('workflow.step.cache_hits');
-const cacheMisses = meter.createCounter('workflow.step.cache_misses');
-
-function recordMetrics(event: WorkflowEvent<unknown>) {
-  switch (event.type) {
-    case 'step_success':
-      stepDuration.record(event.durationMs, { step: event.name ?? event.stepId });
-      break;
-    case 'step_error':
-      stepDuration.record(event.durationMs, { step: event.name ?? event.stepId });
-      stepErrors.add(1, { step: event.name ?? event.stepId });
-      break;
-    case 'step_retry':
-      stepRetries.add(1, {
-        step: event.name ?? event.stepId,
-        attempt: event.attempt,
-      });
-      break;
-    case 'step_cache_hit':
-      cacheHits.add(1, { step: event.stepKey });
-      break;
-    case 'step_cache_miss':
-      cacheMisses.add(1, { step: event.stepKey });
-      break;
-  }
-}
-
-const workflow = createWorkflow('checkout', deps, {
-  onEvent: recordMetrics,
-});
+context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+trace.setGlobalTracerProvider(new BasicTracerProvider({ /* ... */ }));
 ```
 
-## Event reference
+## Setup with Autotel
 
-The events most useful for observability:
-
-| Event `type` | When it fires | Key fields |
-|--------------|---------------|------------|
-| `workflow_start` | Run begins | `workflowId`, `workflowName`, `ts` |
-| `workflow_success` | Run returns `ok` | `durationMs` |
-| `workflow_error` | Run returns `err` | `durationMs`, `error` |
-| `step_start` | Step begins (once, before first attempt) | `stepId`, `stepKey`, `name` |
-| `step_success` | Step succeeds | `durationMs` |
-| `step_error` | Step fails | `durationMs`, `error`, `diagnostics` |
-| `step_retry` | Attempt failed, retry scheduled | `attempt`, `maxAttempts`, `delayMs`, `error` |
-| `step_retries_exhausted` | All attempts failed | `attempts`, `lastError` |
-| `step_timeout` | Step hit its timeout | `timeoutMs`, `attempt` |
-| `step_cache_hit` / `step_cache_miss` | Keyed step consulted the cache | `stepKey` |
-| `step_skipped` | Conditional step did not run | `reason` |
-
-All events carry `workflowId`, an optional `workflowName`, and a `ts` timestamp; discriminate on `event.type` and TypeScript narrows the rest.
-
-## Combining with other event handlers
-
-`onEvent` is a single callback, so fan out to as many consumers as you need:
+[Autotel](https://github.com/jagreehal/autotel) wires traces, metrics, logs, export, and shutdown from one entry point, including the context manager. awaitly reads the same global provider, so its spans show up without wrappers:
 
 ```typescript
-import { createWorkflow } from 'awaitly';
-import { createVisualizer } from 'awaitly-visualizer';
+import { init, shutdown } from 'autotel';
+import { createWorkflow, ok } from 'awaitly';
 
-const spans = createSpanHandler();
-const viz = createVisualizer({ workflowName: 'checkout' });
-
-const workflow = createWorkflow('checkout', deps, {
-  onEvent: (event) => {
-    spans(event);
-    recordMetrics(event);
-    viz.handleEvent(event);
-  },
+init({
+  service: 'checkout-api',
+  devtools: true,
 });
+
+const checkout = createWorkflow('checkout', {
+  loadCart: async (cartId: string) => ok({ id: cartId, total: 42 }),
+  charge: async (total: number) => ok({ paymentId: 'pay-1', total }),
+});
+
+const result = await checkout.run(async ({ step, deps }) => {
+  const cart = await step('load-cart', () => deps.loadCart('cart-1'));
+  return step('charge', () => deps.charge(cart.total));
+});
+
+await shutdown();
 ```
 
-## Custom metrics
+`init()` is the whole observability setup here. Skip Autotel's `trace()` helper around awaitly steps, since awaitly already opens the run and step spans.
 
-Anything else you want to track hangs off the same switch. For example, counting business-level failures by error type:
-
-```typescript
-const declinedCards = meter.createCounter('checkout.card_declines');
-
-const workflow = createWorkflow('checkout', deps, {
-  onEvent: (event) => {
-    recordMetrics(event);
-
-    if (event.type === 'step_error' && (event.error as { type?: string }).type === 'CARD_DECLINED') {
-      declinedCards.add(1, { step: event.name ?? event.stepId });
-    }
-  },
-});
-```
-
-## Exporting
-
-Span and metric export is standard OpenTelemetry SDK configuration — nothing awaitly-specific. Point your `NodeSDK` (or equivalent) at your collector and the handlers above feed it:
+## Setup with the OpenTelemetry SDK
 
 ```typescript
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 
 const sdk = new NodeSDK({
-  serviceName: 'checkout-service',
-  traceExporter: new OTLPTraceExporter({
-    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
-    headers: { 'api-key': process.env.OTEL_API_KEY },
-  }),
+  serviceName: 'checkout-api',
+  traceExporter: new OTLPTraceExporter(),
 });
 
 sdk.start();
+
+// Import application code after the SDK starts.
+await import('./app.js');
+
+await sdk.shutdown();
+```
+
+`NodeSDK` brings its own context manager. Set the endpoint, headers, sampling, and resource attributes through the SDK or the standard `OTEL_*` environment variables.
+
+## Spans
+
+| Span | Created for |
+| --- | --- |
+| `run <workflow>` | `run()` and `workflow.run()` |
+| `step <name>` | Steps, including the error-mapping variants |
+| `attempt <name>` | Each physical attempt, once retry is configured |
+| `parallel <name>` | `step.all()` |
+| `race <name>` | `step.race()` |
+| `saga` | Low-level `runSaga()` |
+| `saga step <name>` | Low-level saga steps |
+| `compensate <name>` | Saga rollback actions |
+| `engine process <workflow>` | One queued workflow the engine picks up |
+
+Span status stays UNSET on success, because the OpenTelemetry spec reserves OK for the application and instrumentation cannot be overridden once it sets a status. Read `awaitly.outcome` instead. Failures set ERROR, and a cancelled operation records `cancelled` without marking the span failed.
+
+## Attributes
+
+awaitly records identifiers and bounded semantic fields. Result values and workflow input stay out of telemetry.
+
+| Attribute | Meaning |
+| --- | --- |
+| `awaitly.workflow.id` | Execution ID |
+| `awaitly.workflow.name` | Workflow name, when available |
+| `awaitly.step.id` | Physical step execution ID |
+| `awaitly.step.name` | Step name |
+| `awaitly.step.key` | Explicit cache or resume key, when present |
+| `awaitly.step.attempt` | Current retry attempt |
+| `awaitly.step.max_attempts` | Configured attempt limit |
+| `awaitly.scope.id` | Scope execution ID |
+| `awaitly.scope.name` | Scope name |
+| `awaitly.scope.type` | `parallel`, `race`, or `allSettled` |
+| `awaitly.outcome` | `success`, `error`, or `cancelled` |
+| `error.type` | Typed error discriminant or thrown error class |
+
+Typed error payloads never reach span attributes, which keeps customer IDs, payment details, and validation input out of your tracing backend.
+
+## Add your own spans inside a step
+
+```typescript
+import { trace } from '@opentelemetry/api';
+
+const tracer = trace.getTracer('checkout-api');
+
+const user = await step('load-user', () =>
+  tracer.startActiveSpan('database query', async (span) => {
+    try {
+      return await deps.loadUser(userId);
+    } finally {
+      span.end();
+    }
+  })
+);
+```
+
+`database query` lands under `step load-user`.
+
+## Durable engine propagation
+
+`createEngine().enqueue()` injects the active context into the queued snapshot, and `engine.tick()` extracts it before running the workflow. Baggage and anything else riding on context reaches the workflow that way.
+
+The job span starts a new trace and records the enqueuing span as a link. A queued workflow can sit in the store for hours and survive a process restart, so parenting it to the enqueuing request would hold that request's trace open until the job drains, and backends drop or mis-render spans arriving that late. Links express the same causality without the cost, which is what the OpenTelemetry messaging conventions call for. Jaeger, Honeycomb, and Datadog all render the jump.
+
+The carrier uses your configured global propagator. With the W3C propagator, the snapshot metadata holds `traceparent` and an optional `tracestate`.
+
+## Turning it off
+
+Three levels, narrowest wins:
+
+```typescript
+// One run, one workflow, or one engine
+await run(work, { telemetry: false });
+await checkout.run(workflowFn, { telemetry: false });
+createEngine({ store, workflows, telemetry: false });
+
+// The whole process, from code
+import { setTelemetryEnabled } from 'awaitly';
+setTelemetryEnabled(false);
+```
+
+```bash
+# The whole process, no code change and no redeploy
+AWAITLY_TELEMETRY=0 node server.js
+```
+
+A per-run `telemetry` value overrides the process setting in both directions, so you can keep tracing one workflow while the rest of the process stays quiet:
+
+```typescript
+setTelemetryEnabled(false);
+await checkout.run(workflowFn, { telemetry: true }); // still traced
+```
+
+Turning awaitly's spans off leaves your other instrumentation alone. Your database and HTTP clients keep tracing.
+
+## Metrics and logs
+
+Automatic tracing stays inside the small `run` path, and awaitly pulls no metric or log SDK into that bundle.
+
+Reach for Autotel when you want one provider covering trace export, log correlation, and application metrics. For workflow metrics, read the typed event stream:
+
+```typescript
+import { metrics } from '@opentelemetry/api';
+import { createWorkflow } from 'awaitly';
+
+const meter = metrics.getMeter('checkout-api');
+const retries = meter.createCounter('awaitly.step.retries');
+
+const checkout = createWorkflow('checkout', deps, {
+  onEvent(event) {
+    if (event.type === 'step_retry') {
+      retries.add(1, { step: event.name ?? event.stepId });
+    }
+  },
+});
+```
+
+You keep metric names and cardinality under your own control, and the event stream stays available for structured logs and product events.
+
+## Testing
+
+Pair `InMemorySpanExporter` with `SimpleSpanProcessor`, then assert span names, attributes, and parent IDs after `provider.forceFlush()`. Register `AsyncLocalStorageContextManager` in the test too, or parent assertions fail for the same reason they fail in production. Drive the test through `run()` or `workflow.run()` so it exercises the propagation path your service uses.
+
+```typescript
+import { context, trace } from '@opentelemetry/api';
+import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
+import {
+  BasicTracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-base';
+
+const exporter = new InMemorySpanExporter();
+const provider = new BasicTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(exporter)],
+});
+
+context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+trace.setGlobalTracerProvider(provider);
+
+await run(work, { workflowName: 'checkout' });
+await provider.forceFlush();
+
+const names = exporter.getFinishedSpans().map((span) => span.name);
 ```

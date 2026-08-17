@@ -1,0 +1,142 @@
+---
+title: Loops, Early Returns, and Cleanup
+description: Ordinary JavaScript control flow with typed errors
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+awaitly tracks typed errors through JavaScript control flow. You can use `for`, `if`, `return`, and `try`/`finally` inside Result functions and workflows.
+
+## Early return
+
+A failed Result narrows to `Err<E>`. You can return that value from any signature whose error union includes `E`:
+
+```typescript
+async function loadTeam(id: string): AsyncResult<Team, NotFound | Forbidden> {
+  const user = await findUser(id);
+  if (!user.ok) return user;          // Err<NotFound>, assignable
+
+  const team = await findTeam(user.value.teamId);
+  if (!team.ok) return team;          // Err<Forbidden>, assignable
+
+  return ok(team.value);
+}
+```
+
+Return the narrowed `Err` without wrapping or casting it. The guard exposes `user.value` on the success path.
+
+## Loops
+
+Use a loop and return on the first failure:
+
+```typescript
+async function damageUnitsOnCityTiles(units: Unit[]): AsyncResult<number, TileMissing> {
+  let damaged = 0;
+
+  for (const unit of units) {
+    const tile = await getTile(unit);
+    if (!tile.ok) return tile;
+
+    if (tile.value.type === 'city') {
+      unit.damage(3);
+      damaged++;
+    }
+  }
+
+  return ok(damaged);
+}
+```
+
+Use `break`, `continue`, and nested loops as you would in other async functions. Use [`allSettled`](foundations/result-types/#allsettled---collect-all-outcomes) or [`partition`](foundations/result-types/#partition---separate-successes-and-failures) when you need to collect failures before deciding what to return.
+
+Inside `run`, a dependency called in a loop gets a numbered step for each call, so a retry or a cached replay lines up with the right iteration:
+
+```typescript
+const result = await run({ getTile }, async (s) => {
+  let damaged = 0;
+  for (const unit of units) {
+    const tile = await s.getTile(unit);       // getTile, getTile#2, getTile#3…
+    if (tile.type === 'city') damaged++;
+  }
+  return damaged;
+});
+```
+
+## Reusing an earlier value
+
+Variables from earlier steps remain in scope:
+
+```typescript
+const result = await run({ fetchOrder, applyDiscount, charge }, async (s) => {
+  const order = await s.fetchOrder(id);
+  const discounted = await s.applyDiscount(order.total);
+  const payment = await s.charge(discounted);
+
+  return { orderId: order.id, saved: order.total - discounted, payment };
+});
+```
+
+The return value can use `order` after later steps finish. Variables remove the need for an accumulator that carries values between steps.
+
+## Short-circuiting
+
+An early return skips later steps:
+
+```typescript
+const result = await run({ loadUser, readCache, compute, writeCache }, async (s) => {
+  const user = await s.loadUser(req);
+
+  const cached = await s.readCache(user.id);
+  if (cached) return cached;              // skips compute and writeCache
+
+  const computed = await s.compute(user);
+  await s.writeCache(user.id, computed);
+  return computed;
+});
+```
+
+The caller receives one `Result` for the cached and computed paths.
+
+## Cleanup
+
+`finally` runs whether the body succeeds, fails, or throws:
+
+```typescript
+async function withConnection<T>(fn: (c: Connection) => Promise<T>): Promise<T> {
+  const connection = await pool.acquire();
+  try {
+    return await fn(connection);
+  } finally {
+    await connection.release();
+  }
+}
+```
+
+JavaScript replaces the original error when cleanup throws. A `return` in `finally` also overrides the body. awaitly preserves both language rules.
+
+For cleanup that has to unwind several acquisitions in order, [`withScope`](patterns/resource-management/) registers each one as you go and releases them in reverse.
+
+<Aside type="tip">
+Use a [saga](foundations/workflows/) when a workflow must compensate completed steps after a later step fails. Use `finally` for cleanup inside one function.
+</Aside>
+
+## Branching
+
+The inferred error union includes each reachable `if` or `switch` branch:
+
+```typescript
+const result = await run({ findUser, checkAccess }, async (s) => {
+  const user = await s.findUser(id);
+
+  if (user.role === 'admin') return user;
+  return s.checkAccess(user.teamId);
+});
+// Result<User | Access, NotFound | Forbidden | UnexpectedError>
+```
+
+Use [`step.if`](foundations/control-flow/#stepif-for-labelled-branches) to add a label for the branch to generated diagrams.
+
+## Next
+
+- [Result Types](foundations/result-types/) for the shape and its helpers
+- [Control Flow](foundations/control-flow/) for parallel, race, and bounded concurrency

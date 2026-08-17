@@ -58,6 +58,10 @@ const checkout = createWorkflow('checkout', {
 
 Plain (non-Result) functions are valid inputs: return values normalize to `ok()`, throws surface as `UnexpectedError` at the run/workflow layer. Wrappers preserve the base function's name so events and diagrams keep showing the dep name.
 
+By default, `retry` skips `UnexpectedError` and untagged throws. Typed errors still retry. Pass `retryIf: () => true` to opt back into retrying throws.
+
+Pass `clock` into `retry(fn, { clock })` and `timeout(fn, after, { clock })` at wrap time. Policy wrappers do **not** pick up `run({ clock })` automatically. Use `step.retry` / `step.withTimeout` / `step.sleep` inside a run that has `clock`, or pass the same clock when wrapping. Tests use `createTestClock()` from `awaitly/testing`. See [Retries & Timeouts: testing with a clock](guides/retries-timeouts/#testing-with-a-clock).
+
 See [Result types: policies](foundations/result-types/#retry-with-the-retry-policy) and [Retries & Timeouts: deps-level policies](guides/retries-timeouts/#deps-level-policies).
 
 ## StepOptions bundles (legacy)

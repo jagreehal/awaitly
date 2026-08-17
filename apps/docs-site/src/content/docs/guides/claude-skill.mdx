@@ -1,65 +1,57 @@
 ---
-title: Claude Code Skill
-description: Teach Claude Code the awaitly patterns for better AI-assisted development
+title: Agent Skills
+description: Install the awaitly skills so Claude Code, Codex, Cursor and other agents write correct awaitly code
 sidebar:
   order: 16
 ---
 
 import { Aside } from "@astrojs/starlight/components";
 
-The `awaitly-patterns` skill teaches [Claude Code](https://docs.anthropic.com/en/docs/claude-code) the correct patterns for writing awaitly workflows. When enabled, Claude understands the rules, helpers, and best practices.
-
-## What it provides
-
-The skill teaches Claude:
-
-- **step() forms** - When to use direct vs thunk form
-- **Error handling** - How step() handles early exit, no manual checking
-- **Step helpers** - `step.try()`, `step.retry()`, `step.withTimeout()`
-- **Concurrency** - Using `allAsync()` instead of `Promise.all()`
-- **Migration patterns** - Converting try/catch code to Result types
-- **Testing** - Using `unwrapOk`/`unwrapErr` assertions
+awaitly ships [Agent Skills](https://skills.sh): procedural instructions that teach a coding agent the awaitly patterns, rules, and APIs. They work with Claude Code, Codex, Cursor, and any other agent the `skills` CLI supports.
 
 ## Installation
 
-Copy the skill to your project's `.claude/skills` directory:
+```bash
+npx skills add jagreehal/awaitly
+```
+
+Or pick one:
 
 ```bash
-# From your project root
-mkdir -p .claude/skills
-cp -r node_modules/awaitly/.claude/skills/awaitly-patterns .claude/skills/
-```
-
-Or create the structure manually:
-
-```
-your-project/
-├── .claude/
-│   └── skills/
-│       └── awaitly-patterns/
-│           └── SKILL.md
-└── ...
+npx skills add jagreehal/awaitly --list
+npx skills add jagreehal/awaitly --skill awaitly-patterns
 ```
 
 <Aside type="tip">
-The skill is included in the awaitly package under `.claude/skills/awaitly-patterns/SKILL.md`.
+The skills live in the repository, not the npm package, so `npx skills add` always pulls the current version without you upgrading a dependency.
 </Aside>
+
+## What's included
+
+| Skill | Use it for |
+| --- | --- |
+| `awaitly-patterns` | Writing workflows, migrating from try/catch, debugging `Result` types |
+| `awaitly-analyze` | Static analysis: complexity, path enumeration, IR, diagram generation |
+| `awaitly-visualizer` | Event capture, renderers, collectors, time-travel, export URLs |
+
+## What `awaitly-patterns` teaches
+
+- **step() forms** - when to use direct vs thunk form
+- **Error handling** - how `step()` handles early exit, no manual checking
+- **Step helpers** - `step.try()`, `step.retry()`, `step.withTimeout()`
+- **Concurrency** - `step.all` / `allAsync()` instead of `Promise.all()`
+- **Migration patterns** - converting try/catch code to Result types
+- **Testing** - `unwrapOk` / `unwrapErr` assertions
 
 ## Usage
 
-Once installed, Claude Code automatically loads skills from your project's `.claude/skills` directory. You can invoke it explicitly:
+Agents load installed skills automatically and use them contextually when you ask about writing workflows, migrating from try/catch, or debugging Result types. In Claude Code you can also invoke one explicitly:
 
 ```
 /awaitly-patterns
 ```
 
-Or Claude will use it contextually when you ask about:
-- Writing workflows
-- Migrating from try/catch
-- Debugging Result types
-- Using step helpers
-
-## Key rules Claude learns
+## Key rules the agent learns
 
 ### R1: step() requires a string ID; use thunk form
 
@@ -123,7 +115,7 @@ async function getOrder(id: string) {
 }
 ```
 
-**Claude** (with skill): I'll migrate this to awaitly patterns...
+**Agent** (with skill): I'll migrate this to awaitly patterns...
 
 ```typescript
 import { ok, err, type AsyncResult, run } from 'awaitly';
@@ -148,19 +140,16 @@ async function getOrder(id: string) {
 }
 ```
 
-## Customizing the skill
+## Customizing
 
-You can edit `.claude/skills/awaitly-patterns/SKILL.md` to:
-- Add your project-specific conventions
-- Include examples from your codebase
-- Emphasize patterns your team uses most
+Skills install into your project (`.claude/skills/<name>/SKILL.md` for Claude Code). Edit them to add project-specific conventions, examples from your codebase, or emphasis on the patterns your team uses most.
 
-## Without the skill
+## Without the skills
 
-Without the skill, Claude may:
+Agents tend to:
 - Suggest `Promise.all()` instead of `allAsync()`
 - Forget to use thunks for retry/caching
 - Add manual `if (!result.ok)` checks inside workflows
 - Mix throwing and Result patterns inconsistently
 
-The skill ensures Claude gives you correct awaitly code from the start.
+The skills prevent that from the start.

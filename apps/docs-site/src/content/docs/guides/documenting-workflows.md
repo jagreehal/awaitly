@@ -5,9 +5,9 @@ description: Use description and markdown options for static analysis and doc ge
 
 Workflow-level and step-level `description` and `markdown` are the **supported way** to document workflows for:
 
-- **Static analysis** — [awaitly-analyze](guides/static-analysis/) reads these fields when analyzing workflow source.
-- **Generated diagrams and docs** — Mermaid diagrams and doc generators can use them for labels and content.
-- **Future tooling** — IDE tooltips or other tooling may surface them.
+- **Static analysis**: [awaitly-analyze](guides/static-analysis/) reads these fields when analyzing workflow source.
+- **Generated diagrams and docs**: Mermaid diagrams and doc generators can use them for labels and content.
+- **Future tooling**: IDE tooltips or other tooling may surface them.
 
 **Step names:** Step IDs are required. Use **`step('id', fn, opts)`**; the string literal first argument is the step ID used in diagrams, events, caching, and generated docs.
 

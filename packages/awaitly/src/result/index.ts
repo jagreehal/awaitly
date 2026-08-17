@@ -454,13 +454,13 @@ export function from<T, const E extends ErrorValue>(fn: () => T, onError?: (caus
  *
  * @remarks When to use: Wrap a Promise and keep the raw rejection as Err; use tryAsync to map errors.
  */
-export function fromPromise<T>(promise: Promise<T>): Promise<Ok<T> | Err<unknown, unknown>>;
+export function fromPromise<T>(promise: PromiseLike<T>): Promise<Ok<T> | Err<unknown, unknown>>;
 export function fromPromise<T, const E extends ErrorValue>(
-  promise: Promise<T>,
+  promise: PromiseLike<T>,
   onError: (cause: unknown) => E
 ): Promise<Ok<T> | Err<E, unknown>>;
 export async function fromPromise<T, E>(
-  promise: Promise<T>,
+  promise: PromiseLike<T>,
   onError?: (cause: unknown) => E
 ): Promise<Ok<T> | Err<E | unknown, unknown>> {
   try {
@@ -475,13 +475,13 @@ export async function fromPromise<T, E>(
  *
  * @remarks When to use: Wrap async work and map thrown/rejected values into your typed error union.
  */
-export function tryAsync<T>(fn: () => Promise<T>): AsyncResult<T, unknown>;
+export function tryAsync<T>(fn: () => PromiseLike<T>): AsyncResult<T, unknown>;
 export function tryAsync<T, const E extends ErrorValue>(
-  fn: () => Promise<T>,
+  fn: () => PromiseLike<T>,
   onError: (cause: unknown) => E
 ): AsyncResult<T, E>;
 export async function tryAsync<T, E>(
-  fn: () => Promise<T>,
+  fn: () => PromiseLike<T>,
   onError?: (cause: unknown) => E
 ): AsyncResult<T, E | unknown> {
   try {

@@ -17,7 +17,7 @@ This guide progresses through: **asserting results** → **basic workflow testin
 
 ### Result assertions
 
-The `awaitly/testing` module provides type-safe assertion utilities that work seamlessly with TypeScript:
+The `awaitly/testing` module provides type-safe assertion utilities that work with TypeScript:
 
 ```typescript
 import { unwrapOk, unwrapErr, expectOk, expectErr } from 'awaitly/testing';
@@ -138,7 +138,7 @@ harness.scriptStep('badOperation', throwOutcome(new Error('Boom')));
 
 ### Dynamic outcomes
 
-For input-dependent behaviour, pass a plain dep function — it returns a
+For input-dependent behaviour, pass a plain dep function. It returns a
 `Result`, not a scripted outcome:
 
 ```typescript
@@ -284,25 +284,40 @@ expect(snapshot).toMatchSnapshot();
 
 ### Testing time-dependent workflows
 
-Control time in tests:
+Pass `createTestClock()` as `clock` so retry delays, `step.sleep`, `step.withTimeout`, and circuit-breaker windows do not wait on real time. Advance the clock *while* the run is pending, `await` after `advance`, not before.
 
 ```typescript
+import { run, retry, timeout, createCircuitBreaker } from 'awaitly';
 import { createTestClock } from 'awaitly/testing';
 
 const clock = createTestClock();
 
-// TestHarnessOptions.clock is a `() => number`, so pass the reader.
-const harness = createWorkflowHarness(mocks, { clock: clock.now });
+const pending = run(
+  async ({ step }) => {
+    await step.sleep('wait', '1s');
+    return await step.withTimeout('hang', () => new Promise(() => {}), { ms: 500 });
+  },
+  { clock }
+);
 
-await harness.run(async ({ step, deps }) => {
-  const data = await step.withTimeout('fetchData', () => deps.fetchData(), { ms: 1000 });
-  return data;
+clock.advance(1000); // sleep completes
+clock.advance(500);  // timeout fires
+const result = await pending;
+
+// Policy wrappers do not pick up run({ clock }) — pass clock at wrap time.
+const resilient = retry(fetchUser, {
+  attempts: 3,
+  delay: 1000,
+  backoff: 'fixed',
+  clock,
 });
-
-// Advance time
-clock.advance(500);  // 500ms passed
-clock.advance(600);  // Now 1100ms, timeout triggers
+timeout(slowOp, 500, { clock });
+createCircuitBreaker('api', { failureThreshold: 1, resetTimeout: 30_000, clock });
 ```
+
+On `step.retry` / `retryAsync`, set `jitter: false` so delays are exact. The same `clock` option exists on `createWorkflow` and `workflow.run` (per-run overrides creation-time).
+
+`createWorkflowHarness(mocks, { clock: clock.now })` is different: that `clock` is a `() => number` used only for invocation timestamps (`startedAt`, `durationMs`). It does not drive sleep, retry delay, or timeout. Pass the `Clock` object into `run` / `createWorkflow` / `retry` / `timeout` / `createCircuitBreaker` for control-flow time.
 
 ### Assertions on step invocations
 
@@ -433,7 +448,7 @@ describe('payment saga', () => {
 | `assertCompensated(name)` | Assert a specific step was compensated |
 | `assertNotCompensated(name)` | Assert a step was NOT compensated |
 
-Each assertion returns `{ passed, message, expected, actual }` — assert on
+Each assertion returns `{ passed, message, expected, actual }`, assert on
 `.passed`, or read `getCompensations()` directly for the raw records.
 
 ### Event assertions

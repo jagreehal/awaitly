@@ -20,6 +20,7 @@ import resultNoDirectOkErr from './rules/result-no-direct-ok-err.js';
 import workflowNoCallableForm from './rules/workflow-no-callable-form.js';
 import workflowCallbackShape from './rules/workflow-callback-shape.js';
 import errorCheckUnexpectedFirst from './rules/error-check-unexpected-first.js';
+import errorRequireDiscriminant from './rules/error-require-discriminant.js';
 
 // Canonical slug-native rule names. No legacy aliases — the rename is a
 // breaking change accompanying the AI-DX slug spine.
@@ -52,6 +53,7 @@ const rules = {
   'concurrency-no-promise-allsettled': concurrencyNoPromiseAllSettled,
   // error-*
   'error-check-unexpected-first': errorCheckUnexpectedFirst,
+  'error-require-discriminant': errorRequireDiscriminant,
 };
 
 const configs: Record<string, Linter.Config[]> = {
@@ -88,6 +90,12 @@ const configs: Record<string, Linter.Config[]> = {
         //   inevitable on patterns we didn't anticipate, so it's not in
         //   `recommended` or `recommended-strict`. Enable it explicitly if
         //   you want the warning.
+        // 'awaitly/error-require-discriminant': 'error',
+        // ^ strict-only. A bare `class X extends Error {}` you only ever
+        //   throw is fine, and this rule cannot tell that class apart from
+        //   one you return in a Result. Teams modelling errors as values
+        //   want it; someone arriving from try/catch does not need it on
+        //   day one.
       },
     },
   ],
@@ -117,6 +125,7 @@ const configs: Record<string, Linter.Config[]> = {
         "awaitly/result-no-direct-ok-err": "error",
         "awaitly/workflow-no-callable-form": "error",
         "awaitly/workflow-callback-shape": "error",
+        "awaitly/error-require-discriminant": "error",
         // error-check-unexpected-first is opt-in (see note in `recommended`).
       },
     },

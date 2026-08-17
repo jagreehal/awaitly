@@ -245,3 +245,106 @@ details summary::marker {
   display: inline-flex;
   align-items: center;
 }
+
+/* ===================================================================
+   Docs surface palette
+   ===================================================================
+   starlight-theme-next ships a near-black dark mode (#0e0e0e page,
+   #1b1b1b cards, #a8a8a8 body text) and a blue accent that disagreed
+   with the landing page's teal. Three consequences, all fixed here:
+
+   1. Page and card sat 13 steps apart in luminance, so code blocks and
+      asides barely separated from the page behind them.
+   2. Body text at #a8a8a8 read as muddy rather than as text.
+   3. The site had two accents depending on which page you were on.
+
+   The values below follow the same structure react.dev uses: lift the
+   page off pure black, give surfaces a real step up, keep body text
+   near-white, and use one accent across landing and docs.
+   =================================================================== */
+
+:root[data-theme='dark'] {
+  --sl-color-bg: oklch(0.205 0.014 254);
+  --sl-color-bg-nav: oklch(0.232 0.015 254);
+  --sl-color-bg-sidebar: oklch(0.205 0.014 254);
+  --sl-color-bg-inline-code: oklch(0.298 0.017 254);
+
+  --sl-color-black: oklch(0.205 0.014 254);
+  --sl-color-gray-7: oklch(0.232 0.015 254);
+  --sl-color-gray-6: oklch(0.263 0.016 254);
+  --sl-color-gray-5: oklch(0.352 0.016 254);
+  --sl-color-gray-4: oklch(0.478 0.018 254);
+  --sl-color-gray-3: oklch(0.652 0.015 254);
+  --sl-color-gray-2: oklch(0.812 0.011 254);
+  --sl-color-gray-1: oklch(0.955 0.005 254);
+  --sl-color-white: oklch(0.985 0.002 254);
+
+  --sl-color-text: oklch(0.902 0.008 254);
+  --sl-color-text-accent: oklch(0.812 0.108 205);
+
+  --sl-color-accent-low: oklch(0.318 0.062 205);
+  --sl-color-accent: oklch(0.652 0.104 205);
+  --sl-color-accent-high: oklch(0.855 0.088 205);
+
+  --sl-color-hairline: oklch(0.292 0.013 254);
+  --sl-color-hairline-light: oklch(0.352 0.016 254);
+  --sl-color-hairline-shade: oklch(0.263 0.016 254);
+}
+
+:root[data-theme='light'] {
+  --sl-color-bg: oklch(1 0 0);
+  --sl-color-bg-nav: oklch(1 0 0);
+  --sl-color-bg-sidebar: oklch(1 0 0);
+  --sl-color-bg-inline-code: oklch(0.945 0.006 254);
+
+  --sl-color-white: oklch(0.208 0.020 254);
+  --sl-color-gray-1: oklch(0.278 0.021 254);
+  --sl-color-gray-2: oklch(0.438 0.019 254);
+  --sl-color-gray-3: oklch(0.572 0.017 254);
+  --sl-color-gray-4: oklch(0.688 0.013 254);
+  --sl-color-gray-5: oklch(0.884 0.008 254);
+  --sl-color-gray-6: oklch(0.945 0.006 254);
+  --sl-color-gray-7: oklch(0.976 0.003 254);
+  --sl-color-black: oklch(1 0 0);
+
+  --sl-color-text: oklch(0.352 0.020 254);
+  --sl-color-text-accent: oklch(0.522 0.098 217);
+
+  --sl-color-accent-low: oklch(0.928 0.036 217);
+  --sl-color-accent: oklch(0.522 0.098 217);
+  --sl-color-accent-high: oklch(0.398 0.092 217);
+
+  --sl-color-hairline: oklch(0.928 0.005 254);
+  --sl-color-hairline-light: oklch(0.884 0.008 254);
+  --sl-color-hairline-shade: oklch(0.945 0.006 254);
+}
+
+/* Expressive Code surfaces.
+   EC ships its own near-black code background (#121212) from the bundled
+   theme. Against the lifted page above it read as a hole rather than a
+   panel, so the surface is retied to the same token ramp: one step darker
+   than the page in dark mode, one step lighter in light mode, with a
+   hairline border doing the separating in both. */
+:root[data-theme='dark'] {
+  --ec-codeBg: oklch(0.178 0.013 254);
+  --ec-brdCol: oklch(0.318 0.015 254);
+  --ec-uiSelBg: oklch(0.298 0.017 254);
+  --ec-frm-edBg: oklch(0.178 0.013 254);
+  --ec-frm-trmBg: oklch(0.178 0.013 254);
+  --ec-frm-edTabBarBg: oklch(0.232 0.015 254);
+  --ec-frm-edActTabBg: oklch(0.178 0.013 254);
+  --ec-frm-trmTitleBarBg: oklch(0.232 0.015 254);
+  --ec-frm-inlBtnFg: oklch(0.812 0.011 254);
+}
+
+:root[data-theme='light'] {
+  --ec-codeBg: oklch(0.976 0.003 254);
+  --ec-brdCol: oklch(0.906 0.007 254);
+  --ec-uiSelBg: oklch(0.928 0.005 254);
+  --ec-frm-edBg: oklch(0.976 0.003 254);
+  --ec-frm-trmBg: oklch(0.976 0.003 254);
+  --ec-frm-edTabBarBg: oklch(0.945 0.006 254);
+  --ec-frm-edActTabBg: oklch(0.976 0.003 254);
+  --ec-frm-trmTitleBarBg: oklch(0.945 0.006 254);
+  --ec-frm-inlBtnFg: oklch(0.438 0.019 254);
+}

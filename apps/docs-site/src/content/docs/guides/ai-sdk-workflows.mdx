@@ -5,7 +5,7 @@ description: Compose Vercel AI SDK with awaitly workflows for retry, caching, ty
 
 import { Aside } from '@astrojs/starlight/components';
 
-awaitly doesn't need to wrap AI SDK — it **orchestrates** it. Use AI SDK for the AI parts (models, structured output, streaming, tools). Use awaitly for the workflow parts (retry, caching, typed errors, HITL, events, state persistence). They compose naturally because awaitly steps accept any async function.
+awaitly doesn't need to wrap AI SDK. It **orchestrates** it. Use AI SDK for the AI parts (models, structured output, streaming, tools). Use awaitly for the workflow parts (retry, caching, typed errors, HITL, events, state persistence). They compose naturally because awaitly steps accept any async function.
 
 <Aside type="tip">
 See also [AI Integration Patterns](guides/ai-integration/) for generic AI SDK patterns (streaming, tool calling phases, stable keys).
@@ -212,7 +212,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 
 ## Why This Works
 
-awaitly steps accept **any async function**. This means every AI SDK feature — structured output, streaming, tool calling, agent loops — works inside a step without any wrapper or adapter:
+awaitly steps accept **any async function**. This means every AI SDK feature, structured output, streaming, tool calling, agent loops, works inside a step without any wrapper or adapter:
 
 | Concern | Use |
 |---------|-----|
@@ -226,7 +226,7 @@ awaitly steps accept **any async function**. This means every AI SDK feature —
 
 ## Related
 
-- [AI Integration Patterns](guides/ai-integration/) — Generic patterns for any AI SDK
-- [Retries & Timeouts](guides/retries-timeouts/) — Handling transient AI API failures
-- [Human in the Loop](guides/human-in-loop/) — Approval gates and escalation
-- [Streaming](guides/streaming/) — awaitly's stream store
+- [AI Integration Patterns](guides/ai-integration/): Generic patterns for any AI SDK
+- [Retries & Timeouts](guides/retries-timeouts/): Handling transient AI API failures
+- [Human in the Loop](guides/human-in-loop/): Approval gates and escalation
+- [Streaming](guides/streaming/): awaitly's stream store

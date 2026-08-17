@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { context, propagation } from "@opentelemetry/api";
+import { resolveTelemetry, withEngineJobSpan } from "../core/opentelemetry";
 import type { WorkflowSnapshot } from "../persistence";
 import { durable } from "../durable";
 import type {
@@ -20,6 +22,8 @@ export function createEngine(options: EngineOptions): Engine {
     onError,
   } = options;
 
+  const telemetry = resolveTelemetry(options.telemetry);
+
   const schedules = new Map<string, ReturnType<typeof setInterval>>();
   let pollTimer: ReturnType<typeof setInterval> | undefined;
   let running = false;
@@ -40,6 +44,8 @@ export function createEngine(options: EngineOptions): Engine {
     }
 
     const id = opts?.id ?? `${name}:${randomUUID()}`;
+    const traceContext: Record<string, string> = {};
+    propagation.inject(context.active(), traceContext);
 
     // Save a "queued" snapshot that tick() will pick up
     const snapshot: WorkflowSnapshot = {
@@ -57,6 +63,9 @@ export function createEngine(options: EngineOptions): Engine {
         idempotencyKey: opts?.idempotencyKey,
         enqueuedAt: new Date().toISOString(),
         ...opts?.metadata,
+        ...(Object.keys(traceContext).length > 0
+          ? { awaitlyTraceContext: traceContext }
+          : {}),
       },
     };
 
@@ -66,6 +75,54 @@ export function createEngine(options: EngineOptions): Engine {
     return id;
   }
 
+  /**
+   * Restore the context captured when the workflow was enqueued, so baggage and
+   * anything else riding on context reaches the workflow run.
+   */
+  function enqueueContext(snapshot: WorkflowSnapshot) {
+    const carrier = snapshot.metadata?.awaitlyTraceContext;
+    if (typeof carrier !== "object" || carrier === null) return context.active();
+    return propagation.extract(context.active(), carrier as Record<string, string>);
+  }
+
+  /** Run one queued workflow. Returns whether it was processed. */
+  async function runJob(
+    id: string,
+    workflowName: string,
+    snapshot: WorkflowSnapshot
+  ): Promise<boolean> {
+    const wf = workflows[workflowName];
+    if (!wf) return false;
+
+    // Mark as processing (remove "queued" flag)
+    const processingSnapshot: WorkflowSnapshot = {
+      ...snapshot,
+      metadata: {
+        ...snapshot.metadata,
+        engineState: "processing",
+      },
+    };
+    await store.save(id, processingSnapshot);
+
+    emit({ type: "workflow_started", workflowName, id, ts: Date.now() });
+
+    const result = await durable.run(wf.deps, wf.fn, {
+      id,
+      store,
+      idempotencyKey: snapshot.metadata?.idempotencyKey as string | undefined,
+      input: snapshot.metadata?.input,
+      ...wf.durableDefaults,
+    });
+
+    if (result.ok) {
+      emit({ type: "workflow_completed", workflowName, id, ts: Date.now() });
+    } else {
+      emit({ type: "workflow_failed", workflowName, id, error: result.error, ts: Date.now() });
+    }
+
+    return true;
+  }
+
   async function tick(): Promise<number> {
     if (tickInFlight) return 0;
     tickInFlight = true;
@@ -73,7 +130,6 @@ export function createEngine(options: EngineOptions): Engine {
     try {
       // List pending workflows from store
       const entries = await store.list({ limit: concurrency * 2 });
-      let processed = 0;
 
       // Filter to queued engine workflows
       const queued: Array<{ id: string; workflowName: string; snapshot: WorkflowSnapshot }> = [];
@@ -91,43 +147,22 @@ export function createEngine(options: EngineOptions): Engine {
 
       // Execute in parallel
       const results = await Promise.allSettled(
-        queued.map(async ({ id, workflowName, snapshot }) => {
-          const wf = workflows[workflowName];
-          if (!wf) return;
-
-          // Mark as processing (remove "queued" flag)
-          const processingSnapshot: WorkflowSnapshot = {
-            ...snapshot,
-            metadata: {
-              ...snapshot.metadata,
-              engineState: "processing",
-            },
-          };
-          await store.save(id, processingSnapshot);
-
-          emit({ type: "workflow_started", workflowName, id, ts: Date.now() });
-
-          const result = await durable.run(wf.deps, wf.fn, {
-            id,
-            store,
-            idempotencyKey: snapshot.metadata?.idempotencyKey as string | undefined,
-            input: snapshot.metadata?.input,
-            ...wf.durableDefaults,
-          });
-
-          if (result.ok) {
-            emit({ type: "workflow_completed", workflowName, id, ts: Date.now() });
-          } else {
-            emit({ type: "workflow_failed", workflowName, id, error: result.error, ts: Date.now() });
-          }
-
-          processed++;
-        })
+        queued.map(({ id, workflowName, snapshot }) =>
+          context.with(enqueueContext(snapshot), () =>
+            withEngineJobSpan(
+              { enabled: telemetry, workflowName, workflowId: id },
+              () => runJob(id, workflowName, snapshot)
+            )
+          )
+        )
       );
 
       // Report errors from settled promises
+      let processed = 0;
       for (const r of results) {
-        if (r.status === "rejected") {
+        if (r.status === "fulfilled") {
+          if (r.value) processed++;
+        } else {
           try { onError?.(r.reason); } catch { /* ignore */ }
         }
       }

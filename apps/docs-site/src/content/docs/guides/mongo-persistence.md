@@ -159,7 +159,7 @@ For cross-process locking, pass `lock` when creating the store so only one proce
 
 ## Features
 
-- ✅ **One-liner setup** - Just pass a connection string
+- ✅ **One-liner setup** - Pass a connection string
 - ✅ **Automatic collection creation** - No manual setup required
 - ✅ **Connection reuse** - Share existing client instances
 - ✅ **Pattern matching** - List workflows by prefix

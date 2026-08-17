@@ -36,6 +36,8 @@ describe("canonical root exports", () => {
     expect(typeof root.retry).toBe("function");
     expect(typeof root.timeout).toBe("function");
     expect(typeof root.fallback).toBe("function");
+    expect(typeof root.systemClock.now).toBe("function");
+    expect(typeof root.isRetryableFailure).toBe("function");
   });
 
   it("exports the absorbed canonical modules", () => {

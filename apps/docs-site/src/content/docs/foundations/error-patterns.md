@@ -3,7 +3,7 @@ title: "Error Patterns"
 description: When to use Result types, when to let exceptions throw, and how awaitly keeps you safe either way
 ---
 
-Result types are a powerful tool for modeling expected outcomes, but using them everywhere creates noise without benefit. awaitly is designed so you only model expected domain errors as typed Results — unexpected exceptions are caught automatically and wrapped as `UnexpectedError` with the original exception preserved in `cause`. This page shows patterns to follow and patterns to avoid.
+Result types are a powerful tool for modeling expected outcomes, but using them everywhere creates noise without benefit. awaitly is designed so you only model expected domain errors as typed Results, unexpected exceptions are caught automatically and wrapped as `UnexpectedError` with the original exception preserved in `cause`. This page shows patterns to follow and patterns to avoid.
 
 ## Three classes of errors
 
@@ -11,7 +11,7 @@ Not every error deserves a type. Errors fall into three classes, and each one ca
 
 | Class | What it is | How awaitly handles it |
 |-------|-----------|----------------------|
-| **Domain errors** | Expected business failures — validation, not-found, insufficient funds | You model these as typed errors with `err()`. Result is the right tool. |
+| **Domain errors** | Expected business failures, validation, not-found, insufficient funds | You model these as typed errors with `err()`. Result is the right tool. |
 | **Panics** | Programmer errors, out-of-memory, null references | Let them throw. `run`, `createWorkflow`, and `saga` all wrap these as `UnexpectedError` with the original exception in `cause`. |
 | **Infrastructure errors** | Network timeouts, auth failures, disk I/O | Case-by-case. Model the ones your domain branches on. Let the rest become `UnexpectedError`. |
 
@@ -46,7 +46,7 @@ if (!result.ok && isUnexpectedError(result.error)) {
 
 ### Don't use Result when you should fail fast
 
-If your app can't continue without a config file or database connection, don't return a Result — throw at startup. Returning `err()` delays the inevitable and obscures the failure.
+If your app can't continue without a config file or database connection, don't return a Result, throw at startup. Returning `err()` delays the inevitable and obscures the failure.
 
 ```typescript
 // ❌ Returning a Result for something that should halt the process
@@ -73,7 +73,7 @@ const workflow = createWorkflow('checkout', { /* deps using config */ });
 
 ### Don't model every possible I/O error
 
-Only model the errors your domain logic actually branches on. Trying to represent every possible failure in a union type creates busywork with no benefit.
+Only model the errors your domain logic branches on. Trying to represent every possible failure in a union type creates busywork with no benefit.
 
 ```typescript
 // ❌ Modeling every possible file-system error
@@ -103,7 +103,7 @@ const readTemplate = async (path: string): AsyncResult<string, 'TEMPLATE_NOT_FOU
 
 ### Don't use Result if no one checks the error cases
 
-If every consumer just checks `result.ok` and never branches on specific error types, a rich error union is overhead. Keep it simple.
+If every consumer checks `result.ok` and never branches on specific error types, a rich error union is overhead. Keep it simple.
 
 ```typescript
 // ❌ Rich error type that no consumer ever inspects
@@ -129,7 +129,7 @@ const enrichProfile = async (id: string): AsyncResult<Profile, 'ENRICHMENT_FAILE
 
 ### Use Result for expected domain errors
 
-Validation failures, business rule violations, and not-found are expected outcomes that callers need to branch on. This is exactly what Result is for — a glorified boolean with extra information, not a replacement for exceptions.
+Validation failures, business rule violations, and not-found are expected outcomes that callers need to branch on. This is exactly what Result is for, a glorified boolean with extra information, not a replacement for exceptions.
 
 ```typescript
 // ✅ Domain errors that callers handle differently
@@ -216,17 +216,17 @@ if (!result.ok) {
 
 ## How awaitly keeps you safe
 
-`run()`, `createWorkflow()`, and `saga()` all catch thrown exceptions automatically and wrap them as `UnexpectedError` with the original exception in `cause`. You never lose stack traces. You never need to model every possible failure. Your typed error union stays clean — only the domain errors you actually care about.
+`run()`, `createWorkflow()`, and `saga()` all catch thrown exceptions automatically and wrap them as `UnexpectedError` with the original exception in `cause`. You never lose stack traces. You never need to model every possible failure. Your typed error union stays clean, only the domain errors you care about.
 
 If you need to replace `UnexpectedError` with your own type, pass `catchUnexpected` to `run()` or `createWorkflow()`. See [Custom unexpected errors](foundations/error-handling/#custom-unexpected-errors).
 
 ## Further reading
 
 **awaitly docs:**
-- [Errors and Retries](foundations/error-handling/) — how error propagation, retries, and timeouts work
-- [Tagged Errors](foundations/tagged-errors/) — structured error types with exhaustive matching
-- [awaitly vs try/catch](comparison/awaitly-vs-try-catch/) — side-by-side comparison with traditional error handling
+- [Errors and Retries](foundations/error-handling/): how error propagation, retries, and timeouts work
+- [Tagged Errors](foundations/tagged-errors/): structured error types with exhaustive matching
+- [awaitly vs try/catch](comparison/awaitly-vs-try-catch/): side-by-side comparison with traditional error handling
 
 **External:**
-- [Against Railway-Oriented Programming](https://fsharpforfunandprofit.com/posts/against-railway-oriented-programming/) — Scott Wlaschin on when Result types are the wrong tool
-- [You're better off using Exceptions](https://eiriktsarpalis.wordpress.com/2017/02/19/youre-better-off-using-exceptions/) — Eirik Tsarpalis on Result types as a general-purpose error mechanism
+- [Against Railway-Oriented Programming](https://fsharpforfunandprofit.com/posts/against-railway-oriented-programming/): Scott Wlaschin on when Result types are the wrong tool
+- [You're better off using Exceptions](https://eiriktsarpalis.wordpress.com/2017/02/19/youre-better-off-using-exceptions/): Eirik Tsarpalis on Result types as a general-purpose error mechanism

@@ -35,7 +35,7 @@ Slugs are grouped by a single-word prefix:
 
 The full enumerated list lives in `AWAITLY_SLUGS` on the root `awaitly` entry (see below). Adding a slug is non-breaking; renaming one is a major version bump.
 
-## `AWAITLY_SLUGS` — source of truth
+## `AWAITLY_SLUGS`, source of truth
 
 The slug namespace ships on the root entry. It's pure data plus helpers, so it tree-shakes out of your bundle when unused:
 
@@ -106,7 +106,7 @@ for (const slug of ALL_SLUGS) {
 
 ## Error shape
 
-Every awaitly-system error carries three readonly fields populated from the slug spine — in addition to its existing `_tag`, `message`, and (where applicable) `cause`.
+Every awaitly-system error carries three readonly fields populated from the slug spine, in addition to its existing `_tag`, `message`, and (where applicable) `cause`.
 
 ```typescript
 interface AwaitlySystemErrorShape {
@@ -130,7 +130,7 @@ The six awaitly-system errors that participate in the spine are:
 | `CompensationError` | `runtime-saga-compensation` | A saga compensation step failed. Inspect compensationError and ensure compensation is idempotent. |
 | `UnexpectedError` | `runtime-unexpected` | An unexpected exception escaped a step. Inspect cause; consider returning a typed Result instead of throwing. |
 
-User-domain errors (`ValidationError`, `NotFoundError`, `UnauthorizedError`, `NetworkError`) are **not** slugged — they represent your domain failures, not awaitly-internal ones. You can opt your own `TaggedError` subclasses into the spine by passing `slug` and `hint` to the factory:
+User-domain errors (`ValidationError`, `NotFoundError`, `UnauthorizedError`, `NetworkError`) are **not** slugged. They represent your domain failures, not awaitly-internal ones. You can opt your own `TaggedError` subclasses into the spine by passing `slug` and `hint` to the factory:
 
 ```typescript
 import { TaggedError } from 'awaitly';
@@ -142,7 +142,7 @@ class CheckoutFailed extends TaggedError('CheckoutFailed', {
 }) {}
 ```
 
-When `slug` is set, `hint` is **required** — the factory throws `TypeError` at construction time if it's missing.
+When `slug` is set, `hint` is **required**: the factory throws `TypeError` at construction time if it's missing.
 
 ### `AwaitlySystemError`
 

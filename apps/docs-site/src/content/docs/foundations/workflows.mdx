@@ -12,7 +12,7 @@ import PageActions from '../../../components/docs/PageActions.astro';
   docsForAgentsHref="/guides/docs-for-agents/"
 />
 
-You create workflows with `createWorkflow` (reusable, with dependency inference) or use `run()` for one-off operations. **Execution is always via `workflow.run(fn)`** — the workflow object is not callable.
+You create workflows with `createWorkflow` (reusable, with dependency inference) or use `run()` for one-off operations. **Execution is always via `workflow.run(fn)`**, the workflow object is not callable.
 
 ## Type Structure
 
@@ -31,8 +31,8 @@ Result<Value, 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError>
 
 Creates a reusable workflow with automatic error type inference from dependencies. Two call shapes:
 
-- **Named:** `createWorkflow('checkout', { fetchUser, sendEmail }, options?)` — stable label in traces, events, and diagrams even if the variable is renamed.
-- **Deps-first:** `createWorkflow({ fetchUser, sendEmail }, options?)` — same inference; `awaitly-analyze` labels the workflow from the variable name (e.g. `const checkout = createWorkflow({ ... })`).
+- **Named:** `createWorkflow('checkout', { fetchUser, sendEmail }, options?)`, stable label in traces, events, and diagrams even if the variable is renamed.
+- **Deps-first:** `createWorkflow({ fetchUser, sendEmail }, options?)`, same inference; `awaitly-analyze` labels the workflow from the variable name (e.g. `const checkout = createWorkflow({ ... })`).
 
 <Tabs>
   <TabItem label="With inference">
@@ -102,7 +102,7 @@ The value returned by `createWorkflow` is a workflow object with a single **`.ru
 ## run()
 
 `run(deps, fn)` is the same deps-first idea without a name attached. Error types are
-inferred exactly as they are for `createWorkflow` — you do not supply type parameters:
+inferred exactly as they are for `createWorkflow`. You do not supply type parameters:
 
 ```typescript
 import { run } from 'awaitly';
@@ -117,7 +117,7 @@ const result = await run({ fetchUser, sendEmail }, async (s) => {
 
 <Aside type="caution" title="No catchUnexpected on the deps-first form">
 `run(deps, fn, options)` accepts `onError`, `onEvent`, `workflowId`, `workflowName`,
-and `context` — but **not** `catchUnexpected`. Deps-first runs always carry
+and `context`, but **not** `catchUnexpected`. Deps-first runs always carry
 `UnexpectedError`. To close the union, use `createWorkflow(name, deps, { catchUnexpected })`
 or `run.strict`, where you supply `E` yourself:
 
@@ -130,8 +130,8 @@ const wf = createWorkflow('loadUser', { fetchUser, sendEmail }, {
 </Aside>
 
 <Aside type="tip" title="Naming the union">
-You rarely need to write the error type down, but when you do — an HTTP mapper, a
-shared handler — derive it with `ErrorsOf<typeof deps>` rather than retyping it. See
+You rarely need to write the error type down, but when you do, an HTTP mapper, a
+shared handler, derive it with `ErrorsOf<typeof deps>` rather than retyping it. See
 [What TypeScript gives you back](getting-started/types/).
 </Aside>
 
@@ -325,7 +325,7 @@ With `catchUnexpected`:
 - Use for exhaustive switch statements or when you want a single typed shape for all unexpected cases.
 
 <Aside type="tip" title="When to use catchUnexpected">
-Most users don't need `catchUnexpected`. The default `UnexpectedError` works well — it's a `TaggedError` you can check with `isUnexpectedError(result.error)`, and the original thrown value is available via `result.error.cause`. Use `catchUnexpected` only when you need a custom shape.
+Most users don't need `catchUnexpected`. The default `UnexpectedError` works well. It's a `TaggedError` you can check with `isUnexpectedError(result.error)`, and the original thrown value is available via `result.error.cause`. Use `catchUnexpected` only when you need a custom shape.
 </Aside>
 
 ### signal (Cancellation)
@@ -400,6 +400,26 @@ const result = await workflow.run(async ({ step, deps, ctx }) => {
 });
 ```
 
+### clock
+
+Time source for retry delays, `step.sleep`, and `step.withTimeout`. Defaults to the system clock. Per-run `clock` overrides creation-time.
+
+```typescript
+import { createTestClock } from 'awaitly/testing';
+
+const clock = createTestClock();
+const workflow = createWorkflow('workflow', deps, { clock });
+
+const pending = workflow.run(async ({ step }) => {
+  await step.sleep('wait', '1s');
+  return 'ok';
+});
+clock.advance(1000);
+const result = await pending;
+```
+
+Policy wrappers (`retry()`, `timeout()`) do not pick up this clock automatically. Pass `clock` at wrap time, or use `step.retry` / `step.withTimeout` / `step.sleep` inside the run. See [Retries & Timeouts](guides/retries-timeouts/#testing-with-a-clock).
+
 ## Execution-time options
 
 While `createWorkflow` accepts options at creation time, you may need different options for specific runs. Pass a **config** as the second argument to `workflow.run(fn, config)`, or use a **named run** with `workflow.run("run-id", fn, config)` for logging and tracing:
@@ -455,6 +475,7 @@ await workflow.run(fn);  // Uses handlerA, signalA
 | `onEvent` | Event handler for this run |
 | `onError` | Error handler for this run |
 | `signal` | AbortSignal for this run |
+| `clock` | Clock for retry delays, `step.sleep`, and `step.withTimeout` |
 | `createContext` | Context factory for this run |
 | `resumeState` | Resume state for this run (can be async factory) |
 | `deps` | Partial override of creation-time deps |
@@ -472,7 +493,7 @@ Options like `cache` and `catchUnexpected` are **creation-time only**. They defi
 
 ## Composing workflows
 
-Workflows are just functions. Compose them naturally:
+Workflows are functions. Compose them naturally:
 
 ```typescript
 const validateInput = createWorkflow('workflow', { validateEmail, validatePassword });

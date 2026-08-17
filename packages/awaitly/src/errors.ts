@@ -353,6 +353,42 @@ export class UnexpectedError extends /* @__PURE__ */ TaggedError("UnexpectedErro
   }) => `UnexpectedError: ${p.cause instanceof Error ? p.cause.message : String(p.cause ?? "unknown")}`,
 }) {}
 
+/**
+ * Default retry predicate: typed failures retry, defects do not.
+ *
+ * Retryable: string tags, `{ type }` / `{ _tag }` objects, and TaggedError
+ * instances except `UnexpectedError`.
+ *
+ * Not retryable: `UnexpectedError`, plain `Error` throws, and anything
+ * without a tag. Pass `retryIf: () => true` to opt back into retrying throws.
+ */
+export function isRetryableFailure(failure: unknown): boolean {
+  if (typeof failure === "string") return true;
+  if (typeof failure !== "object" || failure === null) return false;
+  const tagged = failure as { type?: unknown; _tag?: unknown };
+  const tag =
+    typeof tagged.type === "string"
+      ? tagged.type
+      : typeof tagged._tag === "string"
+        ? tagged._tag
+        : undefined;
+  if (tag === undefined) return false;
+  return tag !== "UnexpectedError";
+}
+
+/**
+ * Default retry predicate for failures returned through `Result.err`.
+ *
+ * Unlike an untagged throw, every returned error is an explicitly typed
+ * failure and is therefore retryable unless it is an `UnexpectedError`.
+ * @internal
+ */
+export function isRetryableResultFailure(failure: unknown): boolean {
+  if (typeof failure !== "object" || failure === null) return true;
+  const tagged = failure as { type?: unknown; _tag?: unknown };
+  return tagged.type !== "UnexpectedError" && tagged._tag !== "UnexpectedError";
+}
+
 // =============================================================================
 // Union Type for Common Errors
 // =============================================================================

@@ -440,6 +440,19 @@ describe("Testing Harness", () => {
       clock.reset();
       expect(clock.now()).toBe(1000);
     });
+
+    it("parks sleep until advance reaches the deadline", async () => {
+      const clock = createTestClock(0);
+      let done = false;
+      const pending = clock.sleep(250).then(() => {
+        done = true;
+      });
+      clock.advance(249);
+      expect(done).toBe(false);
+      clock.advance(1);
+      await pending;
+      expect(done).toBe(true);
+    });
   });
 
   describe("createSnapshot / compareSnapshots", () => {

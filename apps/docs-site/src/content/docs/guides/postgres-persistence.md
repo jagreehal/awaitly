@@ -156,7 +156,7 @@ For cross-process locking, pass `lock` when creating the store so only one proce
 
 ## Features
 
-- ✅ **One-liner setup** - Just pass a connection string
+- ✅ **One-liner setup** - Pass a connection string
 - ✅ **Automatic table creation** - No manual schema setup required
 - ✅ **JSONB storage** - Native PostgreSQL JSON support
 - ✅ **Connection pooling** - Efficient connection management

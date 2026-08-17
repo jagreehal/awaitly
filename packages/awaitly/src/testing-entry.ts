@@ -51,6 +51,7 @@ export {
 
   // Test Utilities
   createTestClock,
+  type TestClock,
   okOutcome,
   errOutcome,
   throwOutcome,

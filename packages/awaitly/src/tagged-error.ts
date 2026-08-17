@@ -78,6 +78,8 @@ export interface TaggedErrorBase extends Error {
   readonly hint?: string;
   /** Canonical docs URL. Undefined when no slug is set. */
   readonly docsUrl?: string;
+  /** Plain JSON representation containing the tag, message, and enumerable props. */
+  toJSON(): SerializedTaggedError;
 }
 
 /**
@@ -89,7 +91,36 @@ class InternalTaggedErrorBase extends Error implements TaggedErrorBase {
   readonly type!: string;
   /** @deprecated Use `type`. */
   readonly _tag!: string;
+
+  /**
+   * The shape this error takes on the wire.
+   *
+   * `JSON.stringify` calls this method. `Error` keeps `message` and `stack`
+   * non-enumerable, so default serialization omits them.
+   *
+   * The result includes `type`, `message`, and enumerable props. It omits
+   * `stack` to avoid exposing sender file paths, `name` because it repeats
+   * `type`, and the deprecated `_tag` alias.
+   */
+  toJSON(): SerializedTaggedError {
+    const own = { ...this } as Record<string, unknown>;
+    delete own._tag;
+    delete own.name;
+
+    return { ...own, type: this.type, message: this.message };
+  }
 }
+
+/**
+ * A tagged error after `JSON.stringify`.
+ *
+ * `type` and `message` are present with the constructor props. Slugged classes
+ * also include `code`, `hint`, and `docsUrl`.
+ */
+export type SerializedTaggedError = {
+  type: string;
+  message: string;
+} & Record<string, unknown>;
 
 /**
  * Instance type for factory-created TaggedErrors.

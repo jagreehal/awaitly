@@ -173,7 +173,7 @@ createSingleflightGroup<T, E>(): {
 }
 ```
 
-## TTL Semantics Deep Dive
+## TTL Semantics
 
 Understanding how TTL works with singleflight:
 
@@ -255,9 +255,8 @@ await slowOp(); // Fetches again
 ### Manual invalidation
 
 A singleflight group only dedupes calls that are **in flight at the same
-time** — entries are dropped as soon as the operation settles, so there is
-nothing to invalidate. Its `clear()` takes no key and just drops in-flight
-tracking:
+time**. Entries drop as soon as the operation settles, so there is nothing to
+invalidate. Its `clear()` takes no key and drops in-flight tracking:
 
 ```typescript
 import { createSingleflightGroup } from 'awaitly';

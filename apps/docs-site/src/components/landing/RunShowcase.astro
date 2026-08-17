@@ -1,0 +1,93 @@
+---
+// The payoff section. Foundation shows the atom (ok/err); this shows what a
+// real workflow costs to write, because that is the thing no other Result
+// library gives you in plain async/await.
+//
+// The callouts are derived from the code below rather than written twice, so
+// a change to the snippet forces a change here too.
+const callouts = [
+  {
+    marker: 'async/await',
+    title: 'No new control flow',
+    body: 'No generators, no pipe chains. The body is the async function you would have written anyway.',
+  },
+  {
+    marker: 'step.retry',
+    title: 'Policies land per step',
+    body: 'Only the charge retries. Reserve and ship are left alone, because they should be.',
+  },
+  {
+    marker: 'key',
+    title: 'Resume without double-shipping',
+    body: 'A rerun after a crash reads the cached step instead of calling the carrier twice.',
+  },
+  {
+    marker: 'result.error',
+    title: 'The union writes itself',
+    body: 'Inferred from the three dependencies. Add a fourth and TypeScript widens it for you.',
+  },
+];
+---
+
+<section class="landing-section runshow" aria-labelledby="runshow-heading">
+  <div class="landing-inner">
+    <header class="runshow__header">
+      <h2 class="landing-h2" id="runshow-heading">
+        A real workflow, <em>in the code you already write</em>.
+      </h2>
+      <p class="landing-lead">
+        Retries, idempotency, and a typed error union. Fourteen lines, and none
+        of them are ceremony.
+      </p>
+    </header>
+
+    <div class="runshow__grid">
+      <article class="runshow__panel shots">
+        <header class="runshow__panel-head">
+          <span class="runshow__file">checkout.ts</span>
+        </header>
+        <pre class="diff__code runshow__code" is:raw><code><span class="kw">const</span> <span class="id">checkout</span> = <span class="fn">createWorkflow</span>(<span class="str">'checkout'</span>, { <span class="id">reserve</span>, <span class="id">charge</span>, <span class="id">ship</span> });
+
+<span class="kw">const</span> <span class="id">result</span> = <span class="kw">await</span> <span class="id">checkout</span>.<span class="fn">run</span>(<span class="kw">async</span> ({ <span class="id">step</span>, <span class="id">deps</span> }) =&gt; {
+  <span class="kw">const</span> <span class="id">hold</span> = <span class="kw">await</span> <span class="fn">step</span>(<span class="str">'reserve'</span>, () =&gt; <span class="id">deps</span>.<span class="fn">reserve</span>(<span class="id">cart</span>));
+
+  <span class="cm">// Retry only what is worth retrying.</span>
+  <span class="kw">const</span> <span class="id">payment</span> = <span class="kw">await</span> <span class="fn">step.retry</span>(<span class="str">'charge'</span>, () =&gt; <span class="id">deps</span>.<span class="fn">charge</span>(<span class="id">hold</span>), {
+    <span class="id">attempts</span>: <span class="num">3</span>,
+    <span class="id">backoff</span>: <span class="str">'exponential'</span>,
+  });
+
+  <span class="cm">// Keyed, so a resumed run never ships twice.</span>
+  <span class="kw">return</span> <span class="fn">step</span>(<span class="str">'ship'</span>, () =&gt; <span class="id">deps</span>.<span class="fn">ship</span>(<span class="id">payment</span>), { <span class="id">key</span>: <span class="id">payment</span>.<span class="id">id</span> });
+});
+
+<span class="kw">if</span> (!<span class="id">result</span>.<span class="id">ok</span>) <span class="fn">handle</span>(<span class="id">result</span>.<span class="id">error</span>);</code></pre>
+        <footer class="runshow__foot">
+          <span class="diff__inferred diff__inferred--amber">
+            <span class="diff__inferred-label">result.error</span>
+            <span class="diff__inferred-type"
+              >'OUT_OF_STOCK' | 'CARD_DECLINED' | 'SHIP_FAILED' | UnexpectedError</span
+            >
+          </span>
+          <p class="diff__note">
+            Nobody wrote that union. It is the three dependencies, unioned.
+          </p>
+        </footer>
+      </article>
+
+      <ul class="runshow__callouts panels">
+        {
+          callouts.map((c) => (
+            <li class="runshow__callout">
+              <code class="runshow__marker">{c.marker}</code>
+              <div class="runshow__callout-body">
+                <h3 class="runshow__callout-title">{c.title}</h3>
+                <p class="runshow__callout-text">{c.body}</p>
+              </div>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </div>
+</section>

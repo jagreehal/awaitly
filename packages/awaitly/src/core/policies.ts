@@ -33,9 +33,15 @@
  */
 
 import { err, ok, type AsyncResult, type Err, type ErrorOf } from "../result";
-import { TimeoutError, UnexpectedError } from "../errors";
+import {
+  TimeoutError,
+  UnexpectedError,
+  isRetryableFailure,
+  isRetryableResultFailure,
+} from "../errors";
 import { type Duration, toMillis } from "../duration";
 import { isDepResultShaped, type DepValueOfReturn } from "./bound-steps";
+import { type Clock, systemClock } from "../clock";
 
 type AnyFunction = (...args: never[]) => unknown;
 
@@ -81,8 +87,6 @@ const named = <T extends (...args: never[]) => unknown>(wrapped: T, source: AnyF
   return wrapped;
 };
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
 // =============================================================================
 // retry
 // =============================================================================
@@ -104,7 +108,7 @@ export interface RetryPolicyOptions {
   /**
    * Decide whether a failure is retryable. Receives the Result error, or
    * the thrown value for plain functions, plus the 1-indexed attempt number.
-   * Default: retry everything.
+   * Default: typed errors retry; UnexpectedError and untagged throws do not.
    */
   retryIf?: (failure: unknown, attempt: number) => boolean;
   /**
@@ -114,6 +118,12 @@ export interface RetryPolicyOptions {
   shouldRetry?: (failure: unknown, attempt: number) => boolean;
   /** Observer invoked before each re-attempt. */
   onRetry?: (info: { attempt: number; failure: unknown }) => void;
+  /**
+   * Clock used for delays between attempts. Defaults to the system clock.
+   * Does not pick up `run({ clock })` — pass the same clock here when wrapping
+   * a dep, or use `step.retry` inside a run that has `clock`.
+   */
+  clock?: Clock;
 }
 
 /**
@@ -150,6 +160,9 @@ const requireDelay = (
  * Retry a dependency. The error union is unchanged: if all attempts fail,
  * the last failure propagates exactly as it would have without the policy
  * (typed err for Result functions, throw for plain functions).
+ * By default, returned Result errors retry unless they are UnexpectedError.
+ * Tagged throws retry; untagged throws stop after the first attempt. Pass a
+ * clock at wrap time when tests need to control retry delays.
  */
 export function retry<F extends AnyFunction>(
   fn: F,
@@ -160,6 +173,7 @@ export function retry<F extends AnyFunction>(
   const maxDelay = requireDelay(options.maxDelay, "maxDelay", true) ?? Infinity;
   const backoff = options.backoff ?? "fixed";
   const shouldRetry = options.retryIf ?? options.shouldRetry;
+  const clock = options.clock ?? systemClock;
 
   const delayFor = (attempt: number): number => {
     const raw =
@@ -177,11 +191,16 @@ export function retry<F extends AnyFunction>(
       last = await attemptCall(fn, args);
       if (last.kind === "ok") return ok(last.value);
       const failure = last.kind === "err" ? last.error : last.thrown;
-      if (shouldRetry && !shouldRetry(failure, attempt)) break;
+      const retryable = shouldRetry
+        ? shouldRetry(failure, attempt)
+        : last.kind === "err"
+          ? isRetryableResultFailure(failure)
+          : isRetryableFailure(failure);
+      if (!retryable) break;
       if (attempt < attempts) {
         options.onRetry?.({ attempt, failure });
         const ms = delayFor(attempt);
-        if (ms > 0) await sleep(ms);
+        if (ms > 0) await clock.sleep(ms);
       }
     }
     if (last.kind === "err") return last.result;
@@ -196,35 +215,35 @@ export function retry<F extends AnyFunction>(
 // =============================================================================
 
 /**
- * Bound a dependency's execution time. On timeout, resolves to
- * `err(TimeoutError)` — adding `TimeoutError` to the error union. The
- * underlying operation is not cancelled (no AbortSignal is threaded);
- * its eventual result is discarded.
+ * Bound a dependency's execution time. A timeout returns `err(TimeoutError)`
+ * and adds `TimeoutError` to the error union. The wrapper does not cancel the
+ * operation because it does not pass an AbortSignal. It discards any result
+ * that arrives after the timeout.
  */
 export function timeout<F extends AnyFunction>(
   fn: F,
-  after: PolicyDelay
+  after: PolicyDelay,
+  options?: { clock?: Clock }
 ): PolicyFn<F, ErrorOf<F> | TimeoutError> {
   const ms = toMs(after);
-  const TIMED_OUT = Symbol("timed-out");
+  const clock = options?.clock ?? systemClock;
 
   const wrapped = async (...args: Parameters<F>) => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutCtl = new AbortController();
     try {
-      const outcome = await Promise.race([
-        attemptCall(fn, args),
-        new Promise<typeof TIMED_OUT>((resolve) => {
-          timer = setTimeout(() => resolve(TIMED_OUT), ms);
-        }),
+      const raced = await Promise.race([
+        attemptCall(fn, args).then((attempt) => ({ timedOut: false as const, attempt })),
+        clock.sleep(ms, timeoutCtl.signal).then(() => ({ timedOut: true as const })),
       ]);
-      if (outcome === TIMED_OUT) {
+      if (raced.timedOut) {
         return err(new TimeoutError({ operation: fn.name || undefined, ms }));
       }
-      if (outcome.kind === "ok") return ok(outcome.value);
-      if (outcome.kind === "err") return outcome.result;
-      throw outcome.thrown;
+      const { attempt } = raced;
+      if (attempt.kind === "ok") return ok(attempt.value);
+      if (attempt.kind === "err") return attempt.result;
+      throw attempt.thrown;
     } finally {
-      if (timer !== undefined) clearTimeout(timer);
+      timeoutCtl.abort();
     }
   };
 

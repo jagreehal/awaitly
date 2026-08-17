@@ -18,9 +18,9 @@ Workflow ──onEvent──▶ IR Builder ──▶ IR Tree ──▶ Renderer 
 (step_start, scope_start, ...)     (WorkflowIR)   (ascii, mermaid, json, ...)
 ```
 
-- **Events** — the workflow runtime emits typed events through `onEvent`. Key types: `step_start`, `step_success`, `step_error`, `step_retry`, `scope_start`/`scope_end` (parallel/race), `step_skipped`, and `decision_*`.
-- **IR** — the builder processes events into a tree of typed nodes (`StepNode`, `ParallelNode`, `RaceNode`, `DecisionNode`) under a root `WorkflowNode`. This is the `WorkflowIR`.
-- **Renderers** — each renderer walks the same IR tree. ASCII draws box-art, Mermaid generates `flowchart TD`, JSON serializes the IR directly.
+- **Events**: the workflow runtime emits typed events through `onEvent`. Key types: `step_start`, `step_success`, `step_error`, `step_retry`, `scope_start`/`scope_end` (parallel/race), `step_skipped`, and `decision_*`.
+- **IR**: the builder processes events into a tree of typed nodes (`StepNode`, `ParallelNode`, `RaceNode`, `DecisionNode`) under a root `WorkflowNode`. This is the `WorkflowIR`.
+- **Renderers**: each renderer walks the same IR tree. ASCII draws box-art, Mermaid generates `flowchart TD`, JSON serializes the IR directly.
 
 <Aside type="tip">
 You never interact with the IR builder directly. `createVisualizer` wires it up internally. The IR is exposed via `viz.getIR()` and the `json` format for advanced use cases.
@@ -69,15 +69,15 @@ console.log(viz.renderAs('mermaid'));
 
 Events are only received by the visualizer when the workflow runtime calls your **`onEvent`** callback. That happens only if:
 
-1. **You pass `onEvent` at workflow creation** — e.g. `createWorkflow('name', deps, { onEvent: viz.handleEvent })`.
-2. **Or you pass it at execution time** — e.g. `workflow.run(fn, { onEvent: viz.handleEvent })`, if your workflow API supports execution options.
+1. **You pass `onEvent` at workflow creation**, e.g. `createWorkflow('name', deps, { onEvent: viz.handleEvent })`.
+2. **Or you pass it at execution time**: e.g. `workflow.run(fn, { onEvent: viz.handleEvent })`, if your workflow API supports execution options.
 
 If you wrap the workflow in a library (e.g. `processOnePayment(batch, payment, deps, { onEvent })`), the library must **accept** an optional `onEvent` (or full workflow options) and **forward** it to `createWorkflow` or to the executor. Otherwise the visualizer will never receive events.
 
 - **Direct usage:** Always pass `onEvent: viz.handleEvent` (or `collector.handleEvent`) where you call `createWorkflow`.
 - **Library authors:** Accept `workflowOptions?: { onEvent?, ... }` and spread them into `createWorkflow(..., workflowOptions)`. See [Library workflows](guides/visualization/#library-workflows) below.
 
-If the diagram is empty or only shows "workflow_start", check that (1) `onEvent` is passed and (2) the workflow actually runs steps (so `step_start` / `step_complete` events are emitted). For an optional file-based capture (e.g. writing the last run to a `cursor_events` folder), see [event-capture in the awaitly-visualizer package](https://github.com/jagreehal/awaitly/tree/main/packages/awaitly-visualizer/src/event-capture) in the repo.
+If the diagram is empty or only shows "workflow_start", check that (1) `onEvent` is passed and (2) the workflow runs steps (so `step_start` / `step_complete` events are emitted). For an optional file-based capture (e.g. writing the last run to a `cursor_events` folder), see [event-capture in the awaitly-visualizer package](https://github.com/jagreehal/awaitly/tree/main/packages/awaitly-visualizer/src/event-capture) in the repo.
 
 ## Live inspector
 
@@ -130,7 +130,7 @@ console.log(viz.renderAs("mermaid"));
 
 ## Migration from manual logging
 
-If you're currently using manual `onEvent` logging, here's how to migrate to `createVisualizer`:
+If you're currently using manual `onEvent` logging, migrate to `createVisualizer`:
 
 ### Before: Manual logging
 
@@ -245,7 +245,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 
 ## Retry visualization
 
-Retries are tracked automatically — the retry count appears in both ASCII and Mermaid output.
+Retries are tracked automatically, the retry count appears in both ASCII and Mermaid output.
 
 ```typescript
 const payment = await step.retry(
@@ -458,7 +458,7 @@ Two mechanisms keep the visualizer in sync when you run a workflow more than onc
 - **Automatic**: Each `workflow_start` event clears previous IR state. Reusing the same visualizer across runs means only the latest run is visible.
 - **Manual**: `viz.reset()` clears all state explicitly.
 
-Automatic replacement — only the second run is visible:
+Automatic replacement, only the second run is visible:
 
 ```typescript
 const viz = createVisualizer({ workflowName: 'checkout' });

@@ -235,7 +235,7 @@ Before choosing a pattern, ask:
 2. **Is the downstream service healthy?** → If no, Circuit Breaker
 3. **Did I create side effects I need to undo?** → Saga
 4. **Am I at risk of hitting rate limits?** → Rate Limiter
-5. **Is this a permanent error?** → Just return it
+5. **Is this a permanent error?** → Return it
 
 ## Example: Full Stack
 

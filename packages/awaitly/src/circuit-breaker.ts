@@ -30,6 +30,7 @@
  */
 
 import { err, type Result, type AsyncResult } from "./core";
+import { type Clock, systemClock } from "./clock";
 
 // =============================================================================
 // Types
@@ -74,6 +75,12 @@ export interface CircuitBreakerConfig {
    * Optional callback when circuit state changes.
    */
   onStateChange?: (from: CircuitState, to: CircuitState, name?: string) => void;
+
+  /**
+   * Clock used for the failure window and `resetTimeout`.
+   * Defaults to the system clock. Pass `createTestClock()` in tests.
+   */
+  clock?: Clock;
 }
 
 /**
@@ -239,6 +246,7 @@ export function createCircuitBreaker(
     ...DEFAULT_CONFIG,
     ...config,
   };
+  const clock = effectiveConfig.clock ?? systemClock;
 
   let state: CircuitState = "CLOSED";
   let failures: FailureRecord[] = [];
@@ -251,7 +259,7 @@ export function createCircuitBreaker(
    * Clean up old failures outside the time window.
    */
   function cleanupFailures(): void {
-    const now = Date.now();
+    const now = clock.now();
     failures = failures.filter(
       (f) => now - f.timestamp < effectiveConfig.windowSize
     );
@@ -278,7 +286,7 @@ export function createCircuitBreaker(
     if (state !== "OPEN" || lastFailureTime === null) {
       return false;
     }
-    const now = Date.now();
+    const now = clock.now();
     if (now - lastFailureTime >= effectiveConfig.resetTimeout) {
       transitionTo("HALF_OPEN");
       return true;
@@ -290,7 +298,7 @@ export function createCircuitBreaker(
    * Record a successful operation.
    */
   function handleSuccess(): void {
-    lastSuccessTime = Date.now();
+    lastSuccessTime = clock.now();
     successCount++;
 
     if (state === "HALF_OPEN") {
@@ -307,7 +315,7 @@ export function createCircuitBreaker(
    * Record a failed operation.
    */
   function handleFailure(error: unknown): void {
-    const now = Date.now();
+    const now = clock.now();
     lastFailureTime = now;
 
     // Clean up old failures first
@@ -342,7 +350,7 @@ export function createCircuitBreaker(
         return 0; // Now in HALF_OPEN, allow execution
       }
       // Still OPEN, calculate remaining wait time
-      const now = Date.now();
+      const now = clock.now();
       const elapsed = lastFailureTime ? now - lastFailureTime : 0;
       return Math.max(0, effectiveConfig.resetTimeout - elapsed);
     }
@@ -431,7 +439,7 @@ export function createCircuitBreaker(
     },
 
     forceOpen(): void {
-      lastFailureTime = Date.now();
+      lastFailureTime = clock.now();
       transitionTo("OPEN");
     },
 

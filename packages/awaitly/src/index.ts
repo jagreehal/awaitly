@@ -142,6 +142,7 @@ export type {
   TagOf,
   ErrorByTag,
   PropsOf,
+  SerializedTaggedError,
 } from "./tagged-error";
 
 export type { RetryOptions, BackoffStrategy, BoundSteps } from "./core";
@@ -181,6 +182,14 @@ export type { AwaitlySlug, AwaitlySlugCategory } from "./slugs";
 
 // run() and the step engine surface (formerly awaitly/run, awaitly/core)
 export { run } from "./core";
+
+// Automatic OpenTelemetry spans. On by default; `AWAITLY_TELEMETRY=0` or
+// setTelemetryEnabled(false) turns them off for the whole process.
+export {
+  setTelemetryEnabled,
+  isTelemetryEnabled,
+} from "./core/opentelemetry";
+
 export {
   type RunStep,
   type StepOptions,
@@ -206,6 +215,7 @@ export {
 export * from "./errors-entry";
 // Durations (formerly awaitly/duration)
 export * from "./duration-entry";
+export { type Clock, systemClock } from "./clock";
 // Pattern matching (formerly awaitly/match — clashing names ship pre-renamed:
 // matchTag, matchTags, matchOrElse)
 export * from "./match-entry";

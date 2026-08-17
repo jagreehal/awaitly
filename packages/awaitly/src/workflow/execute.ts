@@ -31,6 +31,7 @@ import {
   type ErrorOf,
 } from "../core";
 import { isDepResultShaped, type StepCallable } from "../core/bound-steps";
+import { resolveTelemetry, withCompensationSpan, withRunSpan } from "../core/opentelemetry";
 
 import type {
   StreamStore,
@@ -56,6 +57,7 @@ import {
 } from "../streaming/backpressure";
 
 import { parse as parseDuration, toMillis, type Duration as DurationType } from "../duration";
+import { type Clock, systemClock } from "../clock";
 
 import type {
   StepCache,
@@ -395,9 +397,14 @@ export function createWorkflow<
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const workflowSignal = (config?.signal ?? (optionsActual as any)?.signal) as AbortSignal | undefined;
 
+    // Clock (config overrides options)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const clock = ((config?.clock ?? (optionsActual as any)?.clock) as Clock | undefined) ?? systemClock;
+
     // Get event handler (config overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const onEventHandler = config?.onEvent ?? (optionsActual as any)?.onEvent;
+    const telemetry = resolveTelemetry(config?.telemetry ?? optionsActual?.telemetry);
 
     // Get error handler (config overrides options)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1268,34 +1275,27 @@ export function createWorkflow<
         const userSignal = options?.signal;
 
         const sleepOperation = async (): AsyncResult<void, never> => {
-          // Check if already aborted (workflow or user signal)
-          if (workflowSignal?.aborted || userSignal?.aborted) {
+          const signals = [workflowSignal, userSignal].filter(
+            (s): s is AbortSignal => s != null
+          );
+          if (signals.some((s) => s.aborted)) {
             const e = new Error("Sleep aborted");
             e.name = "AbortError";
             throw e;
           }
-
-          return new Promise<Result<void, never>>((resolve, reject) => {
-            const state = {
-              timeoutId: undefined as ReturnType<typeof setTimeout> | undefined,
-            };
-
-            const onAbort = () => {
-              if (state.timeoutId) clearTimeout(state.timeoutId);
-              const e = new Error("Sleep aborted");
-              e.name = "AbortError";
-              reject(e);
-            };
-
-            workflowSignal?.addEventListener("abort", onAbort, { once: true });
-            userSignal?.addEventListener("abort", onAbort, { once: true });
-
-            state.timeoutId = setTimeout(() => {
-              workflowSignal?.removeEventListener("abort", onAbort);
-              userSignal?.removeEventListener("abort", onAbort);
-              resolve(ok(undefined));
-            }, ms);
-          });
+          const combined =
+            signals.length === 0
+              ? undefined
+              : signals.length === 1
+                ? signals[0]
+                : AbortSignal.any(signals);
+          await clock.sleep(ms, combined);
+          if (combined?.aborted) {
+            const e = new Error("Sleep aborted");
+            e.name = "AbortError";
+            throw e;
+          }
+          return ok(undefined);
         };
 
         return cachedStepFn(id, sleepOperation, {
@@ -1937,9 +1937,12 @@ export function createWorkflow<
         catchUnexpected: catchUnexpected as (cause: unknown) => U,
         workflowId,
         workflowName,
+        telemetry,
         context,
         graph: declaredGraph,
         _workflowSignal: workflowSignal,
+        _traceRunSpan: false,
+        clock,
       });
     } finally {
       // Clean up abort listener
@@ -1956,7 +1959,10 @@ export function createWorkflow<
       for (let i = compensations.length - 1; i >= 0; i--) {
         const comp = compensations[i];
         try {
-          const outcome = await comp.compensate(comp.value);
+          const outcome = await withCompensationSpan(
+            { enabled: telemetry, stepName: comp.stepName ?? "anonymous" },
+            async () => comp.compensate(comp.value)
+          );
           // A compensation that returns err() failed just as surely as one that
           // threw. Without this the rollback is reported clean and the money
           // stays gone. Non-Result returns are ignored, so void is unchanged.
@@ -2095,6 +2101,22 @@ export function createWorkflow<
     return result as Result<T, E | ExtraE | U>;
   }
 
+  function executeWithTelemetry<T, ExtraE = never>(
+    runName: string | undefined,
+    userFn: WorkflowFn<T, E | ExtraE, Deps, C>,
+    config?: RunConfig<E, U, C, Deps>
+  ): Promise<Result<T, E | ExtraE | U>> {
+    const workflowId = runName ?? crypto.randomUUID();
+    const telemetry = resolveTelemetry(config?.telemetry ?? optionsActual?.telemetry);
+    const signal = config?.signal ?? optionsActual?.signal;
+    const execute = () => internalExecute<T, ExtraE>(workflowId, userFn, config);
+
+    return withRunSpan(
+      { enabled: telemetry, workflowId, workflowName, signal },
+      execute
+    );
+  }
+
   // ==========================================================================
   // workflow.run() - public method
   // ==========================================================================
@@ -2116,7 +2138,7 @@ export function createWorkflow<
       config = maybeFnOrConfig as RunConfig<E, U, C, Deps> | undefined;
     }
 
-    return internalExecute<T, ExtraE>(runName, fn, config);
+    return executeWithTelemetry<T, ExtraE>(runName, fn, config);
   }
 
   // ==========================================================================
@@ -2158,7 +2180,7 @@ export function createWorkflow<
     let result: Result<T, E | ExtraE | U>;
     let resumeState: ResumeState;
     try {
-      result = await internalExecute<T, ExtraE>(runName, fn, mergedConfig);
+      result = await executeWithTelemetry<T, ExtraE>(runName, fn, mergedConfig);
     } catch (thrown) {
       // runWithState follows "never throw, always Result"; map thrown to Result
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

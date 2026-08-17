@@ -32,6 +32,7 @@ const EXPECTED_LINT_SLUGS = new Set([
   'concurrency-no-promise-race',
   'concurrency-no-promise-allsettled',
   'error-check-unexpected-first',
+  'error-require-discriminant',
 ]);
 
 describe('spine cross-surface parity', () => {

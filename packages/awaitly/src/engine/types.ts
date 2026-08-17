@@ -45,6 +45,8 @@ export interface EngineOptions {
   onEvent?: (event: EngineEvent) => void;
   /** Error handler for background operations */
   onError?: (error: unknown) => void;
+  /** Disable automatic OpenTelemetry spans for this engine. */
+  telemetry?: boolean | undefined;
 }
 
 export type EngineEvent =

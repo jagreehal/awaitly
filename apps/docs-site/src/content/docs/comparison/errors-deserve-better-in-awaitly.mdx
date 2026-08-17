@@ -5,7 +5,7 @@ description: Saga-first handling for OTA-299 style booking failures, built on aw
 
 This article focuses on one pattern: **sagas** (`createSagaWorkflow`, from `awaitly/durable`).
 
-The "Errors Deserve Better" scenario is not just about classifying failures. It is about safely handling a multi-step flow where side effects can partially succeed (charge captured) before a later step fails (reservation submit/persist).
+The "Errors Deserve Better" scenario is not only about classifying failures. It is about safely handling a multi-step flow where side effects can partially succeed (charge captured) before a later step fails (reservation submit/persist).
 
 ## The Real Failure Mode
 
@@ -25,7 +25,7 @@ Typed errors are necessary, but for this flow they are not sufficient. You also 
 
 | Use case | API | Why |
 |---|---|---|
-| Wrap one async SDK call at an edge with typed mapping (optional retry) | `tryAsync` + the `retry` policy | Convert a throwing call to a typed `Result`, then wrap it in retry — both from `awaitly` |
+| Wrap one async SDK call at an edge with typed mapping (optional retry) | `tryAsync` + the `retry` policy | Convert a throwing call to a typed `Result`, then wrap it in retry, both from `awaitly` |
 | Wrap a throwing operation inside a workflow/saga step | `step.try('id', fn, { onError, retry?, timeout? })` | Throwing op with typed error mapping, retry, timeout, and compensation in one call |
 | Retry a step that already returns `Result`/`AsyncResult` | `step.retry` | Native step-level retry semantics and observability |
 | Multi-step flow with rollback/compensation needs | `createSagaWorkflow` | Typed errors plus reverse-order compensation on downstream failure |

@@ -227,6 +227,16 @@ When matching on result.error tags, check isUnexpectedError(result.error) first 
 Check isUnexpectedError(result.error) before matching on result.error._tag / .type. Without it, library/SDK bugs are silently treated as typed errors.
 ```
 
+### `error-require-discriminant` \{#error-require-discriminant\}
+
+Require error classes extending Error to declare a literal discriminant, so a union of them survives TypeScript structural comparison.
+
+- **ESLint rule:** `awaitly/error-require-discriminant`
+
+```text
+{{name}} adds nothing to Error, so TypeScript treats it as the same type as every other bare error class and collapses them in a union. Add `readonly type = '{{name}}'`, or declare it with TaggedError.
+```
+
 ### `error-access-cause` \{#error-access-cause\}
 
 Canonical awaitly slug: error-access-cause

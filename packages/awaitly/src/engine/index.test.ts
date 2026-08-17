@@ -1,3 +1,17 @@
+import {
+  context,
+  createContextKey,
+  propagation,
+  trace,
+  type TextMapPropagator,
+} from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { W3CTraceContextPropagator } from "@opentelemetry/core";
+import {
+  BasicTracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
 import { describe, it, expect, afterEach } from "vitest";
 import { createEngine } from ".";
 import { ok, err } from "../core";
@@ -45,6 +59,8 @@ afterEach(async () => {
     await engine.stop();
     engine = undefined;
   }
+  propagation.disable();
+  context.disable();
 });
 
 describe("createEngine", () => {
@@ -70,6 +86,95 @@ describe("createEngine", () => {
     expect(types).toContain("workflow_started");
     expect(types).toContain("workflow_completed");
     expect(types).toContain("engine_tick");
+  });
+
+  it("continues enqueue context when a queued workflow runs", async () => {
+    const store = createTestStore();
+    const contextManager = new AsyncLocalStorageContextManager();
+    context.setGlobalContextManager(contextManager.enable());
+    const parentKey = createContextKey("engine-parent");
+    const propagator: TextMapPropagator = {
+      inject(ctx, carrier, setter) {
+        const parent = ctx.getValue(parentKey);
+        if (typeof parent === "string") setter.set(carrier, "x-awaitly-parent", parent);
+      },
+      extract(ctx, carrier, getter) {
+        const parent = getter.get(carrier, "x-awaitly-parent");
+        return typeof parent === "string" ? ctx.setValue(parentKey, parent) : ctx;
+      },
+      fields: () => ["x-awaitly-parent"],
+    };
+    propagation.setGlobalPropagator(propagator);
+    let observedParent: unknown;
+
+    engine = createEngine({
+      store,
+      workflows: {
+        traced: {
+          deps: {
+            observe: async () => {
+              observedParent = context.active().getValue(parentKey);
+              return ok(undefined);
+            },
+          },
+          fn: async ({ step, deps }) => step("observe", () => deps.observe()),
+        },
+      },
+    });
+
+    await context.with(
+      context.active().setValue(parentKey, "request-span"),
+      () => engine?.enqueue("traced", { id: "traced-1" })
+    );
+    await engine.tick();
+
+    expect(observedParent).toBe("request-span");
+  });
+
+  it("links a queued workflow to the enqueuing span instead of parenting it", async () => {
+    const store = createTestStore();
+    const exporter = new InMemorySpanExporter();
+    const provider = new BasicTracerProvider({
+      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    });
+    const contextManager = new AsyncLocalStorageContextManager();
+    context.setGlobalContextManager(contextManager.enable());
+    propagation.setGlobalPropagator(new W3CTraceContextPropagator());
+    trace.setGlobalTracerProvider(provider);
+
+    engine = createEngine({
+      store,
+      workflows: { greet: { deps: testDeps, fn: testFn } },
+    });
+
+    const requestTracer = trace.getTracer("request");
+    const requestSpan = requestTracer.startSpan("POST /orders");
+    await context.with(trace.setSpan(context.active(), requestSpan), () =>
+      engine!.enqueue("greet", { id: "greet-linked" })
+    );
+    requestSpan.end();
+
+    await engine.tick();
+    await provider.forceFlush();
+
+    const spans = exporter.getFinishedSpans();
+    const jobSpan = spans.find((s) => s.name === "engine process greet");
+    const request = spans.find((s) => s.name === "POST /orders");
+
+    // A queued job can sit for hours and outlive the request that enqueued it,
+    // so it starts its own trace and records causality as a link.
+    expect(jobSpan).toBeDefined();
+    expect(jobSpan?.parentSpanContext).toBeUndefined();
+    expect(jobSpan?.spanContext().traceId).not.toBe(
+      request?.spanContext().traceId
+    );
+    expect(jobSpan?.links).toHaveLength(1);
+    expect(jobSpan?.links[0]?.context.spanId).toBe(
+      request?.spanContext().spanId
+    );
+
+    await provider.shutdown();
+    trace.disable();
   });
 
   it("throws on unknown workflow name", async () => {
