@@ -7,146 +7,71 @@ Best practices for running awaitly in production: observability, error tracking,
 
 ## Observability with OpenTelemetry
 
-Workflows expose everything they do through the `onEvent` option — wire those events to OpenTelemetry spans and metrics directly. See the [OpenTelemetry guide](advanced/opentelemetry/) for the full event reference. A first-class OTel adapter is planned as a separate ecosystem package.
+awaitly creates OpenTelemetry spans for runs, steps, retries, parallel and race scopes, sagas, compensation, and queued engine workflows. Configure a global provider before application code runs. No event-to-span adapter is needed.
+
+Step spans only become the parent of your database and HTTP spans when a `ContextManager` is registered. `NodeSDK` registers one. If you build a provider by hand, add `AsyncLocalStorageContextManager` yourself or every span starts its own trace.
 
 ### Basic setup
 
 ```typescript
-import { createWorkflow, type WorkflowEvent } from 'awaitly';
-import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 
-// Initialize OpenTelemetry SDK
 const sdk = new NodeSDK({
-  traceExporter: new OTLPTraceExporter({
-    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318/v1/traces',
-  }),
   serviceName: 'checkout-service',
+  traceExporter: new OTLPTraceExporter({
+    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+  }),
 });
+
 sdk.start();
+await import('./app.js');
+```
 
-// Hand-wire workflow events to spans
-const tracer = trace.getTracer('checkout-service');
-const stepSpans = new Map<string, Span>();
+Autotel is the shorter setup when the application also needs metrics, logs, local devtools, and process shutdown:
 
-function handleOtelEvent(event: WorkflowEvent<unknown>) {
-  if (event.type === 'step_start') {
-    stepSpans.set(event.stepId, tracer.startSpan(`step ${event.name ?? event.stepId}`));
-  }
+```typescript
+import { init } from 'autotel';
 
-  if (event.type === 'step_success' || event.type === 'step_error') {
-    const span = stepSpans.get(event.stepId);
-    if (event.type === 'step_error') {
-      span?.setStatus({ code: SpanStatusCode.ERROR, message: String(event.error) });
+init({ service: 'checkout-service' });
+```
+
+awaitly detects either provider through the standard OpenTelemetry global API. See the [OpenTelemetry guide](advanced/opentelemetry/) for the span model, attributes, durable context propagation, the ways to turn tracing off, and testing setup.
+
+### Export and shutdown
+
+```typescript
+async function shutdown(signal: string) {
+  console.info(`${signal}: draining telemetry`);
+  await sdk.shutdown();
+  process.exit(0);
+}
+
+process.once('SIGTERM', () => void shutdown('SIGTERM'));
+process.once('SIGINT', () => void shutdown('SIGINT'));
+```
+
+Set the exporter endpoint, headers, resource attributes, and sampler through standard `OTEL_*` environment variables. Keep the provider alive until workflow shutdown and flush it before the process exits.
+
+### Custom metrics
+
+Traces are automatic. Custom metrics remain explicit so the application owns metric names and label cardinality. Record them from the typed workflow event stream:
+
+```typescript
+import { metrics } from '@opentelemetry/api';
+import { createWorkflow } from 'awaitly';
+
+const retries = metrics
+  .getMeter('checkout-service')
+  .createCounter('awaitly.step.retries');
+
+const workflow = createWorkflow('checkout', deps, {
+  onEvent(event) {
+    if (event.type === 'step_retry') {
+      retries.add(1, { step: event.name ?? event.stepId });
     }
-    span?.end();
-    stepSpans.delete(event.stepId);
-  }
-}
-
-// Use in workflow
-const workflow = createWorkflow('workflow', deps, {
-  onEvent: handleOtelEvent,
-});
-```
-
-### Custom span attributes
-
-```typescript
-function handleOtelEvent(event: WorkflowEvent<unknown>) {
-  // Add custom attributes based on event type
-  if (event.type === 'step_start') {
-    const span = tracer.startSpan(`step ${event.name ?? event.stepId}`);
-    span.setAttribute('step.name', event.name ?? 'unnamed');
-    span.setAttribute('step.key', event.stepKey ?? '');
-    stepSpans.set(event.stepId, span);
-  }
-
-  if (event.type === 'step_success') {
-    const span = stepSpans.get(event.stepId);
-    span?.setAttribute('step.duration_ms', event.durationMs);
-    span?.end();
-    stepSpans.delete(event.stepId);
-  }
-
-  if (event.type === 'step_error') {
-    const span = stepSpans.get(event.stepId);
-    span?.setAttribute('step.duration_ms', event.durationMs);
-    span?.setAttribute('error.type', typeof event.error === 'string' ? event.error : 'object');
-    span?.setStatus({ code: SpanStatusCode.ERROR });
-    span?.end();
-    stepSpans.delete(event.stepId);
-  }
-}
-```
-
-### Datadog integration
-
-```typescript
-// Using Datadog's OTLP endpoint
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-
-const exporter = new OTLPTraceExporter({
-  url: 'https://trace.agent.datadoghq.com/v1/traces',
-  headers: {
-    'DD-API-KEY': process.env.DD_API_KEY,
   },
 });
-```
-
-### Grafana Cloud / Tempo
-
-```typescript
-const exporter = new OTLPTraceExporter({
-  url: `https://tempo-us-central1.grafana.net/tempo/v1/traces`,
-  headers: {
-    Authorization: `Basic ${Buffer.from(`${process.env.GRAFANA_USER}:${process.env.GRAFANA_API_KEY}`).toString('base64')}`,
-  },
-});
-```
-
-### Metrics collection
-
-```typescript
-import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
-import { MeterProvider } from '@opentelemetry/sdk-metrics';
-
-// Setup metrics
-const meterProvider = new MeterProvider();
-meterProvider.addMetricReader(new PrometheusExporter({ port: 9464 }));
-
-const meter = meterProvider.getMeter('awaitly-workflows');
-const workflowDuration = meter.createHistogram('workflow_duration_ms');
-const stepErrors = meter.createCounter('step_errors_total');
-
-// Custom event handler with metrics
-function handleWorkflowEvent(event: WorkflowEvent<unknown>) {
-  handleOtelEvent(event);
-
-  if (event.type === 'workflow_success') {
-    workflowDuration.record(event.durationMs, {
-      workflow: event.workflowName ?? 'unknown',
-      status: 'success',
-    });
-  }
-
-  if (event.type === 'workflow_error') {
-    workflowDuration.record(event.durationMs, {
-      workflow: event.workflowName ?? 'unknown',
-      status: 'error',
-    });
-  }
-
-  if (event.type === 'step_error') {
-    stepErrors.add(1, {
-      step: event.name ?? event.stepKey ?? 'unknown',
-      error: typeof event.error === 'string' ? event.error : 'object',
-    });
-  }
-}
-
-const workflow = createWorkflow('workflow', deps, { onEvent: handleWorkflowEvent });
 ```
 
 ## Error Tracking with Sentry

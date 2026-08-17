@@ -23,7 +23,7 @@ No exceptions for expected failures. No manual error unions.
 npm install awaitly
 ```
 
-Four entry points, and you only need the first: `awaitly` is the front door — Result, `run()`, `createWorkflow()`, reliability. `awaitly/durable` holds the production machinery (durable execution, persistence, saga, human-in-the-loop, streaming, webhooks, engine). `awaitly/result` is the size guarantee: Result primitives only, tiny with zero bundler trust required. `awaitly/testing` is test helpers.
+Four entry points, and you only need the first: `awaitly` is the front door: Result, `run()`, `createWorkflow()`, and reliability. `awaitly/durable` holds the production machinery (durable execution, persistence, saga, human-in-the-loop, streaming, webhooks, engine). `awaitly/result` is the size guarantee: Result primitives only, tiny with zero bundler trust required. `awaitly/testing` is test helpers.
 
 📚 **[Full Documentation](https://jagreehal.github.io/awaitly/)** - guides, API reference, and examples.
 
@@ -33,8 +33,8 @@ Four entry points, and you only need the first: `awaitly` is the front door — 
 
 JavaScript async code conflates two kinds of failures:
 
-- **Expected**: "User not found", "Payment declined" — these are business outcomes
-- **Unexpected**: Network timeout, SDK crash, OOM — these are bugs
+- **Expected**: "User not found", "Payment declined". These are business outcomes
+- **Unexpected**: Network timeout, SDK crash, OOM. These are bugs
 
 Traditional try/catch loses type information:
 
@@ -77,7 +77,7 @@ if (result.ok) {
 
 No exceptions. TypeScript tracks every possible error.
 
-> A `Result` is an object — `{ ok: true, value }` or `{ ok: false, error }` — never a bare
+> A `Result` is an object, `{ ok: true, value }` or `{ ok: false, error }`, never a bare
 > error value. Always narrow on `result.ok` first, then read `result.error`. Switching on the
 > `Result` itself (`switch (result)`) gets you
 > `Type 'string' is not comparable to type 'Result<...>'` (TS2678); you want
@@ -109,9 +109,9 @@ async function processOrder(orderId: string) {
 
 ---
 
-## run() — Simple Composition
+## run(), Simple Composition
 
-Pass your functions to `run()`. It hands you a steps object that mirrors them — each call unwraps the `ok` value and exits early on `err`:
+Pass your functions to `run()`. It hands you a steps object that mirrors them. Each call unwraps the `ok` value and exits early on `err`:
 
 ```typescript
 import { run } from 'awaitly';
@@ -125,7 +125,7 @@ const result = await run({ getOrder, getUser, charge }, async (s) => {
 // result.error: 'ORDER_NOT_FOUND' | 'USER_NOT_FOUND' | 'CHARGE_DECLINED' | UnexpectedError
 ```
 
-**The happy path reads linearly**, and TypeScript infers every possible error from the functions you passed. No type parameters, no string IDs, no wrappers — it looks like the code you already write.
+**The happy path reads linearly**, and TypeScript infers every possible error from the functions you passed. No type parameters, no string IDs, no wrappers. It looks like the code you already write.
 
 Three things you get for free:
 
@@ -158,17 +158,17 @@ const result = await run<Payment, AllErrors>(async ({ step }) => {
 
 | Approach | Use when |
 | --- | --- |
-| `run(deps, fn)` | Default — errors inferred automatically, steps auto-bound |
+| `run(deps, fn)` | Default, errors inferred automatically, steps auto-bound |
 | `createWorkflow(deps)` | Production handlers: caching, resume, retries, events |
 | `run<T, Errors<[...]>>(fn)` | Dynamic deps with a derived error union |
 | `run<T, 'ERR_A' \| 'ERR_B'>(fn)` | You want to spell out the error union manually |
 | `run(fn)` (no type params) | You don't need typed errors (quick scripts, prototyping) |
 
-> **Watch the last row.** `run(fn)` with no deps and no type parameters types `result.error` as `UnexpectedError` alone — your step errors are still returned at runtime, but the compiler has nothing to infer them from, and the code looks identical to the form that infers everything. If you want typed errors, pass deps first (`run(deps, fn)`) or give the type parameters (`run<T, E>(fn)`).
+> **Watch the last row.** `run(fn)` with no deps and no type parameters types `result.error` as `UnexpectedError` alone. Your step errors are still returned at runtime, but the compiler has nothing to infer them from, and the code looks identical to the form that infers everything. If you want typed errors, pass deps first (`run(deps, fn)`) or give the type parameters (`run<T, E>(fn)`).
 
 ### Why thunks in the explicit form? `step('id', () => fn())` not `step('id', fn())`
 
-(The deps-first form has no thunks — `s.getUser(id)` is already the controlled call.) In the explicit form, `step()` requires a string ID as the first argument, and the operation must be wrapped in a function (thunk):
+(The deps-first form has no thunks; `s.getUser(id)` is already the controlled call.) In the explicit form, `step()` requires a string ID as the first argument, and the operation must be wrapped in a function (thunk):
 
 ```typescript
 step('getUser', () => getUser(id)); // ✅ Correct - step controls when it runs
@@ -181,7 +181,7 @@ Thunks enable:
 - **Retries**: step can re-call on failure
 - **Timeouts**: step can abort mid-execution
 
-### UnexpectedError — The Safety Net
+### UnexpectedError, The Safety Net
 
 If code throws instead of returning a Result, `run()` catches it:
 
@@ -230,7 +230,7 @@ The classic `step` and raw `deps` remain available in the same callback (`async 
 
 ### When to use which?
 
-Both share the same error inference and the same bound steps — the difference is machinery:
+Both share the same error inference and the same bound steps. The difference is machinery:
 
 | `run(deps, fn)`            | `createWorkflow(deps)`       |
 | -------------------------- | ---------------------------- |
@@ -255,7 +255,7 @@ flowchart TD
     end
 ```
 
-Each `step()` unwraps a `Result`. If it's `ok`, you get the value and continue. If it's an error, the workflow exits immediately — no manual `if (!result.ok)` checks needed. The happy path stays clean.
+Each `step()` unwraps a `Result`. If it's `ok`, you get the value and continue. If it's an error, the workflow exits immediately, no manual `if (!result.ok)` checks needed. The happy path stays clean.
 
 ---
 
@@ -263,11 +263,11 @@ Each `step()` unwraps a `Result`. If it's `ok`, you get the value and continue. 
 
 | Concept                                                 | What it does                                                                                   |
 | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| **Result**                                              | `ok(value)` or `err(error)` — typed success/failure, no exceptions                             |
+| **Result**                                              | `ok(value)` or `err(error)`, typed success/failure, no exceptions                             |
 | **Workflow**                                            | Wraps your dependencies and tracks their error types automatically                             |
-| **step()**                                              | `step('id', fn, opts?)` — unwraps a Result, short-circuits on failure, enables caching/retries |
+| **step()**                                              | `step('id', fn, opts?)`, unwraps a Result, short-circuits on failure, enables caching/retries |
 | **step.try / retry / sleep / withTimeout / fromResult** | Same: **id first** (e.g. `step.retry('id', fn, opts)`, `step.sleep('id', duration, opts?)`)    |
-| **Events**                                              | `onEvent` streams everything — timing, retries, failures — for visualization or logging        |
+| **OpenTelemetry + events**                              | Automatic run, step, retry, scope, saga, and compensation spans; `onEvent` remains available for custom metrics and logs |
 | **Resume**                                              | Save completed steps, pick up later (great for approvals or crashes)                           |
 | **UnexpectedError**                                     | Safety net for throws outside your declared errors; map it to HTTP 500 at the boundary         |
 
@@ -275,7 +275,7 @@ Each `step()` unwraps a `Result`. If it's `ok`, you get the value and continue. 
 
 ## Quickstart
 
-Now that you understand the concepts, here's the complete pattern:
+Now that you understand the concepts, the complete pattern looks like this:
 
 ```typescript
 import { err, ok, type AsyncResult, createWorkflow } from 'awaitly';
@@ -302,7 +302,7 @@ const result = await workflow.run(async ({ steps }) => {
 console.log(result.ok ? result.value : result.error);
 ```
 
-### What just happened?
+### What happened
 
 - `deps.loadTask` returns a Result (`ok` or `err`)
 - `createWorkflow(deps)` groups dependencies and infers all possible errors
@@ -470,7 +470,7 @@ Think of awaitly like this:
 
 ## Mapping errors at the boundary
 
-The final result maps to HTTP responses, job statuses, or CLI exit codes in **one exhaustive expression** — every exit point of the railway, named once:
+The final result maps to HTTP responses, job statuses, or CLI exit codes in **one exhaustive expression**: every exit point of the railway, named once:
 
 ```typescript
 import { match } from 'awaitly';
@@ -487,9 +487,9 @@ return match(result, {
 });
 ```
 
-TypeScript enforces the arms exhaustively from the inferred union — add a step that can fail a new way, and this `match` won't compile until the boundary handles it. One error model everywhere: string errors match themselves, tagged objects match on `type`, and awaitly's system errors (`TimeoutError`, `UnexpectedError`) are matched by the same key. The `{ ok, err }` two-arm form remains when you just want a catch-all.
+TypeScript enforces the arms exhaustively from the inferred union. Add a step that can fail a new way, and this `match` won't compile until the boundary handles it. One error model everywhere: string errors match themselves, tagged objects match on `type`, and awaitly's system errors (`TimeoutError`, `UnexpectedError`) are matched by the same key. The `{ ok, err }` two-arm form remains when you want a catch-all.
 
-`if`/`switch` on `result.error.type` works too — `match` is the same thing with exhaustiveness checking.
+`if`/`switch` on `result.error.type` works too, `match` is the same thing with exhaustiveness checking.
 
 **Why `UnexpectedError`?**
 
@@ -620,7 +620,7 @@ await workflow.run(async ({ step, deps }) => {
 
 **With a database adapter (Postgres, MongoDB, libSQL)**
 
-The adapter packages give you a ready-made store — pass it to `durable.run` and save/load/resume is handled for you:
+The adapter packages give you a ready-made store. Pass it to `durable.run` and save/load/resume is handled for you:
 
 ```typescript
 import { durable } from 'awaitly/durable';
@@ -648,7 +648,7 @@ const result = await durable.run(
 - Only steps with `key` options are saved (unkeyed steps execute fresh on resume)
 - Error results are preserved with metadata for proper replay
 - You can also pass an async function: `resumeState: async () => await loadFromDB()`
-- Works seamlessly with HITL approvals and crash recovery
+- Works with HITL approvals and crash recovery
 
 ### 🧑‍💻 Human-in-the-Loop
 
@@ -806,7 +806,7 @@ No `as const` on `'UNEXPECTED'`: the type parameter is `const`, so the literal s
 
 ## Declaring Extra Errors
 
-An error introduced by `step.try` — rather than by a dep — is declared with `errors`. Each entry joins the workflow's error union, so the step type-checks:
+An error introduced by `step.try`, rather than by a dep, is declared with `errors`. Each entry joins the workflow's error union, so the step type-checks:
 
 ```typescript
 const wf = createWorkflow('ingest', { fetchRow }, {
@@ -822,7 +822,7 @@ await wf.run(async ({ step, deps }) => {
 // result.error: 'ROW_NOT_FOUND' | 'PARSE_FAILED' | UnexpectedError
 ```
 
-The same list is what the analyzer validates against. `strict: true` is a **per-run** option — `workflow.run(fn, { strict: true })` — that turns a mismatch between declared and computed errors into an analyzer failure.
+The same list is what the analyzer validates against. `strict: true` is a **per-run** option, `workflow.run(fn, { strict: true })`. That turns a mismatch between declared and computed errors into an analyzer failure.
 
 ---
 
@@ -867,7 +867,7 @@ See [full API reference](https://jagreehal.github.io/awaitly/reference/api/) for
 
 ### run()
 
-The deps-first form is the default — errors inferred, no type parameters:
+The deps-first form is the default, errors inferred, no type parameters:
 
 ```typescript
 import { run } from 'awaitly';
@@ -889,7 +889,7 @@ const result = await run<Output, 'NOT_FOUND' | 'FETCH_ERROR'>(
 );
 ```
 
-For production handlers, use `createWorkflow()` — same inference and bound steps, plus caching and resume.
+For production handlers, use `createWorkflow()`: same inference and bound steps, plus caching and resume.
 
 ### Imports
 
@@ -918,6 +918,22 @@ Everything else is optional and documented in the [guides](https://jagreehal.git
 - **A workflow is stuck waiting for approval. Now what?** Use `isPendingApproval(error)` to detect the state, notify operators, then call `injectApproval(state, { stepKey, value })` to resume.
 - **Cache is not used between runs.** Supply a stable `{ key }` per step and provide a cache/resume adapter in `createWorkflow(deps, { cache })`.
 - **I only need a single run with dynamic dependencies.** Use `run()` instead of `createWorkflow()` and pass dependencies directly to the executor.
+
+## Agent Skills
+
+Teach Claude Code, Codex, Cursor and other agents the awaitly patterns:
+
+```bash
+npx skills add jagreehal/awaitly
+```
+
+| Skill | Use it for |
+| --- | --- |
+| `awaitly-patterns` | Writing workflows, migrating from try/catch, debugging `Result` types |
+| `awaitly-analyze` | Static analysis: complexity, path enumeration, diagram generation |
+| `awaitly-visualizer` | Event capture, renderers, collectors, time-travel, export URLs |
+
+Install one with `--skill <name>`, or list them with `--list`. See the [Agent Skills guide](https://jagreehal.github.io/awaitly/guides/claude-skill/).
 
 ## Next Steps
 

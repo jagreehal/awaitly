@@ -13,6 +13,8 @@ import {
   UnauthorizedError,
   NetworkError,
   CompensationError,
+  UnexpectedError,
+  isRetryableFailure,
   isTimeoutError,
   isRetryExhaustedError,
   isRateLimitError,
@@ -314,5 +316,23 @@ describe("Pattern Matching", () => {
     );
 
     expect(result).toBe("other:NetworkError");
+  });
+});
+
+describe("isRetryableFailure", () => {
+  it("retries string tags, tagged objects, and TimeoutError", () => {
+    expect(isRetryableFailure("NOT_FOUND")).toBe(true);
+    expect(isRetryableFailure({ type: "STEP_TIMEOUT", timeoutMs: 5 })).toBe(true);
+    expect(isRetryableFailure({ _tag: "TimeoutError" })).toBe(true);
+    expect(isRetryableFailure(new TimeoutError({ ms: 100 }))).toBe(true);
+  });
+
+  it("does not retry UnexpectedError, plain Error, or untagged values", () => {
+    expect(isRetryableFailure(new UnexpectedError({ cause: new Error("bug") }))).toBe(
+      false
+    );
+    expect(isRetryableFailure(new Error("boom"))).toBe(false);
+    expect(isRetryableFailure(null)).toBe(false);
+    expect(isRetryableFailure(12)).toBe(false);
   });
 });

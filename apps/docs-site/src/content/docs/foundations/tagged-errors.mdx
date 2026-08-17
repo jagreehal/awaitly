@@ -196,7 +196,7 @@ const fetchUser = async (id: string): AsyncResult<User, NotFoundError | Unauthor
 
 **WHAT**: Use `match` (from `awaitly`) or `TaggedError.match` to handle each error variant with exhaustive type checking.
 
-**WHY**: TypeScript ensures you handle every error type — forget one and you get a compile error. Both forms dispatch on `.type` (string literals match themselves; class names match `TaggedError` instances).
+**WHY**: TypeScript ensures you handle every error type, forget one and you get a compile error. Both forms dispatch on `.type` (string literals match themselves; class names match `TaggedError` instances).
 
 The root `match(result, { ok, NotFoundError, ... })` works on full Results. `TaggedError.match(error, { ... })` works on a single error value.
 
@@ -281,9 +281,13 @@ console.log(error.resource);                 // 'User'
 console.log(error.message);                  // 'NotFoundError'
 ```
 
+## JSON boundaries
+
+`JSON.stringify` calls `toJSON` on a tagged error and keeps its `type`, `message`, and enumerable props. The parsed value is plain data, so code on the receiving side should validate it and match on `type`. See [Errors Across the Wire](guides/errors-across-the-wire/) for server actions, RPC, and cache examples.
+
 ## Slug spine fields
 
-When you pass `slug` and `hint` to the `TaggedError` factory, instances carry three readonly fields populated automatically — `code`, `hint`, and `docsUrl` — alongside `type`, `message`, and the deprecated `_tag` alias. These fields participate in the [slug spine](reference/spine/) so the same canonical identifier appears on the runtime error, the lint rule that would catch a related mistake statically, the `awaitly-analyze --doctor` diagnostic, and the docs page.
+When you pass `slug` and `hint` to the `TaggedError` factory, instances carry three readonly fields populated automatically, `code`, `hint`, and `docsUrl`, alongside `type`, `message`, and the deprecated `_tag` alias. These fields participate in the [slug spine](reference/spine/) so the same canonical identifier appears on the runtime error, the lint rule that would catch a related mistake statically, the `awaitly-analyze --doctor` diagnostic, and the docs page.
 
 ```typescript
 class CheckoutFailed extends TaggedError('CheckoutFailed', {
@@ -299,9 +303,9 @@ e.hint;     // 'Compensation already ran. Surface to the user; do not retry.'
 e.docsUrl;  // 'https://jagreehal.github.io/awaitly/rules/#runtime-saga-compensation'
 ```
 
-`slug` and `hint` are optional. If you set `slug`, `hint` is **required** — the factory throws `TypeError` at class-definition time if `hint` is missing or empty.
+`slug` and `hint` are optional. If you set `slug`, `hint` is **required**: the factory throws `TypeError` at class-definition time if `hint` is missing or empty.
 
-The six awaitly-system errors (`TimeoutError`, `RetryExhaustedError`, `RateLimitError`, `CircuitBreakerOpenError`, `CompensationError`, `UnexpectedError`) all participate in the spine. User-domain conveniences (`ValidationError`, `NotFoundError`, `UnauthorizedError`, `NetworkError`) deliberately do not — they represent your domain failures, not awaitly internals.
+The six awaitly-system errors (`TimeoutError`, `RetryExhaustedError`, `RateLimitError`, `CircuitBreakerOpenError`, `CompensationError`, `UnexpectedError`) all participate in the spine. User-domain conveniences (`ValidationError`, `NotFoundError`, `UnauthorizedError`, `NetworkError`) deliberately do not. They represent your domain failures, not awaitly internals.
 
 ## Error chaining
 

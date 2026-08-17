@@ -4,16 +4,16 @@ description: Turn a run() into a named workflow you can test, retry, and diagram
 ---
 
 :::note
-This page assumes you've read [The Basics](getting-started/basics/) — Result types and `run(deps, fn)`.
+This page assumes you've read [The Basics](getting-started/basics/): Result types and `run(deps, fn)`.
 :::
 
 `createWorkflow()` is `run()` with a name attached. Same deps-first idea, same
-unwrapping, same inferred error union — but because the workflow has a name and a
+unwrapping, same inferred error union, but because the workflow has a name and a
 fixed set of deps, awaitly can also test it, retry it, persist it, and **draw it**.
 
 ## Define your operations
 
-Nothing new here — operations return `AsyncResult<T, E>`:
+Nothing new here, operations return `AsyncResult<T, E>`:
 
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
@@ -36,12 +36,12 @@ import { createWorkflow } from 'awaitly';
 const loadUserData = createWorkflow('loadUserData', { fetchUser, fetchPosts });
 ```
 
-The first argument is the **workflow name**. It is not decoration — it's the
+The first argument is the **workflow name**. It is not decoration. It's the
 identifier used in diagrams, traces, persisted state, and analyzer output.
 
 ## Run it
 
-The callback receives `{ steps }` — the same bound object `run()` gave you:
+The callback receives `{ steps }`, the same bound object `run()` gave you:
 
 ```typescript
 const result = await loadUserData.run(async ({ steps }) => {
@@ -71,7 +71,7 @@ if (result.ok) {
 `result.error` is `'NOT_FOUND' | 'FETCH_ERROR' | UnexpectedError`, inferred from the
 deps. See [What TypeScript gives you back](getting-started/types/).
 
-## What you just unlocked
+## What you unlocked
 
 Because the workflow is named, this now works:
 
@@ -88,7 +88,7 @@ flowchart TB
   fetchPosts -->|FETCH_ERROR| fail
 ```
 
-The diagram is generated from your source — no annotations, no separate spec file.
+The diagram is generated from your source. No annotations, no separate spec file.
 Add a step and the diagram changes; delete one and it disappears. Add
 `--assert-diagrammable` in CI and a workflow that drifts out of shape fails the build.
 

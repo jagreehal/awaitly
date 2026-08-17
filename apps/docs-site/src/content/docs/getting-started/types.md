@@ -4,7 +4,7 @@ description: Every return type awaitly produces, and the rules that produce it
 ---
 
 This is the page to read if you only read one. awaitly's value is not that it
-avoids `try/catch` — it's that **the compiler knows every way your code can fail**,
+avoids `try/catch`. It's that **the compiler knows every way your code can fail**,
 without you writing that list down. This page states exactly what you get and why.
 
 ## The two shapes
@@ -20,12 +20,12 @@ type AsyncResult<T, E = unknown> = Promise<Result<T, E>>;
 ```
 
 `Result` takes two type parameters, not three. `cause` is always present at
-runtime — it carries whatever was originally thrown — but its *type* is only
+runtime. It carries whatever was originally thrown, but its *type* is only
 tracked on `Err`, where `err(error, { cause })` infers it. Once a value is
 widened to a `Result`, which is what annotating a function's return type does,
 `cause` reads as `unknown` and you narrow it yourself.
 
-`AsyncResult<T, E>` is just `Promise<Result<T, E>>`. Use it as the return type of any
+`AsyncResult<T, E>` is `Promise<Result<T, E>>`. Use it as the return type of any
 async operation that can fail.
 
 `ok` is a discriminant, so a single `if` narrows both branches:
@@ -56,7 +56,7 @@ const result = await run({ getUser, getPosts, notify }, async (s) => { /* ... */
 ```
 
 Each dep contributes its own `E`. The union is their sum. Add a dep and it widens;
-remove one and it narrows — and every `switch` over `result.error` is re-checked.
+remove one and it narrows, and every `switch` over `result.error` is re-checked.
 
 This holds identically for `createWorkflow`:
 
@@ -84,7 +84,7 @@ await run({ getUser }, async (s) => {
 });
 ```
 
-The `'NOT_FOUND'` didn't vanish — it moved to the **outer** result type. That is the
+The `'NOT_FOUND'` didn't vanish. It moved to the **outer** result type. That is the
 trade the whole library makes: no error handling in the middle, all of it at the edge.
 
 ## Rule 3: `UnexpectedError` is always there (unless you remove it)
@@ -102,7 +102,7 @@ if (!result.ok && isUnexpectedError(result.error)) {
 ```
 
 To get a **closed** union with no `UnexpectedError`, map throws to your own type with
-`catchUnexpected`. Note this is *not* available on the deps-first `run(deps, fn)` form —
+`catchUnexpected`. Note this is *not* available on the deps-first `run(deps, fn)` form , 
 it lives on `createWorkflow` (at creation) and on `run.strict`:
 
 ```typescript
@@ -125,13 +125,13 @@ const result = await run.strict<User, 'NOT_FOUND' | Crash>(
 ```
 
 With `run.strict` you supply `E` yourself, and it must cover **both** your step errors
-and whatever `catchUnexpected` returns — it is the one place awaitly stops inferring
+and whatever `catchUnexpected` returns. It is the one place awaitly stops inferring
 the union for you. That is the cost of closing it.
 
 ## Rule 4: plain functions are legal deps
 
 A dep that doesn't return a Result still works. Its value passes through and it
-contributes **nothing** to the error union — only `UnexpectedError` if it throws:
+contributes **nothing** to the error union, only `UnexpectedError` if it throws:
 
 ```typescript
 const slugify = (s: string) => s.toLowerCase();          // no Result
@@ -149,8 +149,8 @@ convert them to return Results one at a time and watch the union fill in.
 
 ## Naming the union
 
-When you need the error type by name — for an HTTP mapper, a test helper, a shared
-handler — derive it rather than retyping it:
+When you need the error type by name, for an HTTP mapper, a test helper, a shared
+handler, derive it rather than retyping it:
 
 ```typescript
 import { type ErrorsOf, type ErrorOf } from 'awaitly';
@@ -188,7 +188,7 @@ function toResponse(error: AppError) {
 ```
 
 Add `notifySlack` to `deps` and this function stops compiling until you handle its
-error. That is the guarantee — not that errors are typed, but that **forgetting one
+error. That is the guarantee, not that errors are typed, but that **forgetting one
 is a build failure**.
 
 ## Cheat sheet
@@ -198,8 +198,8 @@ is a build failure**.
 | `AsyncResult<User, 'NOT_FOUND'>` | `Promise<{ok:true,value:User} \| {ok:false,error:'NOT_FOUND'}>` |
 | `run({ a, b }, fn)` | `Result<T, ErrorOf<a> \| ErrorOf<b> \| UnexpectedError>` |
 | `createWorkflow('n', { a, b })` then `.run(fn)` | same union as above |
-| `run.strict(fn, { catchUnexpected })` | `Result<T, E>` — closed, no `UnexpectedError` |
-| `s.getUser(id)` inside a callback | `Promise<User>` — unwrapped |
+| `run.strict(fn, { catchUnexpected })` | `Result<T, E>`, closed, no `UnexpectedError` |
+| `s.getUser(id)` inside a callback | `Promise<User>`, unwrapped |
 | a plain (non-Result) dep | value passes through, adds nothing to the union |
 | a dep that throws | `UnexpectedError`, original in `.cause` |
 

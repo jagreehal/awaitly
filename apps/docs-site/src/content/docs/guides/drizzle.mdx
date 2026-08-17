@@ -10,9 +10,9 @@ Turn Drizzle ORM database errors into typed Results for exhaustive error handlin
 
 ## Why Combine Them?
 
-- **Exhaustive error handling** — Handle `NOT_FOUND`, `UNIQUE_VIOLATION`, etc. explicitly
-- **No more try/catch spaghetti** — Database operations compose cleanly in workflows
-- **Type-safe from schema to handler** — Drizzle's type inference pairs perfectly with awaitly's Result types
+- **Exhaustive error handling**: Handle `NOT_FOUND`, `UNIQUE_VIOLATION`, etc. explicitly
+- **No more try/catch spaghetti**: Database operations compose cleanly in workflows
+- **Type-safe from schema to handler**: Drizzle's type inference pairs perfectly with awaitly's Result types
 
 ## Quick Start
 
@@ -640,11 +640,11 @@ export const findOneOrNotFound = async <T>(
 ## Tips
 
 <Aside type="tip" title="Best practices">
-1. **Use `.returning()`** — Get the created/updated record back in a single query
-2. **Check array length** — Drizzle returns empty arrays for no results, not null
-3. **Use `for('update')`** — Lock rows in transactions to prevent race conditions
-4. **Handle DB-specific errors** — PostgreSQL, MySQL, and SQLite have different error codes
-5. **Use relational queries** — `db.query.table.findFirst({ with: {...} })` for cleaner joins
+1. **Use `.returning()`**, Get the created/updated record back in a single query
+2. **Check array length**: Drizzle returns empty arrays for no results, not null
+3. **Use `for('update')`**, Lock rows in transactions to prevent race conditions
+4. **Handle DB-specific errors**: PostgreSQL, MySQL, and SQLite have different error codes
+5. **Use relational queries**: `db.query.table.findFirst({ with: {...} })` for cleaner joins
 </Aside>
 
 ## Next Steps

@@ -357,14 +357,14 @@ try {
 
 ### When iteration fails
 
-`reader.read()` returns a Result, but iterating a reader — `for await`, a
-transformer, or `collect()` — turns a read failure back into a throw. That throw
+`reader.read()` returns a Result, but iterating a reader, `for await`, a
+transformer, or `collect()`, turns a read failure back into a throw. That throw
 reaches the workflow boundary, where awaitly tells its own failures apart from
 yours:
 
 - **A stream error** (`STREAM_READ_ERROR`, `STREAM_STORE_ERROR`, ...) is
   infrastructure failing, so it arrives as a **typed error value** in
-  `result.error` — the same treatment `STEP_TIMEOUT` gets. It is never wrapped
+  `result.error`, the same treatment `STEP_TIMEOUT` gets. It is never wrapped
   in `UnexpectedError`.
 - **A throw from your own transform callback** is a bug, so it stays an
   `UnexpectedError` with the original throw on `.cause`.

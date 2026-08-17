@@ -3,7 +3,7 @@ title: Extending Awaitly
 description: Build custom utilities that return Result types
 ---
 
-Build your own utilities that integrate seamlessly with awaitly workflows. This guide walks through the pattern by building a `fetchJson` helper as a worked example.
+Build your own utilities that integrate with awaitly workflows. This guide walks through the pattern by building a `fetchJson` helper as a worked example.
 
 ---
 
@@ -327,7 +327,7 @@ describe('fetchJson', () => {
 });
 ```
 
-For more testing patterns, see the [Testing guide/testing/).
+For more testing patterns, see the [Testing guide](guides/testing/).
 
 ---
 
@@ -348,6 +348,6 @@ When building a custom utility:
 
 ## Next Steps
 
-- [Result Types/foundations/result-types/) - Deep dive into `Ok`, `Err`, and type narrowing
-- [Testing/guides/testing/) - Comprehensive testing patterns for workflows
-- [Retries & Timeouts/guides/retries-timeouts/) - Add resilience to your utilities
+- [Result Types](foundations/result-types/): `Ok`, `Err`, and type narrowing
+- [Testing](guides/testing/): testing patterns for workflows
+- [Retries & Timeouts](guides/retries-timeouts/): add resilience to your utilities

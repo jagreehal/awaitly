@@ -7,7 +7,7 @@ sidebar:
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
 
-ESLint rules for awaitly workflow patterns. Every rule is named with its **canonical slug** — the same identifier that appears on runtime errors (`error.code`), in the `awaitly-analyze` `--doctor` output, and as the URL slug for the rule's docs page (`jagreehal.github.io/awaitly/rules/#<slug>`). One token, four surfaces.
+ESLint rules for awaitly workflow patterns. Every rule is named with its **canonical slug**: the same identifier that appears on runtime errors (`error.code`), in the `awaitly-analyze` `--doctor` output, and as the URL slug for the rule's docs page (`jagreehal.github.io/awaitly/rules/#<slug>`). One token, four surfaces.
 
 ## Installation
 
@@ -60,7 +60,7 @@ export default [
 
 Twenty rules in six categories. The category prefix matches the canonical slug namespace.
 
-### `step-*` — step() discipline
+### `step-*`, step() discipline
 
 #### `awaitly/step-no-immediate-execution`
 
@@ -154,7 +154,7 @@ const charge = await step.try('charge', () => deps.charge(amount), {
 });
 ```
 
-### `workflow-*` — workflow shape
+### `workflow-*`, workflow shape
 
 #### `awaitly/workflow-no-floating`
 
@@ -222,7 +222,7 @@ workflow.run(async ({ step }) => { /* */ });
 
 Disallows dynamic `import()` and `require()` so static analysis can trace dependencies.
 
-### `result-*` — Result handling
+### `result-*`, Result handling
 
 #### `awaitly/result-no-floating`
 
@@ -278,7 +278,7 @@ run(async ({ step }) => {
 
 **Severity**: error
 
-Disallows `return ok(...)` / `return err(...)` **inside a workflow callback**. The rule scope-guards on workflow callbacks — deps functions and step thunks are unaffected.
+Disallows `return ok(...)` / `return err(...)` **inside a workflow callback**. The rule scope-guards on workflow callbacks, deps functions and step thunks are unaffected.
 
 ```typescript
 // Bad — manual propagation in workflow callback
@@ -298,7 +298,7 @@ async function fetchUser(): AsyncResult<User, 'NOT_FOUND'> {
 
 Disallows `ok()` / `err()` calls **inside a workflow callback**. Same scope guard as `result-no-manual-propagation`. Step thunks and deps functions can still call `ok`/`err`.
 
-### `concurrency-*` — concurrency primitives
+### `concurrency-*`, concurrency primitives
 
 #### `awaitly/concurrency-no-promise-all`
 
@@ -318,11 +318,11 @@ Replace `Promise.race` with `step.race()`.
 
 Replace `Promise.allSettled` with `step.map()` (which collects per-item Results without fail-fast).
 
-### `error-*` — boundary handling
+### `error-*`, boundary handling
 
 #### `awaitly/error-check-unexpected-first`
 
-**Severity**: warn (opt-in — not in `recommended`)
+**Severity**: warn (opt-in, not in `recommended`)
 
 When matching on `result.error.type`, check `isUnexpectedError(result.error)` first to separate library bugs from typed business errors.
 
@@ -413,10 +413,10 @@ The #1 mistake with awaitly is forgetting the thunk:
 const user = await step('fetchUser', deps.fetchUser('1'), { key: 'user:1' });
 ```
 
-`deps.fetchUser('1')` runs **immediately** — `step()` receives the in-flight Promise, not a function it can call. That defeats:
+`deps.fetchUser('1')` runs **immediately**: `step()` receives the in-flight Promise, not a function it can call. That defeats:
 
-- **Caching** — step can't check the cache before calling
-- **Retries** — step can't re-call on failure
-- **Resume** — step can't skip already-completed work
+- **Caching**: step can't check the cache before calling
+- **Retries**: step can't re-call on failure
+- **Resume**: step can't skip already-completed work
 
-The slug-named rules (`step-no-immediate-execution`, `step-require-thunk-for-key`, ...) catch this and the other small-but-important mistakes statically — and the slug names match the runtime error codes, so a developer or AI agent can grep one token to find both the lint rule and the runtime error guidance.
+The slug-named rules (`step-no-immediate-execution`, `step-require-thunk-for-key`, ...) catch this and the other small-but-important mistakes statically, and the slug names match the runtime error codes, so a developer or AI agent can grep one token to find both the lint rule and the runtime error guidance.

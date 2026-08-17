@@ -17,6 +17,7 @@ export {
   NetworkError,
   CompensationError,
   UnexpectedError,
+  isRetryableFailure,
   // Union types
   type AwaitlyError,
   type AwaitlySystemError,

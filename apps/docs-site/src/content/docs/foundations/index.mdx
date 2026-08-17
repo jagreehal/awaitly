@@ -108,7 +108,7 @@ flowchart LR
 | `ok(value)` | Create a success Result |
 | `err(error)` | Create a failure Result |
 | `run(deps, fn)` | Compose operations once; error union inferred from deps |
-| `steps.getUser(id)` | Call a dep as a step — no options, id from the dep name |
+| `steps.getUser(id)` | Call a dep as a step, no options, id from the dep name |
 | `step('id', fn, opts)` | Same, but with retry / timeout / cache options |
 | `createWorkflow('workflow', deps)` | Create reusable workflow with error inference (deps optional: `createWorkflow('name')` for no deps) |
 | `allAsync([...])` | Run operations in parallel (fail-fast) |

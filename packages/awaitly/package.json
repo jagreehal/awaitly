@@ -41,7 +41,7 @@
     "test:watch": "vitest watch",
     "lint": "eslint .",
     "clean": "rm -rf dist",
-    "tsd": "tsd --files src/index.test-d.ts --files src/workflow/standard-schema.test-d.ts",
+    "tsd": "tsd --files \"src/**/*.test-d.ts\"",
     "quality": "pnpm type-check && pnpm test && pnpm build && pnpm tsd && pnpm lint && pnpm smoke",
     "smoke": "node scripts/consumer-smoke.mjs"
   },
@@ -81,6 +81,9 @@
   },
   "license": "MIT",
   "devDependencies": {
+    "@opentelemetry/context-async-hooks": "2.10.0",
+    "@opentelemetry/core": "2.10.0",
+    "@opentelemetry/sdk-trace-base": "2.10.0",
     "@standard-schema/spec": "1.1.0",
     "@total-typescript/ts-reset": "0.6.1",
     "@total-typescript/tsconfig": "1.0.4",
@@ -105,5 +108,8 @@
       "noUnusedLocals": false,
       "noUnusedParameters": false
     }
+  },
+  "dependencies": {
+    "@opentelemetry/api": "1.9.1"
   }
 }

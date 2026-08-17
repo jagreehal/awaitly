@@ -34,7 +34,8 @@ import { createWebhookHandler } from 'awaitly/durable';
 import { createEngine } from 'awaitly/durable';
 
 // Test utilities
-import { createWorkflowHarness } from 'awaitly/testing';
+import { createWorkflowHarness, createTestClock } from 'awaitly/testing';
+import { systemClock, type Clock, isRetryableFailure } from 'awaitly';
 ```
 
 ## Results
@@ -44,7 +45,7 @@ import { createWorkflowHarness } from 'awaitly/testing';
 ### err
 
 ```typescript
-err(error: E, options?: unknown): Err<E, C>
+err(error: E, options?: { cause?: C }): Err<E, C>
 ```
 
 ### ok
@@ -59,7 +60,7 @@ ok(): Ok<void>
 
 Checks if a Result is a failure.
 
-When to use: Prefer functional-style checks or array filtering.
+When to use: Prefer functional-style checks or array filtering over `result.ok`.
 
 ```typescript
 isErr(r: Result<T, E>): (value: Err<E, unknown>) => boolean
@@ -69,10 +70,20 @@ isErr(r: Result<T, E>): (value: Err<E, unknown>) => boolean
 
 Checks if a Result is successful.
 
-When to use: Prefer functional-style checks or array filtering.
+When to use: Prefer functional-style checks or array filtering over `result.ok`.
 
 ```typescript
 isOk(r: Result<T, E>): (value: Ok<T>) => boolean
+```
+
+### isRetryableFailure
+
+awaitly/errors entry point
+
+Pre-built error types for common failure scenarios.
+
+```typescript
+isRetryableFailure(failure: unknown): boolean
 ```
 
 ### isUnexpectedError
@@ -142,13 +153,13 @@ fromNullable(value: T | unknown | undefined, onNull: () => E): Result<T, E>
 ### fromPromise
 
 ```typescript
-fromPromise(promise: Promise<T>): Promise<Err<unknown, unknown> | Ok<T>>
+fromPromise(promise: PromiseLike<T>): Promise<Err<unknown, unknown> | Ok<T>>
 ```
 
 ### tryAsync
 
 ```typescript
-tryAsync(fn: () => Promise<T>): AsyncResult<T, unknown>
+tryAsync(fn: () => PromiseLike<T>): AsyncResult<T, unknown>
 ```
 
 ## Transform
@@ -192,7 +203,7 @@ TypeScript will error if any variant in the error union is not handled.
 When to use: You want compile-time enforcement that every tagged variant is handled.
 
 ```typescript
-match(handlers: unknown): (r: Result<T, E>) => R
+match(handlers: { err: (error: E, cause?: unknown) => R; ok: (value: T) => R }): (r: Result<T, E>) => R
 ```
 
 ### orElse
@@ -230,10 +241,10 @@ tapError(r: Result<T, E>, fn: (error: E, cause?: unknown) => void): Result<T, E>
 ### fallback
 
 Recover from a dependency's failure. The handler receives the failure
-(the typed Result error, or  wrapping a throw) plus the
+(the typed Result error, or `UnexpectedError` wrapping a throw) plus the
 original arguments, and its result becomes the outcome. The base
 function's errors are consumed; only the handler's errors remain in the
-union —  has no typed errors at all.
+union — `fallback(fn, () => defaultValue)` has no typed errors at all.
 
 ```typescript
 fallback(fn: F, onFailure: FB): (args: Parameters<F>) => AsyncResult<DepValueOfReturn<ReturnType<F>> | DepValueOfReturn<ReturnType<FB>>, ErrorOf<FB>>
@@ -244,6 +255,9 @@ fallback(fn: F, onFailure: FB): (args: Parameters<F>) => AsyncResult<DepValueOfR
 Retry a dependency. The error union is unchanged: if all attempts fail,
 the last failure propagates exactly as it would have without the policy
 (typed err for Result functions, throw for plain functions).
+By default, returned Result errors retry unless they are UnexpectedError.
+Tagged throws retry; untagged throws stop after the first attempt. Pass a
+clock at wrap time when tests need to control retry delays.
 
 ```typescript
 retry(fn: F, options: RetryPolicyOptions): PolicyFn<F, ErrorOf<F>>
@@ -251,13 +265,13 @@ retry(fn: F, options: RetryPolicyOptions): PolicyFn<F, ErrorOf<F>>
 
 ### timeout
 
-Bound a dependency's execution time. On timeout, resolves to
- — adding  to the error union. The
-underlying operation is not cancelled (no AbortSignal is threaded);
-its eventual result is discarded.
+Bound a dependency's execution time. A timeout returns `err(TimeoutError)`
+and adds `TimeoutError` to the error union. The wrapper does not cancel the
+operation because it does not pass an AbortSignal. It discards any result
+that arrives after the timeout.
 
 ```typescript
-timeout(fn: F, after: PolicyDelay): PolicyFn<F, TimeoutError | ErrorOf<F>>
+timeout(fn: F, after: PolicyDelay, options?: { clock?: Clock }): PolicyFn<F, TimeoutError | ErrorOf<F>>
 ```
 
 ## Options reference
@@ -278,6 +292,7 @@ Single place for all workflow and step option keys (for docs and static analysis
 | `resumeState` | `ResumeState?` | Resume from saved state |
 | `deps` | `Partial<Deps>?` | Per-run override of creation-time deps (RunConfig only) |
 | `signal` | `AbortSignal?` | Workflow cancellation |
+| `clock` | `Clock?` | Time source for retry delays, `step.sleep`, and `step.withTimeout`. Per-run overrides creation-time. Pass `createTestClock()` in tests. |
 | `streamStore` | `StreamStore?` | Streaming backend |
 | `snapshot` | `WorkflowSnapshot?` | Restore from saved snapshot (RunConfig or creation) |
 | `onUnknownSteps` | `'warn' | 'error' | 'ignore'?` | When snapshot has steps not in this run |
@@ -305,3 +320,18 @@ Single place for all workflow and step option keys (for docs and static analysis
 | `compensate` | `(value: T) => void \| Promise<void>` | Rollback action; receives the value the step returned |
 
 When at least one compensation throws, the workflow result is a `SagaCompensationError` carrying the original error and per-step compensation failures.
+
+## Clock
+
+Injectable time for retry delays, `step.sleep`, `step.withTimeout`, and circuit-breaker windows. Production uses `systemClock`. Tests pass `createTestClock()` from `awaitly/testing` as `clock` on `run`, `createWorkflow` / `workflow.run`, `retry`, `timeout`, and `createCircuitBreaker`.
+
+```typescript
+interface Clock {
+  now(): number
+  sleep(ms: number, signal?: AbortSignal): Promise<void>
+}
+
+systemClock: Clock
+```
+
+`sleep` resolves on abort (it does not reject). Policy wrappers need `clock` at wrap time.

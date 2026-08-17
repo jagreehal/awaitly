@@ -1,0 +1,25 @@
+---
+// Lifted out of the hero. It was a trust micro-strip competing with the
+// headline and the install panel for the same glance; below the fold it can
+// do its actual job, which is to say what you get without reading further.
+const groups = [
+  { label: 'Bundled', value: 'Result · Workflow · step()' },
+  { label: 'Built in', value: 'Retries · Timeouts · Resume · Idempotency' },
+  { label: 'Inferred', value: 'Error unions from your deps' },
+];
+---
+
+<section class="landing-section caps" aria-label="What ships in the box">
+  <div class="landing-inner">
+    <dl class="caps__grid panels">
+      {
+        groups.map((g) => (
+          <div class="caps__item">
+            <dt class="caps__label">{g.label}</dt>
+            <dd class="caps__value">{g.value}</dd>
+          </div>
+        ))
+      }
+    </dl>
+  </div>
+</section>

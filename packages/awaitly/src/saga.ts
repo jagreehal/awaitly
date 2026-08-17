@@ -50,6 +50,12 @@ import {
   type CompensationAction as CoreCompensationAction,
 } from "./core";
 import { isDepResultShaped } from "./core/bound-steps";
+import {
+  resolveTelemetry,
+  withCompensationSpan,
+  withSagaSpan,
+  withSagaStepSpan,
+} from "./core/opentelemetry";
 import { createWorkflow } from "./workflow/execute";
 import type {
   Workflow,
@@ -228,12 +234,14 @@ export async function runSaga<T, E>(
     onError?: (error: E | UnexpectedError | SagaCompensationError) => void;
     onEvent?: (event: SagaEvent) => void;
     throwOnCompensationFailure?: boolean;
+    telemetry?: boolean;
   }
 ): Promise<SagaResult<T, E>> {
   const sagaId = crypto.randomUUID();
   const startTime = performance.now();
   const compensations: RecordedCompensation[] = [];
   const emit = (e: SagaEvent) => options?.onEvent?.(e);
+  const telemetry = resolveTelemetry(options?.telemetry);
 
   emit({ type: "saga_start", sagaId, ts: Date.now() });
 
@@ -247,21 +255,27 @@ export async function runSaga<T, E>(
         "step(name, operation, options?): first argument must be a string."
       );
     }
-    const result = await operation();
-    if (result.ok) {
-      if (stepOptions?.compensate) {
-        compensations.push({
-          name,
-          value: result.value,
-          compensate: stepOptions.compensate as CompensationAction<unknown>,
-        });
+    const executeStep = async (): Promise<V> => {
+      const result = await operation();
+      if (result.ok) {
+        if (stepOptions?.compensate) {
+          compensations.push({
+            name,
+            value: result.value,
+            compensate: stepOptions.compensate as CompensationAction<unknown>,
+          });
+        }
+        return result.value;
       }
-      return result.value;
-    }
-    throw createEarlyExit(result.error as unknown as E, {
-      origin: "result",
-      resultCause: result.cause,
-    });
+      throw createEarlyExit(result.error as unknown as E, {
+        origin: "result",
+        resultCause: result.cause,
+      });
+    };
+    return withSagaStepSpan(
+      { enabled: telemetry, sagaId, stepName: name },
+      executeStep
+    );
   };
 
   const stepTry = async <V, Err extends E>(
@@ -276,113 +290,126 @@ export async function runSaga<T, E>(
         "step.try(name, operation, options): first argument must be a string."
       );
     }
-    const mapToError = "error" in opts ? () => opts.error : opts.onError;
-    try {
-      const value = await operation();
-      if (opts.compensate) {
-        compensations.push({
-          name,
-          value,
-          compensate: opts.compensate as CompensationAction<unknown>,
-        });
+    const executeStep = async (): Promise<V> => {
+      const mapToError = "error" in opts ? () => opts.error : opts.onError;
+      try {
+        const value = await operation();
+        if (opts.compensate) {
+          compensations.push({
+            name,
+            value,
+            compensate: opts.compensate as CompensationAction<unknown>,
+          });
+        }
+        return value;
+      } catch (thrown) {
+        const mapped = mapToError(thrown);
+        throw createEarlyExit(mapped as unknown as E, { origin: "throw", thrown });
       }
-      return value;
-    } catch (thrown) {
-      const mapped = mapToError(thrown);
-      throw createEarlyExit(mapped as unknown as E, { origin: "throw", thrown });
-    }
+    };
+    return withSagaStepSpan(
+      { enabled: telemetry, sagaId, stepName: name },
+      executeStep
+    );
   };
 
   const step: SagaStep<E> = Object.assign(stepFn, { try: stepTry });
 
-  try {
-    const value = await fn({ step });
-    emit({
-      type: "saga_success",
-      sagaId,
-      ts: Date.now(),
-      durationMs: performance.now() - startTime,
-    });
-    return ok(value);
-  } catch (thrown) {
-    const durationMs = performance.now() - startTime;
-    const originalError = isEarlyExit(thrown)
-      ? (thrown as EarlyExit<E>).error
-      : thrown;
+  const execute = async (): Promise<SagaResult<T, E>> => {
+    try {
+      const value = await fn({ step });
+      emit({
+        type: "saga_success",
+        sagaId,
+        ts: Date.now(),
+        durationMs: performance.now() - startTime,
+      });
+      return ok(value);
+    } catch (thrown) {
+      const durationMs = performance.now() - startTime;
+      const originalError = isEarlyExit(thrown)
+        ? (thrown as EarlyExit<E>).error
+        : thrown;
 
-    emit({ type: "saga_error", sagaId, ts: Date.now(), durationMs, error: originalError });
+      emit({ type: "saga_error", sagaId, ts: Date.now(), durationMs, error: originalError });
 
-    emit({
-      type: "saga_compensation_start",
-      sagaId,
-      ts: Date.now(),
-      stepCount: compensations.length,
-    });
-    const compensationStart = performance.now();
-    const compensationErrors: Array<{ stepName?: string; error: unknown }> = [];
-    for (let i = compensations.length - 1; i >= 0; i--) {
-      const comp = compensations[i];
-      try {
-        const outcome = await comp.compensate(comp.value);
-        // A compensation that returns err() failed just as surely as one that
-        // threw. Without this the rollback is reported clean and the money stays
-        // gone. Non-Result returns are ignored, so void compensations are unchanged.
-        if (isDepResultShaped(outcome) && !outcome.ok) {
-          compensationErrors.push({ stepName: comp.name, error: outcome.error });
+      emit({
+        type: "saga_compensation_start",
+        sagaId,
+        ts: Date.now(),
+        stepCount: compensations.length,
+      });
+      const compensationStart = performance.now();
+      const compensationErrors: Array<{ stepName?: string; error: unknown }> = [];
+      for (let i = compensations.length - 1; i >= 0; i--) {
+        const comp = compensations[i];
+        try {
+          const outcome = await withCompensationSpan(
+            { enabled: telemetry, sagaId, stepName: comp.name },
+            async () => comp.compensate(comp.value)
+          );
+          // A compensation that returns err() failed just as surely as one that
+          // threw. Without this the rollback is reported clean and the money stays
+          // gone. Non-Result returns are ignored, so void compensations are unchanged.
+          if (isDepResultShaped(outcome) && !outcome.ok) {
+            compensationErrors.push({ stepName: comp.name, error: outcome.error });
+            emit({
+              type: "saga_compensation_step",
+              sagaId,
+              stepName: comp.name,
+              ts: Date.now(),
+              success: false,
+              error: outcome.error,
+            });
+            continue;
+          }
+          emit({
+            type: "saga_compensation_step",
+            sagaId,
+            stepName: comp.name,
+            ts: Date.now(),
+            success: true,
+          });
+        } catch (error) {
+          compensationErrors.push({ stepName: comp.name, error });
           emit({
             type: "saga_compensation_step",
             sagaId,
             stepName: comp.name,
             ts: Date.now(),
             success: false,
-            error: outcome.error,
+            error,
           });
-          continue;
         }
-        emit({
-          type: "saga_compensation_step",
-          sagaId,
-          stepName: comp.name,
-          ts: Date.now(),
-          success: true,
-        });
-      } catch (error) {
-        compensationErrors.push({ stepName: comp.name, error });
-        emit({
-          type: "saga_compensation_step",
-          sagaId,
-          stepName: comp.name,
-          ts: Date.now(),
-          success: false,
-          error,
-        });
       }
-    }
-    emit({
-      type: "saga_compensation_end",
-      sagaId,
-      ts: Date.now(),
-      durationMs: performance.now() - compensationStart,
-      success: compensationErrors.length === 0,
-      failedCount: compensationErrors.length,
-    });
+      emit({
+        type: "saga_compensation_end",
+        sagaId,
+        ts: Date.now(),
+        durationMs: performance.now() - compensationStart,
+        success: compensationErrors.length === 0,
+        failedCount: compensationErrors.length,
+      });
 
-    if (compensationErrors.length > 0) {
-      const sagaError: SagaCompensationError = {
-        type: "SAGA_COMPENSATION_ERROR",
-        originalError,
-        compensationErrors,
-      };
-      options?.onError?.(sagaError);
-      if (options?.throwOnCompensationFailure) throw sagaError;
-      return err(sagaError);
-    }
+      if (compensationErrors.length > 0) {
+        const sagaError: SagaCompensationError = {
+          type: "SAGA_COMPENSATION_ERROR",
+          originalError,
+          compensationErrors,
+        };
+        options?.onError?.(sagaError);
+        if (options?.throwOnCompensationFailure) throw sagaError;
+        return err(sagaError);
+      }
 
-    options?.onError?.(originalError as E);
+      options?.onError?.(originalError as E);
 
-    if (!isEarlyExit(thrown)) {
-      return err(new UnexpectedError({ cause: thrown }));
+      if (!isEarlyExit(thrown)) {
+        return err(new UnexpectedError({ cause: thrown }));
+      }
+      return err(originalError as E);
     }
-    return err(originalError as E);
-  }
+  };
+
+  return withSagaSpan({ enabled: telemetry, sagaId }, execute);
 }

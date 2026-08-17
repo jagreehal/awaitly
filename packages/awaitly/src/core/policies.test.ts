@@ -60,14 +60,41 @@ describe("retry", () => {
     expect(calls()).toBe(2);
   });
 
-  it("retries throwing plain functions and rethrows the last failure", async () => {
+  it("retries untagged errors returned through Result", async () => {
+    let calls = 0;
+    const fn = async (): AsyncResult<number, Error> => {
+      calls++;
+      return calls === 1 ? err(new Error("temporary")) : ok(42);
+    };
+
+    await expect(retry(fn, { attempts: 2 })()).resolves.toEqual({
+      ok: true,
+      value: 42,
+    });
+    expect(calls).toBe(2);
+  });
+
+  it("does not retry throwing plain functions by default", async () => {
     let calls = 0;
     const throwing = async () => {
       calls++;
       throw new Error(`boom-${calls}`);
     };
 
-    await expect(retry(throwing, { attempts: 3 })()).rejects.toThrow("boom-3");
+    await expect(retry(throwing, { attempts: 3 })()).rejects.toThrow("boom-1");
+    expect(calls).toBe(1);
+  });
+
+  it("retries throws when retryIf returns true", async () => {
+    let calls = 0;
+    const throwing = async () => {
+      calls++;
+      throw new Error(`boom-${calls}`);
+    };
+
+    await expect(
+      retry(throwing, { attempts: 3, retryIf: () => true })()
+    ).rejects.toThrow("boom-3");
     expect(calls).toBe(3);
   });
 

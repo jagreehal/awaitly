@@ -3,7 +3,7 @@ title: Saga / Compensation
 description: Define compensating actions for rollback on failures
 ---
 
-Define compensating actions for steps that need rollback on downstream failures. When a step fails, compensations run in reverse order — automatically.
+Define compensating actions for steps that need rollback on downstream failures. When a step fails, compensations run in reverse order automatically.
 
 ## The whole API
 
@@ -197,7 +197,7 @@ if (!result.ok) {
 
 ## When compensation fails
 
-Compensations can fail for many reasons: network issues, service unavailable, business rules, etc. Here's how to handle them properly.
+Compensations can fail for many reasons: network issues, service unavailable, business rules, and so on.
 
 ### Understanding compensation errors
 
@@ -622,7 +622,7 @@ async function autoEscalate(): Promise<void> {
 ## Best practices
 
 1. **Compensations should be idempotent** - They may run multiple times on retries
-2. **Not everything needs compensation** - Read operations and truly idempotent writes don't
+2. **Not everything needs compensation** - Read operations and idempotent writes don't
 3. **Plan for compensation failures** - Have alerting and manual recovery procedures
 4. **Keep compensations simple** - Complex compensation logic is a code smell
 5. **Test the failure paths** - Saga value comes from handling failures correctly

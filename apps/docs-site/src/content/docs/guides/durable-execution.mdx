@@ -60,7 +60,7 @@ flowchart TD
 - **Use durable** when you want **automatic checkpointing after every keyed step** (crash recovery with minimal wiring).
 - **Use manual persistence** when you want **custom checkpoint timing** (save only at specific milestones, partial checkpoints, custom schemas).
 
-See also: [Where options go/persistence/#where-options-go-creation-vs-per-run) (creation vs per-run).
+See also: [Where options go](guides/persistence/#where-options-go-creation-vs-per-run) (creation vs per-run).
 
 ## Quick Start
 
@@ -189,7 +189,7 @@ const store: SnapshotStore = {
 
 ## Declaring Extra Errors
 
-A durable run infers its error union from its deps, the same as `createWorkflow`. An error introduced by `step.try` — or a system error you want in the static union — is declared with `errors`:
+A durable run infers its error union from its deps, the same as `createWorkflow`. An error introduced by `step.try`, or a system error you want in the static union, is declared with `errors`:
 
 ```typescript
 const result = await durable.run(
@@ -205,7 +205,7 @@ const result = await durable.run(
 );
 ```
 
-No `as const` — the option is a `const` type parameter. Omitting `errors` leaves the union exactly as the deps infer it.
+No `as const`, the option is a `const` type parameter. Omitting `errors` leaves the union exactly as the deps infer it.
 
 This is also how a stream failure gets into the static union. `STREAM_READ_ERROR` already arrives as a typed value rather than an `UnexpectedError`, but declaring it lets a boundary `switch` stay exhaustive:
 
@@ -231,7 +231,7 @@ If you only change non-durable logic (e.g. logging, non-keyed steps, or code aft
 
 ### Reordering and renaming are caught for you
 
-Changing step names, keys, or order used to require remembering to bump `version` —
+Changing step names, keys, or order used to require remembering to bump `version` , 
 forget, and a resumed run could read one step's checkpoint into a different step.
 That is no longer a matter of discipline.
 
@@ -247,12 +247,12 @@ Resuming would read the wrong checkpoint.
 ```
 
 The check runs in the `onBeforeStep` hook, which fires ahead of the cache and snapshot
-lookup — so the mismatched value is never read, the run fails cleanly, and the original
+lookup, so the mismatched value is never read, the run fails cleanly, and the original
 checkpoint is left untouched for you to migrate or clear.
 
 This matters most for repeated calls to the same dependency. Their step keys are
 position-derived (`getUser`, `getUser#2`, …), so the key alone cannot tell
-`getUser("a")` from `getUser("b")` — swapping two such calls leaves the key sequence
+`getUser("a")` from `getUser("b")`, swapping two such calls leaves the key sequence
 completely unchanged while the checkpoints now belong to different arguments.
 
 To catch that, the snapshot also records a fingerprint of each bound step's arguments
@@ -270,7 +270,7 @@ await steps.getUser("a");   // getUser#2
 
 Arguments that cannot be fingerprinted (circular structures, values JSON drops) record
 no fingerprint, and a missing fingerprint is treated as *no information* rather than a
-match — so the check never produces a false rejection, but it also cannot detect this
+match, so the check never produces a false rejection, but it also cannot detect this
 particular edit for those steps. Bump `version` if you reorder calls whose arguments
 aren't serializable.
 
@@ -438,7 +438,7 @@ await durable.clearState(store);
 
 ## Crash recovery and queue worker pattern
 
-A workflow instance has an `id` and persists progress (keyed steps / resume state) in the store. If the process crashes or you deploy a new version, in-process state is gone—but the store still has unfinished instances. On restart, query the store for unfinished instances (e.g. `durable.listPending(store)` or your own DB query), then for each id call `durable.run(..., { id, store })`. Awaitly loads state by id and continues from the next keyed step; completed steps are skipped using cached results.
+A workflow instance has an `id` and persists progress (keyed steps / resume state) in the store. If the process crashes or you deploy a new version, in-process state is gone, but the store still has unfinished instances. On restart, query the store for unfinished instances (e.g. `durable.listPending(store)` or your own DB query), then for each id call `durable.run(..., { id, store })`. Awaitly loads state by id and continues from the next keyed step; completed steps are skipped using cached results.
 
 **Key enabling pieces:**
 
@@ -462,16 +462,16 @@ for (const id of pendingIds) {
 **What you add (optional):**
 
 - **Discover**: list non-complete ids via `durable.listPending(store)` or a custom query with metadata (e.g. status, updatedAt).
-- **Claim/lock**: so multiple workers don't run the same id (e.g. Postgres `SELECT ... FOR UPDATE SKIP LOCKED`, or a Mongo/Redis claim pattern)—this is adapter/application logic, not in core Awaitly.
+- **Claim/lock**: so multiple workers don't run the same id (e.g. Postgres `SELECT ... FOR UPDATE SKIP LOCKED`, or a Mongo/Redis claim pattern). This is adapter/application logic, not in core Awaitly.
 - **Trigger**: pull (sweep pending) vs push (enqueue id, then worker runs). `durable.run` is the execution primitive either way.
 
-**Listing pending work:** Do not load the world into memory. `durable.listPending(store, options)` takes `{ prefix?, limit? }` and returns `Array<{ id, updatedAt }>` — it delegates straight to `store.list(options)`. Example: `const pending = await durable.listPending(store, { limit: 50 });`.
+**Listing pending work:** Do not load the world into memory. `durable.listPending(store, options)` takes `{ prefix?, limit? }` and returns `Array<{ id, updatedAt }>`. It delegates straight to `store.list(options)`. Example: `const pending = await durable.listPending(store, { limit: 50 });`.
 
-There is no offset/cursor pagination or ordering in the core API. To page or order beyond `prefix` + `limit`, query your store directly — the adapters expose their underlying client, so use `ORDER BY updated_at ... LIMIT ... OFFSET ...` (Postgres/LibSQL) or a `sort`/`skip` cursor (Mongo) and feed the resulting ids to `durable.run`.
+There is no offset/cursor pagination or ordering in the core API. To page or order beyond `prefix` + `limit`, query your store directly, the adapters expose their underlying client, so use `ORDER BY updated_at ... LIMIT ... OFFSET ...` (Postgres/LibSQL) or a `sort`/`skip` cursor (Mongo) and feed the resulting ids to `durable.run`.
 
 **Bulk delete:** Use `durable.deleteStates(store, ids, { concurrency?, continueOnError? })` for admin/cleanup. It loops over `store.delete(id)` in batches bounded by `concurrency` (default 10). Returns `{ deleted }`, or `{ deleted, errors }` when `continueOnError` is true and any delete failed.
 
-**Delete semantics (ack/reset):** Deleting state is effectively an ack or reset—the workflow can no longer resume from that state. If you delete while a workflow is running, the in-flight run continues; when it finishes it may try to delete again (no-op) or save (recreating state). For multi-worker safety, prefer deleting only when the workflow is not running, or when you hold the lock (e.g. after a successful run or after claiming the id). Core does not require the lock for delete; adapters that support locking do not enforce "delete only with lock"—so document and enforce in your worker logic if needed.
+**Delete semantics (ack/reset):** Deleting state is effectively an ack or reset. The workflow can no longer resume from that state. If you delete while a workflow is running, the in-flight run continues; when it finishes it may try to delete again (no-op) or save (recreating state). For multi-worker safety, prefer deleting only when the workflow is not running, or when you hold the lock (e.g. after a successful run or after claiming the id). Core does not require the lock for delete; adapters that support locking do not enforce "delete only with lock", so document and enforce in your worker logic if needed.
 
 See also: [Persistence](guides/persistence) and the store adapters above (Postgres, Mongo).
 

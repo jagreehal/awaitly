@@ -192,7 +192,7 @@ const result = mapError(doubled, (e) => e.toUpperCase());
 // { ok: true, value: 10 }
 ```
 
-For anything longer — especially async — the answer is not a pipeline at all. Plain async/await with `run()` gives sequencing, short-circuiting, and inferred error types without a second dialect (see [Generator-Based Composition](#generator-based-composition) below).
+For anything longer, especially async, the answer is not a pipeline at all. Plain async/await with `run()` gives sequencing, short-circuiting, and inferred error types without a second dialect (see [Generator-Based Composition](#generator-based-composition) below).
 
 ## Chaining Operations
 
@@ -703,8 +703,8 @@ const result = safeTry(function* () {
 
 <Aside type="tip" title="Why async/await?">
 Both approaches give imperative short-circuiting. The difference is what comes with it:
-- **neverthrow `safeTry`** — generators give short-circuiting without a workflow engine
-- **awaitly workflows** — async/await gives short-circuiting plus step IDs, retry/timeout/cache, and inferred error types
+- **neverthrow `safeTry`**: generators give short-circuiting without a workflow engine
+- **awaitly workflows**: async/await gives short-circuiting plus step IDs, retry/timeout/cache, and inferred error types
 
 What matters is the workflow engine, not the choice between generators and async/await.
 </Aside>
@@ -717,7 +717,7 @@ neverthrow focuses on Result types. awaitly adds workflow orchestration and auto
 
 ### Automatic Error Type Inference
 
-With `run()`, pass your deps as the first argument — the error union is inferred, no type parameters needed:
+With `run()`, pass your deps as the first argument. The error union is inferred, with no type parameters needed:
 
 ```typescript
 import { run, type AsyncResult } from 'awaitly';
@@ -736,7 +736,7 @@ const result = await run({ fetchUser, sendEmail, chargeCard }, async (s) => {
 // result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | 'PAYMENT_DECLINED' | UnexpectedError
 ```
 
-With `createWorkflow`, error inference is automatic — no `ErrorsOf` needed:
+With `createWorkflow`, error inference is automatic, no `ErrorsOf` needed:
 
 ```typescript
 import { createWorkflow } from 'awaitly';
@@ -755,7 +755,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 
 ### Step helpers
 
-Inside workflows, `step` is the workhorse. Chaining is just calling `step` again with the success value. Pattern matching is plain JS branching after the step returns.
+Inside workflows, `step` is the workhorse. Chaining is calling `step` again with the success value. Pattern matching is plain JS branching after the step returns.
 
 ```typescript
 const result = await workflow.run(async ({ step, deps }) => {

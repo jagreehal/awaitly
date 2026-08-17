@@ -1,0 +1,129 @@
+---
+title: Errors Across the Wire
+description: Sending Results and tagged errors through server actions, RPC, and cache layers
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+A server action can return a Result to the browser. Workers and cache layers can send the same Result through JSON. Serialization preserves supported data and discards class identity.
+
+The Result wrapper contains plain data. Its value and error still need to use types that your transport supports.
+
+```typescript
+const result = await findUser('u-1');
+// { ok: false, error: { type: 'NOT_FOUND', id: 'u-1' } }
+
+JSON.parse(JSON.stringify(result));
+// { ok: false, error: { type: 'NOT_FOUND', id: 'u-1' } }
+```
+
+`isOk` and `isErr` read the `ok` property, so they work on Results parsed from JSON:
+
+```typescript
+import { isErr } from 'awaitly';
+
+const revived = await response.json();
+if (isErr(revived)) console.error(revived.error.type);
+```
+
+## Server actions and cached functions
+
+Return a Result from a server action and read its `ok` field in the client:
+
+```typescript
+'use server';
+
+export async function loadUser(id: string) {
+  return findUser(id);        // AsyncResult<User, NotFound>
+}
+```
+
+```typescript
+'use client';
+
+import { isErr } from 'awaitly';
+
+const result = await loadUser('u-1');
+if (isErr(result)) return <Error code={result.error.type} />;
+return <Profile user={result.value} />;
+```
+
+Cached functions, Worker RPC, and JSON queues can use the same shape. Keep the payload JSON-safe and validate data from outside your trust boundary.
+
+<Aside type="tip">
+`serialize` removes the Result's diagnostic `cause`, and `deserialize` turns an unknown value back into a Result with a typed `DESERIALIZATION_ERROR` when the input is not one. Error properties still need to be JSON-safe; map an error's own `cause` to explicit data before transport if the receiver needs it.
+</Aside>
+
+## Tagged errors
+
+`Error` stores `message` and `stack` as non-enumerable properties. `JSON.stringify` drops both properties unless the class supplies a JSON representation.
+
+Each `TaggedError` supplies `toJSON`:
+
+```typescript
+import { TaggedError } from 'awaitly';
+
+class NotFoundError extends TaggedError('NotFoundError', {
+  message: (p: { id: string }) => `No user with id ${p.id}`,
+})<{ id: string }> {}
+
+JSON.stringify(new NotFoundError({ id: 'u-1' }));
+// {"type":"NotFoundError","id":"u-1","message":"No user with id u-1"}
+```
+
+The payload contains the discriminant, message, and enumerable props. `toJSON` omits the stack because it can expose file paths from the sender.
+
+### Use `type` across boundaries
+
+JSON parsing returns a plain object. Read `error.type` across the boundary:
+
+```typescript
+const { error } = await response.json();
+
+error.type === 'NotFoundError';        // true
+error instanceof NotFoundError;         // false
+```
+
+Validate the payload at the boundary, then handle the resulting discriminated union by `type`:
+
+```typescript
+type WireError =
+  | { type: 'NotFoundError'; id: string; message: string }
+  | { type: 'ForbiddenError'; message: string }
+  | { type: 'UnexpectedError'; message: string };
+
+function status(error: WireError): number {
+  switch (error.type) {
+    case 'NotFoundError': return 404;
+    case 'ForbiddenError': return 403;
+    case 'UnexpectedError': return 500;
+  }
+}
+```
+
+Each iframe, `node:vm` context, and Worker owns a separate `Error` constructor. An error created in one realm can fail an `instanceof` check in another. The string in `type` crosses both realm and serialization boundaries.
+
+<Aside type="caution" title="Keep wire data as data">
+Class identity belongs to one process. Wire data needs validation and versioning. Match validated payloads on `type`, and reserve `instanceof` for values created in the current process.
+</Aside>
+
+## Promise-like values
+
+`fromPromise` and `tryAsync` accept `PromiseLike` values:
+
+```typescript
+import { fromPromise } from 'awaitly';
+
+// A promise a framework created and passed across a boundary
+export async function loadData(dataPromise: PromiseLike<Data>) {
+  const result = await fromPromise(dataPromise, () => 'LOAD_FAILED' as const);
+  return result;
+}
+```
+
+Frameworks and libraries can expose thenables without the full native `Promise` API. Both helpers await the `then` method, so the narrower `PromiseLike` contract is enough.
+
+## Next
+
+- [Tagged Errors](foundations/tagged-errors/) for declaring the error types you send
+- [Result Types](foundations/result-types/) for the shape itself

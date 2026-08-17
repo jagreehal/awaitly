@@ -86,8 +86,8 @@ Existing try/catch code can stay until you open those files.
 
 ## Next steps
 
-- [Installation](getting-started/installation/) — add the package
-- [The Basics](getting-started/basics/) — Results and `run()` in fifteen minutes
-- [Your First Workflow](getting-started/first-workflow/) — named steps and inferred errors
+- [Installation](getting-started/installation/): add the package
+- [The Basics](getting-started/basics/): Results and `run()` in fifteen minutes
+- [Your First Workflow](getting-started/first-workflow/): named steps and inferred errors
 
 Questions? [Open an issue](https://github.com/jagreehal/awaitly) or check [Troubleshooting](guides/troubleshooting/).

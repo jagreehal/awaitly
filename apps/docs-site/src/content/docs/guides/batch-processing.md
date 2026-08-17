@@ -212,7 +212,7 @@ const generateEmbeddings = async (documents: Document[]) => {
 
 ## Memory considerations
 
-Large datasets can exhaust memory. Here's how to handle them:
+Large datasets can exhaust memory. Stream them instead:
 
 ### Before vs after: Without batching
 

@@ -160,10 +160,22 @@ export const AWAITLY_TIMEOUT = "AWAITLY_TIMEOUT" as const;
  */
 export const tags = <const T extends readonly string[]>(...t: T): T => t;
 
-import { UnexpectedError } from "../errors";
+import {
+  UnexpectedError,
+  isRetryableFailure,
+  isRetryableResultFailure,
+} from "../errors";
+import { type Clock, systemClock } from "../clock";
 // Runtime import, but not a cycle: streaming/types imports only `type` from core.
 import { isStreamError } from "../streaming/types";
 import { bindSteps, type BoundSteps, type StepCallable } from "./bound-steps";
+import {
+  resolveTelemetry,
+  withAttemptSpan,
+  withRunSpan,
+  withScopeSpan,
+  withStepSpan,
+} from "./opentelemetry";
 
 export { bindSteps, type BoundSteps } from "./bound-steps";
 export {
@@ -175,6 +187,7 @@ export {
   type PolicyDelay,
 } from "./policies";
 export { UnexpectedError };
+export { type Clock, systemClock };
 
 /**
  * Default mapper for unexpected causes (uncaught exceptions, cancellation, etc.).
@@ -966,7 +979,7 @@ export type RetryOptions<E = unknown> = {
    * Predicate to determine if a retry should occur.
    * Receives the error and current attempt number (1-indexed).
    * Return true to retry, false to fail immediately.
-   * @default Always retry on any error
+   * @default Typed errors retry; UnexpectedError and untagged throws do not.
    */
   shouldRetry?: (error: E, attempt: number) => boolean;
 
@@ -975,6 +988,12 @@ export type RetryOptions<E = unknown> = {
    * same spelling works in both places. `shouldRetry` wins if both are set.
    */
   retryIf?: (error: E, attempt: number) => boolean;
+
+  /**
+   * Clock used for retry delays. Defaults to the run/workflow clock, or
+   * the system clock when used outside `run()`.
+   */
+  clock?: Clock;
 
   /**
    * Callback invoked before each retry attempt.
@@ -2396,11 +2415,20 @@ export type RunOptionsWithCatch<E, C = void> = {
    * Undeclared step/decision ids fail the workflow immediately.
    */
   graph?: DeclaredGraph | undefined;
+  /** Disable automatic OpenTelemetry spans for this run. Enabled by default. */
+  telemetry?: boolean | undefined;
+  /**
+   * Clock for retry delays, `step.sleep`, and `step.withTimeout`.
+   * Defaults to the system clock. Pass `createTestClock()` in tests.
+   */
+  clock?: Clock | undefined;
   /**
    * @internal External signal for workflow-level cancellation.
    * Used by createWorkflow() to pass the workflow signal to steps.
    */
   _workflowSignal?: AbortSignal | undefined;
+  /** @internal The workflow wrapper owns the run span when false. */
+  _traceRunSpan?: boolean | undefined;
 };
 
 export type RunOptionsWithoutCatch<E, C = void> = {
@@ -2429,11 +2457,20 @@ export type RunOptionsWithoutCatch<E, C = void> = {
    * Undeclared step/decision ids fail the workflow immediately.
    */
   graph?: DeclaredGraph | undefined;
+  /** Disable automatic OpenTelemetry spans for this run. Enabled by default. */
+  telemetry?: boolean | undefined;
+  /**
+   * Clock for retry delays, `step.sleep`, and `step.withTimeout`.
+   * Defaults to the system clock. Pass `createTestClock()` in tests.
+   */
+  clock?: Clock | undefined;
   /**
    * @internal External signal for workflow-level cancellation.
    * Used by createWorkflow() to pass the workflow signal to steps.
    */
   _workflowSignal?: AbortSignal | undefined;
+  /** @internal The workflow wrapper owns the run span when false. */
+  _traceRunSpan?: boolean | undefined;
 };
 
 export type RunOptions<E, C = void> = RunOptionsWithCatch<E, C> | RunOptionsWithoutCatch<E, C>;
@@ -2566,8 +2603,10 @@ function calculateRetryDelay(
  * Sleep for a specified number of milliseconds.
  * @internal
  */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function abortError(): Error {
+  const e = new Error("Sleep aborted");
+  e.name = "AbortError";
+  return e;
 }
 
 const DEFAULT_RETRY_ASYNC_CONFIG = {
@@ -2575,7 +2614,6 @@ const DEFAULT_RETRY_ASYNC_CONFIG = {
   initialDelay: 100,
   maxDelay: 30000,
   jitter: true,
-  shouldRetry: (_error: unknown, _attempt: number) => true,
   onRetry: (_error: unknown, _attempt: number, _delayMs: number) => {},
 } as const;
 
@@ -2592,14 +2630,14 @@ export async function retryAsync<T, E>(
   options: RetryOptions
 ): Promise<Result<T, E>> {
   const attempts = Math.max(1, options.attempts);
+  const clock = options.clock ?? systemClock;
   const effective = {
     backoff: options.backoff ?? DEFAULT_RETRY_ASYNC_CONFIG.backoff,
     initialDelay:
       options.initialDelay ?? options.delay ?? DEFAULT_RETRY_ASYNC_CONFIG.initialDelay,
     maxDelay: options.maxDelay ?? DEFAULT_RETRY_ASYNC_CONFIG.maxDelay,
     jitter: options.jitter ?? DEFAULT_RETRY_ASYNC_CONFIG.jitter,
-    shouldRetry:
-      options.shouldRetry ?? options.retryIf ?? DEFAULT_RETRY_ASYNC_CONFIG.shouldRetry,
+    shouldRetry: options.shouldRetry ?? options.retryIf,
     onRetry: options.onRetry ?? DEFAULT_RETRY_ASYNC_CONFIG.onRetry,
   };
 
@@ -2609,18 +2647,25 @@ export async function retryAsync<T, E>(
       const result = await fn();
       if (result.ok) return result;
       lastResult = result;
-      if (attempt < attempts && effective.shouldRetry(result.error, attempt)) {
+      if (
+        attempt < attempts &&
+        (effective.shouldRetry?.(result.error, attempt) ??
+          isRetryableResultFailure(result.error))
+      ) {
         const delay = calculateRetryDelay(attempt, effective);
         effective.onRetry(result.error, attempt, delay);
-        await sleep(delay);
+        await clock.sleep(delay);
         continue;
       }
       return result;
     } catch (thrown) {
-      if (attempt < attempts && effective.shouldRetry(thrown, attempt)) {
+      if (
+        attempt < attempts &&
+        (effective.shouldRetry?.(thrown, attempt) ?? isRetryableFailure(thrown))
+      ) {
         const delay = calculateRetryDelay(attempt, effective);
         effective.onRetry(thrown, attempt, delay);
-        await sleep(delay);
+        await clock.sleep(delay);
         continue;
       }
       throw thrown;
@@ -2658,7 +2703,8 @@ async function executeWithTimeout<T>(
   options: TimeoutOptions,
   stepInfo: { name?: string; key?: string; attempt?: number },
   /** External signal (e.g., workflow cancellation) to combine with timeout signal */
-  externalSignal?: AbortSignal
+  externalSignal?: AbortSignal,
+  clock: Clock = systemClock
 ): Promise<T> {
   const controller = new AbortController();
   const behavior = options.onTimeout ?? "error";
@@ -2686,8 +2732,7 @@ async function executeWithTimeout<T>(
     );
   };
 
-  // Track the timeout ID for cleanup
-  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutCtl = new AbortController();
 
   // If external signal is already aborted, abort immediately
   if (externalSignal?.aborted) {
@@ -2703,7 +2748,9 @@ async function executeWithTimeout<T>(
 
   // Create a timeout promise that rejects after the specified duration
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => {
+    void clock.sleep(options.ms, timeoutCtl.signal).then(() => {
+      if (timeoutCtl.signal.aborted) return;
+
       // For 'disconnect', don't abort - let operation continue in background
       if (behavior !== "disconnect") {
         controller.abort();
@@ -2717,7 +2764,7 @@ async function executeWithTimeout<T>(
 
       // For all other behaviors, throw the timeout error
       reject({ [TIMEOUT_SYMBOL]: true, error: createTimeoutError() });
-    }, options.ms);
+    });
   });
 
   // Execute the operation
@@ -2798,8 +2845,7 @@ async function executeWithTimeout<T>(
     // Re-throw other errors
     throw error;
   } finally {
-    // Always clear the timeout to prevent leaks
-    clearTimeout(timeoutId!);
+    timeoutCtl.abort();
     // Clean up external signal listener
     if (externalAbortHandler && externalSignal) {
       externalSignal.removeEventListener("abort", externalAbortHandler);
@@ -2816,7 +2862,6 @@ const DEFAULT_RETRY_CONFIG = {
   initialDelay: 100,
   maxDelay: 30000,
   jitter: true,
-  shouldRetry: () => true,
   onRetry: () => {},
 } as const;
 
@@ -2879,8 +2924,11 @@ function runFn<T, E = never, C = void>(
     workflowName?: string;
     context?: C;
     graph?: DeclaredGraph;
+    telemetry?: boolean;
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
+    /** @internal */
+    _traceRunSpan?: boolean;
   }
 ): AsyncResult<T, E | UnexpectedError>;
 
@@ -2937,8 +2985,11 @@ function runFn<
     workflowName?: string;
     context?: C;
     graph?: DeclaredGraph;
+    telemetry?: boolean;
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
+    /** @internal */
+    _traceRunSpan?: boolean;
   }
 ): AsyncResult<T, E | U>;
 
@@ -2985,8 +3036,11 @@ function runFn<
     workflowName?: string;
     context?: C;
     graph?: DeclaredGraph;
+    telemetry?: boolean;
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
+    /** @internal */
+    _traceRunSpan?: boolean;
   }
 ): AsyncResult<T, E | UnexpectedError>;
 
@@ -3041,10 +3095,15 @@ async function runFn<T, E, C = void>(
     workflowName,
     context,
     graph,
+    telemetry,
     _workflowSignal,
+    _traceRunSpan = true,
+    clock: optionsClock,
   } = options && typeof options === "object"
     ? (options as RunOptions<E, C>)
     : ({} as RunOptions<E, C>);
+
+  const clock = optionsClock ?? systemClock;
 
   const workflowId = providedWorkflowId ?? crypto.randomUUID();
 
@@ -3127,6 +3186,33 @@ async function runFn<T, E, C = void>(
     onEvent?.(eventWithName, context as C);
   };
 
+  // Tracing: a per-run `telemetry` option wins over the process-wide setting.
+  // These closures carry the run-level fields so the ~10 traced sites below
+  // stay one call each.
+  const traceEnabled = resolveTelemetry(telemetry);
+
+  const traceStep = <V>(
+    stepId: string,
+    stepKey: string,
+    stepName: string,
+    operation: () => Promise<V>
+  ): Promise<V> =>
+    withStepSpan(
+      { enabled: traceEnabled, workflowId, stepId, stepKey, stepName, signal: _workflowSignal },
+      operation
+    );
+
+  const traceScope = <V>(
+    scopeId: string,
+    scopeName: string,
+    scopeType: "parallel" | "race" | "allSettled",
+    operation: () => Promise<V>
+  ): Promise<V> =>
+    withScopeSpan(
+      { enabled: traceEnabled, workflowId, scopeId, scopeName, scopeType, signal: _workflowSignal },
+      operation
+    );
+
   // Use the exported early exit function with proper type parameter
   const earlyExit = createEarlyExit<E>;
 
@@ -3151,254 +3237,358 @@ async function runFn<T, E, C = void>(
     return false;
   };
 
-  try {
-    // Step function: requires step('id', fn, opts) or step('id', result, opts)
-    const stepFn = <T, StepE, StepC = unknown>(
-      id: string,
-      operationOrResult: (() => Result<T, StepE> | AsyncResult<T, StepE>) | Result<T, StepE> | AsyncResult<T, StepE>,
-      stepOptions?: StepOptions
-    ): Promise<T> => {
-      return (async () => {
-        // Validate required string ID
-        if (typeof id !== 'string' || id.length === 0) {
-          throw new Error(
-            '[awaitly] step() requires an explicit string ID as the first argument. ' +
-            'Example: step("fetchUser", () => fetchUser(id))'
-          );
-        }
-        assertDeclared(id, "step");
+  const execute = async (): AsyncResult<T, E | UnexpectedError> => {
+    try {
+      // Step function: requires step('id', fn, opts) or step('id', result, opts)
+      const stepFn = <T, StepE, StepC = unknown>(
+        id: string,
+        operationOrResult: (() => Result<T, StepE> | AsyncResult<T, StepE>) | Result<T, StepE> | AsyncResult<T, StepE>,
+        stepOptions?: StepOptions
+      ): Promise<T> => {
+        return (async () => {
+          // Validate required string ID
+          if (typeof id !== 'string' || id.length === 0) {
+            throw new Error(
+              '[awaitly] step() requires an explicit string ID as the first argument. ' +
+              'Example: step("fetchUser", () => fetchUser(id))'
+            );
+          }
+          assertDeclared(id, "step");
 
-        const parsedOptions: StepOptions = stepOptions ?? {};
-        const stepMetadata = extractStepMetadata(parsedOptions);
+          const parsedOptions: StepOptions = stepOptions ?? {};
+          const stepMetadata = extractStepMetadata(parsedOptions);
 
-        // Name is always derived from ID
-        const stepName = id;
-        const stepKey = parsedOptions.key ?? id;  // For general events (step_start, step_success, etc.)
-        const explicitKey = parsedOptions.key ?? id;  // For step_complete and caching (ID is used when no key)
-        const { description: stepDescription, retry: retryConfig, timeout: timeoutConfig } = parsedOptions;
-        const stepId = generateStepId(stepKey);
-        const hasEventListeners = onEvent;
-        const overallStartTime = hasEventListeners ? performance.now() : 0;
+          // Name is always derived from ID
+          const stepName = id;
+          const stepKey = parsedOptions.key ?? id;  // For general events (step_start, step_success, etc.)
+          const explicitKey = parsedOptions.key ?? id;  // For step_complete and caching (ID is used when no key)
+          const { description: stepDescription, retry: retryConfig, timeout: timeoutConfig } = parsedOptions;
+          const stepId = generateStepId(stepKey);
+          const executeStep = async (): Promise<T> => {
+          const hasEventListeners = onEvent;
+          const overallStartTime = hasEventListeners ? performance.now() : 0;
 
-        // Determine if this is a direct Result or a function
-        const isDirectResult = isResultLike(operationOrResult);
-        const operation = isDirectResult
-          ? () => operationOrResult as Result<T, StepE> | AsyncResult<T, StepE>
-          : operationOrResult as () => Result<T, StepE> | AsyncResult<T, StepE>;
+          // Determine if this is a direct Result or a function
+          const isDirectResult = isResultLike(operationOrResult);
+          const operation = isDirectResult
+            ? () => operationOrResult as Result<T, StepE> | AsyncResult<T, StepE>
+            : operationOrResult as () => Result<T, StepE> | AsyncResult<T, StepE>;
 
-        // Build effective retry config with defaults
-        // Ensure at least 1 attempt (0 would skip the loop entirely and crash)
-        const maxAttempts = Math.max(1, retryConfig?.attempts ?? 1);
-        const effectiveRetry = {
-          attempts: maxAttempts,
-          backoff: retryConfig?.backoff ?? DEFAULT_RETRY_CONFIG.backoff,
-          initialDelay:
-            retryConfig?.initialDelay ??
-            retryConfig?.delay ??
-            DEFAULT_RETRY_CONFIG.initialDelay,
-          maxDelay: retryConfig?.maxDelay ?? DEFAULT_RETRY_CONFIG.maxDelay,
-          jitter: retryConfig?.jitter ?? DEFAULT_RETRY_CONFIG.jitter,
-          shouldRetry:
-            retryConfig?.shouldRetry ??
-            retryConfig?.retryIf ??
-            DEFAULT_RETRY_CONFIG.shouldRetry,
-          onRetry: retryConfig?.onRetry ?? DEFAULT_RETRY_CONFIG.onRetry,
-        };
+          // Build effective retry config with defaults
+          // Ensure at least 1 attempt (0 would skip the loop entirely and crash)
+          const maxAttempts = Math.max(1, retryConfig?.attempts ?? 1);
+          const effectiveRetry = {
+            attempts: maxAttempts,
+            backoff: retryConfig?.backoff ?? DEFAULT_RETRY_CONFIG.backoff,
+            initialDelay:
+              retryConfig?.initialDelay ??
+              retryConfig?.delay ??
+              DEFAULT_RETRY_CONFIG.initialDelay,
+            maxDelay: retryConfig?.maxDelay ?? DEFAULT_RETRY_CONFIG.maxDelay,
+            jitter: retryConfig?.jitter ?? DEFAULT_RETRY_CONFIG.jitter,
+            shouldRetry:
+              retryConfig?.shouldRetry ??
+              retryConfig?.retryIf,
+            onRetry: retryConfig?.onRetry ?? DEFAULT_RETRY_CONFIG.onRetry,
+          };
 
-        // Emit step_start only once (before first attempt)
-        if (onEvent) {
-          emitEvent({
-            type: "step_start",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            description: stepDescription,
-            ts: Date.now(),
-            ...(stepMetadata && { metadata: stepMetadata }),
-          });
-        }
+          // Emit step_start only once (before first attempt)
+          if (onEvent) {
+            emitEvent({
+              type: "step_start",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              description: stepDescription,
+              ts: Date.now(),
+              ...(stepMetadata && { metadata: stepMetadata }),
+            });
+          }
 
-        let lastResult: Result<T, StepE> | undefined;
+          let lastResult: Result<T, StepE> | undefined;
 
-        for (let attempt = 1; attempt <= effectiveRetry.attempts; attempt++) {
-          const attemptStartTime = hasEventListeners ? performance.now() : 0;
+          for (let attempt = 1; attempt <= effectiveRetry.attempts; attempt++) {
+            const attemptStartTime = hasEventListeners ? performance.now() : 0;
 
-          try {
-            // Execute operation with optional timeout
-            let result: Result<T, StepE>;
+            try {
+              // Execute operation with optional timeout
+              const executeAttempt = async (): Promise<Result<T, StepE>> => {
+                if (timeoutConfig) {
+                  return executeWithTimeout(
+                    operation as () => Promise<Result<T, StepE>>,
+                    timeoutConfig,
+                    { name: stepName, key: stepKey, attempt },
+                    _workflowSignal,
+                    clock
+                  );
+                }
+                return operation();
+              };
+              // Only worth a span when a retry could produce more than one.
+              const result = effectiveRetry.attempts > 1
+                ? await withAttemptSpan(
+                    {
+                      enabled: traceEnabled,
+                      workflowId,
+                      stepId,
+                      stepName,
+                      attempt,
+                      maxAttempts: effectiveRetry.attempts,
+                      signal: _workflowSignal,
+                    },
+                    executeAttempt
+                  )
+                : await executeAttempt();
 
-            if (timeoutConfig) {
-              // Wrap with timeout, passing workflow signal for { signal: true } steps
-              result = await executeWithTimeout(
-                operation as () => Promise<Result<T, StepE>>,
-                timeoutConfig,
-                { name: stepName, key: stepKey, attempt },
-                _workflowSignal
-              );
-            } else {
-              result = await operation();
-            }
-
-            // Success case
-            if (result.ok) {
-              const durationMs = performance.now() - overallStartTime;
-              emitEvent({
-                type: "step_success",
-                workflowId,
-                stepId,
-                stepKey,
-                name: stepName,
-                description: stepDescription,
-                ts: Date.now(),
-                durationMs,
-                ...(stepMetadata && { metadata: stepMetadata }),
-              });
-              if (explicitKey) {
+              // Success case
+              if (result.ok) {
+                const durationMs = performance.now() - overallStartTime;
                 emitEvent({
-                  type: "step_complete",
+                  type: "step_success",
                   workflowId,
-                  stepKey: explicitKey,
+                  stepId,
+                  stepKey,
                   name: stepName,
                   description: stepDescription,
                   ts: Date.now(),
                   durationMs,
-                  result,
                   ...(stepMetadata && { metadata: stepMetadata }),
                 });
+                if (explicitKey) {
+                  emitEvent({
+                    type: "step_complete",
+                    workflowId,
+                    stepKey: explicitKey,
+                    name: stepName,
+                    description: stepDescription,
+                    ts: Date.now(),
+                    durationMs,
+                    result,
+                    ...(stepMetadata && { metadata: stepMetadata }),
+                  });
+                }
+                return result.value;
               }
-              return result.value;
-            }
 
-            // Result error case - check if we should retry
-            lastResult = result;
+              // Result error case - check if we should retry
+              lastResult = result;
 
-            if (attempt < effectiveRetry.attempts && effectiveRetry.shouldRetry(result.error, attempt)) {
-              const delay = calculateRetryDelay(attempt, effectiveRetry);
+              if (
+                attempt < effectiveRetry.attempts &&
+                (effectiveRetry.shouldRetry?.(result.error, attempt) ??
+                  isRetryableResultFailure(result.error))
+              ) {
+                const delay = calculateRetryDelay(attempt, effectiveRetry);
 
-              // Emit retry event
-              emitEvent({
-                type: "step_retry",
-                workflowId,
-                stepId,
-                stepKey,
-                name: stepName,
-                ts: Date.now(),
-                attempt: attempt + 1,
-                maxAttempts: effectiveRetry.attempts,
-                delayMs: delay,
-                error: result.error as unknown as E,
-                ...(stepMetadata && { metadata: stepMetadata }),
-                diagnostics: buildStepErrorPayload(result.error, parsedOptions.errorMeta, 'result', attempt, performance.now() - overallStartTime),
-              });
-
-              effectiveRetry.onRetry(result.error, attempt, delay);
-              await sleep(delay);
-              continue;
-            }
-
-            // No more retries or shouldRetry returned false - emit exhausted event if we retried
-            if (effectiveRetry.attempts > 1) {
-              emitEvent({
-                type: "step_retries_exhausted",
-                workflowId,
-                stepId,
-                stepKey,
-                name: stepName,
-                ts: Date.now(),
-                durationMs: performance.now() - overallStartTime,
-                attempts: attempt,
-                lastError: result.error as unknown as E,
-                ...(stepMetadata && { metadata: stepMetadata }),
-                diagnostics: buildStepErrorPayload(result.error, parsedOptions.errorMeta, 'result', attempt, performance.now() - overallStartTime),
-              });
-            }
-
-            // Fall through to final error handling below
-            break;
-
-          } catch (thrown) {
-            const durationMs = performance.now() - attemptStartTime;
-
-            // Handle timeout with 'option' behavior - return undefined as success
-            if (isTimeoutOptionMarker(thrown)) {
-              const timeoutMs = thrown.ms;
-              emitEvent({
-                type: "step_timeout",
-                workflowId,
-                stepId,
-                stepKey,
-                name: stepName,
-                ts: Date.now(),
-                timeoutMs,
-                attempt,
-                ...(stepMetadata && { metadata: stepMetadata }),
-                diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt),
-              });
-              emitEvent({
-                type: "step_success",
-                workflowId,
-                stepId,
-                stepKey,
-                name: stepName,
-                description: stepDescription,
-                ts: Date.now(),
-                durationMs: performance.now() - overallStartTime,
-                ...(stepMetadata && { metadata: stepMetadata }),
-              });
-              if (explicitKey) {
+                // Emit retry event
                 emitEvent({
-                  type: "step_complete",
+                  type: "step_retry",
                   workflowId,
-                  stepKey: explicitKey,
+                  stepId,
+                  stepKey,
+                  name: stepName,
+                  ts: Date.now(),
+                  attempt: attempt + 1,
+                  maxAttempts: effectiveRetry.attempts,
+                  delayMs: delay,
+                  error: result.error as unknown as E,
+                  ...(stepMetadata && { metadata: stepMetadata }),
+                  diagnostics: buildStepErrorPayload(result.error, parsedOptions.errorMeta, 'result', attempt, performance.now() - overallStartTime),
+                });
+
+                effectiveRetry.onRetry(result.error, attempt, delay);
+                await clock.sleep(delay);
+                continue;
+              }
+
+              // No more retries or shouldRetry returned false - emit exhausted event if we retried
+              if (effectiveRetry.attempts > 1) {
+                emitEvent({
+                  type: "step_retries_exhausted",
+                  workflowId,
+                  stepId,
+                  stepKey,
+                  name: stepName,
+                  ts: Date.now(),
+                  durationMs: performance.now() - overallStartTime,
+                  attempts: attempt,
+                  lastError: result.error as unknown as E,
+                  ...(stepMetadata && { metadata: stepMetadata }),
+                  diagnostics: buildStepErrorPayload(result.error, parsedOptions.errorMeta, 'result', attempt, performance.now() - overallStartTime),
+                });
+              }
+
+              // Fall through to final error handling below
+              break;
+
+            } catch (thrown) {
+              const durationMs = performance.now() - attemptStartTime;
+
+              // Handle timeout with 'option' behavior - return undefined as success
+              if (isTimeoutOptionMarker(thrown)) {
+                const timeoutMs = thrown.ms;
+                emitEvent({
+                  type: "step_timeout",
+                  workflowId,
+                  stepId,
+                  stepKey,
+                  name: stepName,
+                  ts: Date.now(),
+                  timeoutMs,
+                  attempt,
+                  ...(stepMetadata && { metadata: stepMetadata }),
+                  diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt),
+                });
+                emitEvent({
+                  type: "step_success",
+                  workflowId,
+                  stepId,
+                  stepKey,
                   name: stepName,
                   description: stepDescription,
                   ts: Date.now(),
                   durationMs: performance.now() - overallStartTime,
-                  result: ok(undefined),
                   ...(stepMetadata && { metadata: stepMetadata }),
                 });
+                if (explicitKey) {
+                  emitEvent({
+                    type: "step_complete",
+                    workflowId,
+                    stepKey: explicitKey,
+                    name: stepName,
+                    description: stepDescription,
+                    ts: Date.now(),
+                    durationMs: performance.now() - overallStartTime,
+                    result: ok(undefined),
+                    ...(stepMetadata && { metadata: stepMetadata }),
+                  });
+                }
+                // Return undefined as success value (timeout was treated as optional)
+                return undefined as T;
               }
-              // Return undefined as success value (timeout was treated as optional)
-              return undefined as T;
-            }
 
-            // Handle early exit - propagate immediately
-            if (isEarlyExitE(thrown)) {
-              emitEvent({
-                type: "step_aborted",
-                workflowId,
-                stepId,
-                stepKey,
-                name: stepName,
-                description: stepDescription,
-                ts: Date.now(),
-                durationMs,
-                ...(stepMetadata && { metadata: stepMetadata }),
-              });
-              throw thrown;
-            }
+              // Handle early exit - propagate immediately
+              if (isEarlyExitE(thrown)) {
+                emitEvent({
+                  type: "step_aborted",
+                  workflowId,
+                  stepId,
+                  stepKey,
+                  name: stepName,
+                  description: stepDescription,
+                  ts: Date.now(),
+                  durationMs,
+                  ...(stepMetadata && { metadata: stepMetadata }),
+                });
+                throw thrown;
+              }
 
-            // Handle timeout error
-            if (isStepTimeoutError(thrown)) {
-              // Get timeout metadata from the error (works for both standard and custom errors)
-              const timeoutMeta = getStepTimeoutMeta(thrown);
-              const timeoutMs = timeoutConfig?.ms ?? timeoutMeta?.timeoutMs ?? 0;
-              emitEvent({
-                type: "step_timeout",
-                workflowId,
-                stepId,
-                stepKey,
-                name: stepName,
-                ts: Date.now(),
-                timeoutMs,
-                attempt,
-                ...(stepMetadata && { metadata: stepMetadata }),
-                diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt),
-              });
+              // Handle timeout error
+              if (isStepTimeoutError(thrown)) {
+                // Get timeout metadata from the error (works for both standard and custom errors)
+                const timeoutMeta = getStepTimeoutMeta(thrown);
+                const timeoutMs = timeoutConfig?.ms ?? timeoutMeta?.timeoutMs ?? 0;
+                emitEvent({
+                  type: "step_timeout",
+                  workflowId,
+                  stepId,
+                  stepKey,
+                  name: stepName,
+                  ts: Date.now(),
+                  timeoutMs,
+                  attempt,
+                  ...(stepMetadata && { metadata: stepMetadata }),
+                  diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt),
+                });
 
-              // Check if we should retry after timeout
-              if (attempt < effectiveRetry.attempts && effectiveRetry.shouldRetry(thrown, attempt)) {
+                // Check if we should retry after timeout
+                if (
+                  attempt < effectiveRetry.attempts &&
+                  (effectiveRetry.shouldRetry?.(thrown, attempt) ??
+                    isRetryableFailure(thrown))
+                ) {
+                  const delay = calculateRetryDelay(attempt, effectiveRetry);
+
+                  emitEvent({
+                    type: "step_retry",
+                    workflowId,
+                    stepId,
+                    stepKey,
+                    name: stepName,
+                    ts: Date.now(),
+                    attempt: attempt + 1,
+                    maxAttempts: effectiveRetry.attempts,
+                    delayMs: delay,
+                    error: thrown as unknown as E,
+                    ...(stepMetadata && { metadata: stepMetadata }),
+                    diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt, performance.now() - overallStartTime),
+                  });
+
+                  effectiveRetry.onRetry(thrown, attempt, delay);
+                  await clock.sleep(delay);
+                  continue;
+                }
+
+                // No more retries - emit exhausted if we retried
+                if (effectiveRetry.attempts > 1) {
+                  emitEvent({
+                    type: "step_retries_exhausted",
+                    workflowId,
+                    stepId,
+                    stepKey,
+                    name: stepName,
+                    ts: Date.now(),
+                    durationMs: performance.now() - overallStartTime,
+                    attempts: attempt,
+                    lastError: thrown as unknown as E,
+                    ...(stepMetadata && { metadata: stepMetadata }),
+                    diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt, performance.now() - overallStartTime),
+                  });
+                }
+
+                // Treat STEP_TIMEOUT as a typed error - exit directly without UnexpectedError wrapper
+                // This provides better DX: users get STEP_TIMEOUT directly in result.error
+                const totalDurationMs = performance.now() - overallStartTime;
+                emitEvent({
+                  type: "step_error",
+                  workflowId,
+                  stepId,
+                  stepKey,
+                  name: stepName,
+                  description: stepDescription,
+                  ts: Date.now(),
+                  durationMs: totalDurationMs,
+                  error: thrown as unknown as E,
+                  ...(stepMetadata && { metadata: stepMetadata }),
+                  diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt, totalDurationMs),
+                });
+                if (explicitKey) {
+                  emitEvent({
+                    type: "step_complete",
+                    workflowId,
+                    stepKey: explicitKey,
+                    name: stepName,
+                    description: stepDescription,
+                    ts: Date.now(),
+                    durationMs: totalDurationMs,
+                    result: err(thrown as unknown as E, { cause: thrown }),
+                    meta: { origin: "throw", thrown },
+                    ...(stepMetadata && { metadata: stepMetadata }),
+                  });
+                }
+                onError?.(thrown as unknown as E, stepName, context);
+                throw earlyExit(thrown as unknown as E, { origin: "throw", thrown });
+              }
+
+              // Handle other thrown errors (continue to error handling below)
+
+              // Check if we should retry thrown errors
+              if (
+                attempt < effectiveRetry.attempts &&
+                (effectiveRetry.shouldRetry?.(thrown, attempt) ??
+                  isRetryableFailure(thrown))
+              ) {
                 const delay = calculateRetryDelay(attempt, effectiveRetry);
 
                 emitEvent({
@@ -3413,16 +3603,16 @@ async function runFn<T, E, C = void>(
                   delayMs: delay,
                   error: thrown as unknown as E,
                   ...(stepMetadata && { metadata: stepMetadata }),
-                  diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt, performance.now() - overallStartTime),
+                  diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'throw', attempt, performance.now() - overallStartTime),
                 });
 
                 effectiveRetry.onRetry(thrown, attempt, delay);
-                await sleep(delay);
+                await clock.sleep(delay);
                 continue;
               }
 
-              // No more retries - emit exhausted if we retried
-              if (effectiveRetry.attempts > 1) {
+              // No more retries for thrown errors - emit exhausted if we retried
+              if (effectiveRetry.attempts > 1 && !isStepTimeoutError(thrown)) {
                 emitEvent({
                   type: "step_retries_exhausted",
                   workflowId,
@@ -3434,13 +3624,19 @@ async function runFn<T, E, C = void>(
                   attempts: attempt,
                   lastError: thrown as unknown as E,
                   ...(stepMetadata && { metadata: stepMetadata }),
-                  diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt, performance.now() - overallStartTime),
+                  diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'throw', attempt, performance.now() - overallStartTime),
                 });
               }
 
-              // Treat STEP_TIMEOUT as a typed error - exit directly without UnexpectedError wrapper
-              // This provides better DX: users get STEP_TIMEOUT directly in result.error
+              // Handle the error using effectiveCatchUnexpected
               const totalDurationMs = performance.now() - overallStartTime;
+
+              let mappedError: E | UnexpectedError;
+              try {
+                mappedError = effectiveCatchUnexpected(thrown) as E | UnexpectedError;
+              } catch (mapperError) {
+                throw createMapperException(mapperError);
+              }
               emitEvent({
                 type: "step_error",
                 workflowId,
@@ -3450,9 +3646,9 @@ async function runFn<T, E, C = void>(
                 description: stepDescription,
                 ts: Date.now(),
                 durationMs: totalDurationMs,
-                error: thrown as unknown as E,
+                error: mappedError,
                 ...(stepMetadata && { metadata: stepMetadata }),
-                diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt, totalDurationMs),
+                diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'throw', attempt, totalDurationMs),
               });
               if (explicitKey) {
                 emitEvent({
@@ -3463,1076 +3659,145 @@ async function runFn<T, E, C = void>(
                   description: stepDescription,
                   ts: Date.now(),
                   durationMs: totalDurationMs,
-                  result: err(thrown as unknown as E, { cause: thrown }),
+                  result: err(mappedError, { cause: thrown }),
                   meta: { origin: "throw", thrown },
                   ...(stepMetadata && { metadata: stepMetadata }),
                 });
               }
-              onError?.(thrown as unknown as E, stepName, context);
-              throw earlyExit(thrown as unknown as E, { origin: "throw", thrown });
+              onError?.(mappedError as E, stepName, context);
+              throw earlyExit(mappedError as E, { origin: "throw", thrown });
             }
-
-            // Handle other thrown errors (continue to error handling below)
-
-            // Check if we should retry thrown errors
-            if (attempt < effectiveRetry.attempts && effectiveRetry.shouldRetry(thrown, attempt)) {
-              const delay = calculateRetryDelay(attempt, effectiveRetry);
-
-              emitEvent({
-                type: "step_retry",
-                workflowId,
-                stepId,
-                stepKey,
-                name: stepName,
-                ts: Date.now(),
-                attempt: attempt + 1,
-                maxAttempts: effectiveRetry.attempts,
-                delayMs: delay,
-                error: thrown as unknown as E,
-                ...(stepMetadata && { metadata: stepMetadata }),
-                diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'throw', attempt, performance.now() - overallStartTime),
-              });
-
-              effectiveRetry.onRetry(thrown, attempt, delay);
-              await sleep(delay);
-              continue;
-            }
-
-            // No more retries for thrown errors - emit exhausted if we retried
-            if (effectiveRetry.attempts > 1 && !isStepTimeoutError(thrown)) {
-              emitEvent({
-                type: "step_retries_exhausted",
-                workflowId,
-                stepId,
-                stepKey,
-                name: stepName,
-                ts: Date.now(),
-                durationMs: performance.now() - overallStartTime,
-                attempts: attempt,
-                lastError: thrown as unknown as E,
-                ...(stepMetadata && { metadata: stepMetadata }),
-                diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'throw', attempt, performance.now() - overallStartTime),
-              });
-            }
-
-            // Handle the error using effectiveCatchUnexpected
-            const totalDurationMs = performance.now() - overallStartTime;
-
-            let mappedError: E | UnexpectedError;
-            try {
-              mappedError = effectiveCatchUnexpected(thrown) as E | UnexpectedError;
-            } catch (mapperError) {
-              throw createMapperException(mapperError);
-            }
-            emitEvent({
-              type: "step_error",
-              workflowId,
-              stepId,
-              stepKey,
-              name: stepName,
-              description: stepDescription,
-              ts: Date.now(),
-              durationMs: totalDurationMs,
-              error: mappedError,
-              ...(stepMetadata && { metadata: stepMetadata }),
-              diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'throw', attempt, totalDurationMs),
-            });
-            if (explicitKey) {
-              emitEvent({
-                type: "step_complete",
-                workflowId,
-                stepKey: explicitKey,
-                name: stepName,
-                description: stepDescription,
-                ts: Date.now(),
-                durationMs: totalDurationMs,
-                result: err(mappedError, { cause: thrown }),
-                meta: { origin: "throw", thrown },
-                ...(stepMetadata && { metadata: stepMetadata }),
-              });
-            }
-            onError?.(mappedError as E, stepName, context);
-            throw earlyExit(mappedError as E, { origin: "throw", thrown });
           }
-        }
 
-        // All retries exhausted with Result error - handle final error
-        // At this point lastResult must be an error result (we only reach here on error)
-        const errorResult = lastResult as Err<StepE, StepC>;
-        const totalDurationMs = performance.now() - overallStartTime;
-        const wrappedError = wrapForStep(errorResult.error, {
-          origin: "result",
-          resultCause: errorResult.cause,
-        });
-        emitEvent({
-          type: "step_error",
-          workflowId,
-          stepId,
-          stepKey,
-          name: stepName,
-          description: stepDescription,
-          ts: Date.now(),
-          durationMs: totalDurationMs,
-          error: wrappedError,
-          ...(stepMetadata && { metadata: stepMetadata }),
-          diagnostics: buildStepErrorPayload(errorResult.error, parsedOptions.errorMeta, 'result', effectiveRetry.attempts, totalDurationMs),
-        });
-        if (explicitKey) {
+          // All retries exhausted with Result error - handle final error
+          // At this point lastResult must be an error result (we only reach here on error)
+          const errorResult = lastResult as Err<StepE, StepC>;
+          const totalDurationMs = performance.now() - overallStartTime;
+          const wrappedError = wrapForStep(errorResult.error, {
+            origin: "result",
+            resultCause: errorResult.cause,
+          });
           emitEvent({
-            type: "step_complete",
+            type: "step_error",
             workflowId,
-            stepKey: explicitKey,
+            stepId,
+            stepKey,
             name: stepName,
             description: stepDescription,
             ts: Date.now(),
             durationMs: totalDurationMs,
-            result: errorResult,
-            meta: { origin: "result", resultCause: errorResult.cause },
+            error: wrappedError,
             ...(stepMetadata && { metadata: stepMetadata }),
+            diagnostics: buildStepErrorPayload(errorResult.error, parsedOptions.errorMeta, 'result', effectiveRetry.attempts, totalDurationMs),
           });
-        }
-        onError?.(wrappedError as unknown as E, stepName, context);
-        throw earlyExit(wrappedError as unknown as E, {
-          origin: "result",
-          resultCause: errorResult.cause,
-        });
-      })();
-    };
-
-    stepFn.try = <T, Err>(
-      id: string,
-      operation: () => T | Promise<T>,
-      opts:
-        | {
-            error: Err;
-            key?: string;
-            ttl?: number;
-            retry?: RetryOptions<Err>;
-            timeout?: TimeoutOptions;
-            compensate?: CompensationAction<T>;
-          }
-        | {
-            onError: (cause: unknown) => Err;
-            key?: string;
-            ttl?: number;
-            retry?: RetryOptions<Err>;
-            timeout?: TimeoutOptions;
-            compensate?: CompensationAction<T>;
-          }
-    ): Promise<T> => {
-      // Validate required string ID
-      if (typeof id !== 'string' || id.length === 0) {
-        throw new Error(
-          '[awaitly] step.try() requires an explicit string ID as the first argument. ' +
-          'Example: step.try("parse", () => JSON.parse(str), { error: "PARSE_ERROR" })'
-        );
-      }
-      assertDeclared(id, "step");
-
-      const mapToError = "error" in opts ? () => opts.error : opts.onError;
-
-      // If retry or timeout is requested, delegate to step.retry (which handles both).
-      if (opts.retry || opts.timeout) {
-        return stepFn.retry(
-          id,
-          async () => {
-            try {
-              return ok(await operation());
-            } catch (cause) {
-              return err(mapToError(cause), { cause });
-            }
-          },
-          {
-            attempts: opts.retry?.attempts ?? 1,
-            ...(opts.retry ?? {}),
-            key: opts.key,
-            timeout: opts.timeout,
-          }
-        );
-      }
-
-      const stepKey = opts.key ?? id; // Use id as key if not provided
-      const stepName = id; // Name is always the id
-      const stepId = id;
-      const hasEventListeners = onEvent;
-
-      return (async () => {
-        const startTime = hasEventListeners ? performance.now() : 0;
-
-        if (onEvent) {
-          emitEvent({
-            type: "step_start",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-          });
-        }
-
-        try {
-          const value = await operation();
-          const durationMs = performance.now() - startTime;
-          emitEvent({
-            type: "step_success",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-            durationMs,
-          });
-          // Emit step_complete for keyed steps (for state persistence)
-          if (stepKey) {
+          if (explicitKey) {
             emitEvent({
               type: "step_complete",
               workflowId,
-              stepKey,
+              stepKey: explicitKey,
               name: stepName,
+              description: stepDescription,
               ts: Date.now(),
-              durationMs,
-              result: ok(value),
-            });
-          }
-          return value;
-        } catch (error) {
-          const mapped = mapToError(error);
-          const durationMs = performance.now() - startTime;
-          const wrappedError = wrapForStep(mapped, { origin: "throw", thrown: error });
-          emitEvent({
-            type: "step_error",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-            durationMs,
-            error: wrappedError,
-          });
-          // Emit step_complete for keyed steps (for state persistence)
-          // Note: For step.try errors, we encode the mapped error, not the original thrown
-          if (stepKey) {
-            emitEvent({
-              type: "step_complete",
-              workflowId,
-              stepKey,
-              name: stepName,
-              ts: Date.now(),
-              durationMs,
-              result: err(mapped, { cause: error }),
-              meta: { origin: "throw", thrown: error },
-            });
-          }
-          onError?.(wrappedError as unknown as E, stepName, context);
-          throw earlyExit(wrappedError as unknown as E, { origin: "throw", thrown: error });
-        }
-      })();
-    };
-
-    // step.fromResult: Execute a Result-returning function and map its typed error
-    stepFn.fromResult = <T, ResultE, Err>(
-      id: string,
-      operation: () => Result<T, ResultE> | AsyncResult<T, ResultE>,
-      opts:
-        | { error: Err; key?: string }
-        | { onError: (resultError: ResultE) => Err; key?: string }
-    ): Promise<T> => {
-      // Validate required string ID
-      if (typeof id !== 'string' || id.length === 0) {
-        throw new Error(
-          '[awaitly] step.fromResult() requires an explicit string ID as the first argument. ' +
-          'Example: step.fromResult("callProvider", () => callProvider(input), { onError: (e) => ({ type: "FAILED" }) })'
-        );
-      }
-      assertDeclared(id, "step");
-
-      const stepKey = opts.key ?? id; // Use id as key if not provided
-      const stepName = id; // Name is always the id
-      const stepId = id;
-      const mapToError = "error" in opts ? () => opts.error : opts.onError;
-      const hasEventListeners = onEvent;
-
-      return (async () => {
-        const startTime = hasEventListeners ? performance.now() : 0;
-
-        if (onEvent) {
-          emitEvent({
-            type: "step_start",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-          });
-        }
-
-        const result = await operation();
-
-        if (result.ok) {
-          const durationMs = performance.now() - startTime;
-          emitEvent({
-            type: "step_success",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-            durationMs,
-          });
-          // Emit step_complete for keyed steps (for state persistence)
-          if (stepKey) {
-            emitEvent({
-              type: "step_complete",
-              workflowId,
-              stepKey,
-              name: stepName,
-              ts: Date.now(),
-              durationMs,
-              result: ok(result.value),
-            });
-          }
-          return result.value;
-        } else {
-          const mapped = mapToError(result.error);
-          const durationMs = performance.now() - startTime;
-          // For fromResult, the cause is the original result.error (what got mapped)
-          // This is analogous to step.try using thrown exception as cause
-          const wrappedError = wrapForStep(mapped, {
-            origin: "result",
-            resultCause: result.error,
-          });
-          emitEvent({
-            type: "step_error",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-            durationMs,
-            error: wrappedError,
-          });
-          // Emit step_complete for keyed steps (for state persistence)
-          if (stepKey) {
-            emitEvent({
-              type: "step_complete",
-              workflowId,
-              stepKey,
-              name: stepName,
-              ts: Date.now(),
-              durationMs,
-              result: err(mapped, { cause: result.error }),
-              meta: { origin: "result", resultCause: result.error },
+              durationMs: totalDurationMs,
+              result: errorResult,
+              meta: { origin: "result", resultCause: errorResult.cause },
+              ...(stepMetadata && { metadata: stepMetadata }),
             });
           }
           onError?.(wrappedError as unknown as E, stepName, context);
           throw earlyExit(wrappedError as unknown as E, {
             origin: "result",
-            resultCause: result.error,
+            resultCause: errorResult.cause,
           });
-        }
-      })();
-    };
-
-    // step.fromNullable: Execute an operation returning T | null/undefined and convert to typed error
-    stepFn.fromNullable = <T, Err>(
-      id: string,
-      operation: () => T | null | undefined | Promise<T | null | undefined>,
-      onNull: () => Err,
-      options?: { key?: string; ttl?: number }
-    ): Promise<T> => {
-      if (typeof id !== 'string' || id.length === 0) {
-        throw new Error(
-          '[awaitly] step.fromNullable() requires an explicit string ID as the first argument. ' +
-          'Example: step.fromNullable("getUser", () => db.find(id), () => ({ type: "NOT_FOUND" }))'
-        );
-      }
-      return stepFn(
-        id,
-        async () => {
-          const value = await operation();
-          return value != null ? ok(value) : err(onNull());
-        },
-        options
-      );
-    };
-
-    // step.retry: Execute an operation with retry and optional timeout
-    stepFn.retry = <T, StepE = unknown>(
-      id: string,
-      operation: () => Result<T, StepE> | AsyncResult<T, StepE>,
-      options: RetryOptions<StepE> & { key?: string; timeout?: TimeoutOptions }
-    ): Promise<T> => {
-      // Validate required string ID
-      if (typeof id !== 'string' || id.length === 0) {
-        throw new Error(
-          '[awaitly] step.retry() requires an explicit string ID as the first argument. ' +
-          'Example: step.retry("fetchData", () => fetchData(), { attempts: 3 })'
-        );
-      }
-
-      // Delegate to stepFn with retry options merged into StepOptions
-      // Use key for caching if provided, otherwise use id
-      return stepFn(id, operation, {
-        key: options.key ?? id,
-          retry: {
-            attempts: options.attempts,
-            backoff: options.backoff,
-            initialDelay: options.initialDelay ?? options.delay,
-            maxDelay: options.maxDelay,
-            jitter: options.jitter,
-            shouldRetry: (options.shouldRetry ?? options.retryIf) as RetryOptions["shouldRetry"],
-            onRetry: options.onRetry as RetryOptions["onRetry"],
-        },
-        timeout: options.timeout,
-      });
-    };
-
-    // step.withTimeout: Execute an operation with a timeout
-    stepFn.withTimeout = <T, StepE = unknown>(
-      id: string,
-      operation:
-        | (() => Result<T, StepE> | AsyncResult<T, StepE>)
-        | ((signal: AbortSignal) => Result<T, StepE> | AsyncResult<T, StepE>),
-      options: TimeoutOptions & { key?: string }
-    ): Promise<T> => {
-      // Validate required string ID
-      if (typeof id !== 'string' || id.length === 0) {
-        throw new Error(
-          '[awaitly] step.withTimeout() requires an explicit string ID as the first argument. ' +
-          'Example: step.withTimeout("slowOp", () => slowOp(), { ms: 5000 })'
-        );
-      }
-
-      // Delegate to stepFn with timeout options
-      // The signal handling happens in executeWithTimeout when timeout.signal is true
-      // Use key for caching if provided, otherwise use id
-      return stepFn(
-        id,
-        operation as () => Result<T, StepE> | AsyncResult<T, StepE>,
-        {
-          key: options.key ?? id,
-          timeout: options,
-        }
-      );
-    };
-
-    // step.sleep: Pause execution for a specified duration
-    stepFn.sleep = (
-      id: string,
-      duration: DurationInput,
-      options?: { key?: string; ttl?: number; description?: string; signal?: AbortSignal }
-    ): Promise<void> => {
-      // Validate required string ID
-      if (typeof id !== 'string' || id.length === 0) {
-        throw new Error(
-          '[awaitly] step.sleep() requires an explicit string ID as the first argument. ' +
-          'Example: step.sleep("delay", "5s")'
-        );
-      }
-
-      // Parse duration - inline to avoid importing duration module
-      const d = typeof duration === "string" ? parseDurationString(duration) : duration;
-      if (!d) {
-        throw new Error(`step.sleep: invalid duration '${duration}'`);
-      }
-      const ms = d.millis;
-      const userSignal = options?.signal;
-
-      // Delegate to stepFn with a cancellation-aware sleep operation
-      // Use key for caching if provided, otherwise use id
-      return stepFn(
-        id,
-        async (): AsyncResult<void, never> => {
-          // Check if already aborted (workflow or user signal)
-          if (_workflowSignal?.aborted || userSignal?.aborted) {
-            const e = new Error("Sleep aborted");
-            e.name = "AbortError";
-            throw e;
-          }
-
-          return new Promise<Result<void, never>>((resolve, reject) => {
-            // Using object to avoid prefer-const warning while allowing
-            // onAbort to reference the timeout before it's assigned
-            const state = { timeoutId: undefined as ReturnType<typeof setTimeout> | undefined };
-
-            const onAbort = () => {
-              if (state.timeoutId) clearTimeout(state.timeoutId);
-              const e = new Error("Sleep aborted");
-              e.name = "AbortError";
-              reject(e);
-            };
-
-            _workflowSignal?.addEventListener("abort", onAbort, { once: true });
-            userSignal?.addEventListener("abort", onAbort, { once: true });
-
-            state.timeoutId = setTimeout(() => {
-              _workflowSignal?.removeEventListener("abort", onAbort);
-              userSignal?.removeEventListener("abort", onAbort);
-              resolve(ok(undefined));
-            }, ms);
-          });
-        },
-        {
-          key: options?.key ?? id,
-          description: options?.description,
-        }
-      );
-    };
-
-    // step.all: Execute parallel operations with scope events
-    // 1. Object form: step.all(name, { key: fn | { fn, errors } })
-    // 2. Array form: step.all(name, () => allAsync([...]))
-    stepFn.all = ((...args: unknown[]): Promise<unknown> => {
-      if (typeof args[0] !== "string") {
-        throw new TypeError(
-          "step.all(name, ...): first argument must be a string (step name). Example: step.all('Fetch data', { user: () => fetchUser(), posts: () => fetchPosts() })"
-        );
-      }
-      const name = args[0] as string;
-      const second = args[1];
-      if (typeof second === "function") {
-        return executeParallelArray(name, second as () => MaybeAsyncResult<unknown[], unknown>);
-      }
-      if (second && typeof second === "object" && !Array.isArray(second)) {
-        const rawOperations = second as Record<string, (() => MaybeAsyncResult<unknown, unknown>) | ParallelOperationDescriptor<unknown, readonly string[]>>;
-        const normalizedOperations = normalizeParallelOperations(rawOperations);
-        return executeParallelNamed(normalizedOperations, { name });
-      }
-      throw new TypeError(
-        "step.all(name, ...): second argument must be a function (array form) or an object of operations (object form)."
-      );
-    }) as RunStep<E>["all"];
-
-    function normalizeParallelOperations(
-      rawOperations: Record<string, (() => MaybeAsyncResult<unknown, unknown>) | ParallelOperationDescriptor<unknown, readonly string[]>>
-    ): Record<string, () => MaybeAsyncResult<unknown, unknown>> {
-      const out: Record<string, () => MaybeAsyncResult<unknown, unknown>> = {};
-      for (const [key, value] of Object.entries(rawOperations)) {
-        if (typeof value === "function") {
-          out[key] = value;
-        } else if (value && typeof value === "object" && "fn" in value) {
-          out[key] = value.fn;
-        } else {
-          throw new TypeError(`step.all: operation "${key}" must be a function or { fn, errors? } object`);
-        }
-      }
-      return out;
-    }
-
-    // Array form implementation
-    function executeParallelArray<T>(
-      name: string,
-      operation: () => MaybeAsyncResult<T[], unknown>
-    ): Promise<T[]> {
-      const scopeId = `scope_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-      return (async () => {
-        const startTime = performance.now();
-        let scopeEnded = false;
-
-        // Push this scope onto the stack for proper nesting tracking
-        activeScopeStack.push({ scopeId, type: "parallel" });
-
-        // Helper to emit scope_end exactly once
-        const emitScopeEnd = () => {
-          if (scopeEnded) return;
-          scopeEnded = true;
-          // Pop this scope from the stack
-          const idx = activeScopeStack.findIndex(s => s.scopeId === scopeId);
-          if (idx !== -1) activeScopeStack.splice(idx, 1);
-          emitEvent({
-            type: "scope_end",
-            workflowId,
-            scopeId,
-            ts: Date.now(),
-            durationMs: performance.now() - startTime,
-          });
-        };
-
-        // Emit scope_start event
-        emitEvent({
-          type: "scope_start",
-          workflowId,
-          scopeId,
-          scopeType: "parallel",
-          name,
-          ts: Date.now(),
-        });
-
-        try {
-          const result = await operation();
-
-          // Emit scope_end before processing result
-          emitScopeEnd();
-
-          if (!result.ok) {
-            onError?.(result.error as unknown as E, name, context);
-            throw earlyExit(result.error as unknown as E, {
-              origin: "result",
-              resultCause: result.cause,
-            });
-          }
-
-          return result.value;
-        } catch (error) {
-          // Always emit scope_end in finally-like fashion
-          emitScopeEnd();
-          throw error;
-        }
-      })();
-    }
-
-    // Named object form implementation - execute each operation in parallel
-    function executeParallelNamed<T extends Record<string, unknown>>(
-      operations: Record<string, () => MaybeAsyncResult<unknown, unknown>>,
-      options: { name?: string }
-    ): Promise<T> {
-      const keys = Object.keys(operations);
-      const name = options.name ?? `Parallel(${keys.join(", ")})`;
-      const scopeId = `scope_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-      return (async () => {
-        const startTime = performance.now();
-        let scopeEnded = false;
-
-        // Push this scope onto the stack for proper nesting tracking
-        activeScopeStack.push({ scopeId, type: "parallel" });
-
-        // Helper to emit scope_end exactly once
-        const emitScopeEnd = () => {
-          if (scopeEnded) return;
-          scopeEnded = true;
-          const idx = activeScopeStack.findIndex(s => s.scopeId === scopeId);
-          if (idx !== -1) activeScopeStack.splice(idx, 1);
-          emitEvent({
-            type: "scope_end",
-            workflowId,
-            scopeId,
-            ts: Date.now(),
-            durationMs: performance.now() - startTime,
-          });
-        };
-
-        // Emit scope_start event with operation names in metadata
-        emitEvent({
-          type: "scope_start",
-          workflowId,
-          scopeId,
-          scopeType: "parallel",
-          name,
-          ts: Date.now(),
-        });
-
-        try {
-          // Execute all operations in parallel, fail-fast on first error
-          const results = await new Promise<{ key: string; result: Result<unknown, unknown> }[]>((resolve) => {
-            if (keys.length === 0) {
-              resolve([]);
-              return;
-            }
-
-            let settled = false;
-            let pendingCount = keys.length;
-            const resultArray: { key: string; result: Result<unknown, unknown> }[] = new Array(keys.length);
-
-            for (let i = 0; i < keys.length; i++) {
-              const key = keys[i];
-              const index = i;
-
-              Promise.resolve(operations[key]())
-                .catch((reason) => err(
-                  { type: "PROMISE_REJECTED" as const, cause: reason },
-                  { cause: { type: "PROMISE_REJECTION" as const, reason } }
-                ))
-                .then((result) => {
-                  if (settled) return;
-
-                  // Fail-fast: if any operation fails, resolve immediately with just the failed entry
-                  if (!result.ok) {
-                    settled = true;
-                    resolve([{ key, result }]);
-                    return;
-                  }
-
-                  resultArray[index] = { key, result };
-                  pendingCount--;
-
-                  if (pendingCount === 0) {
-                    resolve(resultArray);
-                  }
-                });
-            }
-          });
-
-          // Emit scope_end before processing results
-          emitScopeEnd();
-
-          // Check for errors and build result object
-          const output: Record<string, unknown> = {};
-          for (const { key, result } of results) {
-            if (!result.ok) {
-              onError?.(result.error as unknown as E, key, context);
-              throw earlyExit(result.error as unknown as E, {
-                origin: "result",
-                resultCause: result.cause,
-              });
-            }
-            output[key] = result.value;
-          }
-
-          return output as T;
-        } catch (error) {
-          // Always emit scope_end in finally-like fashion
-          emitScopeEnd();
-          throw error;
-        }
-      })();
-    }
-
-    // step.race: Execute a race operation with scope events
-    stepFn.race = <T, StepE>(
-      name: string,
-      operation: () => Result<T, StepE> | AsyncResult<T, StepE>
-    ): Promise<T> => {
-      const scopeId = `scope_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-      return (async () => {
-        const startTime = performance.now();
-        let scopeEnded = false;
-
-        // Push this race scope onto the stack to track the first successful step as winner
-        const scopeEntry = { scopeId, type: "race" as const, winnerId: undefined as string | undefined };
-        activeScopeStack.push(scopeEntry);
-
-        // Helper to emit scope_end exactly once, including winnerId
-        const emitScopeEnd = () => {
-          if (scopeEnded) return;
-          scopeEnded = true;
-          // Pop this scope from the stack
-          const idx = activeScopeStack.findIndex(s => s.scopeId === scopeId);
-          if (idx !== -1) activeScopeStack.splice(idx, 1);
-          emitEvent({
-            type: "scope_end",
-            workflowId,
-            scopeId,
-            ts: Date.now(),
-            durationMs: performance.now() - startTime,
-            winnerId: scopeEntry.winnerId,
-          });
-        };
-
-        // Emit scope_start event
-        emitEvent({
-          type: "scope_start",
-          workflowId,
-          scopeId,
-          scopeType: "race",
-          name,
-          ts: Date.now(),
-        });
-
-        try {
-          const result = await operation();
-
-          // Emit scope_end before processing result
-          emitScopeEnd();
-
-          if (!result.ok) {
-            onError?.(result.error as unknown as E, name, context);
-            throw earlyExit(result.error as unknown as E, {
-              origin: "result",
-              resultCause: result.cause,
-            });
-          }
-
-          return result.value;
-        } catch (error) {
-          // Always emit scope_end in finally-like fashion
-          emitScopeEnd();
-          throw error;
-        }
-      })();
-    };
-
-    // step.if: Mark a conditional for static analysis
-    // Runtime: executes the condition and emits a decision event so
-    // visualizers see which branch fired without manual instrumentation
-    // Analyzer: extracts the id and conditionLabel for DecisionNode
-    stepFn.if = <T extends boolean>(
-      id: string,
-      conditionLabel: string,
-      condition: () => T
-    ): T => {
-      assertDeclared(id, "decision");
-      const value = condition();
-      emitEvent({
-        type: "decision",
-        workflowId,
-        decisionId: id,
-        label: conditionLabel,
-        branch: value ? "then" : "else",
-        value,
-        ts: Date.now(),
-      });
-      return value;
-    };
-
-    // step.label: Alias for step.if - mark a conditional for static analysis
-    // Use step.label for strict mode when conditionals contain step calls
-    stepFn.label = stepFn.if;
-
-    // step.branch: Execute a branch with explicit metadata for static analysis
-    // Runtime: evaluates condition and executes appropriate arm
-    // Analyzer: extracts branch metadata (conditionLabel, per-arm errors, out)
-    stepFn.branch = async <
-      T,
-      const ThenErrs extends readonly string[] = readonly [],
-      const ElseErrs extends readonly string[] = readonly [],
-      const Out extends string | undefined = undefined,
-    >(
-      id: string,
-      options: BranchOptions<T, ThenErrs, ElseErrs, Out>
-    ): Promise<T> => {
-      const { condition, then: thenFn, else: elseFn } = options;
-      assertDeclared(id, "decision");
-      const conditionResult = condition();
-      const branch = conditionResult ? "then" : "else";
-      const startTime = performance.now();
-      // step.branch owns arm execution, so the decision is a real scope:
-      // phase "start" before the arm runs, phase "end" after it settles.
-      // Visualizers nest the arm's steps inside the taken branch.
-      emitEvent({
-        type: "decision",
-        workflowId,
-        decisionId: id,
-        label: options.conditionLabel,
-        branch,
-        value: conditionResult,
-        phase: "start",
-        ts: Date.now(),
-      });
-      const emitEnd = () => {
-        emitEvent({
-          type: "decision",
-          workflowId,
-          decisionId: id,
-          label: options.conditionLabel,
-          branch,
-          value: conditionResult,
-          phase: "end",
-          durationMs: performance.now() - startTime,
-          ts: Date.now(),
-        });
+          };
+          return traceStep(stepId, stepKey, stepName, executeStep);
+        })();
       };
-      try {
-        if (conditionResult) {
-          return await thenFn();
-        } else if (elseFn) {
-          return await elseFn();
+
+      stepFn.try = <T, Err>(
+        id: string,
+        operation: () => T | Promise<T>,
+        opts:
+          | {
+              error: Err;
+              key?: string;
+              ttl?: number;
+              retry?: RetryOptions<Err>;
+              timeout?: TimeoutOptions;
+              compensate?: CompensationAction<T>;
+            }
+          | {
+              onError: (cause: unknown) => Err;
+              key?: string;
+              ttl?: number;
+              retry?: RetryOptions<Err>;
+              timeout?: TimeoutOptions;
+              compensate?: CompensationAction<T>;
+            }
+      ): Promise<T> => {
+        // Validate required string ID
+        if (typeof id !== 'string' || id.length === 0) {
+          throw new Error(
+            '[awaitly] step.try() requires an explicit string ID as the first argument. ' +
+            'Example: step.try("parse", () => JSON.parse(str), { error: "PARSE_ERROR" })'
+          );
         }
-        return undefined as T;
-      } finally {
-        emitEnd();
-      }
-    };
+        assertDeclared(id, "step");
 
-    // step.arm: Create an arm definition for use with step.branch
-    // Runtime: returns the arm definition unchanged
-    // Analyzer: extracts arm metadata
-    stepFn.arm = <T, const Errs extends readonly string[] = readonly []>(
-      fn: () => T | Promise<T>,
-      errors?: Errs
-    ): ArmDefinition<T, Errs> => {
-      return { fn, errors };
-    };
+        const mapToError = "error" in opts ? () => opts.error : opts.onError;
 
-    // step.forEach: Execute a forEach loop with static analysis support
-    // Supports both simple (run) and complex (item) forms
-    stepFn.forEach = async <T, R>(
-      _id: string,
-      items: Iterable<T> | AsyncIterable<T>,
-      options: ForEachRunOptions<T, R, readonly string[]> | ForEachItemOptions<T, R>
-    ): Promise<R[]> => {
-      const results: R[] = [];
-      const maxIterations = options.maxIterations;
-      let index = 0;
-
-      // Check if this is the run form or item form
-      const isRunForm = 'run' in options;
-
-      // Convert items to async iterable for uniform handling
-      const asyncItems = Symbol.asyncIterator in (items as object)
-        ? (items as AsyncIterable<T>)
-        : (async function* () { yield* items as Iterable<T>; })();
-
-      for await (const item of asyncItems) {
-        if (maxIterations !== undefined && index >= maxIterations) {
-          break;
-        }
-
-        let result: R;
-        if (isRunForm) {
-          const runOptions = options as ForEachRunOptions<T, R, readonly string[]>;
-          result = await runOptions.run(item, index);
-        } else {
-          const itemOptions = options as ForEachItemOptions<T, R>;
-          result = await itemOptions.item.handler(item, index, stepFn as unknown as RunStep<unknown>);
-        }
-
-        results.push(result);
-        index++;
-      }
-
-      return results;
-    };
-
-    // step.item: Create an item handler for use with step.forEach
-    // Runtime: returns the handler wrapped in a marker object
-    // Analyzer: extracts the inner step structure
-    stepFn.item = <T, R>(
-      handler: (item: T, index: number, step: RunStep<unknown>) => R | Promise<R>
-    ): ForEachItemHandler<T, R> => {
-      return {
-        __forEachItemHandler: true as const,
-        handler,
-      };
-    };
-
-    // step.dep: Wrap a dependency function for static analysis tracking
-    // Runtime: returns the function unchanged
-    // Analyzer: records the dependency name
-    stepFn.dep = <T extends (...args: unknown[]) => unknown>(
-      _name: string,
-      fn: T
-    ): T => {
-      return fn;
-    };
-
-    // ===========================================================================
-    // Effect-Style Ergonomics
-    // ===========================================================================
-
-    // step.workflow: Run sub-workflow (or any AsyncResult getter) as a step; same engine as step(id, getter, opts)
-    stepFn.workflow = <T, SubE = unknown>(
-      id: string,
-      getter: () => AsyncResult<T, SubE>,
-      options?: StepOptions
-    ): Promise<T> => {
-      return stepFn(id, getter as () => AsyncResult<T, E>, options);
-    };
-
-    // step.map: Map over array with parallel execution
-    stepFn.map = async <T, U, StepE = unknown>(
-      id: string,
-      items: T[],
-      mapper: (item: T, index: number) => AsyncResult<U, StepE>,
-      options?: { concurrency?: number; key?: string }
-    ): Promise<U[]> => {
-      const concurrency = options?.concurrency ?? items.length;
-
-      // Use allAsync for parallel execution with fail-fast
-      return stepFn(
-        id,
-        () => {
-          if (concurrency >= items.length) {
-            // Full parallelism - execute all at once
-            return allAsync(items.map((item, index) => mapper(item, index)));
-          } else {
-            // Limited concurrency - batch execution
-            return (async () => {
-              const results: U[] = [];
-              for (let i = 0; i < items.length; i += concurrency) {
-                const batch = items.slice(i, i + concurrency);
-                const batchResult = await allAsync(
-                  batch.map((item, batchIndex) => mapper(item, i + batchIndex))
-                );
-                // allAsync returns Result<U[], E>, so we need to check if it's ok
-                if (!batchResult.ok) {
-                  return batchResult; // Propagate the error
-                }
-                results.push(...batchResult.value);
+        // If retry or timeout is requested, delegate to step.retry (which handles both).
+        if (opts.retry || opts.timeout) {
+          return stepFn.retry(
+            id,
+            async () => {
+              try {
+                return ok(await operation());
+              } catch (cause) {
+                return err(mapToError(cause), { cause });
               }
-              return ok(results);
-            })();
-          }
-        },
-        { key: options?.key }
-      );
-    };
-
-    // step.withFallback: Execute primary with fallback on error
-    stepFn.withFallback = <T, E1, E2>(
-      id: string,
-      operation: () => AsyncResult<T, E1>,
-      options: { on?: E1 & string; fallback: () => AsyncResult<T, E2>; key?: string }
-    ): Promise<T> => {
-      if (typeof id !== 'string' || id.length === 0) {
-        throw new Error(
-          '[awaitly] step.withFallback() requires an explicit string ID as the first argument. ' +
-          'Example: step.withFallback("getUser", () => fetchUser(id), { fallback: () => fetchFromCache(id) })'
-        );
-      }
-      assertDeclared(id, "step");
-
-      const stepKey = options.key ?? id;
-      const stepName = id;
-      const stepId = generateStepId(stepKey);
-      const hasEventListeners = onEvent;
-
-      return (async () => {
-        const startTime = hasEventListeners ? performance.now() : 0;
-
-        if (onEvent) {
-          emitEvent({
-            type: "step_start",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-          });
+            },
+            {
+              attempts: opts.retry?.attempts ?? 1,
+              ...(opts.retry ?? {}),
+              key: opts.key,
+              timeout: opts.timeout,
+            }
+          );
         }
 
-        // Try the primary operation
-        let primaryResult: Result<T, E1>;
-        try {
-          primaryResult = await operation();
-        } catch (thrown) {
-          // If it's an earlyExit from a nested step, propagate
-          if (isEarlyExitE(thrown)) {
+        const stepKey = opts.key ?? id; // Use id as key if not provided
+        const stepName = id; // Name is always the id
+        const stepId = id;
+        const hasEventListeners = onEvent;
+
+        const executeStep = async () => {
+          const startTime = hasEventListeners ? performance.now() : 0;
+
+          if (onEvent) {
             emitEvent({
-              type: "step_aborted",
+              type: "step_start",
               workflowId,
               stepId,
               stepKey,
               name: stepName,
               ts: Date.now(),
-              durationMs: performance.now() - startTime,
             });
-            throw thrown;
           }
 
-          // Primary threw — map to UnexpectedError
-          let mappedError: E | UnexpectedError;
           try {
-            mappedError = effectiveCatchUnexpected(thrown) as E | UnexpectedError;
-          } catch (mapperError) {
-            throw createMapperException(mapperError);
-          }
-
-          // If `on` is specified, only run fallback if it matches the mapped error
-          if (options.on !== undefined && options.on !== mappedError) {
+            const value = await operation();
             const durationMs = performance.now() - startTime;
             emitEvent({
-              type: "step_error",
+              type: "step_success",
               workflowId,
               stepId,
               stepKey,
               name: stepName,
               ts: Date.now(),
               durationMs,
-              error: mappedError,
             });
+            // Emit step_complete for keyed steps (for state persistence)
             if (stepKey) {
               emitEvent({
                 type: "step_complete",
@@ -4541,20 +3806,809 @@ async function runFn<T, E, C = void>(
                 name: stepName,
                 ts: Date.now(),
                 durationMs,
-                result: err(mappedError, { cause: thrown }),
-                meta: { origin: "throw", thrown },
+                result: ok(value),
               });
             }
-            onError?.(mappedError as E, stepName, context);
-            throw earlyExit(mappedError as E, { origin: "throw", thrown });
+            return value;
+          } catch (error) {
+            const mapped = mapToError(error);
+            const durationMs = performance.now() - startTime;
+            const wrappedError = wrapForStep(mapped, { origin: "throw", thrown: error });
+            emitEvent({
+              type: "step_error",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              error: wrappedError,
+            });
+            // Emit step_complete for keyed steps (for state persistence)
+            // Note: For step.try errors, we encode the mapped error, not the original thrown
+            if (stepKey) {
+              emitEvent({
+                type: "step_complete",
+                workflowId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                result: err(mapped, { cause: error }),
+                meta: { origin: "throw", thrown: error },
+              });
+            }
+            onError?.(wrappedError as unknown as E, stepName, context);
+            throw earlyExit(wrappedError as unknown as E, { origin: "throw", thrown: error });
+          }
+        };
+        return traceStep(stepId, stepKey, stepName, executeStep);
+      };
+
+      // step.fromResult: Execute a Result-returning function and map its typed error
+      stepFn.fromResult = <T, ResultE, Err>(
+        id: string,
+        operation: () => Result<T, ResultE> | AsyncResult<T, ResultE>,
+        opts:
+          | { error: Err; key?: string }
+          | { onError: (resultError: ResultE) => Err; key?: string }
+      ): Promise<T> => {
+        // Validate required string ID
+        if (typeof id !== 'string' || id.length === 0) {
+          throw new Error(
+            '[awaitly] step.fromResult() requires an explicit string ID as the first argument. ' +
+            'Example: step.fromResult("callProvider", () => callProvider(input), { onError: (e) => ({ type: "FAILED" }) })'
+          );
+        }
+        assertDeclared(id, "step");
+
+        const stepKey = opts.key ?? id; // Use id as key if not provided
+        const stepName = id; // Name is always the id
+        const stepId = id;
+        const mapToError = "error" in opts ? () => opts.error : opts.onError;
+        const hasEventListeners = onEvent;
+
+        const executeStep = async () => {
+          const startTime = hasEventListeners ? performance.now() : 0;
+
+          if (onEvent) {
+            emitEvent({
+              type: "step_start",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+            });
           }
 
-          // Run fallback for thrown error
-          let fallbackResultFromThrow: Result<T, E2>;
+          const result = await operation();
+
+          if (result.ok) {
+            const durationMs = performance.now() - startTime;
+            emitEvent({
+              type: "step_success",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+            });
+            // Emit step_complete for keyed steps (for state persistence)
+            if (stepKey) {
+              emitEvent({
+                type: "step_complete",
+                workflowId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                result: ok(result.value),
+              });
+            }
+            return result.value;
+          } else {
+            const mapped = mapToError(result.error);
+            const durationMs = performance.now() - startTime;
+            // For fromResult, the cause is the original result.error (what got mapped)
+            // This is analogous to step.try using thrown exception as cause
+            const wrappedError = wrapForStep(mapped, {
+              origin: "result",
+              resultCause: result.error,
+            });
+            emitEvent({
+              type: "step_error",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              error: wrappedError,
+            });
+            // Emit step_complete for keyed steps (for state persistence)
+            if (stepKey) {
+              emitEvent({
+                type: "step_complete",
+                workflowId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                result: err(mapped, { cause: result.error }),
+                meta: { origin: "result", resultCause: result.error },
+              });
+            }
+            onError?.(wrappedError as unknown as E, stepName, context);
+            throw earlyExit(wrappedError as unknown as E, {
+              origin: "result",
+              resultCause: result.error,
+            });
+          }
+        };
+        return traceStep(stepId, stepKey, stepName, executeStep);
+      };
+
+      // step.fromNullable: Execute an operation returning T | null/undefined and convert to typed error
+      stepFn.fromNullable = <T, Err>(
+        id: string,
+        operation: () => T | null | undefined | Promise<T | null | undefined>,
+        onNull: () => Err,
+        options?: { key?: string; ttl?: number }
+      ): Promise<T> => {
+        if (typeof id !== 'string' || id.length === 0) {
+          throw new Error(
+            '[awaitly] step.fromNullable() requires an explicit string ID as the first argument. ' +
+            'Example: step.fromNullable("getUser", () => db.find(id), () => ({ type: "NOT_FOUND" }))'
+          );
+        }
+        return stepFn(
+          id,
+          async () => {
+            const value = await operation();
+            return value != null ? ok(value) : err(onNull());
+          },
+          options
+        );
+      };
+
+      // step.retry: Execute an operation with retry and optional timeout
+      stepFn.retry = <T, StepE = unknown>(
+        id: string,
+        operation: () => Result<T, StepE> | AsyncResult<T, StepE>,
+        options: RetryOptions<StepE> & { key?: string; timeout?: TimeoutOptions }
+      ): Promise<T> => {
+        // Validate required string ID
+        if (typeof id !== 'string' || id.length === 0) {
+          throw new Error(
+            '[awaitly] step.retry() requires an explicit string ID as the first argument. ' +
+            'Example: step.retry("fetchData", () => fetchData(), { attempts: 3 })'
+          );
+        }
+
+        // Delegate to stepFn with retry options merged into StepOptions
+        // Use key for caching if provided, otherwise use id
+        return stepFn(id, operation, {
+          key: options.key ?? id,
+            retry: {
+              attempts: options.attempts,
+              backoff: options.backoff,
+              initialDelay: options.initialDelay ?? options.delay,
+              maxDelay: options.maxDelay,
+              jitter: options.jitter,
+              shouldRetry: (options.shouldRetry ?? options.retryIf) as RetryOptions["shouldRetry"],
+              onRetry: options.onRetry as RetryOptions["onRetry"],
+          },
+          timeout: options.timeout,
+        });
+      };
+
+      // step.withTimeout: Execute an operation with a timeout
+      stepFn.withTimeout = <T, StepE = unknown>(
+        id: string,
+        operation:
+          | (() => Result<T, StepE> | AsyncResult<T, StepE>)
+          | ((signal: AbortSignal) => Result<T, StepE> | AsyncResult<T, StepE>),
+        options: TimeoutOptions & { key?: string }
+      ): Promise<T> => {
+        // Validate required string ID
+        if (typeof id !== 'string' || id.length === 0) {
+          throw new Error(
+            '[awaitly] step.withTimeout() requires an explicit string ID as the first argument. ' +
+            'Example: step.withTimeout("slowOp", () => slowOp(), { ms: 5000 })'
+          );
+        }
+
+        // Delegate to stepFn with timeout options
+        // The signal handling happens in executeWithTimeout when timeout.signal is true
+        // Use key for caching if provided, otherwise use id
+        return stepFn(
+          id,
+          operation as () => Result<T, StepE> | AsyncResult<T, StepE>,
+          {
+            key: options.key ?? id,
+            timeout: options,
+          }
+        );
+      };
+
+      // step.sleep: Pause execution for a specified duration
+      stepFn.sleep = (
+        id: string,
+        duration: DurationInput,
+        options?: { key?: string; ttl?: number; description?: string; signal?: AbortSignal }
+      ): Promise<void> => {
+        // Validate required string ID
+        if (typeof id !== 'string' || id.length === 0) {
+          throw new Error(
+            '[awaitly] step.sleep() requires an explicit string ID as the first argument. ' +
+            'Example: step.sleep("delay", "5s")'
+          );
+        }
+
+        // Parse duration - inline to avoid importing duration module
+        const d = typeof duration === "string" ? parseDurationString(duration) : duration;
+        if (!d) {
+          throw new Error(`step.sleep: invalid duration '${duration}'`);
+        }
+        const ms = d.millis;
+        const userSignal = options?.signal;
+
+        // Delegate to stepFn with a cancellation-aware sleep operation
+        // Use key for caching if provided, otherwise use id
+        return stepFn(
+          id,
+          async (): AsyncResult<void, never> => {
+            const signals = [_workflowSignal, userSignal].filter(
+              (s): s is AbortSignal => s != null
+            );
+            if (signals.some((s) => s.aborted)) {
+              throw abortError();
+            }
+            const combined =
+              signals.length === 0
+                ? undefined
+                : signals.length === 1
+                  ? signals[0]
+                  : AbortSignal.any(signals);
+            await clock.sleep(ms, combined);
+            if (combined?.aborted) {
+              throw abortError();
+            }
+            return ok(undefined);
+          },
+          {
+            key: options?.key ?? id,
+            description: options?.description,
+          }
+        );
+      };
+
+      // step.all: Execute parallel operations with scope events
+      // 1. Object form: step.all(name, { key: fn | { fn, errors } })
+      // 2. Array form: step.all(name, () => allAsync([...]))
+      stepFn.all = ((...args: unknown[]): Promise<unknown> => {
+        if (typeof args[0] !== "string") {
+          throw new TypeError(
+            "step.all(name, ...): first argument must be a string (step name). Example: step.all('Fetch data', { user: () => fetchUser(), posts: () => fetchPosts() })"
+          );
+        }
+        const name = args[0] as string;
+        const second = args[1];
+        if (typeof second === "function") {
+          return executeParallelArray(name, second as () => MaybeAsyncResult<unknown[], unknown>);
+        }
+        if (second && typeof second === "object" && !Array.isArray(second)) {
+          const rawOperations = second as Record<string, (() => MaybeAsyncResult<unknown, unknown>) | ParallelOperationDescriptor<unknown, readonly string[]>>;
+          const normalizedOperations = normalizeParallelOperations(rawOperations);
+          return executeParallelNamed(normalizedOperations, { name });
+        }
+        throw new TypeError(
+          "step.all(name, ...): second argument must be a function (array form) or an object of operations (object form)."
+        );
+      }) as RunStep<E>["all"];
+
+      function normalizeParallelOperations(
+        rawOperations: Record<string, (() => MaybeAsyncResult<unknown, unknown>) | ParallelOperationDescriptor<unknown, readonly string[]>>
+      ): Record<string, () => MaybeAsyncResult<unknown, unknown>> {
+        const out: Record<string, () => MaybeAsyncResult<unknown, unknown>> = {};
+        for (const [key, value] of Object.entries(rawOperations)) {
+          if (typeof value === "function") {
+            out[key] = value;
+          } else if (value && typeof value === "object" && "fn" in value) {
+            out[key] = value.fn;
+          } else {
+            throw new TypeError(`step.all: operation "${key}" must be a function or { fn, errors? } object`);
+          }
+        }
+        return out;
+      }
+
+      // Array form implementation
+      function executeParallelArray<T>(
+        name: string,
+        operation: () => MaybeAsyncResult<T[], unknown>
+      ): Promise<T[]> {
+        const scopeId = `scope_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+        const executeScope = async () => {
+          const startTime = performance.now();
+          let scopeEnded = false;
+
+          // Push this scope onto the stack for proper nesting tracking
+          activeScopeStack.push({ scopeId, type: "parallel" });
+
+          // Helper to emit scope_end exactly once
+          const emitScopeEnd = () => {
+            if (scopeEnded) return;
+            scopeEnded = true;
+            // Pop this scope from the stack
+            const idx = activeScopeStack.findIndex(s => s.scopeId === scopeId);
+            if (idx !== -1) activeScopeStack.splice(idx, 1);
+            emitEvent({
+              type: "scope_end",
+              workflowId,
+              scopeId,
+              ts: Date.now(),
+              durationMs: performance.now() - startTime,
+            });
+          };
+
+          // Emit scope_start event
+          emitEvent({
+            type: "scope_start",
+            workflowId,
+            scopeId,
+            scopeType: "parallel",
+            name,
+            ts: Date.now(),
+          });
+
           try {
-            fallbackResultFromThrow = await options.fallback();
-          } catch (fallbackThrown) {
-            if (isEarlyExitE(fallbackThrown)) {
+            const result = await operation();
+
+            // Emit scope_end before processing result
+            emitScopeEnd();
+
+            if (!result.ok) {
+              onError?.(result.error as unknown as E, name, context);
+              throw earlyExit(result.error as unknown as E, {
+                origin: "result",
+                resultCause: result.cause,
+              });
+            }
+
+            return result.value;
+          } catch (error) {
+            // Always emit scope_end in finally-like fashion
+            emitScopeEnd();
+            throw error;
+          }
+        };
+        return traceScope(scopeId, name, "parallel", executeScope);
+      }
+
+      // Named object form implementation - execute each operation in parallel
+      function executeParallelNamed<T extends Record<string, unknown>>(
+        operations: Record<string, () => MaybeAsyncResult<unknown, unknown>>,
+        options: { name?: string }
+      ): Promise<T> {
+        const keys = Object.keys(operations);
+        const name = options.name ?? `Parallel(${keys.join(", ")})`;
+        const scopeId = `scope_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+        const executeScope = async () => {
+          const startTime = performance.now();
+          let scopeEnded = false;
+
+          // Push this scope onto the stack for proper nesting tracking
+          activeScopeStack.push({ scopeId, type: "parallel" });
+
+          // Helper to emit scope_end exactly once
+          const emitScopeEnd = () => {
+            if (scopeEnded) return;
+            scopeEnded = true;
+            const idx = activeScopeStack.findIndex(s => s.scopeId === scopeId);
+            if (idx !== -1) activeScopeStack.splice(idx, 1);
+            emitEvent({
+              type: "scope_end",
+              workflowId,
+              scopeId,
+              ts: Date.now(),
+              durationMs: performance.now() - startTime,
+            });
+          };
+
+          // Emit scope_start event with operation names in metadata
+          emitEvent({
+            type: "scope_start",
+            workflowId,
+            scopeId,
+            scopeType: "parallel",
+            name,
+            ts: Date.now(),
+          });
+
+          try {
+            // Execute all operations in parallel, fail-fast on first error
+            const results = await new Promise<{ key: string; result: Result<unknown, unknown> }[]>((resolve) => {
+              if (keys.length === 0) {
+                resolve([]);
+                return;
+              }
+
+              let settled = false;
+              let pendingCount = keys.length;
+              const resultArray: { key: string; result: Result<unknown, unknown> }[] = new Array(keys.length);
+
+              for (let i = 0; i < keys.length; i++) {
+                const key = keys[i];
+                const index = i;
+
+                Promise.resolve(operations[key]())
+                  .catch((reason) => err(
+                    { type: "PROMISE_REJECTED" as const, cause: reason },
+                    { cause: { type: "PROMISE_REJECTION" as const, reason } }
+                  ))
+                  .then((result) => {
+                    if (settled) return;
+
+                    // Fail-fast: if any operation fails, resolve immediately with just the failed entry
+                    if (!result.ok) {
+                      settled = true;
+                      resolve([{ key, result }]);
+                      return;
+                    }
+
+                    resultArray[index] = { key, result };
+                    pendingCount--;
+
+                    if (pendingCount === 0) {
+                      resolve(resultArray);
+                    }
+                  });
+              }
+            });
+
+            // Emit scope_end before processing results
+            emitScopeEnd();
+
+            // Check for errors and build result object
+            const output: Record<string, unknown> = {};
+            for (const { key, result } of results) {
+              if (!result.ok) {
+                onError?.(result.error as unknown as E, key, context);
+                throw earlyExit(result.error as unknown as E, {
+                  origin: "result",
+                  resultCause: result.cause,
+                });
+              }
+              output[key] = result.value;
+            }
+
+            return output as T;
+          } catch (error) {
+            // Always emit scope_end in finally-like fashion
+            emitScopeEnd();
+            throw error;
+          }
+        };
+        return traceScope(scopeId, name, "parallel", executeScope);
+      }
+
+      // step.race: Execute a race operation with scope events
+      stepFn.race = <T, StepE>(
+        name: string,
+        operation: () => Result<T, StepE> | AsyncResult<T, StepE>
+      ): Promise<T> => {
+        const scopeId = `scope_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+        const executeScope = async () => {
+          const startTime = performance.now();
+          let scopeEnded = false;
+
+          // Push this race scope onto the stack to track the first successful step as winner
+          const scopeEntry = { scopeId, type: "race" as const, winnerId: undefined as string | undefined };
+          activeScopeStack.push(scopeEntry);
+
+          // Helper to emit scope_end exactly once, including winnerId
+          const emitScopeEnd = () => {
+            if (scopeEnded) return;
+            scopeEnded = true;
+            // Pop this scope from the stack
+            const idx = activeScopeStack.findIndex(s => s.scopeId === scopeId);
+            if (idx !== -1) activeScopeStack.splice(idx, 1);
+            emitEvent({
+              type: "scope_end",
+              workflowId,
+              scopeId,
+              ts: Date.now(),
+              durationMs: performance.now() - startTime,
+              winnerId: scopeEntry.winnerId,
+            });
+          };
+
+          // Emit scope_start event
+          emitEvent({
+            type: "scope_start",
+            workflowId,
+            scopeId,
+            scopeType: "race",
+            name,
+            ts: Date.now(),
+          });
+
+          try {
+            const result = await operation();
+
+            // Emit scope_end before processing result
+            emitScopeEnd();
+
+            if (!result.ok) {
+              onError?.(result.error as unknown as E, name, context);
+              throw earlyExit(result.error as unknown as E, {
+                origin: "result",
+                resultCause: result.cause,
+              });
+            }
+
+            return result.value;
+          } catch (error) {
+            // Always emit scope_end in finally-like fashion
+            emitScopeEnd();
+            throw error;
+          }
+        };
+        return traceScope(scopeId, name, "race", executeScope);
+      };
+
+      // step.if: Mark a conditional for static analysis
+      // Runtime: executes the condition and emits a decision event so
+      // visualizers see which branch fired without manual instrumentation
+      // Analyzer: extracts the id and conditionLabel for DecisionNode
+      stepFn.if = <T extends boolean>(
+        id: string,
+        conditionLabel: string,
+        condition: () => T
+      ): T => {
+        assertDeclared(id, "decision");
+        const value = condition();
+        emitEvent({
+          type: "decision",
+          workflowId,
+          decisionId: id,
+          label: conditionLabel,
+          branch: value ? "then" : "else",
+          value,
+          ts: Date.now(),
+        });
+        return value;
+      };
+
+      // step.label: Alias for step.if - mark a conditional for static analysis
+      // Use step.label for strict mode when conditionals contain step calls
+      stepFn.label = stepFn.if;
+
+      // step.branch: Execute a branch with explicit metadata for static analysis
+      // Runtime: evaluates condition and executes appropriate arm
+      // Analyzer: extracts branch metadata (conditionLabel, per-arm errors, out)
+      stepFn.branch = async <
+        T,
+        const ThenErrs extends readonly string[] = readonly [],
+        const ElseErrs extends readonly string[] = readonly [],
+        const Out extends string | undefined = undefined,
+      >(
+        id: string,
+        options: BranchOptions<T, ThenErrs, ElseErrs, Out>
+      ): Promise<T> => {
+        const { condition, then: thenFn, else: elseFn } = options;
+        assertDeclared(id, "decision");
+        const conditionResult = condition();
+        const branch = conditionResult ? "then" : "else";
+        const startTime = performance.now();
+        // step.branch owns arm execution, so the decision is a real scope:
+        // phase "start" before the arm runs, phase "end" after it settles.
+        // Visualizers nest the arm's steps inside the taken branch.
+        emitEvent({
+          type: "decision",
+          workflowId,
+          decisionId: id,
+          label: options.conditionLabel,
+          branch,
+          value: conditionResult,
+          phase: "start",
+          ts: Date.now(),
+        });
+        const emitEnd = () => {
+          emitEvent({
+            type: "decision",
+            workflowId,
+            decisionId: id,
+            label: options.conditionLabel,
+            branch,
+            value: conditionResult,
+            phase: "end",
+            durationMs: performance.now() - startTime,
+            ts: Date.now(),
+          });
+        };
+        try {
+          if (conditionResult) {
+            return await thenFn();
+          } else if (elseFn) {
+            return await elseFn();
+          }
+          return undefined as T;
+        } finally {
+          emitEnd();
+        }
+      };
+
+      // step.arm: Create an arm definition for use with step.branch
+      // Runtime: returns the arm definition unchanged
+      // Analyzer: extracts arm metadata
+      stepFn.arm = <T, const Errs extends readonly string[] = readonly []>(
+        fn: () => T | Promise<T>,
+        errors?: Errs
+      ): ArmDefinition<T, Errs> => {
+        return { fn, errors };
+      };
+
+      // step.forEach: Execute a forEach loop with static analysis support
+      // Supports both simple (run) and complex (item) forms
+      stepFn.forEach = async <T, R>(
+        _id: string,
+        items: Iterable<T> | AsyncIterable<T>,
+        options: ForEachRunOptions<T, R, readonly string[]> | ForEachItemOptions<T, R>
+      ): Promise<R[]> => {
+        const results: R[] = [];
+        const maxIterations = options.maxIterations;
+        let index = 0;
+
+        // Check if this is the run form or item form
+        const isRunForm = 'run' in options;
+
+        // Convert items to async iterable for uniform handling
+        const asyncItems = Symbol.asyncIterator in (items as object)
+          ? (items as AsyncIterable<T>)
+          : (async function* () { yield* items as Iterable<T>; })();
+
+        for await (const item of asyncItems) {
+          if (maxIterations !== undefined && index >= maxIterations) {
+            break;
+          }
+
+          let result: R;
+          if (isRunForm) {
+            const runOptions = options as ForEachRunOptions<T, R, readonly string[]>;
+            result = await runOptions.run(item, index);
+          } else {
+            const itemOptions = options as ForEachItemOptions<T, R>;
+            result = await itemOptions.item.handler(item, index, stepFn as unknown as RunStep<unknown>);
+          }
+
+          results.push(result);
+          index++;
+        }
+
+        return results;
+      };
+
+      // step.item: Create an item handler for use with step.forEach
+      // Runtime: returns the handler wrapped in a marker object
+      // Analyzer: extracts the inner step structure
+      stepFn.item = <T, R>(
+        handler: (item: T, index: number, step: RunStep<unknown>) => R | Promise<R>
+      ): ForEachItemHandler<T, R> => {
+        return {
+          __forEachItemHandler: true as const,
+          handler,
+        };
+      };
+
+      // step.dep: Wrap a dependency function for static analysis tracking
+      // Runtime: returns the function unchanged
+      // Analyzer: records the dependency name
+      stepFn.dep = <T extends (...args: unknown[]) => unknown>(
+        _name: string,
+        fn: T
+      ): T => {
+        return fn;
+      };
+
+      // ===========================================================================
+      // Effect-Style Ergonomics
+      // ===========================================================================
+
+      // step.workflow: Run sub-workflow (or any AsyncResult getter) as a step; same engine as step(id, getter, opts)
+      stepFn.workflow = <T, SubE = unknown>(
+        id: string,
+        getter: () => AsyncResult<T, SubE>,
+        options?: StepOptions
+      ): Promise<T> => {
+        return stepFn(id, getter as () => AsyncResult<T, E>, options);
+      };
+
+      // step.map: Map over array with parallel execution
+      stepFn.map = async <T, U, StepE = unknown>(
+        id: string,
+        items: T[],
+        mapper: (item: T, index: number) => AsyncResult<U, StepE>,
+        options?: { concurrency?: number; key?: string }
+      ): Promise<U[]> => {
+        const concurrency = options?.concurrency ?? items.length;
+
+        // Use allAsync for parallel execution with fail-fast
+        return stepFn(
+          id,
+          () => {
+            if (concurrency >= items.length) {
+              // Full parallelism - execute all at once
+              return allAsync(items.map((item, index) => mapper(item, index)));
+            } else {
+              // Limited concurrency - batch execution
+              return (async () => {
+                const results: U[] = [];
+                for (let i = 0; i < items.length; i += concurrency) {
+                  const batch = items.slice(i, i + concurrency);
+                  const batchResult = await allAsync(
+                    batch.map((item, batchIndex) => mapper(item, i + batchIndex))
+                  );
+                  // allAsync returns Result<U[], E>, so we need to check if it's ok
+                  if (!batchResult.ok) {
+                    return batchResult; // Propagate the error
+                  }
+                  results.push(...batchResult.value);
+                }
+                return ok(results);
+              })();
+            }
+          },
+          { key: options?.key }
+        );
+      };
+
+      // step.withFallback: Execute primary with fallback on error
+      stepFn.withFallback = <T, E1, E2>(
+        id: string,
+        operation: () => AsyncResult<T, E1>,
+        options: { on?: E1 & string; fallback: () => AsyncResult<T, E2>; key?: string }
+      ): Promise<T> => {
+        if (typeof id !== 'string' || id.length === 0) {
+          throw new Error(
+            '[awaitly] step.withFallback() requires an explicit string ID as the first argument. ' +
+            'Example: step.withFallback("getUser", () => fetchUser(id), { fallback: () => fetchFromCache(id) })'
+          );
+        }
+        assertDeclared(id, "step");
+
+        const stepKey = options.key ?? id;
+        const stepName = id;
+        const stepId = generateStepId(stepKey);
+        const hasEventListeners = onEvent;
+
+        const executeStep = async () => {
+          const startTime = hasEventListeners ? performance.now() : 0;
+
+          if (onEvent) {
+            emitEvent({
+              type: "step_start",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+            });
+          }
+
+          // Try the primary operation
+          let primaryResult: Result<T, E1>;
+          try {
+            primaryResult = await operation();
+          } catch (thrown) {
+            // If it's an earlyExit from a nested step, propagate
+            if (isEarlyExitE(thrown)) {
               emitEvent({
                 type: "step_aborted",
                 workflowId,
@@ -4564,42 +4618,159 @@ async function runFn<T, E, C = void>(
                 ts: Date.now(),
                 durationMs: performance.now() - startTime,
               });
-              throw fallbackThrown;
+              throw thrown;
             }
-            let fallbackMappedError: E | UnexpectedError;
+
+            // Primary threw — map to UnexpectedError
+            let mappedError: E | UnexpectedError;
             try {
-              fallbackMappedError = effectiveCatchUnexpected(fallbackThrown) as E | UnexpectedError;
+              mappedError = effectiveCatchUnexpected(thrown) as E | UnexpectedError;
             } catch (mapperError) {
               throw createMapperException(mapperError);
             }
-            const durationMs = performance.now() - startTime;
-            emitEvent({
-              type: "step_error",
-              workflowId,
-              stepId,
-              stepKey,
-              name: stepName,
-              ts: Date.now(),
-              durationMs,
-              error: fallbackMappedError,
-            });
-            if (stepKey) {
+
+            // If `on` is specified, only run fallback if it matches the mapped error
+            if (options.on !== undefined && options.on !== mappedError) {
+              const durationMs = performance.now() - startTime;
               emitEvent({
-                type: "step_complete",
+                type: "step_error",
                 workflowId,
+                stepId,
                 stepKey,
                 name: stepName,
                 ts: Date.now(),
                 durationMs,
-                result: err(fallbackMappedError, { cause: fallbackThrown }),
-                meta: { origin: "throw", thrown: fallbackThrown },
+                error: mappedError,
+              });
+              if (stepKey) {
+                emitEvent({
+                  type: "step_complete",
+                  workflowId,
+                  stepKey,
+                  name: stepName,
+                  ts: Date.now(),
+                  durationMs,
+                  result: err(mappedError, { cause: thrown }),
+                  meta: { origin: "throw", thrown },
+                });
+              }
+              onError?.(mappedError as E, stepName, context);
+              throw earlyExit(mappedError as E, { origin: "throw", thrown });
+            }
+
+            // Run fallback for thrown error
+            let fallbackResultFromThrow: Result<T, E2>;
+            try {
+              fallbackResultFromThrow = await options.fallback();
+            } catch (fallbackThrown) {
+              if (isEarlyExitE(fallbackThrown)) {
+                emitEvent({
+                  type: "step_aborted",
+                  workflowId,
+                  stepId,
+                  stepKey,
+                  name: stepName,
+                  ts: Date.now(),
+                  durationMs: performance.now() - startTime,
+                });
+                throw fallbackThrown;
+              }
+              let fallbackMappedError: E | UnexpectedError;
+              try {
+                fallbackMappedError = effectiveCatchUnexpected(fallbackThrown) as E | UnexpectedError;
+              } catch (mapperError) {
+                throw createMapperException(mapperError);
+              }
+              const durationMs = performance.now() - startTime;
+              emitEvent({
+                type: "step_error",
+                workflowId,
+                stepId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                error: fallbackMappedError,
+              });
+              if (stepKey) {
+                emitEvent({
+                  type: "step_complete",
+                  workflowId,
+                  stepKey,
+                  name: stepName,
+                  ts: Date.now(),
+                  durationMs,
+                  result: err(fallbackMappedError, { cause: fallbackThrown }),
+                  meta: { origin: "throw", thrown: fallbackThrown },
+                });
+              }
+              onError?.(fallbackMappedError as E, stepName, context);
+              throw earlyExit(fallbackMappedError as E, { origin: "throw", thrown: fallbackThrown });
+            }
+
+            if (fallbackResultFromThrow.ok) {
+              const durationMs = performance.now() - startTime;
+              emitEvent({
+                type: "step_success",
+                workflowId,
+                stepId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+              });
+              if (stepKey) {
+                emitEvent({
+                  type: "step_complete",
+                  workflowId,
+                  stepKey,
+                  name: stepName,
+                  ts: Date.now(),
+                  durationMs,
+                  result: fallbackResultFromThrow,
+                  meta: { origin: "fallback" as const, fallbackUsed: true as const, fallbackReason: String(mappedError) },
+                });
+              }
+              return fallbackResultFromThrow.value;
+            } else {
+              // Fallback also failed
+              const durationMs = performance.now() - startTime;
+              const wrappedError = wrapForStep(fallbackResultFromThrow.error, {
+                origin: "result",
+                resultCause: fallbackResultFromThrow.cause,
+              });
+              emitEvent({
+                type: "step_error",
+                workflowId,
+                stepId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                error: wrappedError,
+              });
+              if (stepKey) {
+                emitEvent({
+                  type: "step_complete",
+                  workflowId,
+                  stepKey,
+                  name: stepName,
+                  ts: Date.now(),
+                  durationMs,
+                  result: fallbackResultFromThrow,
+                  meta: { origin: "result", resultCause: fallbackResultFromThrow.cause },
+                });
+              }
+              onError?.(wrappedError as unknown as E, stepName, context);
+              throw earlyExit(wrappedError as unknown as E, {
+                origin: "result",
+                resultCause: fallbackResultFromThrow.cause,
               });
             }
-            onError?.(fallbackMappedError as E, stepName, context);
-            throw earlyExit(fallbackMappedError as E, { origin: "throw", thrown: fallbackThrown });
           }
 
-          if (fallbackResultFromThrow.ok) {
+          // Primary returned a result (didn't throw)
+          if (primaryResult.ok) {
             const durationMs = performance.now() - startTime;
             emitEvent({
               type: "step_success",
@@ -4618,17 +4789,21 @@ async function runFn<T, E, C = void>(
                 name: stepName,
                 ts: Date.now(),
                 durationMs,
-                result: fallbackResultFromThrow,
-                meta: { origin: "fallback" as const, fallbackUsed: true as const, fallbackReason: String(mappedError) },
+                result: primaryResult,
               });
             }
-            return fallbackResultFromThrow.value;
-          } else {
-            // Fallback also failed
+            return primaryResult.value;
+          }
+
+          // Primary returned an error
+          const primaryError = primaryResult.error;
+
+          // If `on` is specified and doesn't match, earlyExit with primary error (no fallback)
+          if (options.on !== undefined && options.on !== primaryError) {
             const durationMs = performance.now() - startTime;
-            const wrappedError = wrapForStep(fallbackResultFromThrow.error, {
+            const wrappedError = wrapForStep(primaryError, {
               origin: "result",
-              resultCause: fallbackResultFromThrow.cause,
+              resultCause: primaryResult.cause,
             });
             emitEvent({
               type: "step_error",
@@ -4648,53 +4823,99 @@ async function runFn<T, E, C = void>(
                 name: stepName,
                 ts: Date.now(),
                 durationMs,
-                result: fallbackResultFromThrow,
-                meta: { origin: "result", resultCause: fallbackResultFromThrow.cause },
+                result: primaryResult,
+                meta: { origin: "result", resultCause: primaryResult.cause },
               });
             }
             onError?.(wrappedError as unknown as E, stepName, context);
             throw earlyExit(wrappedError as unknown as E, {
               origin: "result",
-              resultCause: fallbackResultFromThrow.cause,
+              resultCause: primaryResult.cause,
             });
           }
-        }
 
-        // Primary returned a result (didn't throw)
-        if (primaryResult.ok) {
-          const durationMs = performance.now() - startTime;
-          emitEvent({
-            type: "step_success",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-            durationMs,
-          });
-          if (stepKey) {
+          // Run fallback
+          let fallbackResult: Result<T, E2>;
+          try {
+            fallbackResult = await options.fallback();
+          } catch (thrown) {
+            if (isEarlyExitE(thrown)) {
+              emitEvent({
+                type: "step_aborted",
+                workflowId,
+                stepId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs: performance.now() - startTime,
+              });
+              throw thrown;
+            }
+            // Fallback threw — map via effectiveCatchUnexpected
+            let mappedError: E | UnexpectedError;
+            try {
+              mappedError = effectiveCatchUnexpected(thrown) as E | UnexpectedError;
+            } catch (mapperError) {
+              throw createMapperException(mapperError);
+            }
+            const durationMs = performance.now() - startTime;
             emitEvent({
-              type: "step_complete",
+              type: "step_error",
               workflowId,
+              stepId,
               stepKey,
               name: stepName,
               ts: Date.now(),
               durationMs,
-              result: primaryResult,
+              error: mappedError,
             });
+            if (stepKey) {
+              emitEvent({
+                type: "step_complete",
+                workflowId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                result: err(mappedError, { cause: thrown }),
+                meta: { origin: "throw", thrown },
+              });
+            }
+            onError?.(mappedError as E, stepName, context);
+            throw earlyExit(mappedError as E, { origin: "throw", thrown });
           }
-          return primaryResult.value;
-        }
 
-        // Primary returned an error
-        const primaryError = primaryResult.error;
+          if (fallbackResult.ok) {
+            const durationMs = performance.now() - startTime;
+            emitEvent({
+              type: "step_success",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+            });
+            if (stepKey) {
+              emitEvent({
+                type: "step_complete",
+                workflowId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                result: fallbackResult,
+                meta: { origin: "fallback" as const, fallbackUsed: true as const, fallbackReason: String(primaryError) },
+              });
+            }
+            return fallbackResult.value;
+          }
 
-        // If `on` is specified and doesn't match, earlyExit with primary error (no fallback)
-        if (options.on !== undefined && options.on !== primaryError) {
+          // Fallback also returned an error
           const durationMs = performance.now() - startTime;
-          const wrappedError = wrapForStep(primaryError, {
+          const wrappedError = wrapForStep(fallbackResult.error, {
             origin: "result",
-            resultCause: primaryResult.cause,
+            resultCause: fallbackResult.cause,
           });
           emitEvent({
             type: "step_error",
@@ -4705,87 +4926,6 @@ async function runFn<T, E, C = void>(
             ts: Date.now(),
             durationMs,
             error: wrappedError,
-          });
-          if (stepKey) {
-            emitEvent({
-              type: "step_complete",
-              workflowId,
-              stepKey,
-              name: stepName,
-              ts: Date.now(),
-              durationMs,
-              result: primaryResult,
-              meta: { origin: "result", resultCause: primaryResult.cause },
-            });
-          }
-          onError?.(wrappedError as unknown as E, stepName, context);
-          throw earlyExit(wrappedError as unknown as E, {
-            origin: "result",
-            resultCause: primaryResult.cause,
-          });
-        }
-
-        // Run fallback
-        let fallbackResult: Result<T, E2>;
-        try {
-          fallbackResult = await options.fallback();
-        } catch (thrown) {
-          if (isEarlyExitE(thrown)) {
-            emitEvent({
-              type: "step_aborted",
-              workflowId,
-              stepId,
-              stepKey,
-              name: stepName,
-              ts: Date.now(),
-              durationMs: performance.now() - startTime,
-            });
-            throw thrown;
-          }
-          // Fallback threw — map via effectiveCatchUnexpected
-          let mappedError: E | UnexpectedError;
-          try {
-            mappedError = effectiveCatchUnexpected(thrown) as E | UnexpectedError;
-          } catch (mapperError) {
-            throw createMapperException(mapperError);
-          }
-          const durationMs = performance.now() - startTime;
-          emitEvent({
-            type: "step_error",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-            durationMs,
-            error: mappedError,
-          });
-          if (stepKey) {
-            emitEvent({
-              type: "step_complete",
-              workflowId,
-              stepKey,
-              name: stepName,
-              ts: Date.now(),
-              durationMs,
-              result: err(mappedError, { cause: thrown }),
-              meta: { origin: "throw", thrown },
-            });
-          }
-          onError?.(mappedError as E, stepName, context);
-          throw earlyExit(mappedError as E, { origin: "throw", thrown });
-        }
-
-        if (fallbackResult.ok) {
-          const durationMs = performance.now() - startTime;
-          emitEvent({
-            type: "step_success",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-            durationMs,
           });
           if (stepKey) {
             emitEvent({
@@ -4796,140 +4936,242 @@ async function runFn<T, E, C = void>(
               ts: Date.now(),
               durationMs,
               result: fallbackResult,
-              meta: { origin: "fallback" as const, fallbackUsed: true as const, fallbackReason: String(primaryError) },
+              meta: { origin: "result", resultCause: fallbackResult.cause },
             });
           }
-          return fallbackResult.value;
-        }
-
-        // Fallback also returned an error
-        const durationMs = performance.now() - startTime;
-        const wrappedError = wrapForStep(fallbackResult.error, {
-          origin: "result",
-          resultCause: fallbackResult.cause,
-        });
-        emitEvent({
-          type: "step_error",
-          workflowId,
-          stepId,
-          stepKey,
-          name: stepName,
-          ts: Date.now(),
-          durationMs,
-          error: wrappedError,
-        });
-        if (stepKey) {
-          emitEvent({
-            type: "step_complete",
-            workflowId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-            durationMs,
-            result: fallbackResult,
-            meta: { origin: "result", resultCause: fallbackResult.cause },
+          onError?.(wrappedError as unknown as E, stepName, context);
+          throw earlyExit(wrappedError as unknown as E, {
+            origin: "result",
+            resultCause: fallbackResult.cause,
           });
+        };
+        return traceStep(stepId, stepKey, stepName, executeStep);
+      };
+
+      // step.withResource: Acquire/use/release lifecycle with guaranteed release
+      stepFn.withResource = <T, R, AcquireE, UseE>(
+        id: string,
+        options: {
+          acquire: () => AsyncResult<R, AcquireE>;
+          use: (resource: R) => AsyncResult<T, UseE>;
+          release: (resource: R) => void | Promise<void>;
         }
-        onError?.(wrappedError as unknown as E, stepName, context);
-        throw earlyExit(wrappedError as unknown as E, {
-          origin: "result",
-          resultCause: fallbackResult.cause,
-        });
-      })();
-    };
-
-    // step.withResource: Acquire/use/release lifecycle with guaranteed release
-    stepFn.withResource = <T, R, AcquireE, UseE>(
-      id: string,
-      options: {
-        acquire: () => AsyncResult<R, AcquireE>;
-        use: (resource: R) => AsyncResult<T, UseE>;
-        release: (resource: R) => void | Promise<void>;
-      }
-    ): Promise<T> => {
-      if (typeof id !== 'string' || id.length === 0) {
-        throw new Error(
-          '[awaitly] step.withResource() requires an explicit string ID as the first argument. ' +
-          'Example: step.withResource("useDb", { acquire: () => connect(), use: (db) => query(db), release: (db) => db.close() })'
-        );
-      }
-      assertDeclared(id, "step");
-
-      const stepKey = id;
-      const stepName = id;
-      const stepId = generateStepId(stepKey);
-      const hasEventListeners = onEvent;
-
-      return (async () => {
-        const startTime = hasEventListeners ? performance.now() : 0;
-
-        if (onEvent) {
-          emitEvent({
-            type: "step_start",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-          });
+      ): Promise<T> => {
+        if (typeof id !== 'string' || id.length === 0) {
+          throw new Error(
+            '[awaitly] step.withResource() requires an explicit string ID as the first argument. ' +
+            'Example: step.withResource("useDb", { acquire: () => connect(), use: (db) => query(db), release: (db) => db.close() })'
+          );
         }
+        assertDeclared(id, "step");
 
-        // Acquire
-        let acquireResult: Result<R, AcquireE>;
-        try {
-          acquireResult = await options.acquire();
-        } catch (thrown) {
-          if (isEarlyExitE(thrown)) {
+        const stepKey = id;
+        const stepName = id;
+        const stepId = generateStepId(stepKey);
+        const hasEventListeners = onEvent;
+
+        const executeStep = async () => {
+          const startTime = hasEventListeners ? performance.now() : 0;
+
+          if (onEvent) {
             emitEvent({
-              type: "step_aborted",
+              type: "step_start",
               workflowId,
               stepId,
               stepKey,
               name: stepName,
               ts: Date.now(),
-              durationMs: performance.now() - startTime,
             });
-            throw thrown;
           }
-          let mappedError: E | UnexpectedError;
+
+          // Acquire
+          let acquireResult: Result<R, AcquireE>;
           try {
-            mappedError = effectiveCatchUnexpected(thrown) as E | UnexpectedError;
-          } catch (mapperError) {
-            throw createMapperException(mapperError);
-          }
-          const durationMs = performance.now() - startTime;
-          emitEvent({
-            type: "step_error",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-            durationMs,
-            error: mappedError,
-          });
-          if (stepKey) {
+            acquireResult = await options.acquire();
+          } catch (thrown) {
+            if (isEarlyExitE(thrown)) {
+              emitEvent({
+                type: "step_aborted",
+                workflowId,
+                stepId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs: performance.now() - startTime,
+              });
+              throw thrown;
+            }
+            let mappedError: E | UnexpectedError;
+            try {
+              mappedError = effectiveCatchUnexpected(thrown) as E | UnexpectedError;
+            } catch (mapperError) {
+              throw createMapperException(mapperError);
+            }
+            const durationMs = performance.now() - startTime;
             emitEvent({
-              type: "step_complete",
+              type: "step_error",
               workflowId,
+              stepId,
               stepKey,
               name: stepName,
               ts: Date.now(),
               durationMs,
-              result: err(mappedError, { cause: thrown }),
-              meta: { origin: "throw", thrown },
+              error: mappedError,
+            });
+            if (stepKey) {
+              emitEvent({
+                type: "step_complete",
+                workflowId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                result: err(mappedError, { cause: thrown }),
+                meta: { origin: "throw", thrown },
+              });
+            }
+            onError?.(mappedError as E, stepName, context);
+            throw earlyExit(mappedError as E, { origin: "throw", thrown });
+          }
+
+          if (!acquireResult.ok) {
+            // Acquire failed — no release needed
+            const durationMs = performance.now() - startTime;
+            const wrappedError = wrapForStep(acquireResult.error, {
+              origin: "result",
+              resultCause: acquireResult.cause,
+            });
+            emitEvent({
+              type: "step_error",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              error: wrappedError,
+            });
+            if (stepKey) {
+              emitEvent({
+                type: "step_complete",
+                workflowId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                result: acquireResult,
+                meta: { origin: "result", resultCause: acquireResult.cause },
+              });
+            }
+            onError?.(wrappedError as unknown as E, stepName, context);
+            throw earlyExit(wrappedError as unknown as E, {
+              origin: "result",
+              resultCause: acquireResult.cause,
             });
           }
-          onError?.(mappedError as E, stepName, context);
-          throw earlyExit(mappedError as E, { origin: "throw", thrown });
-        }
 
-        if (!acquireResult.ok) {
-          // Acquire failed — no release needed
+          const resource = acquireResult.value;
+          let useResult: Result<T, UseE> | undefined;
+          let useThrown: unknown;
+          let useThrewNonResult = false;
+
+          // Use
+          try {
+            useResult = await options.use(resource);
+          } catch (thrown) {
+            if (isEarlyExitE(thrown)) {
+              // Release before propagating
+              try {
+                await options.release(resource);
+              } catch (releaseErr) {
+                console.warn(
+                  `[awaitly] step.withResource("${id}"): release threw after earlyExit:`,
+                  releaseErr
+                );
+              }
+              throw thrown;
+            }
+            useThrown = thrown;
+            useThrewNonResult = true;
+          }
+
+          // Release — ALWAYS runs after use (unless acquire failed)
+          try {
+            await options.release(resource);
+          } catch (releaseErr) {
+            console.warn(
+              `[awaitly] step.withResource("${id}"): release threw:`,
+              releaseErr
+            );
+          }
+
+          // Emit events AFTER release completes
+          if (useThrewNonResult) {
+            let mappedError: E | UnexpectedError;
+            try {
+              mappedError = effectiveCatchUnexpected(useThrown) as E | UnexpectedError;
+            } catch (mapperError) {
+              throw createMapperException(mapperError);
+            }
+            const durationMs = performance.now() - startTime;
+            emitEvent({
+              type: "step_error",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+              error: mappedError,
+            });
+            if (stepKey) {
+              emitEvent({
+                type: "step_complete",
+                workflowId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                result: err(mappedError, { cause: useThrown }),
+                meta: { origin: "throw", thrown: useThrown },
+              });
+            }
+            onError?.(mappedError as E, stepName, context);
+            throw earlyExit(mappedError as E, { origin: "throw", thrown: useThrown });
+          }
+
+          // useResult is defined if useThrewNonResult is false
+          const result = useResult!;
+          if (result.ok) {
+            const durationMs = performance.now() - startTime;
+            emitEvent({
+              type: "step_success",
+              workflowId,
+              stepId,
+              stepKey,
+              name: stepName,
+              ts: Date.now(),
+              durationMs,
+            });
+            if (stepKey) {
+              emitEvent({
+                type: "step_complete",
+                workflowId,
+                stepKey,
+                name: stepName,
+                ts: Date.now(),
+                durationMs,
+                result,
+              });
+            }
+            return result.value;
+          }
+
+          // Use returned an error
           const durationMs = performance.now() - startTime;
-          const wrappedError = wrapForStep(acquireResult.error, {
+          const wrappedError = wrapForStep(result.error, {
             origin: "result",
-            resultCause: acquireResult.cause,
+            resultCause: result.cause,
           });
           emitEvent({
             type: "step_error",
@@ -4949,209 +5191,92 @@ async function runFn<T, E, C = void>(
               name: stepName,
               ts: Date.now(),
               durationMs,
-              result: acquireResult,
-              meta: { origin: "result", resultCause: acquireResult.cause },
+              result,
+              meta: { origin: "result", resultCause: result.cause },
             });
           }
           onError?.(wrappedError as unknown as E, stepName, context);
           throw earlyExit(wrappedError as unknown as E, {
             origin: "result",
-            resultCause: acquireResult.cause,
+            resultCause: result.cause,
           });
-        }
+        };
+        return traceStep(stepId, stepKey, stepName, executeStep);
+      };
 
-        const resource = acquireResult.value;
-        let useResult: Result<T, UseE> | undefined;
-        let useThrown: unknown;
-        let useThrewNonResult = false;
+      const step = stepFn as unknown as RunStep<E | UnexpectedError>;
+      const value = await fn({ step });
 
-        // Use
-        try {
-          useResult = await options.use(resource);
-        } catch (thrown) {
-          if (isEarlyExitE(thrown)) {
-            // Release before propagating
-            try {
-              await options.release(resource);
-            } catch (releaseErr) {
-              console.warn(
-                `[awaitly] step.withResource("${id}"): release threw after earlyExit:`,
-                releaseErr
-              );
-            }
-            throw thrown;
-          }
-          useThrown = thrown;
-          useThrewNonResult = true;
-        }
-
-        // Release — ALWAYS runs after use (unless acquire failed)
-        try {
-          await options.release(resource);
-        } catch (releaseErr) {
+      // Dev-only warning: Detect common mistake of returning ok() or err() from executor
+      if (
+        process.env.NODE_ENV !== "production" &&
+        value !== null &&
+        typeof value === "object" &&
+        "ok" in value &&
+        typeof (value as { ok: unknown }).ok === "boolean"
+      ) {
+        const maybeResult = value as { ok: boolean; value?: unknown; error?: unknown };
+        if (
+          (maybeResult.ok === true && "value" in maybeResult) ||
+          (maybeResult.ok === false && "error" in maybeResult)
+        ) {
           console.warn(
-            `[awaitly] step.withResource("${id}"): release threw:`,
-            releaseErr
+            `awaitly: Workflow executor returned a Result-like object. ` +
+              `Return raw values, not ok() or err().\n\n` +
+              `  Incorrect: return ok({ data });\n` +
+              `  Correct:   return { data };\n\n` +
+              `See: https://jagreehal.github.io/awaitly/guides/troubleshooting/#returning-ok-from-workflow-executor-double-wrapping`
           );
         }
-
-        // Emit events AFTER release completes
-        if (useThrewNonResult) {
-          let mappedError: E | UnexpectedError;
-          try {
-            mappedError = effectiveCatchUnexpected(useThrown) as E | UnexpectedError;
-          } catch (mapperError) {
-            throw createMapperException(mapperError);
-          }
-          const durationMs = performance.now() - startTime;
-          emitEvent({
-            type: "step_error",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-            durationMs,
-            error: mappedError,
-          });
-          if (stepKey) {
-            emitEvent({
-              type: "step_complete",
-              workflowId,
-              stepKey,
-              name: stepName,
-              ts: Date.now(),
-              durationMs,
-              result: err(mappedError, { cause: useThrown }),
-              meta: { origin: "throw", thrown: useThrown },
-            });
-          }
-          onError?.(mappedError as E, stepName, context);
-          throw earlyExit(mappedError as E, { origin: "throw", thrown: useThrown });
-        }
-
-        // useResult is defined if useThrewNonResult is false
-        const result = useResult!;
-        if (result.ok) {
-          const durationMs = performance.now() - startTime;
-          emitEvent({
-            type: "step_success",
-            workflowId,
-            stepId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-            durationMs,
-          });
-          if (stepKey) {
-            emitEvent({
-              type: "step_complete",
-              workflowId,
-              stepKey,
-              name: stepName,
-              ts: Date.now(),
-              durationMs,
-              result,
-            });
-          }
-          return result.value;
-        }
-
-        // Use returned an error
-        const durationMs = performance.now() - startTime;
-        const wrappedError = wrapForStep(result.error, {
-          origin: "result",
-          resultCause: result.cause,
-        });
-        emitEvent({
-          type: "step_error",
-          workflowId,
-          stepId,
-          stepKey,
-          name: stepName,
-          ts: Date.now(),
-          durationMs,
-          error: wrappedError,
-        });
-        if (stepKey) {
-          emitEvent({
-            type: "step_complete",
-            workflowId,
-            stepKey,
-            name: stepName,
-            ts: Date.now(),
-            durationMs,
-            result,
-            meta: { origin: "result", resultCause: result.cause },
-          });
-        }
-        onError?.(wrappedError as unknown as E, stepName, context);
-        throw earlyExit(wrappedError as unknown as E, {
-          origin: "result",
-          resultCause: result.cause,
-        });
-      })();
-    };
-
-    const step = stepFn as unknown as RunStep<E | UnexpectedError>;
-    const value = await fn({ step });
-
-    // Dev-only warning: Detect common mistake of returning ok() or err() from executor
-    if (
-      process.env.NODE_ENV !== "production" &&
-      value !== null &&
-      typeof value === "object" &&
-      "ok" in value &&
-      typeof (value as { ok: unknown }).ok === "boolean"
-    ) {
-      const maybeResult = value as { ok: boolean; value?: unknown; error?: unknown };
-      if (
-        (maybeResult.ok === true && "value" in maybeResult) ||
-        (maybeResult.ok === false && "error" in maybeResult)
-      ) {
-        console.warn(
-          `awaitly: Workflow executor returned a Result-like object. ` +
-            `Return raw values, not ok() or err().\n\n` +
-            `  Incorrect: return ok({ data });\n` +
-            `  Correct:   return { data };\n\n` +
-            `See: https://jagreehal.github.io/awaitly/guides/troubleshooting/#returning-ok-from-workflow-executor-double-wrapping`
-        );
       }
+
+      return ok(value);
+    } catch (error) {
+      // If a catchUnexpected mapper threw, propagate without re-processing
+      if (isMapperException(error)) {
+        throw error.thrown;
+      }
+
+      if (isEarlyExitE(error)) {
+        // Extract original cause from early exit metadata
+        const originalCause = error.meta.origin === "throw"
+          ? error.meta.thrown
+          : error.meta.origin === "result"
+            ? error.meta.resultCause
+            : undefined;
+
+        return err(error.error, { cause: originalCause });
+      }
+
+      // A stream the workflow was reading failed. `reader.read()` models that as
+      // a Result; iterating it (via for-await, a transformer, or collect) turns
+      // it back into a throw, and wrapping that in UnexpectedError would file
+      // infrastructure failing under "bug in your code". Surface it as a typed
+      // error instead — same treatment STEP_TIMEOUT gets, matched at the
+      // boundary with `result.error.type ?? result.error`.
+      if (isStreamError(error)) {
+        onError?.(error as E, "stream", context);
+        return err(error as E, { cause: error });
+      }
+
+      const mapped = effectiveCatchUnexpected(error);
+      onError?.(mapped as E, "unexpected", context);
+      return err(mapped, { cause: error });
     }
+  };
 
-    return ok(value);
-  } catch (error) {
-    // If a catchUnexpected mapper threw, propagate without re-processing
-    if (isMapperException(error)) {
-      throw error.thrown;
-    }
-
-    if (isEarlyExitE(error)) {
-      // Extract original cause from early exit metadata
-      const originalCause = error.meta.origin === "throw"
-        ? error.meta.thrown
-        : error.meta.origin === "result"
-          ? error.meta.resultCause
-          : undefined;
-
-      return err(error.error, { cause: originalCause });
-    }
-
-    // A stream the workflow was reading failed. `reader.read()` models that as
-    // a Result; iterating it (via for-await, a transformer, or collect) turns
-    // it back into a throw, and wrapping that in UnexpectedError would file
-    // infrastructure failing under "bug in your code". Surface it as a typed
-    // error instead — same treatment STEP_TIMEOUT gets, matched at the
-    // boundary with `result.error.type ?? result.error`.
-    if (isStreamError(error)) {
-      onError?.(error as E, "stream", context);
-      return err(error as E, { cause: error });
-    }
-
-    const mapped = effectiveCatchUnexpected(error);
-    onError?.(mapped as E, "unexpected", context);
-    return err(mapped, { cause: error });
-  }
+  // createWorkflow opens the run span itself and passes _traceRunSpan: false,
+  // because its saga compensations run *after* run() returns. A span opened
+  // here would already have ended by then, orphaning every compensate span.
+  return withRunSpan(
+    {
+      enabled: traceEnabled && _traceRunSpan,
+      workflowId,
+      workflowName,
+      signal: _workflowSignal,
+    },
+    execute
+  );
 }
 
 /**
@@ -5172,6 +5297,7 @@ export const runInternal: <T, E, U = UnexpectedError, C = void>(
     onError?: (error: E | U, stepName?: string, ctx?: C) => void;
     workflowId?: string;
     workflowName?: string;
+    telemetry?: boolean;
     context?: C;
   }
 ) => Promise<Result<T, E | U>> = runFn as never;

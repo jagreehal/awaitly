@@ -110,27 +110,43 @@ describe("tryAsyncRetry", () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
-  it("retries on failure and succeeds", async () => {
+  it("retries on typed failure and succeeds", async () => {
     const fn = vi
       .fn()
       .mockRejectedValueOnce(new Error("fail1"))
       .mockRejectedValueOnce(new Error("fail2"))
       .mockResolvedValue(42);
 
-    const result = await tryAsyncRetry(fn, {
-      retry: { attempts: 4, initialDelay: 1 },
-    });
+    const result = await tryAsyncRetry(
+      fn,
+      () => ({ type: "FETCH_ERROR" as const }),
+      { retry: { attempts: 4, initialDelay: 1 } }
+    );
     expect(result).toEqual({ ok: true, value: 42 });
     expect(fn).toHaveBeenCalledTimes(3);
   });
 
-  it("returns error after all retries exhausted", async () => {
+  it("retries mapped untagged failures by default", async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary"))
+      .mockResolvedValue(42);
+
+    const result = await tryAsyncRetry(fn, () => new Error("mapped"), {
+      retry: { attempts: 2, initialDelay: 0 },
+    });
+
+    expect(result).toEqual({ ok: true, value: 42 });
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry untagged throws by default", async () => {
     const fn = vi.fn().mockRejectedValue(new Error("always fails"));
     const result = await tryAsyncRetry(fn, {
       retry: { attempts: 3, initialDelay: 1 },
     });
     expect(result.ok).toBe(false);
-    expect(fn).toHaveBeenCalledTimes(3);
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 
   it("uses custom error mapper", async () => {
@@ -183,7 +199,7 @@ describe("tryAsyncRetry", () => {
       .mockResolvedValue(42);
 
     const start = Date.now();
-    await tryAsyncRetry(fn, {
+    await tryAsyncRetry(fn, () => ({ type: "FETCH_ERROR" as const }), {
       retry: { attempts: 4, initialDelay: 20, backoff: "exponential" },
     });
     const elapsed = Date.now() - start;

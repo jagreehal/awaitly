@@ -9,11 +9,11 @@ import { Aside, Tabs, TabItem, AnimatedWorkflowDiagram } from '~/components';
 
 ## When you need `step()` at all
 
-Your workflow callback receives both `steps` and `step`. They do the same thing —
-`steps.fetchUser(id)` is literally compiled to `step('fetchUser', () => deps.fetchUser(id))`.
+Your workflow callback receives both `steps` and `step`. They do the same thing , 
+`steps.fetchUser(id)` compiles to `step('fetchUser', () => deps.fetchUser(id))`.
 
 Most of the time you want `steps.x()`. **Retries and timeouts are not a reason to leave
-it** — those belong on the dependency, not the call site:
+it**, those belong on the dependency, not the call site:
 
 ```typescript
 import { createWorkflow, retry, timeout } from 'awaitly';
@@ -47,11 +47,11 @@ That leaves a much smaller job for `step()`:
 const user = await step('fetchUser', () => fetchUser(id), { key: `user:${id}` });
 ```
 
-Bound steps take no options — that is what `step()` is still for.
+Bound steps take no options. That is what `step()` is still for.
 
 <Aside type="note" title="Repeated calls">
 Calling the same bound step twice in one run auto-suffixes the id: `fetchUser`,
-`fetchUser#2`, and so on. This keeps loop iterations distinct — important because the
+`fetchUser#2`, and so on. This keeps loop iterations distinct, important because the
 step id doubles as the cache key, so a bare repeat would otherwise return the first
 result. The suffixes are deterministic, so they stay stable across durable replays.
 </Aside>
@@ -105,7 +105,7 @@ await step('fetchUser', () => fetchUser(id));
 
 `step('id', somePromise)` is accepted and will often appear to work, because awaiting
 a Promise twice yields the same value. But caching, retries, timeouts, and resume all
-become no-ops — the work already happened. The failure is silent, which is why the
+become no-ops, the work already happened. The failure is silent, which is why the
 thunk form is the one to reach for.
 
 **Rule of thumb:** if awaitly is supposed to decide *whether* or *when* something runs,
@@ -145,7 +145,7 @@ const user = await step('fetchUser', () => deps.fetchUser('1'), { key: 'user:1' 
 ```
 
 <Aside type="note">
-A thunk is just a function with no arguments that returns the value. Using thunks lets awaitly control when (and whether) to execute the operation.
+A thunk is a function with no arguments that returns the value. Using thunks lets awaitly control when (and whether) to execute the operation.
 </Aside>
 
 ## Step options
@@ -165,9 +165,9 @@ const user = await step('fetchUser', () => deps.fetchUser('1'), {
 
 You can attach optional metadata to steps for diagrams, diagnostics, and observability (e.g. OpenTelemetry, workflow summaries). Three groups:
 
-- **Architecture & intent**: `intent`, `domain`, `owner`, `tags` — for grouping and labeling (e.g. `domain: 'payments'`).
-- **Effects & dependencies**: `stateChanges`, `emits`, `calls` — what the step mutates, what events it emits, which external services it calls.
-- **Error classification**: `errorMeta` — map from error tag to `{ retryable?, severity?, description? }` for diagnostics and `step_error` events.
+- **Architecture & intent**: `intent`, `domain`, `owner`, `tags`, for grouping and labeling (e.g. `domain: 'payments'`).
+- **Effects & dependencies**: `stateChanges`, `emits`, `calls`, what the step mutates, what events it emits, which external services it calls.
+- **Error classification**: `errorMeta`, map from error tag to `{ retryable?, severity?, description? }` for diagnostics and `step_error` events.
 
 See [Static Analysis](guides/static-analysis/) and [Documenting workflows](guides/documenting-workflows/) for where this metadata is used.
 
@@ -188,7 +188,7 @@ await step('charge', () => deps.charge(orderId), {
 
 The **first argument** is the step **label** (what kind of step: `'fetchUser'`, `'sendEmail'`). It must be a string literal and is used in diagrams, events, and static docs.
 
-The **`key`** option (optional) is the **instance** identity (which iteration or entity: `user:${id}`, `payment-${payment.id}`). When present, the runtime uses it for cache, snapshots, and events—so per-iteration identity comes from `key`, not from the first argument.
+The **`key`** option (optional) is the **instance** identity (which iteration or entity: `user:${id}`, `payment-${payment.id}`). When present, the runtime uses it for cache, snapshots, and events, so per-iteration identity comes from `key`, not from the first argument.
 
 In loops, use one literal step ID (label) and a per-iteration `key` (instance) so events and snapshots still get distinct identities per iteration.
 
@@ -216,7 +216,7 @@ Workflow returns { ok: false, error: 'FETCH_FAILED' }
 ```
 
 <Aside type="tip" title="Error type safety">
-No `as const` needed — `error` is a `const` type parameter, so TypeScript keeps
+No `as const` needed, `error` is a `const` type parameter, so TypeScript keeps
 the literal string `'FETCH_FAILED'` rather than widening it to `string`.
 </Aside>
 
@@ -267,6 +267,8 @@ const user = await step.retry(
   }
 );
 ```
+
+By default, retry skips `UnexpectedError` and untagged throws. Typed errors still retry. See [Retries & Timeouts](guides/retries-timeouts/).
 
 ### Backoff strategies visualized
 
@@ -548,7 +550,7 @@ In `createWorkflow`, use a getter with `step()` when you use a key so cache hits
 
 ### step.withFallback - primary with fallback
 
-Run a primary operation; if it fails, run a fallback. Same early-exit semantics as `step()`—the workflow's error union includes both primary and fallback error types. Use a string ID as the first argument; optional `on` filter and `key`.
+Run a primary operation; if it fails, run a fallback. Same early-exit semantics as `step()`. The workflow's error union includes both primary and fallback error types. Use a string ID as the first argument; optional `on` filter and `key`.
 
 ```typescript
 const user = await step.withFallback('getUser', () => deps.fetchUser(id), {
@@ -645,7 +647,7 @@ Workflow diagram and generated docs show:
 
 ## Step variants at a glance
 
-**The canonical six** — these are what you'll reach for 90% of the time:
+**The canonical six**: these are what you'll reach for 90% of the time:
 
 | Variant | Use when |
 |---------|----------|
@@ -656,7 +658,7 @@ Workflow diagram and generated docs show:
 | `step.race(id, op)` | First-to-succeed |
 | `step.sleep(id, duration, opts?)` | Intentional delay (rate limiting, polling) |
 
-**Specialized** — when you need them:
+**Specialized**: when you need them:
 
 | Variant | Use when |
 |---------|----------|

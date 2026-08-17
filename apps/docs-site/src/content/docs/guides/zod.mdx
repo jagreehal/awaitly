@@ -10,9 +10,9 @@ Turn Zod validation errors into typed Results for seamless composition in workfl
 
 ## Why Combine Them?
 
-- **Type-safe validation errors** — Know exactly what went wrong, not just "validation failed"
-- **Composable with other operations** — Chain validation with database calls, API requests, etc.
-- **Early exit on invalid input** — `step()` stops the workflow immediately on validation failure
+- **Type-safe validation errors**: Know exactly what went wrong, not only "validation failed"
+- **Composable with other operations**: Chain validation with database calls, API requests, etc.
+- **Early exit on invalid input**: `step()` stops the workflow immediately on validation failure
 
 ## Quick Start
 
@@ -53,7 +53,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 
 ### Pattern 1: Basic Schema Validation
 
-The simplest pattern—validate input and return a typed Result:
+The simplest pattern, validate input and return a typed Result:
 
 ```typescript
 import { z } from 'zod';
@@ -408,10 +408,10 @@ export const getFirstError = (error: ValidationError): string => {
 ## Tips
 
 <Aside type="tip" title="Best practices">
-1. **Use descriptive error messages in schemas** — They appear in the `issues` array
-2. **Leverage Zod's `path`** — It tells you exactly which field failed
-3. **Combine with `step.try()`** — For schemas with async refinements that might throw
-4. **Create domain-specific schemas** — `EmailSchema`, `UUIDSchema`, etc. for reuse
+1. **Use descriptive error messages in schemas**: They appear in the `issues` array
+2. **Use Zod's `path`**. It tells you exactly which field failed
+3. **Combine with `step.try()`**, For schemas with async refinements that might throw
+4. **Create domain-specific schemas**: `EmailSchema`, `UUIDSchema`, etc. for reuse
 </Aside>
 
 ## Next Steps

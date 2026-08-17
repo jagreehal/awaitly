@@ -195,6 +195,15 @@ so whichever you remember from step options also works on the policy. The defaul
 differ: policies start at `backoff: 'fixed'` with no delay, step retries start at
 `backoff: 'exponential'` with a 100ms `initialDelay` and jitter on.
 
+By default, retry skips `UnexpectedError` and untagged throws (bugs). Typed errors still
+retry. Pass `retryIf: () => true` to opt back into retrying throws.
+
+In tests, pass `createTestClock()` as `clock` on `run`, `createWorkflow` / `workflow.run`,
+`retry`, `timeout(fn, after, { clock })`, or `createCircuitBreaker` so delays and windows
+do not wait on real time. Policy wrappers do not pick up `run({ clock })` automatically.
+On `step.retry`, set `jitter: false` so delays are exact. See
+[Retries & Timeouts](guides/retries-timeouts/#testing-with-a-clock).
+
 ### Add timeouts to operations
 
 Same three tiers. Per dependency:
@@ -537,7 +546,7 @@ harness.assertSteps(['fetch-user', 'charge-card']);
 
 ## Import Cheatsheet
 
-Use the task-shaped entry point for the capability you need. Everything is a **named import** — there is no namespace object.
+Use the task-shaped entry point for the capability you need. Everything is a **named import**: there is no namespace object.
 
 | Need | Import from |
 |------|-------------|

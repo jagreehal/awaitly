@@ -10,7 +10,7 @@ There are only two ideas to learn here. Everything else in awaitly is built from
 
 ## 1. Results instead of throws
 
-An operation that can fail returns `AsyncResult<T, E>` — either `ok(value)` or `err(error)`:
+An operation that can fail returns `AsyncResult<T, E>`, either `ok(value)` or `err(error)`:
 
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
@@ -56,7 +56,7 @@ const result = await run({ getUser, getOrders }, async (s) => {
 });
 ```
 
-Inside the callback there are no Results and no error checks — just values. The
+Inside the callback there are no Results and no error checks, only values. The
 property names (`getUser`, `getOrders`) become the step names used in diagrams and
 traces, so you never write an id by hand.
 
@@ -146,7 +146,7 @@ takes `unknown`, so it compiles, and it returns `false` on every call.
 ## Next
 
 `run()` is for one-off composition. When you want a workflow you can name, test,
-retry, persist, and diagram, you reach for `createWorkflow()` — the same deps-first
+retry, persist, and diagram, you reach for `createWorkflow()`, the same deps-first
 idea with more capability.
 
 [Build your first workflow →](getting-started/first-workflow/)

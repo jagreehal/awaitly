@@ -9,7 +9,12 @@
 import type { AsyncResult, ErrorValue } from "./index";
 import { ok, err, tryAsync } from "./index";
 import type { RetryOptions } from "../core";
-import { UnexpectedError } from "../errors";
+import {
+  UnexpectedError,
+  isRetryableFailure,
+  isRetryableResultFailure,
+} from "../errors";
+import { systemClock } from "../clock";
 
 /** Object-style config for async edge wrapping with optional retry. */
 export type TryAsyncBoundaryConfig<T, E> = {
@@ -36,9 +41,6 @@ const computeDelay = (
       return initialDelay;
   }
 };
-
-const sleep = (ms: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
  * Wraps an async function that might throw into an AsyncResult, with retry support.
@@ -76,7 +78,8 @@ export async function tryAsyncRetry<T, E>(
   const attempts = Math.max(1, retry.attempts);
   const initialDelay = retry.initialDelay ?? 100;
   const backoff = retry.backoff ?? "exponential";
-  const shouldRetryFn = retry.shouldRetry ?? (() => true);
+  const shouldRetryFn = retry.shouldRetry ?? retry.retryIf;
+  const clock = retry.clock ?? systemClock;
 
   const execute = async (): AsyncResult<T, E | unknown> => {
     try {
@@ -89,8 +92,13 @@ export async function tryAsyncRetry<T, E>(
   let result = await execute();
   for (let attempt = 1; attempt < attempts; attempt++) {
     if (result.ok) return result;
-    if (!shouldRetryFn(result.error as E, attempt)) return result;
-    await sleep(computeDelay(attempt, initialDelay, backoff));
+    const retryable = shouldRetryFn
+      ? shouldRetryFn(result.error as E, attempt)
+      : onError
+        ? isRetryableResultFailure(result.error)
+        : isRetryableFailure(result.error);
+    if (!retryable) return result;
+    await clock.sleep(computeDelay(attempt, initialDelay, backoff));
     result = await execute();
   }
   return result;

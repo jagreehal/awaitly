@@ -22,6 +22,7 @@ const SECTION_MAP = {
   isOk: ["Results", "Type guards"],
   isErr: ["Results", "Type guards"],
   isUnexpectedError: ["Results", "Type guards"],
+  isRetryableFailure: ["Results", "Type guards"],
   isWorkflowCancelled: ["Results", "Type guards"],
   // Unwrap
   unwrap: ["Unwrap", null],
@@ -68,12 +69,22 @@ function typeToString(t, refs = new Map()) {
     const ret = typeToString(sig.type, refs);
     return `(${params}) => ${ret}`;
   }
+  if (t.type === "reflection" && t.declaration?.children?.length) {
+    const fields = t.declaration.children.map((field) => {
+      const optional = field.flags?.isOptional ? "?" : "";
+      return `${field.name}${optional}: ${typeToString(field.type, refs)}`;
+    });
+    return `{ ${fields.join("; ")} }`;
+  }
   return "unknown";
 }
 
 function getCommentSummary(comment) {
   if (!comment?.summary) return "";
-  return comment.summary.map((s) => (s.kind === "text" ? s.text : "")).join("").trim();
+  return comment.summary
+    .map((part) => (part.kind === "text" || part.kind === "code" ? part.text : ""))
+    .join("")
+    .trim();
 }
 
 function getCommentRemarks(comment) {
@@ -81,7 +92,14 @@ function getCommentRemarks(comment) {
   const remarks = comment.blockTags.filter((t) => t.tag === "@remarks" || t.tag === "remarks");
   if (!remarks.length) return "";
   return remarks
-    .map((t) => (t.content || []).map((c) => (c.kind === "text" ? c.text : "")).join("").trim())
+    .map((tag) =>
+      (tag.content || [])
+        .map((part) =>
+          part.kind === "text" || part.kind === "code" ? part.text : ""
+        )
+        .join("")
+        .trim()
+    )
     .filter(Boolean)
     .join("\n\n");
 }
@@ -223,7 +241,8 @@ function generateMarkdown(project) {
     "import { createEngine } from 'awaitly/durable';",
     "",
     "// Test utilities",
-    "import { createWorkflowHarness } from 'awaitly/testing';",
+    "import { createWorkflowHarness, createTestClock } from 'awaitly/testing';",
+    "import { systemClock, type Clock, isRetryableFailure } from 'awaitly';",
     "```",
     "",
   ];
@@ -282,6 +301,7 @@ function generateMarkdown(project) {
   lines.push("| `resumeState` | `ResumeState?` | Resume from saved state |");
   lines.push("| `deps` | `Partial<Deps>?` | Per-run override of creation-time deps (RunConfig only) |");
   lines.push("| `signal` | `AbortSignal?` | Workflow cancellation |");
+  lines.push("| `clock` | `Clock?` | Time source for retry delays, `step.sleep`, and `step.withTimeout`. Per-run overrides creation-time. Pass `createTestClock()` in tests. |");
   lines.push("| `streamStore` | `StreamStore?` | Streaming backend |");
   lines.push("| `snapshot` | `WorkflowSnapshot?` | Restore from saved snapshot (RunConfig or creation) |");
   lines.push("| `onUnknownSteps` | `'warn' | 'error' | 'ignore'?` | When snapshot has steps not in this run |");
@@ -309,6 +329,21 @@ function generateMarkdown(project) {
   lines.push("| `compensate` | `(value: T) => void \\| Promise<void>` | Rollback action; receives the value the step returned |");
   lines.push("");
   lines.push("When at least one compensation throws, the workflow result is a `SagaCompensationError` carrying the original error and per-step compensation failures.");
+  lines.push("");
+  lines.push("## Clock");
+  lines.push("");
+  lines.push("Injectable time for retry delays, `step.sleep`, `step.withTimeout`, and circuit-breaker windows. Production uses `systemClock`. Tests pass `createTestClock()` from `awaitly/testing` as `clock` on `run`, `createWorkflow` / `workflow.run`, `retry`, `timeout`, and `createCircuitBreaker`.");
+  lines.push("");
+  lines.push("```typescript");
+  lines.push("interface Clock {");
+  lines.push("  now(): number");
+  lines.push("  sleep(ms: number, signal?: AbortSignal): Promise<void>");
+  lines.push("}");
+  lines.push("");
+  lines.push("systemClock: Clock");
+  lines.push("```");
+  lines.push("");
+  lines.push("`sleep` resolves on abort (it does not reject). Policy wrappers need `clock` at wrap time.");
   lines.push("");
 
   return lines.join("\n");

@@ -145,5 +145,30 @@ const emailBreaker = createCircuitBreaker('email', {
   resetTimeout: number;      // Ms before half-open (required)
   halfOpenMax?: number;      // Test calls allowed (default: 1)
   windowSize?: number;       // Failure counting window (default: 60000)
+  clock?: Clock;             // Time source for windows / resetTimeout (default: systemClock)
 }
+```
+
+## Testing with a clock
+
+Pass `createTestClock()` so `resetTimeout` and `windowSize` do not wait on real time:
+
+```typescript
+import { createCircuitBreaker } from 'awaitly';
+import { createTestClock } from 'awaitly/testing';
+
+const clock = createTestClock();
+const breaker = createCircuitBreaker('api', {
+  failureThreshold: 1,
+  resetTimeout: 30_000,
+  clock,
+});
+
+await breaker.execute(() => {
+  throw new Error('down');
+}).catch(() => {});
+// breaker.getState() === 'OPEN'
+
+clock.advance(30_000);
+// breaker.getState() === 'HALF_OPEN'
 ```

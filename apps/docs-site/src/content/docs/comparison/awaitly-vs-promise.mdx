@@ -6,7 +6,7 @@ description: Comparing awaitly AsyncResult with native Promises and try/catch
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 import { Aside } from '@astrojs/starlight/components';
 
-Promises are JavaScript's native way to handle async operations — they're excellent at representing async completion and composing via `.then` / `await`. awaitly's `AsyncResult` builds on Promises to add typed errors and an explicit environment. This guide compares both approaches.
+Promises are JavaScript's native way to handle async operations. They're excellent at representing async completion and composing via `.then` / `await`. awaitly's `AsyncResult` builds on Promises to add typed errors and an explicit environment. This guide compares both approaches.
 
 ## The Conceptual Difference
 
@@ -14,7 +14,7 @@ A Promise models time. It says "this async computation will eventually produce a
 
 awaitly models more than time. Its type says what the computation needs, what it can fail with, and what it produces. Promises give you eventual values; awaitly adds typed failure and an explicit environment on top.
 
-Where Promises stop short (they aren't "wrong", just incomplete):
+Where Promises stop short (they aren't "wrong", only incomplete):
 
 1. **Rejection is unstructured**: any value can be thrown. Errors aren't declared in the type, so `Promise<T>` tells you nothing about failure modes.
 2. **Composition loses failure information**: when you chain or combine promises, failure types widen to `unknown`, and you inspect errors at runtime.
@@ -103,7 +103,7 @@ try {
 </Tabs>
 
 <Aside type="note" title="Signature vs. reality">
-With Promises, nothing in the function signature tells you it can fail or what it depends on. You have to read the implementation or docs. That's not "Promises are unsafe" — they're just incomplete for modeling application-level computation.
+With Promises, nothing in the function signature tells you it can fail or what it depends on. You have to read the implementation or docs. That's not "Promises are unsafe". They're incomplete for modeling application-level computation.
 </Aside>
 
 ### Error Type Safety
@@ -366,7 +366,7 @@ const result = await withRetry(() => withTimeout(fetchData, 5000), 3, 100);
 
 ## Migration Path
 
-You can adopt awaitly incrementally. Here's how to wrap existing Promise-based code:
+You can adopt awaitly incrementally. Wrap existing Promise-based code like this:
 
 ```typescript
 import { ok, err, from, fromPromise, type AsyncResult } from 'awaitly';
@@ -401,10 +401,10 @@ const safeJsonParse = (s: string) =>
 
 ### When Promises are enough
 
-- **Small scripts** — A few async calls, errors handled ad hoc.
-- **Simple services** — Thin wrappers, single responsibility, errors don't need to compose.
-- **Thin API wrappers** — You translate to/from a typed layer at the boundary.
-- **Codebases where error types don't matter** — Internal tools, low-risk paths.
+- **Small scripts**: A few async calls, errors handled ad hoc.
+- **Simple services**: Thin wrappers, single responsibility, errors don't need to compose.
+- **Thin API wrappers**: You translate to/from a typed layer at the boundary.
+- **Codebases where error types don't matter**: Internal tools, low-risk paths.
 
 Plain Promises with disciplined error handling are perfectly reasonable there.
 

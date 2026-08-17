@@ -36,7 +36,7 @@ There are four, and most code only ever needs the first:
 | Import | What's in it |
 |---|---|
 | `awaitly` | Results, `run`, `createWorkflow`, policies, control flow, errors, matching |
-| `awaitly/result` | Result primitives only — a guaranteed sub-10KB entry, no tree-shaking required |
+| `awaitly/result` | Result primitives only, a guaranteed sub-10KB entry, no tree-shaking required |
 | `awaitly/durable` | Production machinery: durable execution, persistence, saga, approvals, streaming, webhooks, engine |
 | `awaitly/testing` | Test harness, kept out of production bundles |
 
@@ -59,7 +59,7 @@ import { createWorkflowHarness } from 'awaitly/testing';
 ```
 
 Importing `createWorkflow` from the root does **not** tax consumers who only use Result
-primitives — a build that imports just `ok`/`err` from `awaitly` still ships under 5KB.
+primitives, a build that imports only `ok`/`err` from `awaitly` still ships under 5KB.
 Reach for `awaitly/result` when you want that size without relying on your bundler's
 tree-shaking at all.
 

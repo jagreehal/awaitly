@@ -43,7 +43,7 @@ Most code treats these as afterthoughts: you write the happy path, then bolt a `
 
 Whatever approach you choose, judge it against three questions:
 
-1. **Visible**: can you see every way the code can fail just by reading it?
+1. **Visible**: can you see every way the code can fail by reading it?
 2. **Composable**: can you combine fallible functions without extra ceremony?
 3. **Honest**: does the function signature say what can go wrong?
 
@@ -150,4 +150,4 @@ No approach is right for every project. Each is a tool for a different job:
 - **awaitly** when you want familiar async/await with type safety
 - **Effect** when you need the full architectural toolkit
 
-Pick the one that fits the failure modes your code actually has, and the amount of structure your team wants to maintain.
+Pick the one that fits the failure modes your code has, and the amount of structure your team wants to maintain.

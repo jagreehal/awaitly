@@ -118,7 +118,7 @@ async function fetchApi(): AsyncResult<Data, 'FETCH_FAILED'> {
 ### My error type is wider than I expected
 
 `err()` takes a `const` type parameter, so error literals keep their literal
-type on their own — no `as const` required:
+type on their own, no `as const` required:
 
 ```typescript
 const fetchUser = async (id: string) => {
@@ -218,6 +218,35 @@ const workflowB = createWorkflow('workflow', { processData });
 
 ## Debugging Workflows
 
+### Read the stack trace on `cause`
+
+awaitly reports an `UnexpectedError` when a dependency throws. The original error and its stack frames remain on `cause`:
+
+```typescript
+async function readConfig(path: string) {
+  JSON.parse(await fs.readFile(path, 'utf8'));   // throws
+  return ok(path);
+}
+
+const result = await run({ readConfig }, async (s) => s.readConfig('/etc/app'));
+
+if (!result.ok) {
+  console.log(result.error.type);        // 'UnexpectedError'
+  console.log(result.error.cause.stack);
+}
+```
+
+```text
+SyntaxError: Expected property name or '}' in JSON at position 2
+    at JSON.parse (<anonymous>)
+    at readConfig (/app/src/config.ts:4:8)
+    at .../awaitly/dist/index.js:911:31
+```
+
+The top frames identify the line in your code that threw. awaitly runs steps with `await`, so the JavaScript engine builds the same stack it builds for other async functions. Your debugger can step through those frames.
+
+Log `result.error.cause` for failures you did not model. Inspect `result.error.type` to identify the workflow failure and `cause.stack` to find the throw site.
+
 ### Enable workflow events
 
 Use the `onEvent` option to log what's happening:
@@ -261,9 +290,9 @@ console.log(viz.renderAs('mermaid'));
 
 If your diagram is empty or only shows the start node, events are not reaching the visualizer. Ensure:
 
-1. **You pass `onEvent`** — The workflow only emits events to a callback you provide. Pass `onEvent: viz.handleEvent` (or `collector.handleEvent`) when creating the workflow or when calling the function that runs it.
-2. **Library workflows** — If you call a function like `processOnePayment(..., deps)` that creates the workflow internally, that function must accept optional workflow options (e.g. `{ onEvent }`) and forward them to `createWorkflow`. Otherwise your visualizer never receives events. See [Visualization: Library workflows](guides/visualization/#library-workflows).
-3. **Steps actually run** — The workflow must execute at least one `step(...)` so that `step_start` / `step_complete` events are emitted. If the workflow exits early or throws before any step, you may only see `workflow_start`.
+1. **You pass `onEvent`**, The workflow only emits events to a callback you provide. Pass `onEvent: viz.handleEvent` (or `collector.handleEvent`) when creating the workflow or when calling the function that runs it.
+2. **Library workflows**: If you call a function like `processOnePayment(..., deps)` that creates the workflow internally, that function must accept optional workflow options (e.g. `{ onEvent }`) and forward them to `createWorkflow`. Otherwise your visualizer never receives events. See [Visualization: Library workflows](guides/visualization/#library-workflows).
+3. **Steps run**: The workflow must execute at least one `step(...)` so that `step_start` / `step_complete` events are emitted. If the workflow exits early or throws before any step, you may only see `workflow_start`.
 
 ### Inspect step results
 

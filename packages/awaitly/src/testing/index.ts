@@ -9,6 +9,7 @@ import type { Result, AsyncResult, StepOptions, WorkflowEvent, Ok, Err } from ".
 import { ok, err, isOk, UnexpectedError } from "../core";
 import type { AnyResultFn, ErrorsOfDeps } from "../workflow/types";
 import { isDepResultShaped } from "../core/bound-steps";
+import type { Clock } from "../clock";
 
 // =============================================================================
 // Internal Types
@@ -746,26 +747,76 @@ export function compareSnapshots(
 // Test Utilities
 // =============================================================================
 
+type PendingSleep = {
+  deadline: number;
+  resolve: () => void;
+  signal?: AbortSignal;
+  onAbort?: () => void;
+};
+
 /**
- * Create a deterministic clock for testing.
+ * A {@link Clock} whose time only moves when you call `advance` / `set`.
+ * `sleep` parks until the clock reaches the deadline; abort resolves it.
  */
-export function createTestClock(startTime = 0): {
-  now: () => number;
+export interface TestClock extends Clock {
+  /** Move time forward by `ms` and resolve due sleeps. */
   advance: (ms: number) => void;
+  /** Jump to an absolute timestamp and resolve due sleeps. */
   set: (time: number) => void;
+  /** Restore the start time. Does not cancel pending sleeps. */
   reset: () => void;
-} {
+}
+
+/**
+ * Create a deterministic clock for testing retry, timeout, sleep, and
+ * circuit-breaker windows. Pass it as `clock` on `run`, `createWorkflow`,
+ * `retry`, `timeout`, or `createCircuitBreaker`. Use `jitter: false` on
+ * retry so delays are exact.
+ */
+export function createTestClock(startTime = 0): TestClock {
   let currentTime = startTime;
+  const pending = new Set<PendingSleep>();
+
+  const detach = (entry: PendingSleep): void => {
+    pending.delete(entry);
+    if (entry.signal && entry.onAbort) {
+      entry.signal.removeEventListener("abort", entry.onAbort);
+    }
+  };
+
+  const flush = (): void => {
+    for (const entry of [...pending]) {
+      if (entry.deadline <= currentTime) {
+        detach(entry);
+        entry.resolve();
+      }
+    }
+  };
 
   return {
     now: () => currentTime,
-    advance: (ms: number) => {
+    sleep(ms, signal) {
+      if (signal?.aborted || ms <= 0) return Promise.resolve();
+      const deadline = currentTime + ms;
+      return new Promise<void>((resolve) => {
+        const entry: PendingSleep = { deadline, resolve, signal };
+        entry.onAbort = () => {
+          detach(entry);
+          resolve();
+        };
+        pending.add(entry);
+        signal?.addEventListener("abort", entry.onAbort, { once: true });
+      });
+    },
+    advance(ms) {
       currentTime += ms;
+      flush();
     },
-    set: (time: number) => {
+    set(time) {
       currentTime = time;
+      flush();
     },
-    reset: () => {
+    reset() {
       currentTime = startTime;
     },
   };

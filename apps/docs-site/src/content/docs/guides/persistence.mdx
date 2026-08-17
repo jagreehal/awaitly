@@ -67,7 +67,7 @@ if (loaded) {
 // Or: const loaded = await store.load('wf-123'); const resumeState = toResumeState(loaded);
 ```
 
-**Collector pattern** when you need custom event handling (e.g. logging) alongside state capture: use `createResumeStateCollector`, pass `handleEvent` to `onEvent`, then `collector.getResumeState()`. Serialize with `serializeResumeState(state)` before persisting; use `deserializeResumeState(parsed)` when loading JSON. Restore with `workflow.run(fn, { resumeState })` — do not pass a WorkflowSnapshot to `resumeState`.
+**Collector pattern** when you need custom event handling (e.g. logging) alongside state capture: use `createResumeStateCollector`, pass `handleEvent` to `onEvent`, then `collector.getResumeState()`. Serialize with `serializeResumeState(state)` before persisting; use `deserializeResumeState(parsed)` when loading JSON. Restore with `workflow.run(fn, { resumeState })`. Do not pass a WorkflowSnapshot to `resumeState`.
 
 ## One-liner Store Setup
 
@@ -156,7 +156,7 @@ await store.save('wf-123', collector.getResumeState());
 
 ## Two explicit restore flows
 
-**Resume from ResumeState** (recommended): Use `store.loadResumeState(id)` or `toResumeState(await store.load(id))`, then `workflow.run(fn, { resumeState })`. Do not pass a WorkflowSnapshot to `resumeState` — that is a different shape.
+**Resume from ResumeState** (recommended): Use `store.loadResumeState(id)` or `toResumeState(await store.load(id))`, then `workflow.run(fn, { resumeState })`. Do not pass a WorkflowSnapshot to `resumeState`. That is a different shape.
 
 **Resume from snapshot:** If your store returns a WorkflowSnapshot (e.g. from durable execution or legacy data), use `workflow.run(fn, { snapshot: loadedSnapshot })`. Do not conflate the two in docs or code.
 

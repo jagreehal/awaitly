@@ -421,7 +421,7 @@ const result = await withScope(async (scope) => {
 });
 ```
 
-## Deeply Nested Scopes
+## Nested Scopes
 
 ### Multi-level resource hierarchies
 
