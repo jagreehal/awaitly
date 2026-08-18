@@ -50,6 +50,12 @@ Use this as a checklist when generating or editing awaitly code. Satisfy every i
 ### Concurrency inside workflows
 - **MUST NOT** use `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows. Replace with `step.all`, `step.map`, or `step.race` (consult types).
 
+### Telemetry
+- awaitly opens OpenTelemetry spans for every `run`, `step`, retry attempt, and `step.all`/`step.race` scope. Register a provider at startup and the spans appear.
+- **MUST NOT** wrap the workflow callback or a step function in `trace()` (autotel), `startActiveSpan()`, or any other span helper. awaitly already opened that span, so a wrapper reports the same call twice.
+- **MUST** put your own spans inside the step body when you want detail below the step.
+- Turn spans off with `{ telemetry: false }` on one run, `setTelemetryEnabled(false)` for the process, or `AWAITLY_TELEMETRY=0` in the environment.
+
 ### Workflow callback invariants
 Inside a workflow callback:
 - **MUST** return raw values (not `Result`).

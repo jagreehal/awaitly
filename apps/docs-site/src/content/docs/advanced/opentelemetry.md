@@ -26,6 +26,20 @@ POST /checkout
 
 Building this from the `onEvent` stream is not possible. A callback fires beside the step rather than inside it, so spans you start from `step_start` cannot become the parent of work the step goes on to do. Your database spans end up in a flat pile next to the workflow instead of inside it.
 
+## Nothing to wrap
+
+`run()` starts the span before it calls your function, and `step()` starts one before it calls yours. Your code already runs inside a span, so a wrapper around either gives you two spans for one call:
+
+```typescript
+// Two spans for one step
+await step('charge', () => trace(charge)(args, deps));
+
+// One span, named by the step
+await step('charge', () => deps.charge(args));
+```
+
+Work you `await` without a `step()` gets no span of its own and reports under `run`. Wrap the functions no step calls, such as route handlers and cron entry points.
+
 ## You need a ContextManager
 
 That nesting depends on a registered `ContextManager`. Register one or every span starts its own trace:

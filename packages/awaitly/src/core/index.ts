@@ -1189,11 +1189,15 @@ export interface RunStep<E = unknown> {
    * });
    * ```
    */
-  <T, StepE extends E>(
+  // `R` captures the callback's whole return type. Inferring the value and
+  // error separately (`() => Result<T, StepE>`) pinned `StepE` to the first
+  // `Err` member of a multi-branch callback and rejected the rest, so a step
+  // that returns two of the workflow's declared errors failed to compile.
+  <R extends MaybeAsyncResult<unknown, E>>(
     id: string,
-    operation: () => Result<T, StepE> | AsyncResult<T, StepE>,
+    operation: () => R,
     options?: StepOptions
-  ): Promise<T>;
+  ): Promise<ExtractValue<Awaited<R>>>;
 
   /**
    * Execute a standard throwing operation safely.
@@ -1377,10 +1381,12 @@ export interface RunStep<E = unknown> {
     }>;
 
     // Array form: step.all(name, () => allAsync([...]))
-    <T, StepE extends E>(
+    // `R` captures the callback's whole return type — see the note on the
+    // `step()` call signature above.
+    <R extends MaybeAsyncResult<unknown[], E>>(
       name: string,
-      operation: () => Result<T[], StepE> | AsyncResult<T[], StepE>
-    ): Promise<T[]>;
+      operation: () => R
+    ): Promise<ExtractValue<Awaited<R>>>;
   };
 
   /**
@@ -1400,10 +1406,10 @@ export interface RunStep<E = unknown> {
    * );
    * ```
    */
-  race: <T, StepE extends E>(
+  race: <R extends MaybeAsyncResult<unknown, E>>(
     name: string,
-    operation: () => Result<T, StepE> | AsyncResult<T, StepE>
-  ) => Promise<T>;
+    operation: () => R
+  ) => Promise<ExtractValue<Awaited<R>>>;
 
   /**
    * Execute a primary operation with a fallback if the primary fails.
@@ -1515,11 +1521,14 @@ export interface RunStep<E = unknown> {
    * );
    * ```
    */
-  retry: <T, StepE extends E>(
+  retry: <R extends MaybeAsyncResult<unknown, E>>(
     id: string,
-    operation: () => Result<T, StepE> | AsyncResult<T, StepE>,
-    options: RetryOptions<StepE> & { key?: string; timeout?: TimeoutOptions }
-  ) => Promise<T>;
+    operation: () => R,
+    options: RetryOptions<ExtractError<Awaited<R>>> & {
+      key?: string;
+      timeout?: TimeoutOptions;
+    }
+  ) => Promise<ExtractValue<Awaited<R>>>;
 
   /**
    * Execute an operation with a timeout.
@@ -1553,13 +1562,14 @@ export interface RunStep<E = unknown> {
    * );
    * ```
    */
-  withTimeout: <T, StepE extends E, const TErr extends E = never>(
+  withTimeout: <
+    R extends MaybeAsyncResult<unknown, E>,
+    const TErr extends E = never
+  >(
     id: string,
-    operation:
-      | (() => Result<T, StepE> | AsyncResult<T, StepE>)
-      | ((signal: AbortSignal) => Result<T, StepE> | AsyncResult<T, StepE>),
+    operation: (() => R) | ((signal: AbortSignal) => R),
     options: TimeoutOptions<TErr> & { key?: string }
-  ) => Promise<T>;
+  ) => Promise<ExtractValue<Awaited<R>>>;
 
   /**
    * Pause execution for a specified duration.
@@ -1664,11 +1674,11 @@ export interface RunStep<E = unknown> {
    * console.log(`Processed ${result.value.processedCount} messages`);
    * ```
    */
-  streamForEach: <T, R, StepE extends E>(
+  streamForEach: <T, R extends AsyncResult<unknown, E>>(
     source: StreamReaderInterface<T> | AsyncIterable<T>,
-    processor: (item: T, index: number) => AsyncResult<R, StepE>,
+    processor: (item: T, index: number) => R,
     options?: StreamForEachStepOptions
-  ) => Promise<StreamForEachResultType<R>>;
+  ) => Promise<StreamForEachResultType<ExtractValue<Awaited<R>>>>;
 
   // ===========================================================================
   // Static Analysis Methods
@@ -1925,12 +1935,12 @@ export interface RunStep<E = unknown> {
    * // Automatic parallel execution with error union
    * ```
    */
-  map: <T, U, StepE extends E>(
+  map: <T, R extends AsyncResult<unknown, E>>(
     id: string,
     items: T[],
-    mapper: (item: T, index: number) => AsyncResult<U, StepE>,
+    mapper: (item: T, index: number) => R,
     options?: { concurrency?: number; key?: string }
-  ) => Promise<U[]>;
+  ) => Promise<ExtractValue<Awaited<R>>[]>;
 
 }
 

@@ -142,3 +142,37 @@ describe("run(deps, fn) loop safety", () => {
     expect(names).toEqual(["getUser", "getUser#2"]);
   });
 });
+
+describe("step() with two typed error branches", () => {
+  type NotFound = { type: "NOT_FOUND"; id: string };
+  type Forbidden = { type: "FORBIDDEN"; actor: string };
+
+  const parse = (raw: string) =>
+    run<string, NotFound | Forbidden>(async ({ step }) =>
+      step("parse", async () => {
+        if (raw === "") return err({ type: "NOT_FOUND", id: "u-1" } as NotFound);
+        if (raw === "?")
+          return err({ type: "FORBIDDEN", actor: "u-1" } as Forbidden);
+        return ok(raw);
+      })
+    );
+
+  it("returns the value when neither branch fails", async () => {
+    const result = await parse("ok");
+
+    expect(result).toEqual({ ok: true, value: "ok" });
+  });
+
+  it("short-circuits with whichever branch failed", async () => {
+    const first = await parse("");
+    const second = await parse("?");
+
+    expect(first.ok).toBe(false);
+    expect(!first.ok && first.error).toEqual({ type: "NOT_FOUND", id: "u-1" });
+    expect(second.ok).toBe(false);
+    expect(!second.ok && second.error).toEqual({
+      type: "FORBIDDEN",
+      actor: "u-1",
+    });
+  });
+});
