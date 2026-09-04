@@ -85,7 +85,7 @@ const result = await durable.run(
 When using the default in-memory store, workflow IDs must be unique within the process.
 :::
 
-To persist across restarts or share state across processes, pass a **SnapshotStore** (e.g. from `postgres()`, `mongo()`, or `libsql()`):
+To persist across restarts or share state across processes, pass a store from `postgres()`, `mongo()`, or `libsql()`:
 
 ```typescript
 import { durable } from 'awaitly/durable';
@@ -111,7 +111,7 @@ IDs should be unique per workflow instance; don't run the same id concurrently u
 
 1. **On start**: Load existing state from store (if any)
 2. **Version check**: Reject if stored version differs from current
-3. **Resume**: Skip completed steps using cached results
+3. **Resume**: Skip completed steps using cached results (crashed steps are retried — see [Resuming failed steps](#resuming-failed-steps))
 4. **Execute**: Run remaining steps, persisting after each one
 5. **On success**: Delete stored state (clean up)
 6. **On error/cancellation**: State remains for future resume
@@ -119,6 +119,8 @@ IDs should be unique per workflow instance; don't run the same id concurrently u
 ## Snapshot Stores
 
 Durable uses a **SnapshotStore** (`save`, `load`, `delete`, `list`, `close`). When you omit `store`, an in-memory store is used (per process).
+
+The `store` option accepts **DurableStore**, the wider contract the shipped adapters implement (their `save` also takes a `ResumeState` and their `load` returns one). Both types are exported from `awaitly/durable`, so `postgres()`, `mongo()`, and `libsql()` can be passed straight to `durable.run` — no cast needed.
 
 **Note:** Snapshot stores hold workflow checkpoints. For streaming output inside a step (AI tokens, etc.), see [Streaming](foundations/streaming/).
 
@@ -186,6 +188,42 @@ const store: SnapshotStore = {
   async close() {},
 };
 ```
+
+## Resuming failed steps
+
+A step can fail two ways, and a resume treats them differently:
+
+- It **threw** — the worker died, the socket dropped, the process was killed. That is a crash, not a verdict, so the step is retried on resume.
+- It returned a typed **`err`** — `DECLINED`, `VALIDATION_FAILED`. That is a decision the step reached, so it stays decided and is not re-run.
+
+`resumeFailedSteps` controls this:
+
+```typescript
+const result = await durable.run(deps, workflowFn, {
+  id: 'checkout-123',
+  store,
+  resumeFailedSteps: 'crashed', // default: retry throws, keep typed errors
+  // 'all' — restore every failed step, including crashes
+});
+```
+
+## Checkpoints inside `step.forEach`
+
+A step written inside a `step.forEach` callback runs once per item, and each iteration gets its own checkpoint. Resume skips the items that already completed and picks up at the first one that did not:
+
+```typescript
+await step.forEach('charges', invoices, {
+  stepIdPattern: 'charge-{i}',
+  run: async (invoice) => {
+    // Keyed per iteration: charge@charge-0, charge@charge-1, ...
+    await step('charge', () => deps.charge(invoice));
+  },
+});
+```
+
+`stepIdPattern` names the iteration for both the diagram and the checkpoint, so the two agree. Nested loops concatenate their iteration names, and the scope is per run, so concurrent runs never share checkpoints. The same applies to `step.try`, `step.fromResult`, `step.withFallback`, and `step.withResource`.
+
+`step.retry` and `step.withTimeout` checkpoint by id (and by iteration) too, so a retried step is skipped on resume rather than run again.
 
 ## Declaring Extra Errors
 

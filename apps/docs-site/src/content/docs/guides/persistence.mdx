@@ -100,7 +100,7 @@ if (loaded) await workflow.run(myWorkflowFn, { resumeState: loaded });
 
 ## ResumeState and WorkflowSnapshot
 
-Collected state from `createResumeStateCollector().getResumeState()` is a **ResumeState** (JSON-serializable): `{ steps: Map<string, ResumeStateEntry> }`. Some adapters or run configs also support **WorkflowSnapshot** for restore. The snapshot is a JSON-serializable object:
+Collected state from `createResumeStateCollector().getResumeState()` is a **ResumeState** (JSON-serializable): `{ steps: Map<string, ResumeStateEntry> }`. Some adapters or run configs also support **WorkflowSnapshot** for restore. That is the difference between the two store types exported from `awaitly/durable`: `SnapshotStore` saves and loads a snapshot, and `DurableStore` — what the shipped adapters implement and what `durable.run` accepts — handles either. The snapshot is a JSON-serializable object:
 
 ```typescript
 interface WorkflowSnapshot {

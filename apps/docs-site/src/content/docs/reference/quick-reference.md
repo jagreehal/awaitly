@@ -567,7 +567,7 @@ Use the task-shaped entry point for the capability you need. Everything is a **n
 | Durable execution (`durable.run`) | `awaitly/durable` |
 | Saga pattern (`createSagaWorkflow`) | `awaitly/durable` |
 | HITL (`pendingApproval`, `createApprovalStep`, `gatedStep`, `injectApproval`, `isPendingApproval`) | `awaitly/durable` |
-| Snapshot store types and validation (`SnapshotStore`, `WorkflowSnapshot`, `validateSnapshot`) | `awaitly/durable` |
+| Snapshot store types and validation (`SnapshotStore`, `DurableStore`, `WorkflowSnapshot`, `validateSnapshot`) | `awaitly/durable` |
 | Streaming (`createMemoryStreamStore`, `toAsyncIterable`, transformers) | `awaitly/durable` |
 | Webhooks (`createWebhookHandler`) | `awaitly/durable` |
 | Runtime engine (`createEngine`) | `awaitly/durable` |
@@ -581,7 +581,7 @@ Use the task-shaped entry point for the capability you need. Everything is a **n
 
 | Entry Point | Use Case |
 |-------------|----------|
-| `awaitly/result` | Result types only (smallest bundle; sizes in docs are gzipped when given) |
+| `awaitly/result` | Result types only (smallest bundle; sizes in docs are minified, not gzipped) |
 | `awaitly` | The front door: Result types, `run()`, `createWorkflow()`, per-dep policies, circuit breakers, rate limiting, caching, singleflight, pattern matching, durations, pre-built errors, and batch processing |
 | `awaitly/durable` | Production machinery: durable execution, snapshot persistence, saga/compensation, human-in-the-loop, streaming stores, webhooks, and the low-level engine |
 | `awaitly/testing` | Test utilities (`createWorkflowHarness`, scripted outcomes, assertions) |

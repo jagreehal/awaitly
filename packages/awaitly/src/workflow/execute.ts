@@ -29,6 +29,11 @@ import {
   extractStepMetadata,
   bindSteps,
   type ErrorOf,
+  FOR_EACH_SCOPE,
+  scopedStepKey,
+  type ForEachScopeHolder,
+  type ForEachItemOptions,
+  type ForEachRunOptions,
 } from "../core";
 import { isDepResultShaped, type StepCallable } from "../core/bound-steps";
 import { resolveTelemetry, withCompensationSpan, withRunSpan } from "../core/opentelemetry";
@@ -733,7 +738,15 @@ export function createWorkflow<
             const meta: StepFailureMeta = stepResult.meta?.origin === "throw"
               ? { origin: "throw", thrown: deserializedCause }
               : { origin: "result", resultCause: deserializedCause };
-            cache.set(stepId, encodeCachedError(errorValue, meta, deserializedCause));
+            const restoredError =
+              stepResult.meta?.origin === "throw" &&
+              deserializedCause !== undefined &&
+              typeof errorValue === "object" &&
+              errorValue !== null &&
+              "cause" in errorValue
+                ? { ...errorValue, cause: deserializedCause }
+                : errorValue;
+            cache.set(stepId, encodeCachedError(restoredError, meta, deserializedCause));
           }
         } catch (e) {
           throw new SnapshotDecodeError(
@@ -822,6 +835,14 @@ export function createWorkflow<
 
     // Create a cached step wrapper
     const createCachedStep = (realStep: RunStep<E>): RunStep<E> => {
+      // A step inside a step.forEach callback keys by its iteration, so every
+      // item gets its own checkpoint.
+      const scopedDefaultKey = (id: string, key?: string): string =>
+        key ??
+        scopedStepKey(
+          id,
+          (realStep as { [FOR_EACH_SCOPE]?: ForEachScopeHolder })[FOR_EACH_SCOPE]?.current
+        );
       // NOTE: We always create the wrapper because streaming methods (streamForEach, getWritable,
       // getReadable) are defined on cachedStepFn, not realStep. Even without cache/hooks/signal/
       // streamStore, the workflow may use step.streamForEach with async iterables.
@@ -850,7 +871,7 @@ export function createWorkflow<
         // Use cache by id when key is omitted; when key is explicitly set (including undefined) use that (undefined = don't cache)
         const key = Object.prototype.hasOwnProperty.call(opts, "key")
           ? opts.key
-          : id;
+          : scopedDefaultKey(id);
         const { ttl, out } = opts;
 
         // Check for cancellation before starting step
@@ -971,7 +992,7 @@ export function createWorkflow<
           | { onError: (cause: unknown) => Err; key?: string; ttl?: number; compensate?: (value: StepT) => unknown }
       ): Promise<StepT> => {
         const { ttl } = opts;
-        const key = opts.key ?? id; // step.try caches by id when key omitted (for resume)
+        const key = scopedDefaultKey(id, opts.key);
         const name = id;
 
         await runBeforeStep(key);
@@ -1045,7 +1066,7 @@ export function createWorkflow<
           | { onError: (resultError: ResultE) => Err; key?: string; ttl?: number }
       ): Promise<StepT> => {
         const { ttl } = opts;
-        const key = opts.key ?? id; // step.fromResult caches by id when key omitted (for resume)
+        const key = scopedDefaultKey(id, opts.key);
         const name = id;
 
         await runBeforeStep(key);
@@ -1113,7 +1134,7 @@ export function createWorkflow<
         operation: () => AsyncResult<StepT, E1>,
         options: { on?: E1 & string; fallback: () => AsyncResult<StepT, E2>; key?: string }
       ): Promise<StepT> => {
-        const key = options.key ?? id; // matches core withFallback cache key behavior
+        const key = scopedDefaultKey(id, options.key);
         const name = id;
 
         await runBeforeStep(key);
@@ -1149,7 +1170,7 @@ export function createWorkflow<
           const value = await realStep.withFallback(
             id,
             operation as () => AsyncResult<StepT, E>,
-            options as { on?: E & string; fallback: () => AsyncResult<StepT, E>; key?: string }
+            { ...options, key } as { on?: E & string; fallback: () => AsyncResult<StepT, E>; key?: string }
           );
           if (cache) {
             cache.set(key, ok(value));
@@ -1175,7 +1196,8 @@ export function createWorkflow<
         }
       };
 
-      // Wrap step.withResource - run via core then call onAfterStep (keyed by id, consistent with other keyed steps)
+      // Wrap step.withResource with cache and checkpoint behavior consistent
+      // with the other helper steps.
       cachedStepFn.withResource = async <T, R, AcquireE extends E, UseE extends E>(
         id: string,
         options: {
@@ -1184,9 +1206,37 @@ export function createWorkflow<
           release: (resource: R) => void | Promise<void>;
         }
       ): Promise<T> => {
-        const key = id;
+        const key = scopedDefaultKey(id);
+
+        await runBeforeStep(key);
+
+        if (cache && cache.has(key)) {
+          emitEvent({
+            type: "step_cache_hit",
+            workflowId,
+            stepKey: key,
+            name: id,
+            ts: Date.now(),
+          });
+          const cached = cache.get(key)!;
+          if (cached.ok) return cached.value as T;
+          const meta = decodeCachedMeta(cached.cause);
+          throw createEarlyExit(cached.error as AcquireE | UseE, meta);
+        }
+
+        if (cache) {
+          emitEvent({
+            type: "step_cache_miss",
+            workflowId,
+            stepKey: key,
+            name: id,
+            ts: Date.now(),
+          });
+        }
+
         try {
           const value = await realStep.withResource(id, options);
+          if (cache) cache.set(key, ok(value));
           await callOnAfterStepHook(key, ok(value));
           return value;
         } catch (thrown) {
@@ -1199,6 +1249,7 @@ export function createWorkflow<
                   ? exit.meta.thrown
                   : undefined;
             const errorResult = encodeCachedError(exit.error, exit.meta, originalCause);
+            if (cache) cache.set(key, errorResult);
             await callOnAfterStepHook(key, errorResult, exit.meta);
           }
           throw thrown;
@@ -1212,7 +1263,9 @@ export function createWorkflow<
         options: RetryOptions & { key?: string; timeout?: TimeoutOptions; ttl?: number }
       ): Promise<StepT> => {
         const stepOptions = {
-          key: options.key, // explicitly pass so undefined = don't cache
+          // Omit the key while steps are persisted so it falls back to the id
+          // (and the forEach scope); against a plain cache, stay uncached.
+          ...(options.key === undefined && onAfterStepHook ? {} : { key: options.key }),
           retry: {
             attempts: options.attempts,
             backoff: options.backoff,
@@ -1242,7 +1295,7 @@ export function createWorkflow<
         options: TimeoutOptions<TErr> & { key?: string; ttl?: number }
       ): Promise<StepT> => {
         const stepOptions = {
-          key: options.key,
+          ...(options.key === undefined && onAfterStepHook ? {} : { key: options.key }),
           timeout: options,
           ttl: options.ttl,
         };
@@ -1872,8 +1925,31 @@ export function createWorkflow<
       // step.arm: Delegate to real step (returns arm definition)
       cachedStepFn.arm = realStep.arm;
 
-      // step.forEach: Delegate to real step (executes loop)
-      cachedStepFn.forEach = realStep.forEach;
+      // The item form receives an innerStep argument. Route that argument
+      // through this workflow wrapper so its steps persist immediately rather
+      // than merely emitting events into an unsaved in-memory collector.
+      cachedStepFn.forEach = (<T, R>(
+        id: string,
+        items: Iterable<T> | AsyncIterable<T>,
+        options: ForEachRunOptions<T, R, readonly string[]> | ForEachItemOptions<T, R>
+      ): Promise<R[]> => {
+        if ("item" in options) {
+          const originalItem = options.item;
+          return realStep.forEach(id, items, {
+            ...options,
+            item: {
+              ...originalItem,
+              handler: (item, index) =>
+                originalItem.handler(
+                  item,
+                  index,
+                  cachedStepFn as unknown as RunStep<unknown>
+                ),
+            },
+          });
+        }
+        return realStep.forEach(id, items, options);
+      }) as RunStep<E>["forEach"];
 
       // step.item: Delegate to real step (returns item handler)
       cachedStepFn.item = realStep.item;

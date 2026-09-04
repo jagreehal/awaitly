@@ -853,8 +853,13 @@ export function hasStaticChildren(
 /**
  * Get all children of a node (handles different child property names).
  */
-export function getStaticChildren(node: StaticFlowNode): StaticFlowNode[] {
+export function getStaticChildren(
+  node: StaticFlowNode | StaticWorkflowNode
+): StaticFlowNode[] {
   switch (node.type) {
+    // The workflow root holds the top-level flow. Without this case a walk
+    // that started at `ir.root` stopped there and saw no steps.
+    case "workflow":
     case "sequence":
     case "parallel":
     case "race":

@@ -40,6 +40,10 @@ export {
 
   // Re-exports from persistence (new snapshot API)
   type SnapshotStore,
+
+  // The store contract durable.run accepts: what the shipped adapters
+  // (awaitly-mongo, awaitly-postgres, awaitly-libsql) implement.
+  type DurableStore,
 } from "./durable";
 
 // Snapshot stores, validation, serialization, and state migrations are part

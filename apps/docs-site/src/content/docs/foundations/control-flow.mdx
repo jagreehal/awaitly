@@ -345,9 +345,9 @@ for (const payment of payments) {
 
 <Aside type="tip" title="When to use step.forEach">
 Use `step.forEach()` when you need:
-- Resume support (tracks which items completed)
+- Resume support (each iteration gets its own checkpoint, so a resume skips completed items)
 - Static analysis for workflow diagrams
-- Automatic indexing with `stepIdPattern`
+- Automatic indexing with `stepIdPattern` — the same name for the diagram and the checkpoint
 
 Use `allAsync` with array `.map()` when you need parallel execution.
 </Aside>

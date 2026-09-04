@@ -2489,6 +2489,17 @@ export type RunOptions<E, C = void> = RunOptionsWithCatch<E, C> | RunOptionsWith
 // Early Exit Mechanism (exported for caching layer)
 // =============================================================================
 
+/** Holder for the current step.forEach iteration scope. @internal */
+export type ForEachScopeHolder = { current: string | undefined };
+
+/** Shares the per-run iteration scope with the workflow caching layer. @internal */
+export const FOR_EACH_SCOPE: unique symbol = Symbol("awaitly.forEachScope");
+
+/** Key a step gets inside a forEach iteration when it declares no key of its own. */
+export function scopedStepKey(id: string, scope: string | undefined): string {
+  return scope === undefined ? id : `${id}@${scope}`;
+}
+
 /**
  * Symbol used to identify early exit throws.
  * Exported for the caching layer in workflow.ts.
@@ -3165,6 +3176,26 @@ async function runFn<T, E, C = void>(
     return stepKey ?? `step_${++stepIdCounter}`;
   };
 
+  // Sequential forEach callbacks share this per-run holder with the workflow
+  // cache wrapper. Nested loops concatenate their iteration identities.
+  const forEachScope: ForEachScopeHolder = { current: undefined };
+
+  const deriveStepKey = (id: string, explicitKey?: string): string =>
+    explicitKey ?? scopedStepKey(id, forEachScope.current);
+
+  const withForEachScope = async <R>(
+    iteration: string,
+    body: () => Promise<R>
+  ): Promise<R> => {
+    const previous = forEachScope.current;
+    forEachScope.current = previous === undefined ? iteration : `${previous}.${iteration}`;
+    try {
+      return await body();
+    } finally {
+      forEachScope.current = previous;
+    }
+  };
+
   const emitEvent = (event: WorkflowEvent<E | UnexpectedError, C>) => {
     // Add context to event only if:
     // 1. Event doesn't already have context (preserves replayed events or per-step overrides)
@@ -3270,8 +3301,7 @@ async function runFn<T, E, C = void>(
 
           // Name is always derived from ID
           const stepName = id;
-          const stepKey = parsedOptions.key ?? id;  // For general events (step_start, step_success, etc.)
-          const explicitKey = parsedOptions.key ?? id;  // For step_complete and caching (ID is used when no key)
+          const stepKey = deriveStepKey(id, parsedOptions.key);  // For general events (step_start, step_success, etc.)
           const { description: stepDescription, retry: retryConfig, timeout: timeoutConfig } = parsedOptions;
           const stepId = generateStepId(stepKey);
           const executeStep = async (): Promise<T> => {
@@ -3365,11 +3395,11 @@ async function runFn<T, E, C = void>(
                   durationMs,
                   ...(stepMetadata && { metadata: stepMetadata }),
                 });
-                if (explicitKey) {
+                if (stepKey) {
                   emitEvent({
                     type: "step_complete",
                     workflowId,
-                    stepKey: explicitKey,
+                    stepKey,
                     name: stepName,
                     description: stepDescription,
                     ts: Date.now(),
@@ -3461,11 +3491,11 @@ async function runFn<T, E, C = void>(
                   durationMs: performance.now() - overallStartTime,
                   ...(stepMetadata && { metadata: stepMetadata }),
                 });
-                if (explicitKey) {
+                if (stepKey) {
                   emitEvent({
                     type: "step_complete",
                     workflowId,
-                    stepKey: explicitKey,
+                    stepKey,
                     name: stepName,
                     description: stepDescription,
                     ts: Date.now(),
@@ -3573,11 +3603,11 @@ async function runFn<T, E, C = void>(
                   ...(stepMetadata && { metadata: stepMetadata }),
                   diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'timeout', attempt, totalDurationMs),
                 });
-                if (explicitKey) {
+                if (stepKey) {
                   emitEvent({
                     type: "step_complete",
                     workflowId,
-                    stepKey: explicitKey,
+                    stepKey,
                     name: stepName,
                     description: stepDescription,
                     ts: Date.now(),
@@ -3660,11 +3690,11 @@ async function runFn<T, E, C = void>(
                 ...(stepMetadata && { metadata: stepMetadata }),
                 diagnostics: buildStepErrorPayload(thrown, parsedOptions.errorMeta, 'throw', attempt, totalDurationMs),
               });
-              if (explicitKey) {
+              if (stepKey) {
                 emitEvent({
                   type: "step_complete",
                   workflowId,
-                  stepKey: explicitKey,
+                  stepKey,
                   name: stepName,
                   description: stepDescription,
                   ts: Date.now(),
@@ -3700,11 +3730,11 @@ async function runFn<T, E, C = void>(
             ...(stepMetadata && { metadata: stepMetadata }),
             diagnostics: buildStepErrorPayload(errorResult.error, parsedOptions.errorMeta, 'result', effectiveRetry.attempts, totalDurationMs),
           });
-          if (explicitKey) {
+          if (stepKey) {
             emitEvent({
               type: "step_complete",
               workflowId,
-              stepKey: explicitKey,
+              stepKey,
               name: stepName,
               description: stepDescription,
               ts: Date.now(),
@@ -3776,7 +3806,7 @@ async function runFn<T, E, C = void>(
           );
         }
 
-        const stepKey = opts.key ?? id; // Use id as key if not provided
+        const stepKey = deriveStepKey(id, opts.key); // Use id as key if not provided
         const stepName = id; // Name is always the id
         const stepId = id;
         const hasEventListeners = onEvent;
@@ -3872,7 +3902,7 @@ async function runFn<T, E, C = void>(
         }
         assertDeclared(id, "step");
 
-        const stepKey = opts.key ?? id; // Use id as key if not provided
+        const stepKey = deriveStepKey(id, opts.key); // Use id as key if not provided
         const stepName = id; // Name is always the id
         const stepId = id;
         const mapToError = "error" in opts ? () => opts.error : opts.onError;
@@ -4000,7 +4030,7 @@ async function runFn<T, E, C = void>(
         // Delegate to stepFn with retry options merged into StepOptions
         // Use key for caching if provided, otherwise use id
         return stepFn(id, operation, {
-          key: options.key ?? id,
+          key: options.key,
             retry: {
               attempts: options.attempts,
               backoff: options.backoff,
@@ -4037,7 +4067,7 @@ async function runFn<T, E, C = void>(
           id,
           operation as () => Result<T, StepE> | AsyncResult<T, StepE>,
           {
-            key: options.key ?? id,
+            key: options.key,
             timeout: options,
           }
         );
@@ -4089,7 +4119,7 @@ async function runFn<T, E, C = void>(
             return ok(undefined);
           },
           {
-            key: options?.key ?? id,
+            key: options?.key,
             description: options?.description,
           }
         );
@@ -4489,14 +4519,18 @@ async function runFn<T, E, C = void>(
             break;
           }
 
-          let result: R;
-          if (isRunForm) {
-            const runOptions = options as ForEachRunOptions<T, R, readonly string[]>;
-            result = await runOptions.run(item, index);
-          } else {
+          const iteration = options.stepIdPattern
+            ? options.stepIdPattern.replace("{i}", String(index))
+            : String(index);
+
+          const result: R = await withForEachScope(iteration, async () => {
+            if (isRunForm) {
+              const runOptions = options as ForEachRunOptions<T, R, readonly string[]>;
+              return runOptions.run(item, index);
+            }
             const itemOptions = options as ForEachItemOptions<T, R>;
-            result = await itemOptions.item.handler(item, index, stepFn as unknown as RunStep<unknown>);
-          }
+            return itemOptions.item.handler(item, index, stepFn as unknown as RunStep<unknown>);
+          });
 
           results.push(result);
           index++;
@@ -4504,6 +4538,10 @@ async function runFn<T, E, C = void>(
 
         return results;
       };
+
+      // Share the current iteration with the workflow cache wrapper. This is
+      // attached per run, so concurrent workflows cannot leak scope.
+      (stepFn as unknown as { [FOR_EACH_SCOPE]: ForEachScopeHolder })[FOR_EACH_SCOPE] = forEachScope;
 
       // step.item: Create an item handler for use with step.forEach
       // Runtime: returns the handler wrapped in a marker object
@@ -4593,7 +4631,7 @@ async function runFn<T, E, C = void>(
         }
         assertDeclared(id, "step");
 
-        const stepKey = options.key ?? id;
+        const stepKey = deriveStepKey(id, options.key);
         const stepName = id;
         const stepId = generateStepId(stepKey);
         const hasEventListeners = onEvent;
@@ -4975,7 +5013,7 @@ async function runFn<T, E, C = void>(
         }
         assertDeclared(id, "step");
 
-        const stepKey = id;
+        const stepKey = deriveStepKey(id);
         const stepName = id;
         const stepId = generateStepId(stepKey);
         const hasEventListeners = onEvent;

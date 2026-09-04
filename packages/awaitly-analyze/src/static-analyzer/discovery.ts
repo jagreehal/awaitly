@@ -8,7 +8,7 @@
  */
 
 // Type-only imports - erased at compile time, no runtime dependency
-import type { SourceFile, Node } from "ts-morph";
+import type { SourceFile, Node, CallExpression } from "ts-morph";
 import { loadTsMorph } from "../ts-morph-loader";
 
 import type { AnalyzerOptions } from "./shared";
@@ -317,23 +317,42 @@ export function findWorkflowCalls(sourceFile: SourceFile, opts: Required<Analyze
       }
     }
 
-    // Check for run() calls (direct, aliased, or via namespace/default import)
+    // durable.run(deps, fn, options) — `durable` is a NAMED import from
+    // awaitly/durable, not a namespace or default import, so the
+    // property-access guard below rejected it and a durable workflow produced
+    // no diagram at all. It takes the same deps-first shape as run(), and it
+    // is the form production code uses, so it is discovered the same way.
+    const isDurableRunCall =
+      Node.isPropertyAccessExpression(callee) &&
+      callee.getName() === "run" &&
+      (calleeExprText === "durable" ||
+        awaitlyImports.namedImportAliases.get(calleeExprText) === "durable");
+
+    // Check for run() calls (direct, aliased, durable.run, or via namespace/default import)
     const isRunCall =
       text === "run" ||
       awaitlyImports.namedImportAliases.get(text) === "run" ||
+      isDurableRunCall ||
       (Node.isPropertyAccessExpression(callee) &&
         callee.getName() === "run" &&
         isNamespaceOrDefaultImport);
 
     if (isRunCall && (opts.detect === "all" || opts.detect === "run")) {
       // Check if run is imported from awaitly (or assumeImported) and not shadowed
-      const isImported = awaitlyImports.namedImports.has("run") || awaitlyImports.namedImportAliases.get(text) === "run" || awaitlyImports.namespaceImports.size > 0 || awaitlyImports.defaultImports.size > 0 || opts.assumeImported;
-      const isShadowed = isIdentifierShadowed("run", node, localDeclarations);
+      const isImported = awaitlyImports.namedImports.has("run") || awaitlyImports.namedImportAliases.get(text) === "run" || (isDurableRunCall && awaitlyImports.namedImports.has("durable")) || awaitlyImports.namespaceImports.size > 0 || awaitlyImports.defaultImports.size > 0 || opts.assumeImported;
+      // Shadowing is checked on the identifier that actually resolves the call:
+      // `durable` for durable.run, `run` for a bare call.
+      const isShadowed = isIdentifierShadowed(
+        isDurableRunCall ? calleeExprText : "run",
+        node,
+        localDeclarations
+      );
 
-      // For namespace/default calls (Awaitly.run()), we allow PropertyAccessExpression
-      // For direct calls, we don't match obj.run() - only bare run() calls
+      // For namespace/default calls (Awaitly.run()) and durable.run we allow
+      // PropertyAccessExpression. For direct calls, we don't match obj.run() -
+      // only bare run() calls
       const isNamespaceCall = Node.isPropertyAccessExpression(callee) && isNamespaceOrDefaultImport;
-      if (isImported && !isShadowed && (isNamespaceCall || !Node.isPropertyAccessExpression(callee))) {
+      if (isImported && !isShadowed && (isNamespaceCall || isDurableRunCall || !Node.isPropertyAccessExpression(callee))) {
         const args = node.getArguments();
         const line = node.getStartLineNumber();
         const filePath = sourceFile.getFilePath();
@@ -352,11 +371,17 @@ export function findWorkflowCalls(sourceFile: SourceFile, opts: Required<Analyze
           !Node.isArrowFunction(args[0]) &&
           !Node.isFunctionExpression(args[0]);
 
+        const runOptionsObject = isDepsFirstForm ? args[2] : undefined;
+
         workflows.push({
-          name: `run@${fileName}:${line}`,
+          name: deriveRunWorkflowName(
+            node,
+            runOptionsObject,
+            `run@${fileName}:${line}`
+          ),
           callExpression: node,
           depsObject: isDepsFirstForm ? args[0] : undefined,
-          optionsObject: isDepsFirstForm ? args[2] : undefined,
+          optionsObject: runOptionsObject,
           callbackFunction: isDepsFirstForm ? args[1] : args[0],
           variableDeclaration: undefined,
           source: "run",
@@ -628,6 +653,58 @@ function isDescendantOf(node: Node, potentialAncestor: Node): boolean {
   return false;
 }
 
+/**
+ * Human name for a deps-first `run()` / `durable.run()` workflow.
+ *
+ * `run@file:line` is a coordinate, not a name: it churns when a line moves and
+ * tells a reader nothing. It is kept only for a genuinely anonymous call.
+ *
+ * Preference order:
+ *  1. the enclosing function — `export function runBatch() { return durable.run(...) }`
+ *     and `const settleInvoices = async () => durable.run(...)` are the common
+ *     wrapper shapes, and the wrapper's name is the workflow's name.
+ *  2. a string-literal durable `id` — meaningful when the call sits at module
+ *     level. Skipped when the id is built at runtime (`batch-${x}`), which
+ *     cannot name anything.
+ *  3. `run@file:line`.
+ */
+function deriveRunWorkflowName(
+  node: CallExpression,
+  optionsObject: Node | undefined,
+  fallback: string
+): string {
+  const { Node: N } = loadTsMorph();
+
+  for (let current: Node | undefined = node.getParent(); current; current = current.getParent()) {
+    // function runBatch() { ... } / class method
+    if (N.isFunctionDeclaration(current) || N.isMethodDeclaration(current)) {
+      const name = current.getName();
+      if (name) return name;
+    }
+    // const settleInvoices = async () => { ... }
+    if (N.isArrowFunction(current) || N.isFunctionExpression(current)) {
+      const parent = current.getParent();
+      if (parent && N.isVariableDeclaration(parent)) {
+        const name = parent.getName();
+        if (name) return name;
+      }
+    }
+  }
+
+  if (optionsObject && N.isObjectLiteralExpression(optionsObject)) {
+    const idProp = optionsObject.getProperty("id");
+    if (idProp && N.isPropertyAssignment(idProp)) {
+      const initializer = idProp.getInitializer();
+      if (initializer && N.isStringLiteral(initializer)) {
+        const literal = initializer.getLiteralValue().trim();
+        if (literal.length > 0) return literal;
+      }
+    }
+  }
+
+  return fallback;
+}
+
 export function findWorkflowInvocations(
   workflowInfo: WorkflowCallInfo,
   sourceFile: SourceFile
@@ -793,12 +870,17 @@ export function findWorkflowInvocations(
 
     // Check if this is an invocation of our workflow
     // Handle: workflow(...), await workflow(...), (await workflow)(...)
+    // `.run` and `.runWithState` are both entry points — runWithState returns
+    // the resume state alongside the result and runs the same steps, so it
+    // diagrams the same. Matching only `.run` left it discovered but empty.
     if (
       text === workflowName ||
       text === `await ${workflowName}` ||
       text === `(await ${workflowName})` ||
       text === `${workflowName}.run` ||
-      text === `await ${workflowName}.run`
+      text === `await ${workflowName}.run` ||
+      text === `${workflowName}.runWithState` ||
+      text === `await ${workflowName}.runWithState`
     ) {
       // When we have the actual workflow variable declaration, require the call's
       // callee to resolve to that declaration (avoids same-name different variable).

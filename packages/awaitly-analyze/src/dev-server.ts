@@ -124,7 +124,7 @@ export async function startDevServer(options: DevServerOptions): Promise<DevServ
 
   analyzeNow();
 
-  // ponytail: fs.watch on one file; a globbing multi-file watcher when needed
+  // Note: fs.watch on one file; a globbing multi-file watcher when needed
   let watcher: FSWatcher | undefined;
   try {
     watcher = watch(options.file, () => analyzeNow());

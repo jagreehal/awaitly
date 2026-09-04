@@ -95,10 +95,11 @@ Add a step and the diagram changes; delete one and it disappears. Add
 That is the reason to name workflows, and the reason to prefer `steps.fetchUser(id)`
 over hand-written control flow. See [Static Analysis](guides/static-analysis/).
 
-:::caution
-`run()` works with the analyzer too, but an anonymous `run()` shows up as
-`run@file.ts:12` because there's no name to use. Reach for `createWorkflow()` as
-soon as you care about the diagram.
+:::note
+`run()` and `durable.run()` work with the analyzer too. Their name comes from the
+enclosing function — `export function runBatch() { return durable.run(...) }` is named
+`runBatch` — then a string-literal durable `id`, and only a call with neither shows up as
+`run@file.ts:12`. `createWorkflow('name', ...)` still names the workflow outright.
 :::
 
 ## When to use which

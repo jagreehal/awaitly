@@ -16,7 +16,7 @@ const fixture = path.join(
   "__fixtures__/hover-display.ts"
 );
 
-// ponytail: one Program for the whole file — creating it is the slow part
+// Note: one Program for the whole file — creating it is the slow part
 // (~3s). Split into per-test Programs only if the assertions diverge.
 const checker = (() => {
   const program = ts.createProgram([fixture], {

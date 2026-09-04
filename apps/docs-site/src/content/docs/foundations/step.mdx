@@ -251,7 +251,7 @@ Output (on rate limit):
 
 ## step.retry - retry with backoff
 
-`step.retry` requires an ID as the first argument: `step.retry(id, operation, options)`. Use optional `key` for per-iteration identity (e.g. in loops).
+`step.retry` requires an ID as the first argument: `step.retry(id, operation, options)`. Under [durable execution](guides/durable-execution/) it checkpoints by that id (and by forEach iteration), so a retried step is skipped on resume. Pass `key` when you want cache identity tied to the input instead.
 
 ```typescript
 const user = await step.retry(
@@ -296,7 +296,7 @@ Exponential backoff is recommended for network calls. It reduces load on struggl
 
 ## step.withTimeout - add timeout
 
-`step.withTimeout` requires an ID as the first argument: `step.withTimeout(id, operation, options)`. Use optional `key` for per-iteration identity (e.g. in loops).
+`step.withTimeout` requires an ID as the first argument: `step.withTimeout(id, operation, options)`. Like `step.retry`, it checkpoints by that id under durable execution. Pass `key` when you want cache identity tied to the input instead.
 
 ```typescript
 const data = await step.withTimeout(
@@ -481,6 +481,24 @@ const results = await step.forEach('fetch-users', userIds, {
 });
 // results is User[]
 ```
+
+### Checkpoints per iteration
+
+A step inside the callback runs once per item, and each iteration gets its own cache key, so it needs no hand-written `key`:
+
+```typescript
+await step.forEach('process-payments', payments, {
+  stepIdPattern: 'payment-{i}',
+  run: async (payment) => {
+    // Keyed per iteration: processPayment@payment-0, processPayment@payment-1, ...
+    await step('processPayment', () => deps.processPayment(payment));
+  }
+});
+```
+
+`stepIdPattern` names the iteration for both the diagram and the cache key, so the two agree; without it the index is used. Nested loops concatenate their iteration names, and the scope is per run, so concurrent runs never share keys. The same applies to `step.try`, `step.fromResult`, `step.withFallback`, `step.withResource`, `step.retry`, and `step.withTimeout`.
+
+Under [durable execution](guides/durable-execution/), this means a resume skips the items that already completed and picks up at the first one that did not.
 
 ### Why step.forEach over manual loops?
 

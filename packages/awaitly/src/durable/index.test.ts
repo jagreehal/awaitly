@@ -1331,3 +1331,304 @@ describe("durable.run with declared errors", () => {
     if (!result.ok) expect(result.error).toBe("ROW_NOT_FOUND");
   });
 });
+
+describe("durable resume of step.forEach iterations", () => {
+  it("does not re-run iterations that already completed before a crash", async () => {
+    const store = createTestSnapshotStore();
+    const submitted: string[] = [];
+    let crashOn: string | null = "c";
+
+    const deps = {
+      submit: async (id: string): AsyncResult<string, "REJECTED"> => {
+        if (id === crashOn) throw new Error(`worker died on ${id}`);
+        submitted.push(id);
+        return ok(id);
+      },
+    };
+
+    const runOnce = () =>
+      durable.run(
+        deps,
+        async ({ step, deps: d }) => {
+          await step.forEach("submitAll", ["a", "b", "c"], {
+            stepIdPattern: "submit-{i}",
+            run: async (item) => {
+              await step("submit", () => d.submit(item));
+            },
+          });
+          return "done" as const;
+        },
+        { id: "wf-foreach-resume", store }
+      );
+
+    const first = await runOnce();
+    expect(first.ok).toBe(false);
+    expect(submitted).toEqual(["a", "b"]);
+
+    crashOn = null;
+    const second = await runOnce();
+
+    expect(second.ok).toBe(true);
+    expect(submitted).toEqual(["a", "b", "c"]);
+  });
+
+  it("keeps helper-step checkpoints separate for every iteration", async () => {
+    const store = createTestSnapshotStore();
+    const calls = { try: 0, fromResult: 0, withFallback: 0, withResource: 0 };
+    let crashAfterLoop = true;
+
+    const runOnce = () =>
+      durable.run(
+        {},
+        async ({ step }) => {
+          const values = await step.forEach("processAll", ["a", "b", "c"], {
+            stepIdPattern: "item-{i}",
+            run: async (item) => ({
+              tried: await step.try(
+                "try-item",
+                async () => {
+                  calls.try++;
+                  return `try-${item}`;
+                },
+                { error: "TRY_FAILED" as const }
+              ),
+              mapped: await step.fromResult(
+                "map-item",
+                async () => {
+                  calls.fromResult++;
+                  return ok(`mapped-${item}`);
+                },
+                { error: "MAP_FAILED" as const }
+              ),
+              fallback: await step.withFallback(
+                "fallback-item",
+                async () => {
+                  calls.withFallback++;
+                  return ok(`primary-${item}`);
+                },
+                { fallback: async () => err("FALLBACK_FAILED" as const) }
+              ),
+              resource: await step.withResource("resource-item", {
+                acquire: async () => ok({ item }),
+                use: async (resource) => {
+                  calls.withResource++;
+                  return ok(`resource-${resource.item}`);
+                },
+                release: async () => {},
+              }),
+            }),
+          });
+
+          if (crashAfterLoop) throw new Error("worker died after loop");
+          return values;
+        },
+        {
+          id: "wf-foreach-helper-resume",
+          store,
+          errors: ["TRY_FAILED", "MAP_FAILED", "FALLBACK_FAILED"] as const,
+        }
+      );
+
+    const first = await runOnce();
+    expect(first.ok).toBe(false);
+    expect(calls).toEqual({ try: 3, fromResult: 3, withFallback: 3, withResource: 3 });
+
+    crashAfterLoop = false;
+    const second = await runOnce();
+
+    expect(second.ok).toBe(true);
+    expect(calls).toEqual({ try: 3, fromResult: 3, withFallback: 3, withResource: 3 });
+    if (second.ok) {
+      expect(second.value).toEqual([
+        { tried: "try-a", mapped: "mapped-a", fallback: "primary-a", resource: "resource-a" },
+        { tried: "try-b", mapped: "mapped-b", fallback: "primary-b", resource: "resource-b" },
+        { tried: "try-c", mapped: "mapped-c", fallback: "primary-c", resource: "resource-c" },
+      ]);
+    }
+  });
+
+  it("persists steps executed through the item handler's innerStep", async () => {
+    const store = createTestSnapshotStore();
+    const submitted: string[] = [];
+    let crashOn: string | null = "c";
+
+    const runOnce = () =>
+      durable.run(
+        {},
+        async ({ step }) => {
+          await step.forEach("submitAll", ["a", "b", "c"], {
+            item: step.item(async (item, _index, innerStep) => {
+              await innerStep("submit", async () => {
+                if (item === crashOn) throw new Error(`worker died on ${item}`);
+                submitted.push(item);
+                return ok(item);
+              });
+            }),
+          });
+          return "done" as const;
+        },
+        { id: "wf-foreach-item-handler-resume", store }
+      );
+
+    expect((await runOnce()).ok).toBe(false);
+    expect(submitted).toEqual(["a", "b"]);
+
+    crashOn = null;
+    expect((await runOnce()).ok).toBe(true);
+    expect(submitted).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("durable resume of failed steps", () => {
+  it("retries a step that failed by throwing", async () => {
+    const store = createTestSnapshotStore();
+    let attempts = 0;
+    let shouldThrow = true;
+
+    const deps = {
+      charge: async (): AsyncResult<string, "DECLINED"> => {
+        attempts++;
+        if (shouldThrow) throw new Error("worker died");
+        return ok("charged");
+      },
+    };
+
+    const runOnce = () => durable.run(
+      deps,
+      async ({ step, deps: d }) => step("charge", () => d.charge()),
+      { id: "wf-retry-crashed", store }
+    );
+
+    const first = await runOnce();
+    expect(first.ok).toBe(false);
+    expect(attempts).toBe(1);
+
+    shouldThrow = false;
+    const second = await runOnce();
+    expect(second.ok).toBe(true);
+    expect(attempts).toBe(2);
+  });
+
+  it("does not retry a step that failed with a typed error", async () => {
+    const store = createTestSnapshotStore();
+    let attempts = 0;
+
+    const deps = {
+      charge: async (): AsyncResult<string, "DECLINED"> => {
+        attempts++;
+        return err("DECLINED");
+      },
+    };
+
+    const runOnce = () => durable.run(
+      deps,
+      async ({ step, deps: d }) => step("charge", () => d.charge()),
+      { id: "wf-sticky-typed-err", store }
+    );
+
+    expect((await runOnce()).ok).toBe(false);
+    expect(attempts).toBe(1);
+    expect((await runOnce()).ok).toBe(false);
+    expect(attempts).toBe(1);
+  });
+});
+
+describe("durable resume preserves the cause of a crash", () => {
+  it("keeps the thrown Error when a restored failure is replayed", async () => {
+    const inner = createTestSnapshotStore();
+    const store: SnapshotStore = {
+      ...inner,
+      async save(id, snapshot) {
+        await inner.save(id, JSON.parse(JSON.stringify(snapshot)) as WorkflowSnapshot);
+      },
+    };
+
+    const deps = {
+      charge: async (): AsyncResult<string, "DECLINED"> => {
+        throw new Error("provider socket closed");
+      },
+    };
+
+    const runOnce = () => durable.run(
+      deps,
+      async ({ step, deps: d }) => step("charge", () => d.charge()),
+      { id: "wf-cause-fidelity", store, resumeFailedSteps: "all" }
+    );
+
+    expect((await runOnce()).ok).toBe(false);
+    const second = await runOnce();
+    expect(second.ok).toBe(false);
+    if (second.ok) return;
+    const cause = (second.error as { cause?: unknown }).cause;
+    expect(cause).toBeInstanceOf(Error);
+    expect((cause as Error).message).toBe("provider socket closed");
+  });
+});
+
+describe("durable resume of step.retry", () => {
+  it("checkpoints a retried step by id, like step() does", async () => {
+    const store = createTestSnapshotStore();
+    const charged: string[] = [];
+    let crashAfterFirst = true;
+
+    const deps = {
+      charge: async (id: string): AsyncResult<string, "DECLINED"> => {
+        charged.push(id);
+        return ok(id);
+      },
+      notify: async (): AsyncResult<string, never> => {
+        if (crashAfterFirst) throw new Error("died before notifying");
+        return ok("notified");
+      },
+    };
+
+    const runOnce = () => durable.run(
+      deps,
+      async ({ step, deps: d }) => {
+        await step.retry("charge", () => d.charge("c-1"), { attempts: 3 });
+        return await step("notify", () => d.notify());
+      },
+      { id: "wf-retry-checkpoint", store }
+    );
+
+    expect((await runOnce()).ok).toBe(false);
+    expect(charged).toEqual(["c-1"]);
+    crashAfterFirst = false;
+    expect((await runOnce()).ok).toBe(true);
+    expect(charged).toEqual(["c-1"]);
+  });
+
+  it("checkpoints each retried iteration of step.forEach separately", async () => {
+    const store = createTestSnapshotStore();
+    const submitted: string[] = [];
+    let crashOn: string | null = "c";
+
+    const deps = {
+      submit: async (id: string): AsyncResult<string, "REJECTED"> => {
+        if (id === crashOn) throw new Error(`died on ${id}`);
+        submitted.push(id);
+        return ok(id);
+      },
+    };
+
+    const runOnce = () => durable.run(
+      deps,
+      async ({ step, deps: d }) => {
+        await step.forEach("submitAll", ["a", "b", "c"], {
+          stepIdPattern: "submit-{i}",
+          run: async (item) => {
+            await step.retry("submit", () => d.submit(item), { attempts: 2 });
+          },
+        });
+        return "done" as const;
+      },
+      { id: "wf-retry-foreach", store }
+    );
+
+    expect((await runOnce()).ok).toBe(false);
+    expect(submitted).toEqual(["a", "b"]);
+    crashOn = null;
+    expect((await runOnce()).ok).toBe(true);
+    expect(submitted).toEqual(["a", "b", "c"]);
+  });
+});

@@ -4085,9 +4085,10 @@ async function run() {
       });
 
       // Should only detect run() calls
-      const runWorkflows = results.filter((r) =>
-        r.root.workflowName.startsWith("run@")
-      );
+      // `source` is the precise signal for a run() workflow. The name is now
+      // derived from the enclosing function when there is one, so the old
+      // "run@" prefix is no longer a proxy for it.
+      const runWorkflows = results.filter((r) => r.root.source === "run");
       expect(runWorkflows.length).toBeGreaterThanOrEqual(1);
     });
 
