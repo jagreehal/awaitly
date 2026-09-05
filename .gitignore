@@ -112,3 +112,8 @@ src/_analyze/
 __temp
 tsup.config.bundled_*.mjs
 .worktrees
+
+# Stryker mutation testing
+.stryker-tmp/
+packages/*/reports/
+reports/

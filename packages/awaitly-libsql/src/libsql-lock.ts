@@ -73,7 +73,13 @@ export function createLibSqlLock(
         ON CONFLICT(workflow_id) DO UPDATE SET
           owner_token = excluded.owner_token,
           expires_at = excluded.expires_at
-        WHERE ${lockTableName}.expires_at < datetime('now')
+        -- strftime, not datetime('now'): expires_at is written by
+        -- toISOString(), so it reads '2026-09-05T12:00:00.000Z' while
+        -- datetime('now') reads '2026-09-05 12:00:00'. Comparing the two as
+        -- text puts 'T' above ' ', so an expired lease never looked expired
+        -- and a crashed worker stranded its workflow id for good. This format
+        -- matches toISOString() exactly, which sorts correctly as text.
+        WHERE ${lockTableName}.expires_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         RETURNING owner_token
       `,
       args: [id, ownerToken, expiresAt],

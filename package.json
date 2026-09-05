@@ -12,12 +12,15 @@
     "dev": "turbo dev",
     "lint": "turbo lint",
     "test": "turbo test",
+    "test:release": "node --test scripts/database-tests.test.mjs scripts/release-workflow.test.mjs",
+    "test:recovery": "node --test scripts/recovery.test.mjs",
+    "smoke": "pnpm --filter awaitly smoke && node scripts/consumer-smoke.mjs",
     "clean": "turbo clean",
     "type-check": "turbo type-check",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish",
-    "quality": "turbo run build --concurrency=1 && turbo run lint && turbo run type-check && turbo run test",
+    "quality": "turbo run build --concurrency=1 && turbo run lint && eslint scripts && turbo run type-check && turbo run test --force && pnpm --filter awaitly tsd && pnpm test:release && pnpm smoke",
     "generate-api-typedoc": "typedoc --options typedoc.json",
     "generate-api": "pnpm run generate-api-typedoc && node apps/docs-site/scripts/generate-api-from-typedoc.mjs"
   },
@@ -32,7 +35,8 @@
     "eslint-plugin-unicorn": "65.0.1",
     "turbo": "2.10.8",
     "typedoc": "0.28.20",
-    "typescript-eslint": "8.65.0"
+    "typescript-eslint": "8.65.0",
+    "yaml": "2.8.3"
   },
   "engines": {
     "node": ">=22",

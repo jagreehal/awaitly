@@ -9,6 +9,9 @@ export {
   // Main API
   durable,
 
+  // The zero-config in-memory store durable.run falls back to.
+  createMemorySnapshotStore,
+
   // Thrown (and surfaced as PersistenceError.cause) when a resumed workflow's
   // step order no longer matches its checkpoint.
   WorkflowShapeDriftError,

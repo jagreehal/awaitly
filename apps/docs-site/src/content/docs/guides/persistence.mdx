@@ -244,6 +244,22 @@ interface SnapshotStore {
 }
 ```
 
+## In-Memory Store
+
+`durable.run` falls back to an in-memory store when you give it none, and the
+same store is available directly:
+
+```typescript
+import { createMemorySnapshotStore, durable } from 'awaitly/durable';
+
+const store = createMemorySnapshotStore();
+await durable.run(deps, fn, { id: 'batch-1', store });
+```
+
+State lives for the life of the process and it implements no lease, so a second
+worker is not held off. Use it for development and tests; reach for an adapter
+below in production. It runs against the same conformance suite as they do.
+
 ## Official Persistence Adapters
 
 ### PostgreSQL
@@ -298,6 +314,10 @@ const store = libsql({
 });
 ```
 
+Several processes can share one local file: SQLite allows a single writer, and
+the store waits up to five seconds for its turn. A client you supply keeps its
+own busy policy.
+
 ## Creating Custom Adapters
 
 Implement the `SnapshotStore` interface:
@@ -324,6 +344,41 @@ function myStore(): SnapshotStore {
   };
 }
 ```
+
+## Verifying an Adapter
+
+`awaitly/testing` exports the contract every store must satisfy. Run it against
+your adapter rather than writing the checks again:
+
+```typescript
+import { describe, it } from 'vitest';
+import { durableStoreContract, supportsLock } from 'awaitly/testing';
+
+describe('my store', () => {
+  for (const check of durableStoreContract) {
+    it(check.name, async (context) => {
+      if (check.requires === 'lock' && !supportsLock(store)) return context.skip();
+      await check.run(store);
+    });
+  }
+});
+```
+
+The checks use `node:assert`, so they mount under any runner. They cover
+snapshot round-trip, upsert, delete, prefix and limit listing, and the lease
+cycle: acquiring a free lease, refusing a held one, releasing only for the
+owner, reclaiming an expired one, and renewing.
+
+The lease checks are the ones worth running. The three shipped adapters each
+had their own hand-written tests and had drifted: libSQL never reclaimed an
+expired lease, because it compared an ISO-8601 `expires_at` against SQLite's
+`datetime('now')` and the two formats do not sort against each other. MongoDB
+reported a held lease as lost, because `renew` counted modified documents and a
+renewal inside the same millisecond changes nothing. Both are the kind of fault
+a store passes every unit test with, and both let two workers run one workflow.
+
+If your store implements `WorkflowLock`, `renew` answers "do I still hold this
+lease", not "did the row change". Return true whenever the owner token matches.
 
 ## Next
 

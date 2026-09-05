@@ -107,7 +107,12 @@ export function createMongoLock(
       { $set: { expiresAt } }
     );
 
-    return result.modifiedCount > 0;
+    // matchedCount, not modifiedCount: two renewals in the same millisecond
+    // compute an identical expiresAt, and Mongo reports an unchanged document
+    // as not modified. Reading that as "lease lost" made the durable heartbeat
+    // abort a workflow that still owned its lease. Matching on the owner token
+    // already proves ownership, which is what renew answers.
+    return result.matchedCount > 0;
   }
 
   return { tryAcquire, release, renew, ensureLockCollection };

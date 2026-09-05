@@ -20,8 +20,8 @@ import {
   deserializeResumeState,
 } from "awaitly/durable";
 import { createPostgresLock, type PostgresLockOptions } from "./postgres-lock";
+import { createSchemaInitializer } from "./postgres-schema";
 
-// Re-export types for convenience
 export type { SnapshotStore, WorkflowSnapshot } from "awaitly/durable";
 export type { WorkflowLock } from "awaitly/durable";
 export type { PostgresLockOptions } from "./postgres-lock";
@@ -43,6 +43,8 @@ export interface PostgresOptions {
   prefix?: string;
   /** Bring your own pool. */
   pool?: PgPool;
+  /** Report background errors on idle connections in an internally owned pool. */
+  onPoolError?: (error: Error) => void;
   /** Auto-create table on first use. @default true */
   autoCreateTable?: boolean;
   /** Cross-process lock options. When set, the store implements WorkflowLock. */
@@ -110,27 +112,24 @@ export function postgres(urlOrOptions: string | PostgresOptions): PostgresStore 
   const prefix = opts.prefix ?? "";
   const autoCreateTable = opts.autoCreateTable ?? true;
 
-  // Create or use existing pool
   const ownPool = !opts.pool;
   const pool = opts.pool ?? new PgPool({ connectionString: opts.url });
-  let tableCreated = false;
-
-  const ensureTable = async (): Promise<void> => {
-    if (!autoCreateTable || tableCreated) return;
-    await pool.query(`
+  if (ownPool) {
+    // pg evicts broken idle clients itself, but an unhandled pool error also
+    // terminates Node. Queries still reject normally and future calls reconnect.
+    // A caller supplying a pool owns its error handling and lifecycle.
+    pool.on("error", (error) => opts.onPoolError?.(error));
+  }
+  const initializeTable = createSchemaInitializer(pool, tableName, `
       CREATE TABLE IF NOT EXISTS ${tableName} (
         id TEXT PRIMARY KEY,
         snapshot JSONB NOT NULL,
         updated_at TIMESTAMPTZ DEFAULT NOW()
-      )
-    `);
-    await pool.query(`
-      CREATE INDEX IF NOT EXISTS ${tableName}_updated_at_idx ON ${tableName} (updated_at DESC)
-    `);
-    tableCreated = true;
-  };
+      );
+      CREATE INDEX IF NOT EXISTS ${tableName}_updated_at_idx ON ${tableName} (updated_at DESC);
+  `);
+  const ensureTable = (): Promise<void> => autoCreateTable ? initializeTable() : Promise.resolve();
 
-  // Create lock if requested
   const lock = opts.lock ? createPostgresLock(pool, opts.lock) : null;
 
   const store: PostgresStore = {
@@ -193,14 +192,12 @@ export function postgres(urlOrOptions: string | PostgresOptions): PostgresStore 
     },
 
     async close(): Promise<void> {
-      // Only end pool if we created it
       if (ownPool) {
         await pool.end();
       }
     },
   };
 
-  // Add lock methods if lock is configured
   if (lock) {
     store.tryAcquire = lock.tryAcquire.bind(lock);
     store.release = lock.release.bind(lock);
