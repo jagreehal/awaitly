@@ -5,6 +5,7 @@ import type {
   Node,
   VariableDeclarator,
 } from 'estree';
+import { stepNamesAt } from '../detect-step.js';
 
 /**
  * Rule: require-result-handling
@@ -82,11 +83,14 @@ function hasEarlyExit(node: Node): boolean {
   return node.type === 'ReturnStatement' || node.type === 'ThrowStatement';
 }
 
-function isResultProducingCall(node: CallExpression): boolean {
+function isResultProducingCall(node: CallExpression, context: Rule.RuleContext): boolean {
   const { callee } = node;
 
-  // Direct run() or step() call
-  if (callee.type === 'Identifier' && RESULT_FUNCTIONS.has(callee.name)) {
+  // Direct run() or step() call — including a step bound under an alias.
+  if (
+    callee.type === 'Identifier' &&
+    (RESULT_FUNCTIONS.has(callee.name) || stepNamesAt(node, context.sourceCode).has(callee.name))
+  ) {
     return true;
   }
 
@@ -95,7 +99,7 @@ function isResultProducingCall(node: CallExpression): boolean {
     const { object, property } = callee as MemberExpression;
     if (
       object.type === 'Identifier' &&
-      object.name === 'step' &&
+      stepNamesAt(node, context.sourceCode).has(object.name) &&
       property.type === 'Identifier' &&
       STEP_METHODS.has(property.name)
     ) {
@@ -215,7 +219,7 @@ const rule: Rule.RuleModule = {
         }
 
         // Check if this is a Result-producing call
-        if (valueNode.type === 'CallExpression' && isResultProducingCall(valueNode)) {
+        if (valueNode.type === 'CallExpression' && isResultProducingCall(valueNode, context)) {
           resultVariables.set(id.name, {
             name: id.name,
             node,

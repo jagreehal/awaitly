@@ -1,5 +1,6 @@
 import type { Rule } from 'eslint';
 import type { CallExpression, MemberExpression, ObjectExpression, Property, Identifier, VariableDeclarator, AssignmentExpression, Node, Pattern } from 'estree';
+import { stepNamesAt } from '../detect-step.js';
 
 /**
  * Rule: require-thunk-for-key
@@ -21,13 +22,13 @@ const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult
 // Methods where the executor/function argument is at index 2 (3rd arg) instead of index 1 (2nd arg)
 const EXECUTOR_AT_INDEX_2 = new Set(['map']);
 
-function getStepMethodName(node: CallExpression): string | null {
+function getStepMethodName(node: CallExpression, context: Rule.RuleContext): string | null {
   const { callee } = node;
   if (callee.type === 'MemberExpression') {
     const { object, property } = callee as MemberExpression;
     if (
       object.type === 'Identifier' &&
-      object.name === 'step' &&
+      stepNamesAt(node, context.sourceCode).has(object.name) &&
       property.type === 'Identifier' &&
       STEP_METHODS.has(property.name)
     ) {
@@ -37,10 +38,10 @@ function getStepMethodName(node: CallExpression): string | null {
   return null;
 }
 
-function isStepCall(node: CallExpression): boolean {
+function isStepCall(node: CallExpression, context: Rule.RuleContext): boolean {
   const { callee } = node;
-  if (callee.type === 'Identifier' && callee.name === 'step') return true;
-  return getStepMethodName(node) !== null;
+  if (callee.type === 'Identifier' && stepNamesAt(node, context.sourceCode).has(callee.name)) return true;
+  return getStepMethodName(node, context) !== null;
 }
 
 function isThunk(node: unknown): boolean {
@@ -319,7 +320,7 @@ const rule: Rule.RuleModule = {
       },
 
       CallExpression(node: CallExpression) {
-        if (!isStepCall(node)) return;
+        if (!isStepCall(node, context)) return;
         if (!hasKeyOption(node)) return;
 
         // Determine which argument is the executor based on API pattern
@@ -332,7 +333,7 @@ const rule: Rule.RuleModule = {
 
         const hasExplicitId = isStringLiteral(args[0]);
         if (hasExplicitId) {
-          const methodName = getStepMethodName(node);
+          const methodName = getStepMethodName(node, context);
           if (methodName === 'withResource') return;
           executorArg = methodName && EXECUTOR_AT_INDEX_2.has(methodName) ? args[2] : args[1];
           if (!executorArg) return;
@@ -357,7 +358,7 @@ const rule: Rule.RuleModule = {
               }
               const suggestedId = getCalleeName(firstArg as CallExpression);
               const restArgs = args.length > 1 ? `, ${args.slice(1).map((a) => sourceCode.getText(a)).join(', ')}` : '';
-              return fixer.replaceText(node, `step('${suggestedId}', () => ${argText}${restArgs})`);
+              return fixer.replaceText(node, `${sourceCode.getText(node.callee)}('${suggestedId}', () => ${argText}${restArgs})`);
             },
           });
           return;
@@ -376,7 +377,7 @@ const rule: Rule.RuleModule = {
                   const argText = sourceCode.getText(firstArg);
                   if (hasExplicitId) return fixer.replaceText(firstArg, `() => ${argText}`);
                   const restArgs = args.length > 1 ? `, ${args.slice(1).map((a) => sourceCode.getText(a)).join(', ')}` : '';
-                  return fixer.replaceText(node, `step('step', () => ${argText}${restArgs})`);
+                  return fixer.replaceText(node, `${sourceCode.getText(node.callee)}('step', () => ${argText}${restArgs})`);
                 },
               });
             }
@@ -400,8 +401,8 @@ const rule: Rule.RuleModule = {
                 const sourceCode = context.sourceCode;
                 const argText = sourceCode.getText(firstArg);
                 if (hasExplicitId) return fixer.replaceText(firstArg, `() => ${argText}`);
-                const restArgs = args.length > 2 ? `, ${args.slice(2).map((a) => sourceCode.getText(a)).join(', ')}` : '';
-                return fixer.replaceText(node, `step('step', () => ${argText}${restArgs})`);
+                const restArgs = args.length > 1 ? `, ${args.slice(1).map((a) => sourceCode.getText(a)).join(', ')}` : '';
+                return fixer.replaceText(node, `${sourceCode.getText(node.callee)}('step', () => ${argText}${restArgs})`);
               },
             });
             return;
@@ -429,7 +430,7 @@ const rule: Rule.RuleModule = {
                   const argText = sourceCode.getText(firstArg);
                   if (hasExplicitId) return fixer.replaceText(firstArg, `() => ${argText}`);
                   const restArgs = args.length > 1 ? `, ${args.slice(1).map((a) => sourceCode.getText(a)).join(', ')}` : '';
-                  return fixer.replaceText(node, `step('step', () => ${argText}${restArgs})`);
+                  return fixer.replaceText(node, `${sourceCode.getText(node.callee)}('step', () => ${argText}${restArgs})`);
                 },
               });
             }
@@ -446,7 +447,7 @@ const rule: Rule.RuleModule = {
             const argText = sourceCode.getText(firstArg);
             if (hasExplicitId) return fixer.replaceText(firstArg, `() => ${argText}`);
             const restArgs = args.length > 1 ? `, ${args.slice(1).map((a) => sourceCode.getText(a)).join(', ')}` : '';
-            return fixer.replaceText(node, `step('step', () => ${argText}${restArgs})`);
+            return fixer.replaceText(node, `${sourceCode.getText(node.callee)}('step', () => ${argText}${restArgs})`);
           },
         });
       },

@@ -15,7 +15,7 @@ import { renderStaticMermaid } from "../output/mermaid";
 
 const HEAD = `
 import { durable } from "awaitly/durable";
-import { run, ok, type AsyncResult } from "awaitly";
+import { run, createWorkflow, ok, type AsyncResult } from "awaitly";
 const loadBatch = async (id: string): AsyncResult<{ id: string }, "NOT_FOUND"> => ok({ id });
 `;
 
@@ -31,9 +31,13 @@ describe("step labels for deps-first entry points", () => {
     resetIdCounter();
   });
 
-  it("names steps by id in the workflow form of run()", () => {
+  it("names steps by id in the workflow form of createWorkflow().run()", () => {
+    // `run(deps, cb)` passes the bound-steps object, so the { step, deps }
+    // shape belongs to createWorkflow().run() and durable.run(). Both reach
+    // the analyzer's deps-first branch, which is what this covers.
     const out = diagram(`
-export const a = run({ loadBatch }, async ({ step, deps }) => {
+const wf = createWorkflow("named", { loadBatch });
+export const a = wf.run(async ({ step, deps }) => {
   return await step("loadBatch", () => deps.loadBatch("b"));
 });`);
 

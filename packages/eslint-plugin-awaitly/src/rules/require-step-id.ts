@@ -1,5 +1,6 @@
 import type { Rule } from 'eslint';
 import type { CallExpression, MemberExpression } from 'estree';
+import { stepNamesAt } from '../detect-step.js';
 
 /**
  * Rule: require-step-id
@@ -30,9 +31,9 @@ const STEP_HELPER_METHODS = ['sleep', 'retry', 'withTimeout', 'try', 'fromResult
 /** Saga context param names that may receive step/tryStep (common in createSagaWorkflow / runSaga callbacks). */
 const SAGA_CONTEXT_NAMES = ['saga', 'ctx', 'sagaContext', 's'];
 
-function isDirectStepCall(node: CallExpression): boolean {
+function isDirectStepCall(node: CallExpression, context: Rule.RuleContext): boolean {
   const { callee } = node;
-  return callee.type === 'Identifier' && callee.name === 'step';
+  return callee.type === 'Identifier' && stepNamesAt(node, context.sourceCode).has(callee.name);
 }
 
 /** Destructured saga: tryStep(...) as identifier (e.g. ({ step, tryStep }) => tryStep(...)). */
@@ -41,18 +42,26 @@ function isDirectTryStepCall(node: CallExpression): boolean {
   return callee.type === 'Identifier' && callee.name === 'tryStep';
 }
 
-function isStepHelperCall(node: CallExpression): string | null {
+function isStepHelperCall(node: CallExpression, context: Rule.RuleContext): string | null {
   const { callee } = node;
   if (callee.type !== 'MemberExpression') return null;
 
   const memberExpr = callee as MemberExpression;
 
-  // Check if it's step.method or s.method (common alias)
   if (memberExpr.object.type !== 'Identifier') return null;
 
   const objectName = memberExpr.object.name;
-  // Support common step parameter names: step, s, runStep
-  if (objectName !== 'step' && objectName !== 's' && objectName !== 'runStep') return null;
+  if (!stepNamesAt(node, context.sourceCode).has(objectName)) {
+    // Keep legacy standalone s/runStep snippets working, but do not override
+    // a resolved local declaration that is not a workflow step binding.
+    if (objectName !== 's' && objectName !== 'runStep') return null;
+    let scope = context.sourceCode.getScope(node);
+    while (true) {
+      if (scope.set.has(objectName)) return null;
+      if (!scope.upper) break;
+      scope = scope.upper;
+    }
+  }
 
   // Check if the property is one of our helper methods
   if (memberExpr.property.type !== 'Identifier') return null;
@@ -236,7 +245,7 @@ const rule: Rule.RuleModule = {
     return {
       CallExpression(node: CallExpression) {
         // Check direct step() call
-        if (isDirectStepCall(node)) {
+        if (isDirectStepCall(node, context)) {
           const firstArg = node.arguments[0];
           if (!firstArg) {
             context.report({
@@ -315,7 +324,7 @@ const rule: Rule.RuleModule = {
         }
 
         // Check step helper method calls
-        const helperMethod = isStepHelperCall(node);
+        const helperMethod = isStepHelperCall(node, context);
         if (helperMethod) {
           const firstArg = node.arguments[0];
 

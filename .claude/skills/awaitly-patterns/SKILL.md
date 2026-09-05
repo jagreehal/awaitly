@@ -45,7 +45,7 @@ Use this as a checklist when generating or editing awaitly code. Satisfy every i
 ### Error handling at boundaries
 - **MUST** check `isUnexpectedError(result.error)` first when handling `!result.ok`.
 - **MUST** access the original thrown value via `result.error.cause` (it's a property on the `UnexpectedError` instance).
-- **MUST** normalize other errors with `result.error.type ?? result.error` (handles string and object errors, including `STEP_TIMEOUT`).
+- **MUST** narrow before reading a tag: `typeof result.error === 'string' ? result.error : result.error.type`. `result.error.type ?? result.error` does not typecheck, because `.type` does not exist on the string members of the union.
 
 ### Concurrency inside workflows
 - **MUST NOT** use `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows. Replace with `step.all`, `step.map`, or `step.race` (consult types).
@@ -64,6 +64,42 @@ Inside a workflow callback:
 - **MUST NOT** call `return step(...)` directly from inside conditionals without awaiting it.
 - `step()` always returns the unwrapped Ok value.
 - On Err, the callback is exited automatically; do not return the Err.
+
+### Callback shape by entry point
+Three entry points, three shapes. Picking the wrong one gives you an undefined
+`step` or a dep you never wired up.
+
+| Call | Callback receives | Step call looks like |
+|---|---|---|
+| `run(cb)` | `{ step }` | `step('getUser', () => getUser(id))` |
+| `run(deps, cb)` | the deps, bound as steps | `s.getUser(id)` |
+| `createWorkflow(name, deps).run(cb)` | `{ step, deps }` | `step('getUser', () => deps.getUser(id))` |
+| `durable.run(deps, cb, opts)` | `{ step, deps }` | `step('getUser', () => deps.getUser(id))` |
+
+- **MUST NOT** destructure `{ step }` from `run(deps, cb)`. That callback
+  receives bound steps, so `step` is `undefined`.
+- A bound step is still a step: `await s.getUser(id)` emits `step_success` and
+  is cached and retried like `step('getUser', ...)`.
+- **MUST NOT** assume `run(deps, cb)` and `durable.run(deps, cb, opts)` share a
+  callback shape. They do not.
+
+### Durability rules
+Under `durable.run`, a step is restored on resume only when it has a cache key.
+
+- `step('id', fn)` and `step.retry('id', fn, opts)` key by their id by default.
+- A step inside `step.forEach` is checkpointed per iteration. The identity
+  comes from `stepIdPattern` when you give one, and from the iteration index
+  otherwise. Supply the pattern so the runtime key matches the id the analyzer
+  draws, which keeps a trace readable against the diagram.
+- **MUST** pass `maxIterations` to `step.forEach` when the diagram has to be
+  deterministic. `awaitly-analyze --assert-diagrammable` fails without it.
+- **MUST** bound the collection before relying on `maxIterations`. It stops the
+  loop when reached and the workflow still returns Ok, so a longer collection
+  loses its tail without an error.
+- **MUST** declare `errors: []` on a step that cannot fail, or the same CI gate
+  reports it as undeclared.
+- A step that fails by *throwing* is retried on resume. A step that returns a
+  typed `err` stays decided. Change with `resumeFailedSteps`.
 
 ### API surface constraint
 - **MUST NOT** invent new step helpers.
@@ -133,7 +169,7 @@ const order = await step('createOrder', () => deps.createOrder(userResult.value)
 // Replace with: const user = await step('getUser', () => deps.getUser(id)); then use user.
 ```
 
-### R3: Handle `UnexpectedError` at boundaries, normalize other errors with `error.type ?? error`
+### R3: Handle `UnexpectedError` at boundaries, then narrow the error before reading its tag
 
 Errors can be strings (`'NOT_FOUND'`), objects (`{ type: 'NOT_FOUND', id }`), or an `UnexpectedError` instance for uncaught exceptions. Always check for `UnexpectedError` first using the type guard, then normalize the rest:
 
@@ -147,8 +183,11 @@ if (!result.ok) {
     return { status: 500 };
   }
 
-  // Typed errors: normalize with .type ?? error for mixed string/object unions (includes STEP_TIMEOUT)
-  switch (result.error.type ?? result.error) {
+  // Typed errors: narrow, then switch. Covers string and object unions,
+  // including STEP_TIMEOUT.
+  const code =
+    typeof result.error === 'string' ? result.error : result.error.type;
+  switch (code) {
     case 'NOT_FOUND': return { status: 404 };
     case 'ORDER_FAILED': return { status: 400 };
     case 'STEP_TIMEOUT': return { status: 504 };
@@ -209,7 +248,9 @@ if (!result.ok) {
   if (isUnexpectedError(result.error)) {
     console.error('Bug:', result.error.cause);
   } else {
-    switch (result.error.type ?? result.error) {
+    const code =
+    typeof result.error === 'string' ? result.error : result.error.type;
+  switch (code) {
       case 'PAYMENT_FAILED':
         await handleFailedPayment(result.error);
         break;
@@ -267,7 +308,7 @@ When you see these patterns, apply the rewrite:
 | `try { await step(...) } catch (e) { ... }` | Remove try/catch; handle errors at boundary. If converting throws: `step.try('id', fn, { error: 'ERR' })`. |
 | `const x = await deps.fn()` (no step) | `const x = await step('id', () => deps.fn())`. |
 | Options object as first argument to `workflow.run(...)` | Move options to second argument: `workflow.run(fn, options)`. |
-| `return result` from a boundary handler (e.g. HTTP) | **MUST NOT** let Result objects escape. Convert to HTTP/status mapping using the boundary handling canonical snippet (check `result.ok`, then `isUnexpectedError(result.error)`, then `result.error.type ?? result.error`). |
+| `return result` from a boundary handler (e.g. HTTP) | **MUST NOT** let Result objects escape. Convert to HTTP/status mapping using the boundary handling canonical snippet (check `result.ok`, then `isUnexpectedError(result.error)`, then narrow with `typeof result.error === 'string' ? result.error : result.error.type`). |
 
 ---
 
@@ -299,6 +340,34 @@ When you see these patterns, apply the rewrite:
 - Need dependency injection for testing
 - Deps already return `AsyncResult`
 - Need retries, timeout, or state persistence
+
+### Use `durable.run(deps, fn, { id, store })` when:
+- Work must survive a crash and resume where it stopped
+- A batch fans out and you cannot afford to repeat completed items
+- Several workers compete for the same job and need a lease
+
+```typescript
+import { durable } from 'awaitly/durable';
+import { mongo } from 'awaitly-mongo';
+
+const store = mongo({ url: process.env.MONGODB_URI!, lock: {} });
+
+const result = await durable.run(deps, async ({ step, deps: d }) => {
+  const batch = await step('loadBatch', () => d.loadBatch(id));
+  // maxIterations stops the loop at the bound, so guard the size first or a
+  // larger batch reports success with the remainder never submitted.
+  await step('checkSize', () => d.assertWithinLimit(batch.payments, 500));
+  await step.forEach('submit', batch.payments, {
+    stepIdPattern: 'submit-{i}',
+    maxIterations: 500,
+    run: async (p) => step.retry('submit', () => d.submit(p), { attempts: 3 }),
+  });
+  return step('complete', () => d.complete(batch.id), { errors: [] });
+}, { id: `batch-${id}`, store, lockTtlMs: 60_000 });
+```
+
+Persist entity status for what other systems query. Leave step-level progress
+on the execution rather than adding `*-ING` statuses to the entity.
 
 **Deps and throwing:** Prefer deps that return Results and never throw. If you can't control a dep (e.g. third-party), wrap it with `step.try()` or convert at the boundary.
 
@@ -339,7 +408,9 @@ if (!result.ok) {
     console.error('Bug:', result.error.cause);
     return { status: 500 };
   }
-  switch (result.error.type ?? result.error) {
+  const code =
+    typeof result.error === 'string' ? result.error : result.error.type;
+  switch (code) {
     case 'NOT_FOUND': return { status: 404 };
     case 'ORDER_FAILED': return { status: 400 };
     case 'STEP_TIMEOUT': return { status: 504 };
@@ -540,7 +611,7 @@ All step helpers run through the full step engine: they emit step events, suppor
 
 **`step.try()` has the same control-flow as `step()`**: It returns the unwrapped value on success, or exits the workflow with the provided typed error on throw/rejection. Do not check `.ok` on its return value.
 
-**Timeout returns `STEP_TIMEOUT`**: When `step.withTimeout()` times out, it returns `{ type: 'STEP_TIMEOUT', timeoutMs, stepName }` directly (not wrapped in `UnexpectedError`). Handle it at the boundary like other typed errors (normalize with `result.error.type ?? result.error`; see R3).
+**Timeout returns `STEP_TIMEOUT`**: When `step.withTimeout()` times out, it returns `{ type: 'STEP_TIMEOUT', timeoutMs, stepName }` directly (not wrapped in `UnexpectedError`). Handle it at the boundary like other typed errors (narrow with `typeof result.error === 'string' ? result.error : result.error.type`; see R3).
 
 ---
 
@@ -895,7 +966,9 @@ export async function handleRequest(userId: string) {
     return { status: 500 };
   }
 
-  switch (result.error.type ?? result.error) {
+  // These errors are string literals, so switch on them directly. Reach for
+  // narrow with `typeof` when the union mixes strings and objects (R3).
+  switch (result.error) {
     case 'NOT_FOUND': return { status: 404 };
     case 'ORDER_FAILED': return { status: 400 };
     case 'STEP_TIMEOUT': return { status: 504 };
@@ -1169,7 +1242,7 @@ const engine = createEngine({
 await engine.enqueue('checkout', { id: 'order-123', input: { orderId: '123' } });
 
 // Schedule recurring runs
-engine.schedule('checkout', 'daily-cleanup', { intervalMs: 86_400_000 });
+const scheduleId = engine.schedule('checkout', { intervalMs: 86_400_000 });
 
 // Start polling loop
 await engine.start();

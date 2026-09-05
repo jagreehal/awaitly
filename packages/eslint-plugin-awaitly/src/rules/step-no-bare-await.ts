@@ -1,22 +1,24 @@
 import type { Rule } from 'eslint';
 import type { AwaitExpression, CallExpression, MemberExpression, Node } from 'estree';
+import { depsNamesAt, stepNamesAt } from '../detect-step.js';
 
-function isDepsCall(node: CallExpression): boolean {
+function isDepsCall(node: CallExpression, context: Rule.RuleContext): boolean {
   if (node.callee.type !== 'MemberExpression') return false;
   const m = node.callee as MemberExpression;
-  return m.object.type === 'Identifier' && m.object.name === 'deps';
+  return m.object.type === 'Identifier' && depsNamesAt(node, context.sourceCode).has(m.object.name);
 }
 
-function isInsideStepCall(node: Node): boolean {
+function isInsideStepCall(node: Node, context: Rule.RuleContext): boolean {
   let current: Node | undefined = (node as Node & { parent?: Node }).parent;
   while (current) {
     if (current.type === 'CallExpression') {
       const call = current as CallExpression;
-      if (call.callee.type === 'Identifier' && call.callee.name === 'step') return true;
+      const stepNames = stepNamesAt(call, context.sourceCode);
+      if (call.callee.type === 'Identifier' && stepNames.has(call.callee.name)) return true;
       if (
         call.callee.type === 'MemberExpression' &&
         call.callee.object.type === 'Identifier' &&
-        call.callee.object.name === 'step'
+        stepNames.has(call.callee.object.name)
       ) {
         return true;
       }
@@ -43,8 +45,8 @@ const rule: Rule.RuleModule = {
     return {
       AwaitExpression(node: AwaitExpression) {
         if (!node.argument || node.argument.type !== 'CallExpression') return;
-        if (!isDepsCall(node.argument)) return;
-        if (isInsideStepCall(node)) return;
+        if (!isDepsCall(node.argument, context)) return;
+        if (isInsideStepCall(node, context)) return;
         context.report({ node, messageId: 'noBareAwait' });
       },
     };
