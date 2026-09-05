@@ -9,6 +9,7 @@ export {
   // Pre-built errors
   TimeoutError,
   RetryExhaustedError,
+  IterationLimitError,
   RateLimitError,
   CircuitBreakerOpenError,
   ValidationError,
@@ -26,6 +27,7 @@ export {
   // Type guards
   isTimeoutError,
   isRetryExhaustedError,
+  isIterationLimitError,
   isRateLimitError,
   isCircuitBreakerOpenError,
   isValidationError,

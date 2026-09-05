@@ -161,6 +161,7 @@ export const AWAITLY_TIMEOUT = "AWAITLY_TIMEOUT" as const;
 export const tags = <const T extends readonly string[]>(...t: T): T => t;
 
 import {
+  IterationLimitError,
   UnexpectedError,
   isRetryableFailure,
   isRetryableResultFailure,
@@ -2005,6 +2006,16 @@ export type ArmDefinition<T, Errs extends readonly string[] = readonly []> = {
 export type ForEachRunOptions<T, R, Errs extends readonly string[] = readonly []> = {
   /** Maximum iterations (for bounded analysis) */
   maxIterations?: number;
+  /**
+   * What to do when the collection is longer than `maxIterations`.
+   *
+   * `'error'` (default) throws an `IterationLimitError`, because stopping
+   * quietly leaves the tail unprocessed while the workflow returns Ok.
+   * `'stop'` truncates, for the cases that want a bounded prefix.
+   *
+   * @default 'error'
+   */
+  onMaxIterations?: "error" | "stop";
   /** Step ID pattern for iterations (e.g., 'process-{i}') */
   stepIdPattern?: string;
   /** Declared errors for the loop body */
@@ -2023,6 +2034,16 @@ export type ForEachRunOptions<T, R, Errs extends readonly string[] = readonly []
 export type ForEachItemOptions<T, R> = {
   /** Maximum iterations (for bounded analysis) */
   maxIterations?: number;
+  /**
+   * What to do when the collection is longer than `maxIterations`.
+   *
+   * `'error'` (default) throws an `IterationLimitError`, because stopping
+   * quietly leaves the tail unprocessed while the workflow returns Ok.
+   * `'stop'` truncates, for the cases that want a bounded prefix.
+   *
+   * @default 'error'
+   */
+  onMaxIterations?: "error" | "stop";
   /** Step ID pattern for iterations (e.g., 'process-{i}') */
   stepIdPattern?: string;
   /** Output key for results (requires collect option in strict mode) */
@@ -4504,6 +4525,10 @@ async function runFn<T, E, C = void>(
       ): Promise<R[]> => {
         const results: R[] = [];
         const maxIterations = options.maxIterations;
+        // Reaching the bound and stopping quietly loses the tail of the
+        // collection while the workflow still returns Ok, so the default is to
+        // report it. Pass 'stop' when truncation is the intent.
+        const onMaxIterations = options.onMaxIterations ?? 'error';
         let index = 0;
 
         // Check if this is the run form or item form
@@ -4516,6 +4541,9 @@ async function runFn<T, E, C = void>(
 
         for await (const item of asyncItems) {
           if (maxIterations !== undefined && index >= maxIterations) {
+            if (onMaxIterations === 'error') {
+              throw new IterationLimitError({ stepId: _id, maxIterations });
+            }
             break;
           }
 

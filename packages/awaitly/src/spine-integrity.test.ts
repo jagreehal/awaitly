@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   TimeoutError,
   RetryExhaustedError,
+  IterationLimitError,
   RateLimitError,
   CircuitBreakerOpenError,
   CompensationError,
@@ -19,6 +20,7 @@ import { ALL_SLUGS, isAwaitlySlug, type AwaitlySlug } from "./slugs";
 const SYSTEM_ERROR_SAMPLE_PROPS: Record<string, Record<string, unknown>> = {
   TimeoutError: { operation: "x", ms: 1 },
   RetryExhaustedError: { operation: "x", attempts: 1 },
+  IterationLimitError: { stepId: "x", maxIterations: 1 },
   RateLimitError: { retryAfterMs: 1 },
   CircuitBreakerOpenError: { circuitName: "x" },
   CompensationError: { step: "x" },
@@ -97,6 +99,7 @@ describe("spine integrity", () => {
     const expectedCovered: AwaitlySlug[] = [
       "runtime-step-timeout",
       "runtime-retry-exhausted",
+      "runtime-iteration-limit",
       "runtime-rate-limit",
       "runtime-circuit-open",
       "runtime-saga-compensation",
@@ -113,8 +116,8 @@ describe("spine integrity", () => {
     );
   });
 
-  it("roster has exactly 6 entries (update SYSTEM_ERROR_SAMPLE_PROPS when adding)", () => {
-    expect(AWAITLY_SYSTEM_ERROR_CLASSES).toHaveLength(6);
+  it("roster has exactly 7 entries (update SYSTEM_ERROR_SAMPLE_PROPS when adding)", () => {
+    expect(AWAITLY_SYSTEM_ERROR_CLASSES).toHaveLength(7);
     for (const Cls of AWAITLY_SYSTEM_ERROR_CLASSES) {
       expect(
         SYSTEM_ERROR_SAMPLE_PROPS[Cls.name],
@@ -128,6 +131,7 @@ describe("spine integrity", () => {
 // keys but not directly instantiated in non-roster paths.
 void TimeoutError;
 void RetryExhaustedError;
+void IterationLimitError;
 void RateLimitError;
 void CircuitBreakerOpenError;
 void CompensationError;

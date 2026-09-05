@@ -93,9 +93,9 @@ Under `durable.run`, a step is restored on resume only when it has a cache key.
   draws, which keeps a trace readable against the diagram.
 - **MUST** pass `maxIterations` to `step.forEach` when the diagram has to be
   deterministic. `awaitly-analyze --assert-diagrammable` fails without it.
-- **MUST** bound the collection before relying on `maxIterations`. It stops the
-  loop when reached and the workflow still returns Ok, so a longer collection
-  loses its tail without an error.
+- A collection longer than `maxIterations` raises `IterationLimitError`. Pass
+  `onMaxIterations: 'stop'` when a bounded prefix is what you want, and catch it
+  with `isIterationLimitError` at the boundary.
 - **MUST** declare `errors: []` on a step that cannot fail, or the same CI gate
   reports it as undeclared.
 - A step that fails by *throwing* is retried on resume. A step that returns a
@@ -354,9 +354,8 @@ const store = mongo({ url: process.env.MONGODB_URI!, lock: {} });
 
 const result = await durable.run(deps, async ({ step, deps: d }) => {
   const batch = await step('loadBatch', () => d.loadBatch(id));
-  // maxIterations stops the loop at the bound, so guard the size first or a
-  // larger batch reports success with the remainder never submitted.
-  await step('checkSize', () => d.assertWithinLimit(batch.payments, 500));
+  // A batch longer than maxIterations raises IterationLimitError instead of
+  // submitting a prefix and reporting success.
   await step.forEach('submit', batch.payments, {
     stepIdPattern: 'submit-{i}',
     maxIterations: 500,

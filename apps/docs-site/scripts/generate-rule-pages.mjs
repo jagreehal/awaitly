@@ -38,6 +38,7 @@ function buildRuntimeErrorMap() {
   const sampleProps = {
     TimeoutError: { operation: "sample", ms: 1 },
     RetryExhaustedError: { operation: "sample", attempts: 1 },
+    IterationLimitError: { stepId: "sample", maxIterations: 1 },
     RateLimitError: { retryAfterMs: 1 },
     CircuitBreakerOpenError: { circuitName: "sample" },
     CompensationError: { step: "sample" },

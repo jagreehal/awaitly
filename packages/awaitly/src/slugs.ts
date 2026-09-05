@@ -58,6 +58,7 @@ export const AWAITLY_SLUGS = {
   "runtime-step-timeout": "runtime-step-timeout",
   "runtime-step-aborted": "runtime-step-aborted",
   "runtime-retry-exhausted": "runtime-retry-exhausted",
+  "runtime-iteration-limit": "runtime-iteration-limit",
   "runtime-rate-limit": "runtime-rate-limit",
   "runtime-circuit-open": "runtime-circuit-open",
   "runtime-unexpected": "runtime-unexpected",

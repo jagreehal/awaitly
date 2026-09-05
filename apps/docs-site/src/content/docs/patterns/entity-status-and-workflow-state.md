@@ -35,11 +35,8 @@ await durable.run(deps, async ({ step, deps: d }) => {
   const payments = await step('splitBatch', () => d.splitBatch(batch));
   const valid = await step('validate', () => d.validate(payments));
 
-  // maxIterations stops the loop when it is reached, so an unchecked batch
-  // larger than the bound would report success having skipped the rest.
-  // Reject the oversized batch instead.
-  await step('checkBatchSize', () => d.assertWithinLimit(valid, MAX_PAYMENTS));
-
+  // A batch longer than maxIterations raises IterationLimitError rather than
+  // submitting a prefix and reporting success.
   await step.forEach('submitAll', valid, {
     stepIdPattern: 'submit-{i}',
     maxIterations: MAX_PAYMENTS,
