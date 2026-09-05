@@ -41,23 +41,29 @@ describe('new slug rules', () => {
   });
 
   describe('concurrency-no-promise-*', () => {
-    it('flags Promise.all', () => {
+    // These rules say "use step.all()/step.map() instead", which is only
+    // actionable inside a workflow callback, so that is where they fire.
+    // See tests/concurrency-scope.test.ts for the out-of-workflow cases.
+    const inWorkflow = (call: string) =>
+      `run(deps, async ({ step }) => { await ${call}; });`;
+
+    it('flags Promise.all in a workflow', () => {
       expect(
-        verify(`async function x(){ await Promise.all([a(), b()]); }`, {
+        verify(inWorkflow('Promise.all([a(), b()])'), {
           'awaitly/concurrency-no-promise-all': 'error',
         })
       ).toHaveLength(1);
     });
-    it('flags Promise.race', () => {
+    it('flags Promise.race in a workflow', () => {
       expect(
-        verify(`async function x(){ await Promise.race([a(), b()]); }`, {
+        verify(inWorkflow('Promise.race([a(), b()])'), {
           'awaitly/concurrency-no-promise-race': 'error',
         })
       ).toHaveLength(1);
     });
-    it('flags Promise.allSettled', () => {
+    it('flags Promise.allSettled in a workflow', () => {
       expect(
-        verify(`async function x(){ await Promise.allSettled([a(), b()]); }`, {
+        verify(inWorkflow('Promise.allSettled([a(), b()])'), {
           'awaitly/concurrency-no-promise-allsettled': 'error',
         })
       ).toHaveLength(1);

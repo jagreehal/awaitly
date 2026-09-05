@@ -1,5 +1,6 @@
 import type { Rule } from 'eslint';
 import type { CallExpression, MemberExpression } from 'estree';
+import { stepNamesAt } from '../detect-step.js';
 
 /**
  * Rule: no-immediate-execution
@@ -20,18 +21,18 @@ const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult
 // step.map('id', items, mapper, options?) - mapper is 3rd arg
 const EXECUTOR_AT_INDEX_2 = new Set(['map']);
 
-function isDirectStepCall(node: CallExpression): boolean {
+function isDirectStepCall(node: CallExpression, context: Rule.RuleContext): boolean {
   const { callee } = node;
-  return callee.type === 'Identifier' && callee.name === 'step';
+  return callee.type === 'Identifier' && stepNamesAt(node, context.sourceCode).has(callee.name);
 }
 
-function getStepMethodName(node: CallExpression): string | null {
+function getStepMethodName(node: CallExpression, context: Rule.RuleContext): string | null {
   const { callee } = node;
   if (callee.type === 'MemberExpression') {
     const { object, property } = callee as MemberExpression;
     if (
       object.type === 'Identifier' &&
-      object.name === 'step' &&
+      stepNamesAt(node, context.sourceCode).has(object.name) &&
       property.type === 'Identifier' &&
       STEP_METHODS.has(property.name)
     ) {
@@ -41,9 +42,9 @@ function getStepMethodName(node: CallExpression): string | null {
   return null;
 }
 
-function isStepCall(node: CallExpression): boolean {
-  if (isDirectStepCall(node)) return true;
-  return getStepMethodName(node) !== null;
+function isStepCall(node: CallExpression, context: Rule.RuleContext): boolean {
+  if (isDirectStepCall(node, context)) return true;
+  return getStepMethodName(node, context) !== null;
 }
 
 function isStringLiteral(node: unknown): node is { type: 'Literal'; value: string } {
@@ -106,12 +107,12 @@ const rule: Rule.RuleModule = {
   create(context) {
     return {
       CallExpression(node: CallExpression) {
-        if (!isStepCall(node)) return;
+        if (!isStepCall(node, context)) return;
 
         const args = node.arguments;
         let executorArg: typeof args[0];
 
-        if (isDirectStepCall(node)) {
+        if (isDirectStepCall(node, context)) {
           // step() requires step('id', executor, options?). Executor is second arg when first is string.
           if (isStringLiteral(args[0])) {
             executorArg = args[1];
@@ -121,7 +122,7 @@ const rule: Rule.RuleModule = {
           }
         } else {
           // For step.method calls, determine executor position based on method
-          const methodName = getStepMethodName(node);
+          const methodName = getStepMethodName(node, context);
           if (args.length > 0 && isStringLiteral(args[0])) {
             // step.map('id', items, mapper, opts) - executor at index 2
             // step.retry('id', fn, opts) / step.try('id', fn, opts) - executor at index 1
@@ -144,16 +145,16 @@ const rule: Rule.RuleModule = {
           fix(fixer) {
             const sourceCode = context.sourceCode;
             const executorText = sourceCode.getText(executorArg!);
-            if (isDirectStepCall(node) && isStringLiteral(args[0])) {
+            if (isDirectStepCall(node, context) && isStringLiteral(args[0])) {
               return fixer.replaceText(executorArg!, `() => ${executorText}`);
             }
-            if (!isDirectStepCall(node) && args[0] && isStringLiteral(args[0])) {
+            if (!isDirectStepCall(node, context) && args[0] && isStringLiteral(args[0])) {
               return fixer.replaceText(executorArg!, `() => ${executorText}`);
             }
             // Legacy step(fn()) or step(fn(), opts): fix to step('id', () => fn()[, opts])
             const suggestedId = functionName !== 'function' ? functionName : 'step';
             const restArgs = args.length > 1 ? `, ${args.slice(1).map((a) => sourceCode.getText(a)).join(', ')}` : '';
-            return fixer.replaceText(node, `step('${suggestedId}', () => ${executorText}${restArgs})`);
+            return fixer.replaceText(node, `${sourceCode.getText(node.callee)}('${suggestedId}', () => ${executorText}${restArgs})`);
           },
         });
       },

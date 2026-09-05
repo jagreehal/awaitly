@@ -26,7 +26,7 @@ import { createWorkflow } from 'awaitly';
 
 // Independent production capabilities
 import { durable } from 'awaitly/durable';
-import { type SnapshotStore, type DurableStore } from 'awaitly/durable';
+import { type SnapshotStore } from 'awaitly/durable';
 import { createSagaWorkflow } from 'awaitly/durable';
 import { createApprovalStep } from 'awaitly/durable';
 import { createMemoryStreamStore } from 'awaitly/durable';

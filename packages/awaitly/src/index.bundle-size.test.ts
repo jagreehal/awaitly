@@ -19,6 +19,10 @@ import { join, resolve } from "node:path";
  *    must tree-shake to a few KB; the engine itself has a ceiling.
  */
 describe("bundle budgets", () => {
+  // Every case spawns esbuild, so the default 5s timeout is too tight when the
+  // rest of the suite is competing for CPU.
+  const ESBUILD_TIMEOUT_MS = 120_000;
+
   const distEntry = (name: string) => resolve(__dirname, `../dist/${name}.js`);
   const rootDist = distEntry("index");
   const resultDist = distEntry("result");
@@ -45,18 +49,18 @@ describe("bundle budgets", () => {
   it("guarantees awaitly/result: the whole entry stays small (no tree-shaking required)", () => {
     if (!built()) return; // Hermetic: run after build to enforce.
     expect(minifiedSize(importProbe(resultDist, ["ok"]).replace(/import \{ ok \}.*\n/, `export * from ${JSON.stringify(resultDist)};\n`))).toBeLessThan(10_000);
-  });
+  }, ESBUILD_TIMEOUT_MS);
 
   it("guarantees awaitly/result: primitives import stays tiny", () => {
     if (!built()) return;
     expect(minifiedSize(importProbe(resultDist, ["ok", "err", "isOk", "isErr"]))).toBeLessThan(4_000);
-  });
+  }, ESBUILD_TIMEOUT_MS);
 
   it("keeps minimal Result imports from the root entry tree-shakeable", () => {
     if (!built()) return;
     // The front door must not tax primitive users with the engine.
     expect(minifiedSize(importProbe(rootDist, ["ok", "err", "isOk", "isErr"]))).toBeLessThan(6_000);
-  });
+  }, ESBUILD_TIMEOUT_MS);
 
   it("keeps automatically instrumented run + policies within the engine ceiling", () => {
     if (!built()) return;
@@ -67,7 +71,7 @@ describe("bundle budgets", () => {
     expect(
       minifiedSize(importProbe(rootDist, ["ok", "err", "run", "retry", "timeout", "fallback"]))
     ).toBeLessThan(50_000);
-  });
+  }, ESBUILD_TIMEOUT_MS);
 
   it("keeps createWorkflow reachable from the root without taxing primitive users", () => {
     if (!built()) return;
@@ -77,7 +81,7 @@ describe("bundle budgets", () => {
     expect(
       minifiedSize(importProbe(rootDist, ["createWorkflow", "run", "ok"]))
     ).toBeLessThan(80_000);
-  });
+  }, ESBUILD_TIMEOUT_MS);
 
   it("keeps each public entry within its whole-entry budget", () => {
     if (!built()) return;
@@ -98,7 +102,7 @@ describe("bundle budgets", () => {
         `${name} exceeded its ${budget}-byte whole-entry budget`,
       ).toBeLessThan(budget);
     }
-  });
+  }, ESBUILD_TIMEOUT_MS);
 
   it("ships exactly the four public entries", () => {
     if (!built()) return;
@@ -110,12 +114,12 @@ describe("bundle budgets", () => {
     for (const gone of ["run", "workflow", "reliability", "persistence", "saga", "hitl", "streaming", "webhook", "engine"]) {
       expect(existsSync(distEntry(gone)), `dist/${gone}.js should be absorbed`).toBe(false);
     }
-  });
+  }, ESBUILD_TIMEOUT_MS);
 
   it("keeps the raw root entry below its ceiling", () => {
     if (!existsSync(rootDist)) return;
     // Root now includes the workflow engine by design. The ceiling still
     // catches the durable/saga/engine machinery leaking in from `awaitly/durable`.
     expect(statSync(rootDist).size).toBeLessThan(260_000);
-  });
+  }, ESBUILD_TIMEOUT_MS);
 });

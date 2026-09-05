@@ -1,5 +1,6 @@
 import type { Rule } from 'eslint';
 import type { CallExpression, MemberExpression } from 'estree';
+import { isInsideWorkflowCallback } from '../detect-step.js';
 
 function isPromiseMethod(node: CallExpression, method: string): boolean {
   if (node.callee.type !== 'MemberExpression') return false;
@@ -25,6 +26,7 @@ const rule: Rule.RuleModule = {
     return {
       CallExpression(node: CallExpression) {
         if (isPromiseMethod(node, 'all')) {
+          if (!isInsideWorkflowCallback(node, context.sourceCode)) return;
           context.report({ node, messageId: 'noPromiseAll' });
         }
       },

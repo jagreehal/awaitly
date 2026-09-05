@@ -1,5 +1,6 @@
 import type { Rule } from 'eslint';
 import type { CallExpression, MemberExpression, Node } from 'estree';
+import { stepNamesAt } from '../detect-step.js';
 
 /**
  * Rule: no-floating-result
@@ -15,11 +16,11 @@ import type { CallExpression, MemberExpression, Node } from 'estree';
 
 const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'race', 'all', 'map', 'withFallback', 'withResource', 'workflow']);
 
-function isStepCall(node: CallExpression): boolean {
+function isStepCall(node: CallExpression, context: Rule.RuleContext): boolean {
   const { callee } = node;
 
   // Direct step() call
-  if (callee.type === 'Identifier' && callee.name === 'step') {
+  if (callee.type === 'Identifier' && stepNamesAt(node, context.sourceCode).has(callee.name)) {
     return true;
   }
 
@@ -28,7 +29,7 @@ function isStepCall(node: CallExpression): boolean {
     const { object, property } = callee as MemberExpression;
     if (
       object.type === 'Identifier' &&
-      object.name === 'step' &&
+      stepNamesAt(node, context.sourceCode).has(object.name) &&
       property.type === 'Identifier' &&
       STEP_METHODS.has(property.name)
     ) {
@@ -126,7 +127,7 @@ const rule: Rule.RuleModule = {
   create(context) {
     return {
       CallExpression(node: CallExpression) {
-        if (!isStepCall(node)) return;
+        if (!isStepCall(node, context)) return;
 
         const parent = (node as unknown as { parent?: Node }).parent || null;
 

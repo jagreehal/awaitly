@@ -191,6 +191,10 @@ export default defineConfig({
             { label: 'Resource Management', slug: 'patterns/resource-management' },
             { label: 'Parallel Operations', slug: 'patterns/parallel-operations' },
             { label: 'Error Recovery', slug: 'patterns/error-recovery' },
+            {
+              label: 'Entity Status and Workflow State',
+              slug: 'patterns/entity-status-and-workflow-state',
+            },
           ],
         },
         {

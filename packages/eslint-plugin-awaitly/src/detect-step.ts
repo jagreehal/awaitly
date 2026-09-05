@@ -1,18 +1,16 @@
+import type { SourceCode, Scope } from 'eslint';
 import type {
   ArrowFunctionExpression,
   CallExpression,
   FunctionDeclaration,
   FunctionExpression,
   Node,
-  Pattern,
 } from 'estree';
 
 type FunctionNode =
   | ArrowFunctionExpression
   | FunctionDeclaration
   | FunctionExpression;
-
-type NodeWithParent = Node & { parent?: Node };
 
 function isFunctionNode(node: Node): node is FunctionNode {
   return (
@@ -22,63 +20,86 @@ function isFunctionNode(node: Node): node is FunctionNode {
   );
 }
 
-function collectPatternNames(pattern: Pattern, names: Set<string>): void {
-  if (pattern.type === 'Identifier') {
-    names.add(pattern.name);
-  } else if (pattern.type === 'AssignmentPattern') {
-    collectPatternNames(pattern.left, names);
-  } else if (pattern.type === 'RestElement') {
-    collectPatternNames(pattern.argument, names);
-  } else if (pattern.type === 'ArrayPattern') {
-    for (const element of pattern.elements) {
-      if (element) collectPatternNames(element, names);
-    }
-  } else if (pattern.type === 'ObjectPattern') {
-    for (const property of pattern.properties) {
-      if (property.type === 'RestElement') {
-        collectPatternNames(property.argument, names);
-      } else {
-        collectPatternNames(property.value, names);
-      }
-    }
-  }
-}
-
-function workflowStepAliases(fn: FunctionNode): string[] {
-  const first = fn.params[0];
+/**
+ * Names bound by the first parameter's static context properties.
+ * Defaults and quoted keys do not change which property is being bound.
+ */
+function workflowContextAliases(fn: FunctionNode, key: string): string[] {
+  const param = fn.params[0];
+  const first = param?.type === 'AssignmentPattern' ? param.left : param;
   if (!first || first.type !== 'ObjectPattern') return [];
   const aliases: string[] = [];
   for (const property of first.properties) {
-    if (
-      property.type === 'Property' &&
-      property.key.type === 'Identifier' &&
-      property.key.name === 'step' &&
-      property.value.type === 'Identifier'
-    ) {
-      aliases.push(property.value.name);
+    if (property.type !== 'Property') continue;
+    const propertyName = property.key.type === 'Identifier' && !property.computed
+      ? property.key.name
+      : property.key.type === 'Literal' ? property.key.value : undefined;
+    const value = property.value.type === 'AssignmentPattern'
+      ? property.value.left : property.value;
+    if (propertyName === key && value.type === 'Identifier') {
+      aliases.push(value.name);
     }
   }
   return aliases;
 }
 
-/** Workflow `step` bindings visible at a node, including destructured aliases. */
-export function workflowStepBindings(root: Node): Set<string> {
-  const functions: FunctionNode[] = [];
-  let current: Node | undefined = root;
-  while (current) {
-    if (isFunctionNode(current)) functions.push(current);
-    current = (current as NodeWithParent).parent;
-  }
-
+/**
+ * Resolve the nearest declaration of each name using ESLint's lexical scopes.
+ * This respects block, catch, loop, function-name and parameter shadowing.
+ */
+function workflowBindings(root: Node, key: string, sourceCode: SourceCode): Set<string> {
   const visible = new Set<string>();
-  const shadowed = new Set<string>();
-  for (const fn of functions) {
-    for (const alias of workflowStepAliases(fn)) {
-      if (!shadowed.has(alias)) visible.add(alias);
+  const origin = sourceCode.getScope(root);
+  let scope: Scope.Scope | null = origin;
+  while (scope) {
+    if (isFunctionNode(scope.block)) {
+      const fn = scope.block;
+      for (const alias of workflowContextAliases(fn, key)) {
+        // Look up only candidate aliases, rather than scanning every local and
+        // global variable once per call expression.
+        let bindingScope: Scope.Scope | null = origin;
+        while (bindingScope) {
+          const variable = bindingScope.set.get(alias);
+          if (variable) {
+            if (variable.defs.some(def => def.type === 'Parameter' && def.node === fn)) {
+              visible.add(alias);
+            }
+            break;
+          }
+          bindingScope = bindingScope.upper;
+        }
+      }
     }
-    for (const param of fn.params) collectPatternNames(param, shadowed);
+    scope = scope.upper;
   }
   return visible;
+}
+
+/** Workflow `step` bindings visible at a node, including destructured aliases. */
+export function workflowStepBindings(root: Node, sourceCode: SourceCode): Set<string> {
+  return workflowBindings(root, 'step', sourceCode);
+}
+
+/**
+ * Include the canonical name for compatibility with standalone fragments and
+ * extracted helpers; resolve other names against their actual declarations.
+ */
+export function stepNamesAt(node: Node, sourceCode: SourceCode): ReadonlySet<string> {
+  const names = workflowStepBindings(node, sourceCode);
+  names.add('step');
+  return names;
+}
+
+/** Concurrency advice is actionable when a context step binding is visible. */
+export function isInsideWorkflowCallback(node: Node, sourceCode: SourceCode): boolean {
+  return workflowStepBindings(node, sourceCode).size > 0;
+}
+
+/** Dependency aliases, with the same canonical-name compatibility as step. */
+export function depsNamesAt(node: Node, sourceCode: SourceCode): ReadonlySet<string> {
+  const names = workflowBindings(node, 'deps', sourceCode);
+  names.add('deps');
+  return names;
 }
 
 /**

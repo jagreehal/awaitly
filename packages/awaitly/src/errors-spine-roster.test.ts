@@ -3,6 +3,7 @@ import {
   AWAITLY_SYSTEM_ERROR_CLASSES,
   TimeoutError,
   RetryExhaustedError,
+  IterationLimitError,
   RateLimitError,
   CircuitBreakerOpenError,
   CompensationError,
@@ -12,9 +13,10 @@ import { isAwaitlySlug } from "./slugs";
 
 describe("AWAITLY_SYSTEM_ERROR_CLASSES roster", () => {
   it("contains exactly the six awaitly-system error classes", () => {
-    expect(AWAITLY_SYSTEM_ERROR_CLASSES).toHaveLength(6);
+    expect(AWAITLY_SYSTEM_ERROR_CLASSES).toHaveLength(7);
     expect(AWAITLY_SYSTEM_ERROR_CLASSES).toContain(TimeoutError);
     expect(AWAITLY_SYSTEM_ERROR_CLASSES).toContain(RetryExhaustedError);
+    expect(AWAITLY_SYSTEM_ERROR_CLASSES).toContain(IterationLimitError);
     expect(AWAITLY_SYSTEM_ERROR_CLASSES).toContain(RateLimitError);
     expect(AWAITLY_SYSTEM_ERROR_CLASSES).toContain(CircuitBreakerOpenError);
     expect(AWAITLY_SYSTEM_ERROR_CLASSES).toContain(CompensationError);
@@ -30,6 +32,7 @@ describe("AWAITLY_SYSTEM_ERROR_CLASSES roster", () => {
     > = [
       [TimeoutError, { operation: "x", ms: 1 }],
       [RetryExhaustedError, { operation: "x", attempts: 1 }],
+      [IterationLimitError, { stepId: "x", maxIterations: 1 }],
       [RateLimitError, { retryAfterMs: 1 }],
       [CircuitBreakerOpenError, { circuitName: "x" }],
       [CompensationError, { step: "x" }],

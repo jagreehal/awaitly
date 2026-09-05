@@ -7,6 +7,7 @@ import type {
   TemplateLiteral,
   Expression,
 } from 'estree';
+import { stepNamesAt } from '../detect-step.js';
 
 /**
  * Rule: stable-cache-keys
@@ -35,10 +36,10 @@ const UNSTABLE_CALLS = new Set([
   'nanoid',
 ]);
 
-function isStepCall(node: CallExpression): boolean {
+function isStepCall(node: CallExpression, context: Rule.RuleContext): boolean {
   const { callee } = node;
 
-  if (callee.type === 'Identifier' && callee.name === 'step') {
+  if (callee.type === 'Identifier' && stepNamesAt(node, context.sourceCode).has(callee.name)) {
     return true;
   }
 
@@ -46,7 +47,7 @@ function isStepCall(node: CallExpression): boolean {
     const { object, property } = callee as MemberExpression;
     if (
       object.type === 'Identifier' &&
-      object.name === 'step' &&
+      stepNamesAt(node, context.sourceCode).has(object.name) &&
       property.type === 'Identifier' &&
       STEP_METHODS.has(property.name)
     ) {
@@ -142,7 +143,7 @@ const rule: Rule.RuleModule = {
   create(context) {
     return {
       CallExpression(node: CallExpression) {
-        if (!isStepCall(node)) return;
+        if (!isStepCall(node, context)) return;
 
         const keyValue = getKeyValue(node);
         if (!keyValue) return;

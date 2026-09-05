@@ -303,6 +303,12 @@ All retry attempts failed. Inspect lastError and decide whether to surface it or
 
 - **Runtime error:** `RetryExhaustedError` (`error.code === 'runtime-retry-exhausted'`)
 
+### `runtime-iteration-limit` \{#runtime-iteration-limit\}
+
+Raise maxIterations, bound the collection before the loop, or pass onMaxIterations: 'stop' to truncate on purpose.
+
+- **Runtime error:** `IterationLimitError` (`error.code === 'runtime-iteration-limit'`)
+
 ### `runtime-rate-limit` \{#runtime-rate-limit\}
 
 Wait retryAfterMs before retrying, or apply singleflight to deduplicate calls.

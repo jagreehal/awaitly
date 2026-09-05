@@ -142,6 +142,35 @@ export class RetryExhaustedError extends /* @__PURE__ */ TaggedError("RetryExhau
 }) {}
 
 /**
+ * Error thrown when a `step.forEach` collection is longer than `maxIterations`.
+ *
+ * `maxIterations` bounds the loop, so a longer collection would otherwise stop
+ * part-way and report success with the remainder never processed. Raise the
+ * bound, shrink the collection, or pass `onMaxIterations: 'stop'` when
+ * truncation is what you want.
+ *
+ * @example
+ * ```typescript
+ * const error = new IterationLimitError({ stepId: 'submitAll', maxIterations: 500 });
+ * console.log(error.message);
+ * // "IterationLimitError: submitAll reached its limit of 500 iterations with items remaining"
+ * ```
+ */
+export class IterationLimitError extends /* @__PURE__ */ TaggedError("IterationLimitError", {
+  slug: "runtime-iteration-limit",
+  hint: "Raise maxIterations, bound the collection before the loop, or pass onMaxIterations: 'stop' to truncate on purpose.",
+  message: (p: {
+    /** Id of the forEach step that hit the limit */
+    stepId?: string;
+    /** The configured bound */
+    maxIterations: number;
+  }) =>
+    p.stepId
+      ? `IterationLimitError: ${p.stepId} reached its limit of ${p.maxIterations} iterations with items remaining`
+      : `IterationLimitError: reached the limit of ${p.maxIterations} iterations with items remaining`,
+}) {}
+
+/**
  * Error thrown when a rate limit is exceeded.
  *
  * @example
@@ -438,6 +467,7 @@ export type AwaitlyError =
 export type AwaitlySystemError =
   | TimeoutError
   | RetryExhaustedError
+  | IterationLimitError
   | RateLimitError
   | CircuitBreakerOpenError
   | CompensationError
@@ -458,6 +488,7 @@ export type AwaitlySystemError =
 export const AWAITLY_SYSTEM_ERROR_CLASSES: ReadonlyArray<new (...args: any[]) => AwaitlySystemError> = [
   TimeoutError,
   RetryExhaustedError,
+  IterationLimitError,
   RateLimitError,
   CircuitBreakerOpenError,
   CompensationError,
@@ -483,6 +514,17 @@ export function isRetryExhaustedError(
 ): error is RetryExhaustedError {
   return (
     TaggedError.isTaggedError(error) && error._tag === "RetryExhaustedError"
+  );
+}
+
+/**
+ * Check if an error is an IterationLimitError.
+ */
+export function isIterationLimitError(
+  error: unknown
+): error is IterationLimitError {
+  return (
+    TaggedError.isTaggedError(error) && error._tag === "IterationLimitError"
   );
 }
 

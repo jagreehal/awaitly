@@ -1,5 +1,6 @@
 import type { Rule } from 'eslint';
 import type { CallExpression, MemberExpression } from 'estree';
+import { isInsideWorkflowCallback } from '../detect-step.js';
 
 const rule: Rule.RuleModule = {
   meta: {
@@ -21,6 +22,7 @@ const rule: Rule.RuleModule = {
           m.property.type === 'Identifier' &&
           m.property.name === 'race'
         ) {
+          if (!isInsideWorkflowCallback(node, context.sourceCode)) return;
           context.report({ node, messageId: 'noPromiseRace' });
         }
       },
