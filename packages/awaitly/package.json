@@ -81,7 +81,7 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "@opentelemetry/context-async-hooks": "2.10.0",
+    "@opentelemetry/context-async-hooks": "2.11.0",
     "@opentelemetry/core": "2.10.0",
     "@opentelemetry/sdk-trace-base": "2.10.0",
     "@standard-schema/spec": "1.1.0",
