@@ -781,8 +781,8 @@ await step.forEach('process-payments', payments, {
 `step.forEach()` provides:
 
 - Static analysis support (awaitly-analyze can enumerate paths)
-- Automatic indexing with `stepIdPattern`
-- Resume support (tracks which items completed)
+- Automatic indexing with `stepIdPattern` — the same name for the diagram and the checkpoint
+- Resume support (each iteration gets its own checkpoint, so a resume skips completed items)
 
 ---
 

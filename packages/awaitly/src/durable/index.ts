@@ -26,6 +26,10 @@ import type {
   Workflow,
 } from "../workflow/types";
 import type { StreamStore } from "../streaming/types";
+import type {
+  StoreSaveInput,
+  StoreLoadResult,
+} from "../workflow/store-contract";
 import {
   type SnapshotStore,
   type WorkflowSnapshot,
@@ -314,12 +318,12 @@ export interface WorkflowLock {
 /**
  * Check if a store implements the optional WorkflowLock interface.
  */
-function hasWorkflowLock(
-  store: SnapshotStore
-): store is SnapshotStore & WorkflowLock {
+function hasWorkflowLock<S extends SnapshotStore | DurableStore>(
+  store: S
+): store is S & WorkflowLock {
   return (
-    typeof (store as SnapshotStore & WorkflowLock).tryAcquire === "function" &&
-    typeof (store as SnapshotStore & WorkflowLock).release === "function"
+    typeof (store as S & WorkflowLock).tryAcquire === "function" &&
+    typeof (store as S & WorkflowLock).release === "function"
   );
 }
 
@@ -377,7 +381,7 @@ export interface DurableOptions<
    * await durable.run(deps, fn, { id: 'my-id', store });
    * ```
    */
-  store?: SnapshotStore | undefined;
+  store?: SnapshotStore | DurableStore | undefined;
 
   /**
    * Workflow logic version.
@@ -413,6 +417,22 @@ export interface DurableOptions<
    * @default false
    */
   allowConcurrent?: boolean | undefined;
+
+  /**
+   * Which failed steps a resume is allowed to restore from the snapshot.
+   *
+   * A step that failed by *throwing* recorded a crash, not a verdict — the
+   * worker died, the socket dropped, the process was killed. Restoring it
+   * replays that crash on every resume and the workflow can never move on. A
+   * step that failed with a typed `err` did reach a decision (`DECLINED`,
+   * `VALIDATION_FAILED`), and re-running it would just fail the same way.
+   *
+   * - `'crashed'` (default): retry thrown failures, keep typed errors decided.
+   * - `'all'`: restore every failed step, including crashes.
+   *
+   * @default 'crashed'
+   */
+  resumeFailedSteps?: "crashed" | "all" | undefined;
 
   /**
    * Lease TTL in milliseconds for cross-process locking.
@@ -523,6 +543,24 @@ export type DurableWorkflowEvent<E, C = void> =
     };
 
 /**
+ * The persistence contract `durable.run` accepts.
+ *
+ * Wider than `SnapshotStore`: the shipped adapters (awaitly-mongo,
+ * awaitly-postgres, awaitly-libsql) save a snapshot *or* a ResumeState and
+ * load either, which is what their doc comments have always promised. Typing
+ * the option narrowly made every adapter need a cast at the call site.
+ *
+ * `durable.run` itself only ever writes snapshots. A value loaded under a
+ * durable id that is not a snapshot is rejected by snapshot validation rather
+ * than silently discarded, so a colliding id fails loudly instead of starting
+ * the workflow over.
+ */
+export type DurableStore = Omit<SnapshotStore, "save" | "load"> & {
+  save(id: string, state: StoreSaveInput): Promise<void>;
+  load(id: string): Promise<StoreLoadResult>;
+};
+
+/**
  * Options for bulk delete of workflow state.
  */
 export interface DeleteStatesOptions {
@@ -553,6 +591,48 @@ const activeWorkflows = new Set<string>();
 // Track in-flight idempotency key executions so concurrent in-process callers
 // can await the first execution's result instead of racing through the store load.
 const pendingIdempotencyRuns = new Map<string, Promise<unknown>>();
+
+/**
+ * Remove the failed steps a resume must not restore.
+ *
+ * `metadata.stepOrder` and `metadata.stepArgs` are positionally paired and feed
+ * shape-drift detection, so they lose the same entries as `steps`.
+ */
+function pruneFailedSteps(
+  snapshot: WorkflowSnapshot,
+  policy: "crashed" | "all"
+): WorkflowSnapshot {
+  if (policy === "all" || !snapshot.steps) return snapshot;
+
+  const dropped = new Set(
+    Object.entries(snapshot.steps)
+      .filter(([, step]) => step.ok === false && step.meta?.origin === "throw")
+      .map(([key]) => key)
+  );
+  if (dropped.size === 0) return snapshot;
+
+  const order = Array.isArray(snapshot.metadata?.stepOrder)
+    ? (snapshot.metadata.stepOrder as string[])
+    : undefined;
+  const args = Array.isArray(snapshot.metadata?.stepArgs)
+    ? (snapshot.metadata.stepArgs as Array<string | null>)
+    : undefined;
+  const kept = (order ?? [])
+    .map((key, index) => ({ key, arg: args?.[index] ?? null }))
+    .filter((entry) => !dropped.has(entry.key));
+
+  return {
+    ...snapshot,
+    steps: Object.fromEntries(
+      Object.entries(snapshot.steps).filter(([key]) => !dropped.has(key))
+    ),
+    metadata: {
+      ...snapshot.metadata,
+      ...(order ? { stepOrder: kept.map((entry) => entry.key) } : {}),
+      ...(args ? { stepArgs: kept.map((entry) => entry.arg) } : {}),
+    },
+  };
+}
 
 /**
  * Durable workflow execution namespace.
@@ -670,6 +750,7 @@ export const durable = {
       input,
       streamStore,
       errors,
+      resumeFailedSteps = "crashed",
     } = options;
 
     const effectiveStore = storeOption ?? getDefaultStore();
@@ -691,7 +772,7 @@ export const durable = {
       pendingIdempotencyRuns.set(idemId, new Promise<unknown>((r) => { resolveIdempotencyRun = r; }));
 
       try {
-        const idemSnapshot = await effectiveStore.load(idemId);
+        const idemSnapshot = (await effectiveStore.load(idemId)) as WorkflowSnapshot | null;
         if (idemSnapshot) {
           // Check for input conflict
           if (input !== undefined && idemSnapshot.metadata?.input !== undefined) {
@@ -829,7 +910,10 @@ export const durable = {
       // Load existing snapshot (wrap in try-catch to return Result on store errors)
       let existingSnapshot: WorkflowSnapshot | null = null;
       try {
-        existingSnapshot = await effectiveStore.load(id);
+        // Narrow the broad adapter contract to the snapshot durable.run wrote.
+        // A non-snapshot value falls through to assertValidSnapshot below,
+        // which reports it rather than quietly restarting the workflow.
+        existingSnapshot = (await effectiveStore.load(id)) as WorkflowSnapshot | null;
       } catch (loadError) {
         const error: PersistenceError = {
           type: "PERSISTENCE_ERROR",
@@ -897,6 +981,13 @@ export const durable = {
             existingSnapshot = resolution.migratedSnapshot;
           }
         }
+      }
+
+      // Drop failed steps this resume is not allowed to restore, so a crash is
+      // retried instead of replayed. Done before stepOrder is read below, so
+      // shape-drift detection compares against the snapshot actually used.
+      if (existingSnapshot) {
+        existingSnapshot = pruneFailedSteps(existingSnapshot, resumeFailedSteps);
       }
 
       // Define error type for this workflow

@@ -548,6 +548,12 @@ All step helpers run through the full step engine: they emit step events, suppor
 
 Prefer `step.forEach()` when you want static analyzability and predictable per-item step IDs. For analyzability use an index-based `stepIdPattern` (e.g. `'item-{i}'`); use `{ key }` inside the loop only when you need cache identity tied to the input.
 
+### Agent rule: iterations are keyed for you
+
+- A step inside the `run` (or `item`) callback is keyed by its iteration — `processItem@item-0`, `processItem@item-1`. **MUST NOT** add a hand-written `{ key }` just to keep iterations apart; `stepIdPattern` already does it, and it keeps the diagram and the cache key in agreement.
+- Nested loops concatenate their iteration names, and the scope is per run, so concurrent runs never share keys.
+- Under `durable.run`, this means a resume skips items that already completed. Same for `step.try`, `step.fromResult`, `step.withFallback`, `step.withResource`, `step.retry`, and `step.withTimeout` inside the loop.
+
 ### Agent rule: double-step is intentional
 
 - **`step.forEach(..., { stepIdPattern, run })`** provides per-item **structural** step IDs for static analysis (e.g. `item-0`, `item-1`).
@@ -1123,7 +1129,7 @@ import { createWorkflow } from 'awaitly';
 
 // Independent production capabilities
 import { durable } from 'awaitly/durable';
-import { type SnapshotStore, serializeResumeState } from 'awaitly/durable';
+import { type SnapshotStore, type DurableStore, serializeResumeState } from 'awaitly/durable';
 import { createSagaWorkflow } from 'awaitly/durable';
 import { createApprovalStep } from 'awaitly/durable';
 import { createMemoryStreamStore } from 'awaitly/durable';
@@ -1250,6 +1256,25 @@ if (isIdempotencyConflict(error)) {
   console.warn(`Duplicate key ${error.idempotencyKey} for ${error.workflowId}`);
 }
 ```
+
+### Resuming failed steps
+
+`resumeFailedSteps` decides which failed steps a resume restores from the snapshot:
+
+- `'crashed'` (default) — a step that failed by **throwing** is retried (the worker died, the socket dropped); a step that failed with a typed `err` reached a decision and stays decided.
+- `'all'` — restore every failed step, crashes included.
+
+```typescript
+const result = await durable.run(deps, fn, {
+  id: 'my-workflow',
+  store,
+  resumeFailedSteps: 'crashed',
+});
+```
+
+### Store types
+
+`durable.run`'s `store` option takes `DurableStore`, the contract the shipped adapters implement (`save` also accepts a `ResumeState`, `load` may return one). Pass `postgres()`, `mongo()`, or `libsql()` directly — no cast. Implement `SnapshotStore` for a custom store.
 
 ### WorkflowLock.renew()
 

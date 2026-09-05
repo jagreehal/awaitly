@@ -781,7 +781,8 @@ function runAnalysis(options: CliOptions, filePath: string): void {
   }
 }
 
-import type { StaticWorkflowIR } from "./types";
+import type { StaticFlowNode, StaticWorkflowIR, StaticWorkflowNode } from "./types";
+import { getStaticChildren } from "./types";
 
 function toGeneratedTypeName(workflowName: string): string {
   const sanitized = workflowName.replace(/[^A-Za-z0-9_$]+/g, "_").replace(/^_+|_+$/g, "");
@@ -789,13 +790,54 @@ function toGeneratedTypeName(workflowName: string): string {
   return /^[A-Za-z_$]/.test(sanitized) ? sanitized : `_${sanitized}`;
 }
 
+function collectErrorNames(ir: StaticWorkflowIR): string[] {
+  const found: string[] = [];
+
+  found.push(...(ir.root.declaredErrors ?? []));
+  found.push(...(ir.root.errorTypes ?? []));
+
+  const visit = (node: StaticFlowNode | StaticWorkflowNode): void => {
+    const errors = (node as { errors?: string[] }).errors;
+    if (errors) found.push(...errors);
+    for (const child of getStaticChildren(node)) visit(child);
+  };
+  visit(ir.root);
+
+  for (const dep of ir.root.dependencies ?? []) {
+    found.push(...(dep.errorTypes ?? []));
+    const display = dep.signature?.resultLike?.errorType?.display;
+    if (!display) continue;
+
+    for (const part of display.split("|")) {
+      const candidate = part.trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(candidate)) {
+        found.push(candidate);
+        continue;
+      }
+
+      // TypeScript displays string literal errors with quotes. Strip those
+      // quotes rather than generating a value whose quotes are part of it.
+      try {
+        const literal: unknown = JSON.parse(candidate);
+        if (typeof literal === "string") found.push(literal);
+      } catch {
+        // Not a literal display; dep.errorTypes already carries the normalized name.
+      }
+    }
+  }
+
+  return [
+    ...new Set(
+      found.filter((name) => name.length > 0 && name !== "never" && name !== "unknown")
+    ),
+  ];
+}
+
 function generateTypesFile(ir: StaticWorkflowIR): string {
   const lines: string[] = [];
   const workflowName = ir.root.workflowName;
   const name = toGeneratedTypeName(workflowName);
   const deps = ir.root.dependencies;
-  const errorTypes = ir.root.errorTypes;
-  const workflowErrors = ir.root.declaredErrors;
 
   lines.push(`/**
  * Types for ${workflowName} workflow
@@ -806,11 +848,21 @@ function generateTypesFile(ir: StaticWorkflowIR): string {
   lines.push("");
 
   // Input type from deps (extract from signature)
-  const inputParams = deps.flatMap((d) => d.signature?.params ?? []).filter(Boolean);
-  if (inputParams.length > 0) {
+  const inputParams = new Map<string, Set<string>>();
+  for (const param of deps.flatMap((d) => d.signature?.params ?? [])) {
+    const types = inputParams.get(param.name) ?? new Set<string>();
+    types.add(param.type.display || "unknown");
+    inputParams.set(param.name, types);
+  }
+  if (inputParams.size > 0) {
     lines.push(`export type ${name}Input = {`);
-    for (const p of inputParams) {
-      lines.push(`  ${p.name}: ${p.type.display || "unknown"},`);
+    for (const [paramName, types] of inputParams) {
+      const displays = [...types];
+      const display =
+        displays.length === 1
+          ? displays[0]
+          : displays.map((type) => `(${type})`).join(" | ");
+      lines.push(`  ${paramName}: ${display},`);
     }
     lines.push(`};`);
     lines.push("");
@@ -824,9 +876,9 @@ function generateTypesFile(ir: StaticWorkflowIR): string {
   lines.push("");
 
   // Errors union
-  const allErrors = [...new Set([...(workflowErrors ?? []), ...errorTypes])];
+  const allErrors = collectErrorNames(ir);
   if (allErrors.length > 0) {
-    lines.push(`export type ${name}Error = ${allErrors.map((e) => `'${e}'`).join(" | ")};`);
+    lines.push(`export type ${name}Error = ${allErrors.map((e) => JSON.stringify(e)).join(" | ")};`);
     lines.push("");
     lines.push(`export type ${name}Result = AsyncResult<${name}Output, ${name}Error>;`);
   } else {

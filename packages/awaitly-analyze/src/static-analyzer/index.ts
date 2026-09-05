@@ -437,16 +437,26 @@ function analyzeWorkflowCall(
       if (source === "runSaga") {
         sagaContext.sagaParamInfo = extractSagaParameterInfo(workflowInfo.callbackFunction);
       }
-      // Deps-first form run(deps, fn): the first callback param is the
-      // bound-steps object, not { step } — use bound-steps detection.
+      // The deps-first form takes either callback shape, so pick by what the
+      // callback actually binds rather than by the entry point:
+      //   run(deps, async (s) => s.loadBatch())          -> bound steps
+      //   run(deps, async ({ step, deps }) => step(...))  -> { step }
+      // Assuming bound steps for every deps-first call left a destructured
+      // `step` unrecognised, so each step was named after the generic callee
+      // "step" instead of its id. `stepAlias` is set only when the callback
+      // destructures a `step` property, which is the discriminator.
+      const declaredStepParamInfo = extractStepParameterInfo(
+        workflowInfo.callbackFunction
+      );
+      const bindsStepParam = Boolean(
+        declaredStepParamInfo?.isDestructured && declaredStepParamInfo.stepAlias
+      );
       const boundStepsInfo =
-        source === "run" && depsObject
+        source === "run" && depsObject && !bindsStepParam
           ? extractBoundStepsInfo(workflowInfo.callbackFunction)
           : undefined;
       // Extract step parameter info for proper step detection
-      const stepParamInfo = boundStepsInfo
-        ? undefined
-        : extractStepParameterInfo(workflowInfo.callbackFunction);
+      const stepParamInfo = boundStepsInfo ? undefined : declaredStepParamInfo;
       const analyzed = analyzeCallback(
         workflowInfo.callbackFunction,
         opts,

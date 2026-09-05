@@ -71,6 +71,8 @@ npx awaitly-analyze ./src/workflows/checkout.ts --dev --port=5000
 
 ## What the analyzer reads
 
+- Workflow calls: `createWorkflow(...)`, `run(deps, fn)`, `run(fn)`, `runSaga(...)`, and `durable.run(deps, fn, options)` — including through an import alias, and whether the workflow is invoked with `.run()` or `.runWithState()`.
+- Both deps-first callback shapes: bound steps (`run(deps, async (s) => s.loadBatch())`) and the workflow form (`run(deps, async ({ step, deps }) => step('loadBatch', ...))`).
 - Step IDs from `step('id', fn, opts)` as canonical names.
 - Workflow and step docs from `description` and `markdown`.
 - JSDoc descriptions as `jsdocDescription` fallback.
@@ -186,7 +188,7 @@ Browse [Analyzer Showcase](guides/analyzer-showcase/) for source and generated d
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--types` / `--no-types` | on | Generate `.types.ts` |
+| `--types` / `--no-types` | on | Generate `.types.ts` (input, output, and the error union) |
 | `--test` / `--no-test` | off | Generate test stubs |
 | `--test-runner=<runner>` | `vitest` | `vitest`, `jest`, `mocha` |
 | `-o`, `--output-adjacent` | off | Write output next to source |
@@ -428,6 +430,7 @@ Node categories:
 | Parallel | `step.all()`, `allAsync()`, `allSettledAsync()` |
 | Race | `step.race()`, `anyAsync()` |
 | Workflow refs | Child workflow run calls |
+| Entry points | `createWorkflow()`, `run()`, `runSaga()`, `durable.run()`, `.runWithState()` |
 
 <DecisionMatrix
   title="Which Output Should You Use?"
@@ -474,6 +477,24 @@ Node categories:
     }
   ]}
 />
+
+## Workflow names
+
+A workflow's name is what the diagram title, the doctor report, and the generated `.types.ts` filename all show. For a `run()` or `durable.run()` call it comes from, in order:
+
+1. The enclosing function — `export function runBatch() { return durable.run(...) }` and `const settleInvoices = async () => durable.run(...)` are the common wrapper shapes.
+2. A string-literal durable `id`, for a call at module level. A runtime-built id such as `` `batch-${x}` `` is skipped.
+3. `run@file:line`, for a genuinely anonymous call.
+
+Generated `.types.ts` filenames follow the workflow name, so a committed one may be written under a new name after a rename.
+
+## Generated error union
+
+The `.types.ts` error union is built from the same analysis that draws the diagram, so the two agree. It collects:
+
+- Errors declared on the workflow (`errors: [...]`).
+- Per-step `errors: [...]` metadata, anywhere in the flow.
+- The error types of dependency `Result` signatures — unions are split into their members and string literals are normalized.
 
 ## Limitations
 

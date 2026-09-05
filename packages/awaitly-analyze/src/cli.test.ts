@@ -158,7 +158,10 @@ describe("CLI", () => {
     // Clean up generated .types.ts and .test.ts files from --types/--test flags
     if (existsSync(FIXTURES_DIR)) {
       for (const file of readdirSync(FIXTURES_DIR)) {
-        if (file.endsWith(".types.ts") || file.endsWith(".test.ts")) {
+        if (
+          file !== "errorUnionPipeline.types.ts" &&
+          (file.endsWith(".types.ts") || file.endsWith(".test.ts"))
+        ) {
           unlinkSync(join(FIXTURES_DIR, file));
         }
       }
