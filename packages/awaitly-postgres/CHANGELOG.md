@@ -1,5 +1,12 @@
 # awaitly-postgres
 
+## 34.0.0
+
+### Patch Changes
+
+- Updated dependencies [94bef4c]
+  - awaitly@5.0.0
+
 ## 33.0.0
 
 ### Patch Changes
