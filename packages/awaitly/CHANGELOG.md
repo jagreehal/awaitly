@@ -1,5 +1,143 @@
 # awaitly
 
+## 6.0.0
+
+### Major Changes
+
+- 7e8fdfd: `step.forEach` raises `IterationLimitError` when a collection is longer than `maxIterations`.
+
+  `maxIterations` bounds the loop for the analyzer and for execution. Reaching the
+  bound with items remaining now reports, so the caller learns the collection
+  outgrew its bound rather than reading a success:
+
+  ```typescript
+  await step.forEach("submitAll", payments, {
+    stepIdPattern: "submit-{i}",
+    maxIterations: 500,
+    run: async (payment) => step("submit", () => deps.submit(payment)),
+  });
+  // 501 payments -> IterationLimitError
+  ```
+
+  Truncation stays available, spelled out at the call site:
+
+  ```typescript
+  await step.forEach("firstPage", items, {
+    maxIterations: 100,
+    onMaxIterations: "stop",
+    run: async (item) => step("handle", () => deps.handle(item)),
+  });
+  ```
+
+  `IterationLimitError` and `isIterationLimitError` are exported from the root and
+  carry the `runtime-iteration-limit` slug, naming the step and the bound:
+  `IterationLimitError: submitAll reached its limit of 500 iterations with items
+remaining`.
+
+  Breaking: pass `onMaxIterations: 'stop'` to keep the previous truncating
+  behaviour. The skill and the batch examples drop their manual size checks, which
+  the error now covers.
+
+### Minor Changes
+
+- 3d332a8: One shared conformance suite for every durable store, and the operational
+  options that come with it.
+
+  `awaitly/testing` exports `durableStoreContract`, framework-agnostic checks
+  covering snapshot round-trip, upsert, delete, prefix and limit listing, and the
+  full `WorkflowLock` lease cycle. All three shipped adapters run it, so they
+  agree on one definition of correct:
+
+  ```typescript
+  import { durableStoreContract, supportsLock } from "awaitly/testing";
+
+  for (const check of durableStoreContract) {
+    it(check.name, async (context) => {
+      if (check.requires === "lock" && !supportsLock(store))
+        return context.skip();
+      await check.run(store);
+    });
+  }
+  ```
+
+  `createMemorySnapshotStore` is exported from `awaitly/durable`. It is the store
+  `durable.run` already falls back to, and it now runs the same contract as the
+  database adapters:
+
+  ```typescript
+  import { createMemorySnapshotStore } from "awaitly/durable";
+
+  const store = createMemorySnapshotStore();
+  await durable.run(deps, fn, { id: "batch-1", store });
+  ```
+
+  **awaitly-postgres** reports background errors on idle connections through a new
+  `onPoolError` option, so workers stay available while connections recover.
+  Schema setup is serialized across concurrent workers with an advisory lock, and
+  the package ships its own PostgreSQL type declarations.
+
+  **awaitly-libsql** lets independent processes share one local file, waiting for
+  SQLite's writer lock before snapshot and lease operations. A lease that has
+  expired is reclaimed by the next worker.
+
+  **awaitly-mongo** confirms lease renewal by owner token, so a heartbeat holds
+  ownership through renewals that land on the same millisecond.
+
+  **awaitly-visualizer** keeps the optional Slack SDK external, so the published
+  Slack notifier loads in ESM.
+
+  `step.withResource`'s documentation now matches its behaviour: under
+  `createWorkflow` and `durable.run` the step is keyed by its id like any other,
+  a resumed run restores the value `use` returned, and `acquire` and `release`
+  run only on the attempt that does the work.
+
+### Patch Changes
+
+- 7e8fdfd: Resolve `step`/`deps` bindings by scope, scope the concurrency rules to workflows, and document the callback shapes.
+
+  **Lint** — the shared detector in `detect-step.ts` now resolves `step` and `deps`
+  through ESLint's lexical scopes, so aliased destructuring lints the same as the
+  plain form:
+
+  ```ts
+  run(deps, async ({ step: s, deps: d }) => { … })
+  ```
+
+  Shadowing by local variables, functions, catch bindings and loop bindings is
+  respected; defaulted bindings and quoted property keys are supported. Autofixes
+  preserve the original callee, including aliases and helper methods, and retain
+  cache options when wrapping computed member expressions in thunks. This applies
+  to `step-require-id`, `step-no-immediate-execution`, `step-require-thunk-for-key`,
+  `step-stable-cache-keys`, `result-no-floating`, `result-require-handling`,
+  `step-no-try-catch-wrap` and `step-no-bare-await`.
+
+  `concurrency-no-promise-all`, `-race` and `-allsettled` now fire only inside a
+  workflow callback, matching their documented scope and keeping their
+  `step.all()` / `step.map()` advice actionable.
+
+  Breaking: aliased bindings now report, and `Promise.all` outside a workflow does not.
+
+  **Docs and skill** — `SKILL.md` states what each entry point hands the callback:
+
+  | Call                                 | Callback receives        |
+  | ------------------------------------ | ------------------------ |
+  | `run(cb)`                            | `{ step }`               |
+  | `run(deps, cb)`                      | the deps, bound as steps |
+  | `createWorkflow(name, deps).run(cb)` | `{ step, deps }`         |
+  | `durable.run(deps, cb, opts)`        | `{ step, deps }`         |
+
+  A bound call is a real step that caches and retries. A new durability section
+  covers what resumption restores: keyed steps, per-iteration identity for
+  `step.forEach` via `stepIdPattern`, the `maxIterations` and `errors: []` that
+  `awaitly-analyze --assert-diagrammable` expects, and how `resumeFailedSteps`
+  treats a crash against a typed error. `durable.run` joins the pattern selection
+  guide. New docs page _Entity Status and Workflow State_ covers keeping lifecycle
+  rules in the domain while the workflow drives them.
+
+  New `skill-snippets.test.ts` extracts every sample importing awaitly and
+  typechecks it against `dist/*.d.ts` — the declarations a consumer resolves —
+  so samples and the published API stay in step.
+
 ## 5.0.0
 
 ### Major Changes
