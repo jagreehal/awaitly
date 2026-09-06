@@ -22,6 +22,9 @@ export default defineConfig({
   dts: true,
   clean: true,
   splitting: false,
+  // Optional dependencies are not automatically externalized by tsup. Bundling
+  // Slack's CommonJS SDK into ESM leaves Node built-ins behind dynamic require.
+  external: ["@slack/web-api"],
   sourcemap: true,
   minify: true,
 });

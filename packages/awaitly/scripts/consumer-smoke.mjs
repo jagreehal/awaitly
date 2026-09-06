@@ -14,12 +14,16 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const pkgDir = fileURLToPath(new URL("..", import.meta.url));
+const manifest = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"));
+const entryPoints = Object.keys(manifest.exports).map((entry) =>
+  entry === "." ? manifest.name : `${manifest.name}${entry.slice(1)}`
+);
 const work = mkdtempSync(join(tmpdir(), "awaitly-smoke-"));
 const run = (cmd, args, cwd) =>
   execFileSync(cmd, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
@@ -57,6 +61,7 @@ try {
     `import { run, ok, err, match, retry, createWorkflow, type AsyncResult } from 'awaitly';
 import { createSagaWorkflow } from 'awaitly/durable';
 import { ok as okResult } from 'awaitly/result';
+import { createWorkflowHarness } from 'awaitly/testing';
 
 const getUser = async (id: string): AsyncResult<{ id: string }, 'NOT_FOUND'> =>
   id ? ok({ id }) : err('NOT_FOUND');
@@ -68,8 +73,33 @@ export const out = match(result, {
   NOT_FOUND: () => 'missing',
   UnexpectedError: () => 'boom',
 });
-export { createWorkflow, createSagaWorkflow, okResult };
+export { createWorkflow, createSagaWorkflow, okResult, createWorkflowHarness };
 `
+  );
+  // Derive coverage from the manifest so new public entries cannot be missed.
+  writeFileSync(
+    join(consumer, "src/entries.mts"),
+    entryPoints.map((entry, index) => `export * as entry${index} from ${JSON.stringify(entry)};`).join("\n")
+  );
+  writeFileSync(
+    join(consumer, "src/entries.cts"),
+    entryPoints.map((entry, index) =>
+      `import entry${index} = require(${JSON.stringify(entry)});\nexport { entry${index} };`
+    ).join("\n")
+  );
+
+  const assertions = `
+const { ok, run } = entries[0];
+const result = await run({ getValue: async () => ok(42) }, async (steps) => steps.getValue());
+if (!result.ok || result.value !== 42) throw new Error('Packaged workflow failed');
+`;
+  writeFileSync(
+    join(consumer, "smoke.mjs"),
+    `const entries = await Promise.all(${JSON.stringify(entryPoints)}.map((entry) => import(entry)));\n${assertions}`
+  );
+  writeFileSync(
+    join(consumer, "smoke.cjs"),
+    `const entries = ${JSON.stringify(entryPoints)}.map((entry) => require(entry));\n(async () => {${assertions}})().catch((error) => { console.error(error); process.exitCode = 1; });`
   );
 
   console.log("installing tarball into a clean project…");
@@ -78,9 +108,13 @@ export { createWorkflow, createSagaWorkflow, okResult };
   console.log("typechecking with skipLibCheck: false…");
   run(join(pkgDir, "node_modules/.bin/tsc"), ["-p", "tsconfig.json"], consumer);
 
+  console.log("loading all public entries and running a workflow in ESM and CommonJS…");
+  run(process.execPath, ["smoke.mjs"], consumer);
+  run(process.execPath, ["smoke.cjs"], consumer);
+
   console.log("consumer smoke test passed");
 } catch (error) {
-  const detail = error.stdout || error.stderr || error.message;
+  const detail = [error.stdout, error.stderr].filter(Boolean).join("\n") || error.message;
   console.error("consumer smoke test FAILED\n");
   console.error(detail);
   process.exitCode = 1;

@@ -4,11 +4,19 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["lib/**", "dist/**", "docs-site/**"],
+    // .stryker-tmp holds mutation sandboxes: copies of src with a broken
+    // path back to the workspace, and nothing to lint.
+    ignores: ["lib/**", "dist/**", "docs-site/**", ".stryker-tmp/**", "reports/**"],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   eslintConfigPrettier,
+  {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: { console: "readonly", process: "readonly", URL: "readonly", performance: "readonly" },
+    },
+  },
   {
     rules: {
       // Allow underscore-prefixed variables to be unused (common TS convention)

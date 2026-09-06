@@ -5,6 +5,7 @@
 
 import type { Pool } from "pg";
 import { randomUUID } from "node:crypto";
+import { createSchemaInitializer } from "./postgres-schema";
 
 export interface PostgresLockOptions {
   /**
@@ -34,16 +35,14 @@ export function createPostgresLock(
 
   const safeIndexName = `idx_${lockTableName.replace(/[^a-zA-Z0-9_]/g, "_")}_expires_at`;
 
-  async function ensureLockTable(): Promise<void> {
-    await pool.query(`
+  const ensureLockTable = createSchemaInitializer(pool, lockTableName, `
       CREATE TABLE IF NOT EXISTS ${lockTableName} (
         workflow_id TEXT PRIMARY KEY,
         owner_token TEXT NOT NULL,
         expires_at TIMESTAMPTZ NOT NULL
       );
       CREATE INDEX IF NOT EXISTS ${safeIndexName} ON ${lockTableName}(expires_at);
-    `);
-  }
+  `);
 
   async function tryAcquire(
     id: string,

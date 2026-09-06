@@ -51,7 +51,22 @@ export type { WorkflowCancelledError } from "../workflow/types";
 // In-memory store for zero-config usage
 let defaultStore: SnapshotStore | undefined;
 
-function createMemorySnapshotStore(): SnapshotStore {
+/**
+ * A `SnapshotStore` held in memory, the one `durable.run` uses when no store
+ * is given.
+ *
+ * Exported so it can be driven directly: it backs zero-config development and
+ * tests, and it is the store the durable store contract in `awaitly/testing`
+ * runs against alongside the database adapters. State lives for the life of
+ * the process, so reach for an adapter in production.
+ *
+ * @example
+ * ```typescript
+ * const store = createMemorySnapshotStore();
+ * await durable.run(deps, fn, { id: 'batch-1', store });
+ * ```
+ */
+export function createMemorySnapshotStore(): SnapshotStore {
   const store = new Map<string, { snapshot: WorkflowSnapshot; updatedAt: Date }>();
 
   return {

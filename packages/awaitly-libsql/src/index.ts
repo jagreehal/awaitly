@@ -21,7 +21,6 @@ import {
 } from "awaitly/durable";
 import { createLibSqlLock, type LibSqlLockOptions } from "./libsql-lock";
 
-// Re-export types for convenience
 export type { SnapshotStore, WorkflowSnapshot } from "awaitly/durable";
 export type { WorkflowLock } from "awaitly/durable";
 export type { LibSqlLockOptions } from "./libsql-lock";
@@ -107,7 +106,6 @@ export function libsql(urlOrOptions: string | LibSqlOptions): LibSqlStore {
     throw new Error(`Invalid table name: ${tableName}. Must be alphanumeric with underscores.`);
   }
 
-  // Create or use existing client
   const ownClient = !opts.client;
   const client = opts.client ?? createClient({
     url: opts.url,
@@ -116,11 +114,16 @@ export function libsql(urlOrOptions: string | LibSqlOptions): LibSqlStore {
 
   let tableCreated = false;
 
-  // Create lock if requested
   const lock = opts.lock ? createLibSqlLock(client, opts.lock) : null;
 
   const ensureTable = async (): Promise<void> => {
     if (tableCreated) return;
+    if (ownClient && opts.url.startsWith("file:")) {
+      // Independent workers briefly contend for SQLite's single writer lock.
+      // Wait for that lock instead of failing a durable checkpoint immediately.
+      // Remote servers and caller-owned clients manage their own busy policy.
+      await client.execute("PRAGMA busy_timeout = 5000");
+    }
     await client.execute(`
       CREATE TABLE IF NOT EXISTS ${tableName} (
         id TEXT PRIMARY KEY,
@@ -198,18 +201,25 @@ export function libsql(urlOrOptions: string | LibSqlOptions): LibSqlStore {
     },
 
     async close(): Promise<void> {
-      // Only close client if we created it
       if (ownClient) {
         client.close();
       }
     },
   };
 
-  // Add lock methods if lock is configured
   if (lock) {
-    store.tryAcquire = lock.tryAcquire.bind(lock);
-    store.release = lock.release.bind(lock);
-    store.renew = lock.renew.bind(lock);
+    store.tryAcquire = async (id, options) => {
+      await ensureTable();
+      return lock.tryAcquire(id, options);
+    };
+    store.release = async (id, ownerToken) => {
+      await ensureTable();
+      return lock.release(id, ownerToken);
+    };
+    store.renew = async (id, ownerToken, options) => {
+      await ensureTable();
+      return lock.renew(id, ownerToken, options);
+    };
   }
 
   return store;

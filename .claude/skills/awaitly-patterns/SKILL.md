@@ -1348,6 +1348,18 @@ const result = await durable.run(deps, fn, {
 
 `durable.run`'s `store` option takes `DurableStore`, the contract the shipped adapters implement (`save` also accepts a `ResumeState`, `load` may return one). Pass `postgres()`, `mongo()`, or `libsql()` directly — no cast. Implement `SnapshotStore` for a custom store.
 
+Each adapter creates its schema on first use, safely across concurrent workers. Two operational options:
+
+```typescript
+// Report background errors on idle connections in a pool the store owns.
+postgres({ url, onPoolError: (error) => logger.warn({ error }) });
+
+// Several processes can share one local file; the store waits for SQLite's writer lock.
+libsql('file:./workflow.db');
+```
+
+A pool or client you supply keeps its own error handling, lifecycle, and busy policy.
+
 ### WorkflowLock.renew()
 
 Optional lease renewal. When a store implements `renew`, `durable.run` starts a heartbeat that extends the lease during execution. Failure aborts the workflow.

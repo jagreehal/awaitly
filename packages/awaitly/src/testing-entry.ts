@@ -80,3 +80,11 @@ export {
   type TestWorkflowOptions,
   type TestStepResult,
 } from "./testing";
+
+// Store Conformance — the contract every durable store adapter must satisfy.
+export {
+  durableStoreContract,
+  supportsLock,
+  type DurableStoreContractCase,
+  type ContractStore,
+} from "./testing/store-contract";

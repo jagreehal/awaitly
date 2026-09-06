@@ -43,7 +43,9 @@
     "clean": "rm -rf dist",
     "tsd": "tsd --files \"src/**/*.test-d.ts\"",
     "quality": "pnpm type-check && pnpm test && pnpm build && pnpm tsd && pnpm lint && pnpm smoke",
-    "smoke": "node scripts/consumer-smoke.mjs"
+    "smoke": "node scripts/consumer-smoke.mjs",
+    "mutation": "stryker run",
+    "mutation:incremental": "stryker run --incremental"
   },
   "keywords": [
     "awaitly",
@@ -85,6 +87,8 @@
     "@opentelemetry/core": "2.10.0",
     "@opentelemetry/sdk-trace-base": "2.10.0",
     "@standard-schema/spec": "1.1.0",
+    "@stryker-mutator/core": "9.6.1",
+    "@stryker-mutator/vitest-runner": "9.6.1",
     "@total-typescript/ts-reset": "0.6.1",
     "@total-typescript/tsconfig": "1.0.4",
     "@types/node": "25.9.3",

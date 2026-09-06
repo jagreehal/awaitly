@@ -63,6 +63,7 @@ const store = postgres({
   prefix: 'orders:',                // Default: ''
   autoCreateTable: true,            // Default: true
   lock: { lockTableName: 'my_workflow_locks' },  // Optional: cross-process locking
+  onPoolError: (error) => logger.warn(error),    // Optional: background pool errors
 });
 ```
 
@@ -179,6 +180,22 @@ const pool = new Pool({
 
 const store = postgres({ url: process.env.DATABASE_URL!, pool });
 ```
+
+A pool you supply keeps its own error handling and lifecycle.
+
+### Background pool errors
+
+An idle connection can fail between queries — a failover, or a database
+restart. For a pool the store creates, pass `onPoolError` to report those:
+
+```typescript
+const store = postgres({
+  url: process.env.DATABASE_URL!,
+  onPoolError: (error) => logger.warn({ error }, 'postgres pool'),
+});
+```
+
+Queries keep rejecting normally and later calls reconnect.
 
 ### Cleanup
 

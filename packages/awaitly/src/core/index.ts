@@ -1469,7 +1469,10 @@ export interface RunStep<E = unknown> {
    * Release always runs after use completes (even on error or throw).
    * Release errors are logged via console.warn but never override the use result.
    *
-   * No caching support — caching resource-using steps is dangerous.
+   * Under `createWorkflow` or `durable.run` the step is keyed by its id like
+   * any other, so a resumed run restores the value `use` returned rather than
+   * acquiring the resource again. The resource itself is never restored:
+   * `acquire` and `release` run only on the attempt that does the work.
    *
    * @param id - Unique step identifier
    * @param options - Resource lifecycle configuration

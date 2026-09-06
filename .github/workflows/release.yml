@@ -11,8 +11,12 @@ permissions:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
+  validate:
+    uses: ./.github/workflows/ci.yml
+
   release:
     name: Release
+    needs: validate
     runs-on: ubuntu-latest
     if: github.repository_owner == 'jagreehal'
     environment: release
@@ -35,7 +39,7 @@ jobs:
         run: corepack enable
 
       - name: Install pnpm
-        run: corepack prepare pnpm@latest --activate
+        run: corepack prepare pnpm@10.28.1 --activate
 
       - name: Cache pnpm dependencies
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4

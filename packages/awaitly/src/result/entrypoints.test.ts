@@ -61,11 +61,16 @@ describe("public exports map", () => {
     }
   });
 
+  // These import the whole source graph. Under a full parallel run the
+  // transform alone outlasts the 5s default, which made this the one
+  // flaky file in the suite.
+  const IMPORT_TIMEOUT_MS = 60_000;
+
   it("keeps createWorkflow and run importable from the root", async () => {
     const root = await import("../index");
     expect(typeof (root as Record<string, unknown>).createWorkflow).toBe("function");
     expect(typeof (root as Record<string, unknown>).run).toBe("function");
-  });
+  }, IMPORT_TIMEOUT_MS);
 
   it("keeps the production machinery importable from ./durable", async () => {
     const durable = await import("../durable-bundle-entry");
@@ -74,5 +79,5 @@ describe("public exports map", () => {
     expect(typeof (names.durable as { run?: unknown })?.run).toBe("function");
     expect(typeof names.createSagaWorkflow).toBe("function");
     expect(typeof names.createEngine).toBe("function");
-  });
+  }, IMPORT_TIMEOUT_MS);
 });

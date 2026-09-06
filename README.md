@@ -960,6 +960,59 @@ You already know ~80% of awaitly.
 
 ---
 
+## Development validation
+
+Start the isolated validation databases:
+
+```bash
+docker compose up -d --wait
+```
+
+PostgreSQL listens on `55432`. The disposable MongoDB instance on `57017` is
+reserved for recovery tests; an existing local MongoDB on `27019` can be used
+for ordinary adapter tests:
+
+```bash
+TEST_POSTGRES_CONNECTION_STRING=postgresql://postgres:postgres@127.0.0.1:55432/test_awaitly \
+TEST_MONGODB_URI=mongodb://127.0.0.1:27019/test_awaitly \
+pnpm quality
+
+pnpm test:recovery
+pnpm --filter awaitly mutation
+```
+
+Use port `57017` for ordinary MongoDB tests if no other local instance is
+running. A configured database or CI database must be available: connection
+failures fail the tests. Only unconfigured local database suites are skipped.
+`pnpm test:release` verifies this behavior with deliberately unreachable URLs.
+
+`pnpm smoke` installs each published tarball into its own clean consumer,
+checks all public ESM and CommonJS types and runtime exports, and starts any
+published CLI. CI runs these checks on Node 22 and 24. Publishing waits for
+the same commit's complete validation, including mutation and recovery tests.
+
+The recovery suite starts real worker processes and interrupts only services
+in this Compose project. It verifies heartbeat renewal, competing workers,
+`SIGKILL` recovery, and database outage/reconnection. A checkpointed step must
+not execute again after recovery. The baseline is four workers completing
+100 two-step workflows per adapter, at least five workflows per second, and
+recovery within 15 seconds with a one-second lease. These are repeatable local
+acceptance targets; measure your application workload on its deployment
+hardware before selecting capacity limits. Measurements are written to
+`reports/recovery.json` and uploaded by CI.
+
+The PostgreSQL adapter reports idle connection errors through its optional
+`onPoolError` callback without terminating the process. Caller-supplied pools
+retain their own error handling and lifecycle. Internally created local
+libSQL connections wait up to five seconds for SQLite writer contention;
+remote and caller-supplied clients retain their own busy policy.
+
+Stop and remove the isolated test databases when finished:
+
+```bash
+docker compose down -v
+```
+
 ## License
 
 MIT

@@ -29,7 +29,6 @@ interface SnapshotDoc {
   updatedAt: Date;
 }
 
-// Re-export types for convenience
 export type { SnapshotStore, WorkflowSnapshot } from "awaitly/durable";
 export type { WorkflowLock } from "awaitly/durable";
 export type { MongoLockOptions } from "./mongo-lock";
@@ -121,7 +120,6 @@ export function mongo(urlOrOptions: string | MongoOptions): MongoStore {
 
   const collectionName = opts.collection ?? "awaitly_snapshots";
 
-  // Create or use existing client
   const ownClient = !opts.client;
   let client: MongoClientImpl | undefined = opts.client;
   let db: Db | undefined;
@@ -148,7 +146,6 @@ export function mongo(urlOrOptions: string | MongoOptions): MongoStore {
       // Index may already exist, ignore error
     });
 
-    // Create lock if requested
     if (opts.lock && !lock) {
       lock = createMongoLock(db, opts.lock);
     }
@@ -220,7 +217,6 @@ export function mongo(urlOrOptions: string | MongoOptions): MongoStore {
     },
 
     async close(): Promise<void> {
-      // Only close client if we created it
       if (ownClient && client) {
         await client.close();
         connected = false;
