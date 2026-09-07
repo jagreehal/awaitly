@@ -270,6 +270,8 @@ const user = await step.retry(
 
 By default, retry skips `UnexpectedError` and untagged throws. Typed errors still retry. See [Retries & Timeouts](guides/retries-timeouts/).
 
+Error tags come from the operation's `Result` type. Pass `errors: ['TAG']` alongside the retry options when an attempt raises a tag the signature does not carry, exactly as on `step()`.
+
 ### Backoff strategies visualized
 
 ```text
@@ -313,7 +315,7 @@ Output (times out):
 */
 ```
 
-If the timeout is reached, the workflow gets a `StepTimeoutError`.
+If the timeout is reached, the workflow gets a `StepTimeoutError`. `step.withTimeout` takes `errors: [...]` too, for a tag raised by a custom `onTimeout` handler.
 
 ## Combining retry and timeout
 
@@ -499,6 +501,24 @@ await step.forEach('process-payments', payments, {
 `stepIdPattern` names the iteration for both the diagram and the cache key, so the two agree; without it the index is used. Nested loops concatenate their iteration names, and the scope is per run, so concurrent runs never share keys. The same applies to `step.try`, `step.fromResult`, `step.withFallback`, `step.withResource`, `step.retry`, and `step.withTimeout`.
 
 Under [durable execution](guides/durable-execution/), this means a resume skips the items that already completed and picks up at the first one that did not.
+
+### Retry or time-bound each item
+
+A `run` body can be a step helper. Diagrams and `--doctor` read it as that helper, so its error tags come from the dep signature and its retry policy shows on the node inside the loop:
+
+```typescript
+await step.forEach('submit-payments', payments, {
+  stepIdPattern: 'submit-{i}',
+  maxIterations: 500,
+  run: (payment) =>
+    step.retry('submitPayment', () => deps.submitPayment(payment), {
+      attempts: 3,
+      backoff: 'exponential',
+    }),
+});
+```
+
+`maxIterations` bounds the loop: a longer collection raises `IterationLimitError` rather than processing a prefix and reporting success.
 
 ### Why step.forEach over manual loops?
 

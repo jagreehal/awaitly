@@ -1531,6 +1531,7 @@ export interface RunStep<E = unknown> {
     options: RetryOptions<ExtractError<Awaited<R>>> & {
       key?: string;
       timeout?: TimeoutOptions;
+      errors?: readonly string[];
     }
   ) => Promise<ExtractValue<Awaited<R>>>;
 
@@ -1572,7 +1573,7 @@ export interface RunStep<E = unknown> {
   >(
     id: string,
     operation: (() => R) | ((signal: AbortSignal) => R),
-    options: TimeoutOptions<TErr> & { key?: string }
+    options: TimeoutOptions<TErr> & { key?: string; errors?: readonly string[] }
   ) => Promise<ExtractValue<Awaited<R>>>;
 
   /**
@@ -4041,7 +4042,11 @@ async function runFn<T, E, C = void>(
       stepFn.retry = <T, StepE = unknown>(
         id: string,
         operation: () => Result<T, StepE> | AsyncResult<T, StepE>,
-        options: RetryOptions<StepE> & { key?: string; timeout?: TimeoutOptions }
+        options: RetryOptions<StepE> & {
+          key?: string;
+          timeout?: TimeoutOptions;
+          errors?: readonly string[];
+        }
       ): Promise<T> => {
         // Validate required string ID
         if (typeof id !== 'string' || id.length === 0) {
@@ -4065,6 +4070,7 @@ async function runFn<T, E, C = void>(
               onRetry: options.onRetry as RetryOptions["onRetry"],
           },
           timeout: options.timeout,
+          errors: options.errors,
         });
       };
 
@@ -4074,7 +4080,7 @@ async function runFn<T, E, C = void>(
         operation:
           | (() => Result<T, StepE> | AsyncResult<T, StepE>)
           | ((signal: AbortSignal) => Result<T, StepE> | AsyncResult<T, StepE>),
-        options: TimeoutOptions & { key?: string }
+        options: TimeoutOptions & { key?: string; errors?: readonly string[] }
       ): Promise<T> => {
         // Validate required string ID
         if (typeof id !== 'string' || id.length === 0) {
@@ -4093,6 +4099,7 @@ async function runFn<T, E, C = void>(
           {
             key: options.key,
             timeout: options,
+            errors: options.errors,
           }
         );
       };

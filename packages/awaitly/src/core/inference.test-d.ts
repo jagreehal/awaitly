@@ -135,9 +135,28 @@ async function stepRetryBranchInference() {
   expectType<Result<string, NotFound | Forbidden | UnexpectedError>>(result);
 }
 
+async function stepRetryAcceptsErrorsOption() {
+  const result = await run<string, NotFound | Forbidden>(async ({ step }) =>
+    step.retry("flaky", branchy, {
+      attempts: 3,
+      errors: ["NOT_FOUND"],
+    })
+  );
+
+  expectType<Result<string, NotFound | Forbidden | UnexpectedError>>(result);
+}
+
 async function stepWithTimeoutBranchInference() {
   const result = await run<string, NotFound | Forbidden>(async ({ step }) =>
     step.withTimeout("slow", branchy, { ms: 100 })
+  );
+
+  expectType<Result<string, NotFound | Forbidden | UnexpectedError>>(result);
+}
+
+async function stepWithTimeoutAcceptsErrorsOption() {
+  const result = await run<string, NotFound | Forbidden>(async ({ step }) =>
+    step.withTimeout("slow", branchy, { ms: 100, errors: [] })
   );
 
   expectType<Result<string, NotFound | Forbidden | UnexpectedError>>(result);
@@ -187,7 +206,9 @@ void inlineBranchErrorInference;
 void stepAllBranchInference;
 void stepRaceBranchInference;
 void stepRetryBranchInference;
+void stepRetryAcceptsErrorsOption;
 void stepWithTimeoutBranchInference;
+void stepWithTimeoutAcceptsErrorsOption;
 void stepMapBranchInference;
 void stepStreamForEachBranchInference;
 void voidInference;

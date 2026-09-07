@@ -1260,7 +1260,12 @@ export function createWorkflow<
       cachedStepFn.retry = <StepT, StepE extends E>(
         id: string,
         operation: () => Result<StepT, StepE> | AsyncResult<StepT, StepE>,
-        options: RetryOptions & { key?: string; timeout?: TimeoutOptions; ttl?: number }
+        options: RetryOptions & {
+          key?: string;
+          timeout?: TimeoutOptions;
+          ttl?: number;
+          errors?: readonly string[];
+        }
       ): Promise<StepT> => {
         const stepOptions = {
           // Omit the key while steps are persisted so it falls back to the id
@@ -1277,6 +1282,7 @@ export function createWorkflow<
           },
           timeout: options.timeout,
           ttl: options.ttl,
+          errors: options.errors,
         };
 
         return cachedStepFn(id, operation, stepOptions);
@@ -1292,12 +1298,17 @@ export function createWorkflow<
         operation:
           | (() => Result<StepT, StepE> | AsyncResult<StepT, StepE>)
           | ((signal: AbortSignal) => Result<StepT, StepE> | AsyncResult<StepT, StepE>),
-        options: TimeoutOptions<TErr> & { key?: string; ttl?: number }
+        options: TimeoutOptions<TErr> & {
+          key?: string;
+          ttl?: number;
+          errors?: readonly string[];
+        }
       ): Promise<StepT> => {
         const stepOptions = {
           ...(options.key === undefined && onAfterStepHook ? {} : { key: options.key }),
           timeout: options,
           ttl: options.ttl,
+          errors: options.errors,
         };
 
         return cachedStepFn(

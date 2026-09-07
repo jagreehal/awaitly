@@ -21,6 +21,7 @@ import type {
   StaticWorkflowRefNode,
 } from "../types";
 import { getStaticChildren } from "../types";
+import { formatLoopEndLabel, formatLoopStartLabel } from "./mermaid";
 
 export type {
   NodeMetadata,
@@ -367,7 +368,7 @@ function walkLoopNode(
   result[loopStartId] = {
     mermaidId: loopStartId,
     type: "loop-start",
-    name: node.iterSource ? `${node.loopType}: ${node.iterSource}` : node.loopType,
+    name: formatLoopStartLabel(node),
     loopType: node.loopType,
     iterSource: node.iterSource,
     boundCount: node.boundCount,
@@ -379,7 +380,7 @@ function walkLoopNode(
   result[loopEndId] = {
     mermaidId: loopEndId,
     type: "loop-end",
-    name: "Continue?",
+    name: formatLoopEndLabel(node),
   };
 }
 

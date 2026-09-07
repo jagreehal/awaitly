@@ -32,9 +32,46 @@ import type {
   StaticLoopNode,
 } from "../types";
 import { getStaticChildren } from "../types";
+import { validateStrict } from "../strict-diagnostics";
 
 // Test fixtures directory
 const FIXTURES_DIR = join(__dirname, "..", "__fixtures__");
+
+/** step.forEach over a typed dep, with `run` delegating to the given step helper call. */
+function forEachHelperSource(runBody: string): string {
+  return `
+    import { createWorkflow, ok, type AsyncResult } from "awaitly";
+
+    type ProviderRejected = { type: "PROVIDER_REJECTED" };
+
+    const wf = createWorkflow("submit-batch", {
+      submitPayment: async (
+        _id: string
+      ): Promise<AsyncResult<{ ref: string }, ProviderRejected>> => ok({ ref: "r1" }),
+    });
+
+    export async function run(payments: string[]) {
+      return wf.run(async ({ step, deps }) => {
+        await step.forEach("submitPayments", payments, {
+          stepIdPattern: "submit-{i}",
+          maxIterations: 500,
+          run: (payment) => ${runBody},
+        });
+      });
+    }
+  `;
+}
+
+function findLoop(nodes: StaticFlowNode[]): StaticLoopNode | undefined {
+  for (const n of nodes) {
+    if (n.type === "loop") return n as StaticLoopNode;
+    for (const c of getStaticChildren(n)) {
+      const found = findLoop([c]);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
 const JSDOC_FIXTURES_DIR = join(FIXTURES_DIR, "jsdoc");
 
 function collectStepNodes(root: { children: StaticFlowNode[] }): StaticStepNode[] {
@@ -4467,17 +4504,6 @@ async function run() {
       const results = analyzeWorkflowSource(source);
       expect(results).toHaveLength(1);
 
-      function findLoop(nodes: StaticFlowNode[]): StaticLoopNode | undefined {
-        for (const n of nodes) {
-          if (n.type === "loop") return n as StaticLoopNode;
-          for (const c of getStaticChildren(n)) {
-            const found = findLoop([c]);
-            if (found) return found;
-          }
-        }
-        return undefined;
-      }
-
       const loopNode = findLoop(results[0].root.children);
       expect(loopNode).toBeDefined();
       expect(loopNode!.loopType).toBe("step.forEach");
@@ -4500,17 +4526,6 @@ async function run() {
       const results = analyzeWorkflowSource(source);
       expect(results).toHaveLength(1);
 
-      function findLoop(nodes: StaticFlowNode[]): StaticLoopNode | undefined {
-        for (const n of nodes) {
-          if (n.type === "loop") return n as StaticLoopNode;
-          for (const c of getStaticChildren(n)) {
-            const found = findLoop([c]);
-            if (found) return found;
-          }
-        }
-        return undefined;
-      }
-
       const loopNode = findLoop(results[0].root.children);
       expect(loopNode).toBeDefined();
       expect(loopNode!.loopType).toBe("step.forEach");
@@ -4519,6 +4534,37 @@ async function run() {
       expect(loopNode!.body[0].type).toBe("step");
       expect((loopNode!.body[0] as StaticStepNode).name).toBe("processItem");
     });
+
+    it.each([
+      {
+        helper: "step.retry",
+        runBody: 'step.retry("submitPayment", () => deps.submitPayment(payment), { attempts: 3 })',
+        expectConfig: (bodyStep: StaticStepNode) => expect(bodyStep.retry?.attempts).toBe(3),
+      },
+      {
+        helper: "step.withTimeout",
+        runBody: 'step.withTimeout("submitPayment", () => deps.submitPayment(payment), { ms: 5000 })',
+        expectConfig: (bodyStep: StaticStepNode) => expect(bodyStep.timeout?.ms).toBe(5000),
+      },
+    ])(
+      "step.forEach run form: $helper body stays a helper step with inferred errors",
+      ({ helper, runBody, expectConfig }) => {
+        const results = analyzeWorkflowSource(forEachHelperSource(runBody));
+        expect(results).toHaveLength(1);
+
+        const loopNode = findLoop(results[0].root.children);
+        expect(loopNode).toBeDefined();
+        expect(loopNode!.body).toHaveLength(1);
+        const bodyStep = loopNode!.body[0] as StaticStepNode;
+        expect(bodyStep.type).toBe("step");
+        expect(bodyStep.stepId).toBe("submitPayment");
+        expect(bodyStep.callee).toBe(helper);
+        expectConfig(bodyStep);
+
+        const validation = validateStrict(results[0]);
+        expect(validation.diagnostics.filter((d) => d.rule === "missing-errors")).toEqual([]);
+      }
+    );
 
     it("step.forEach item form: loop body should contain both steps from step.item callback", () => {
       // Use 'step' as the third param name so the analyzer recognizes step() calls inside the callback.
@@ -4541,17 +4587,6 @@ async function run() {
       `;
       const results = analyzeWorkflowSource(source);
       expect(results).toHaveLength(1);
-
-      function findLoop(nodes: StaticFlowNode[]): StaticLoopNode | undefined {
-        for (const n of nodes) {
-          if (n.type === "loop") return n as StaticLoopNode;
-          for (const c of getStaticChildren(n)) {
-            const found = findLoop([c]);
-            if (found) return found;
-          }
-        }
-        return undefined;
-      }
 
       const loopNode = findLoop(results[0].root.children);
       expect(loopNode).toBeDefined();
@@ -4586,17 +4621,6 @@ async function run() {
 
       const results = analyzeWorkflowSource(source);
       expect(results).toHaveLength(1);
-
-      function findLoop(nodes: StaticFlowNode[]): StaticLoopNode | undefined {
-        for (const n of nodes) {
-          if (n.type === "loop") return n as StaticLoopNode;
-          for (const c of getStaticChildren(n)) {
-            const found = findLoop([c]);
-            if (found) return found;
-          }
-        }
-        return undefined;
-      }
 
       const loopNode = findLoop(results[0].root.children);
       expect(loopNode).toBeDefined();
@@ -5728,6 +5752,22 @@ async function run() {
       const mermaid = renderStaticMermaid(results[0]);
       expect(mermaid).toContain("(Retry: 5)");
       expect(mermaid).toContain("(Timeout: 3000ms)");
+    });
+
+    it("labels step.forEach with the loop id, bound, retry backoff, and IterationLimitError", () => {
+      const results = analyzeWorkflowSource(
+        forEachHelperSource(
+          'step.retry("submitPayment", () => deps.submitPayment(payment), { attempts: 3, backoff: "exponential" })'
+        )
+      );
+      expect(results).toHaveLength(1);
+      const mermaid = renderStaticMermaid(results[0], { showInlineErrors: true });
+
+      expect(mermaid).toContain("submitPayments (submit-{i}, max 500)");
+      expect(mermaid).not.toContain("step.forEach: payments");
+      expect(mermaid).toContain("submitPayment (Retry: 3, exponential)");
+      expect(mermaid).toContain("IterationLimitError");
+      expect(mermaid).not.toContain("classDef sagaStepStyle");
     });
 
     it("should use semantic conditionLabel on decision edges instead of true/false", () => {

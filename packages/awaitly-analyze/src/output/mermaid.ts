@@ -204,29 +204,15 @@ function renderStaticMermaidInternal(
     }
   }
 
-  // Add styles
+  // Add styles for classes that actually appear on a node.
   lines.push("");
   lines.push("  %% Styles");
-  lines.push(`  classDef stepStyle ${opts.styles.step}`);
-  lines.push(`  classDef sagaStepStyle ${opts.styles.sagaStep}`);
-  lines.push(`  classDef streamStyle ${opts.styles.stream}`);
-  lines.push(`  classDef parallelStyle ${opts.styles.parallel}`);
-  lines.push(`  classDef raceStyle ${opts.styles.race}`);
-  lines.push(`  classDef conditionalStyle ${opts.styles.conditional}`);
-  lines.push(`  classDef mergeStyle ${opts.styles.merge}`);
-  lines.push(`  classDef switchStyle ${opts.styles.switch}`);
-  lines.push(`  classDef loopStyle ${opts.styles.loop}`);
-  lines.push(`  classDef workflowRefStyle ${opts.styles.workflowRef}`);
-  lines.push(`  classDef startStyle ${opts.styles.start}`);
-  lines.push(`  classDef endStyle ${opts.styles.end}`);
-  if (opts.showInlineErrors || opts.showSagaCompensations) {
-    lines.push(`  classDef errorExitStyle ${opts.styles.errorExit}`);
-  }
-  if (opts.expandRetry) {
-    lines.push(`  classDef retryLogicStyle ${opts.styles.retryLogic}`);
-  }
-  if (opts.showSagaCompensations) {
-    lines.push(`  classDef compensationStyle ${opts.styles.compensation}`);
+  const usedStyles = new Set<string>(["startStyle", "endStyle", ...context.styleClasses.values()]);
+  for (const [key, style] of Object.entries(opts.styles)) {
+    const className = `${key}Style`;
+    if (style && usedStyles.has(className)) {
+      lines.push(`  classDef ${className} ${style}`);
+    }
   }
 
   // Apply styles
@@ -469,8 +455,7 @@ function getStepKindSuffix(node: StaticStepNode): string {
     return node.sleepDuration ? ` (Sleep: ${node.sleepDuration})` : " (Sleep)";
   }
   if (callee === "step.retry") {
-    const attempts = node.retry?.attempts;
-    return attempts != null && attempts !== "<dynamic>" ? ` (Retry: ${attempts})` : " (Retry)";
+    return formatRetrySuffix(node.retry);
   }
   if (callee === "step.withTimeout") {
     const ms = node.timeout?.ms;
@@ -514,8 +499,7 @@ function renderStepNode(
   } else {
     // When callee is a regular step() with retry/timeout options
     if (node.retry) {
-      const attempts = node.retry.attempts;
-      label += attempts != null && attempts !== "<dynamic>" ? ` (Retry: ${attempts})` : " (Retry)";
+      label += formatRetrySuffix(node.retry);
     }
     if (node.timeout) {
       const ms = node.timeout.ms;
@@ -1031,10 +1015,7 @@ function renderLoopNode(
   const loopEndId = `loop_end_${++context.nodeCounter}`;
 
   // Loop start (stadium shape)
-  const loopLabel = node.iterSource
-    ? `${node.loopType}: ${truncate(node.iterSource, 20)}`
-    : node.loopType;
-  lines.push(`  ${loopStartId}(["${escapeLabel(loopLabel)}"])`);
+  lines.push(`  ${loopStartId}(["${escapeLabel(formatLoopStartLabel(node), true)}"])`);
   context.styleClasses.set(loopStartId, "loopStyle");
 
   // Loop body (mark context so step labels get "per-iteration")
@@ -1053,7 +1034,7 @@ function renderLoopNode(
   }
 
   // Loop end check
-  lines.push(`  ${loopEndId}(["Continue?"])`);
+  lines.push(`  ${loopEndId}(["${escapeLabel(formatLoopEndLabel(node))}"])`);
   context.styleClasses.set(loopEndId, "loopStyle");
 
   // Connect body end to loop check
@@ -1067,6 +1048,21 @@ function renderLoopNode(
     to: loopStartId,
     label: "next",
   });
+
+  if (
+    context.opts.showInlineErrors &&
+    node.loopType === "step.forEach" &&
+    node.maxIterations != null
+  ) {
+    const errNodeId = `err_${loopEndId}_IterationLimitError`;
+    lines.push(`  ${errNodeId}["IterationLimitError"]`);
+    context.styleClasses.set(errNodeId, "errorExitStyle");
+    context.edges.push({
+      from: loopEndId,
+      to: errNodeId,
+      label: "IterationLimitError",
+    });
+  }
 
   return {
     firstNodeId: loopStartId,
@@ -1111,25 +1107,54 @@ function renderUnknownNode(
 // Utilities
 // =============================================================================
 
-function escapeLabel(label: string): string {
-  return label
+/** `keepBrackets` is for quoted labels (stadium nodes), where `{i}` stays readable. */
+function escapeLabel(label: string, keepBrackets = false): string {
+  const escaped = label
     .replace(/\\n/g, " ")
     .replace(/\r?\n/g, " ")
     .replace(/"/g, "'")
-    .replace(/\[/g, "(")
-    .replace(/\]/g, ")")
-    .replace(/\{/g, "(")
-    .replace(/\}/g, ")")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/#/g, "&num;")
     .replace(/\|/g, "&#124;");
+  return keepBrackets ? escaped : escaped.replace(/[[{]/g, "(").replace(/[\]}]/g, ")");
 }
 
 function truncate(str: string, maxLength: number): string {
   if (str.length <= maxLength) return str;
   return str.slice(0, maxLength - 3) + "...";
 }
+
+function formatRetrySuffix(retry: StaticStepNode["retry"]): string {
+  if (!retry) return " (Retry)";
+  const attempts =
+    retry.attempts != null && retry.attempts !== "<dynamic>"
+      ? String(retry.attempts)
+      : undefined;
+  const backoff =
+    retry.backoff != null && retry.backoff !== "<dynamic>" ? retry.backoff : undefined;
+  if (attempts && backoff) return ` (Retry: ${attempts}, ${backoff})`;
+  if (attempts) return ` (Retry: ${attempts})`;
+  if (backoff) return ` (Retry: ${backoff})`;
+  return " (Retry)";
+}
+
+/** Stadium label for a loop start node. `step.forEach` uses the loop id, not the collection expression. */
+export function formatLoopStartLabel(node: StaticLoopNode): string {
+  if (node.loopType === "step.forEach") {
+    const name = node.loopId ?? node.name ?? "forEach";
+    const details: string[] = [];
+    if (node.stepIdPattern) details.push(node.stepIdPattern);
+    if (node.maxIterations != null) details.push(`max ${node.maxIterations}`);
+    return details.length > 0 ? `${name} (${details.join(", ")})` : name;
+  }
+  return node.iterSource
+    ? `${node.loopType}: ${truncate(node.iterSource, 20)}`
+    : node.loopType;
+}
+
+export const formatLoopEndLabel = (node: StaticLoopNode): string =>
+  node.loopType === "step.forEach" ? "more items?" : "Continue?";
 
 // =============================================================================
 // Simplified Mermaid (Path-based)
