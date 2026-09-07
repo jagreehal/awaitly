@@ -432,6 +432,12 @@ Node categories:
 | Workflow refs | Child workflow run calls |
 | Entry points | `createWorkflow()`, `run()`, `runSaga()`, `durable.run()`, `.runWithState()` |
 
+A `step.forEach` node carries its loop id, plus `stepIdPattern` and `max N` when
+they are set, and with error nodes on (the default) a `maxIterations` bound draws
+its `IterationLimitError` exit. A `run` body that is `step.retry` or
+`step.withTimeout` is read as that helper, so the loop body shows the retry
+attempts and backoff and its errors come from the dep signature.
+
 <DecisionMatrix
   title="Which Output Should You Use?"
   rows={[

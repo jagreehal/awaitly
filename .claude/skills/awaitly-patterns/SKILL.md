@@ -97,7 +97,9 @@ Under `durable.run`, a step is restored on resume only when it has a cache key.
   `onMaxIterations: 'stop'` when a bounded prefix is what you want, and catch it
   with `isIterationLimitError` at the boundary.
 - **MUST** declare `errors: []` on a step that cannot fail, or the same CI gate
-  reports it as undeclared.
+  reports it as undeclared. `step.retry` and `step.withTimeout` infer errors
+  from the operation; **MUST NOT** add `errors` on them when the dep already
+  returns a typed Result.
 - A step that fails by *throwing* is retried on resume. A step that returns a
   typed `err` stays decided. Change with `resumeFailedSteps`.
 
@@ -356,10 +358,14 @@ const result = await durable.run(deps, async ({ step, deps: d }) => {
   const batch = await step('loadBatch', () => d.loadBatch(id));
   // A batch longer than maxIterations raises IterationLimitError instead of
   // submitting a prefix and reporting success.
-  await step.forEach('submit', batch.payments, {
+  await step.forEach('submitPayments', batch.payments, {
     stepIdPattern: 'submit-{i}',
     maxIterations: 500,
-    run: async (p) => step.retry('submit', () => d.submit(p), { attempts: 3 }),
+    run: async (payment) =>
+      step.retry('submitPayment', () => d.submitPayment(payment), {
+        attempts: 3,
+        backoff: 'exponential',
+      }),
   });
   return step('complete', () => d.complete(batch.id), { errors: [] });
 }, { id: `batch-${id}`, store, lockTtlMs: 60_000 });
@@ -627,7 +633,8 @@ Prefer `step.forEach()` when you want static analyzability and predictable per-i
 ### Agent rule: double-step is intentional
 
 - **`step.forEach(..., { stepIdPattern, run })`** provides per-item **structural** step IDs for static analysis (e.g. `item-0`, `item-1`).
-- The **inner** `step('processItem', () => deps.processItem(item))` inside `run` is **required**: it provides retries, caching, timeout, and typed error propagation for the actual operation.
+- The **inner** `step('processItem', () => deps.processItem(item))` or `step.retry('processItem', …)` inside `run` is **required**: it provides retries, caching, timeout, and typed error propagation for the actual operation.
+- A `run` body that is `step.retry(...)` or `step.withTimeout(...)` counts as that inner step: the diagram keeps its retry or timeout policy, and its errors come from the dep signature.
 - **MUST NOT** remove the inner `step(...)` thinking it is redundant. Both layers are intentional: forEach for structure, inner step for the engine.
 
 ### Basic Usage

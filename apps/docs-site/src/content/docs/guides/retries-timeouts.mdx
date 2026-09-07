@@ -138,8 +138,9 @@ const result = await workflow.run(async ({ step, deps }) => {
 ```
 
 The timeout error is checked against the workflow's error union, so a tag you
-have not declared is a compile error rather than a silent `unknown`. Add new
-tags with `errors: [...]`, exactly as you would for `step.try`.
+have not declared is a compile error rather than a silent `unknown`. Declare new
+tags with `errors: [...]`, on the workflow or on the `step.withTimeout` call
+itself. `step.retry` takes the same option.
   </TabItem>
 </Tabs>
 

@@ -2350,7 +2350,7 @@ function analyzeStepForEachCall(
         // Simple form: run: (item) => deps.processItem(item) — extract implicit step so Mermaid shows a step inside the loop
         const forEachPrefix = `forEach.${loopNode.loopId ?? "forEach"}.`;
         const implicitStep = tryExtractImplicitStep(init, opts, stats, forEachPrefix);
-        if (implicitStep) {
+        if (implicitStep && !isStepHelperCallee(implicitStep.callee, context)) {
           if (!implicitStep.depSource && implicitStep.callee) {
             implicitStep.depSource = extractFunctionName(implicitStep.callee);
           }
@@ -2678,6 +2678,18 @@ function extractCalleeFromResourceCallback(node: Node): string | undefined {
     return "inline";
   }
   return undefined;
+}
+
+/**
+ * True when a forEach `run` body is a step helper (`step.retry`, `step()`, ...)
+ * rather than a dep call (`deps.processItem`).
+ */
+function isStepHelperCallee(callee: string | undefined, context: AnalysisContext): boolean {
+  if (!callee) return false;
+  const dot = callee.lastIndexOf(".");
+  return dot === -1
+    ? context.stepNames.has(callee)
+    : context.stepNames.has(callee.slice(0, dot)) && callee.slice(dot + 1) in STEP_METHOD_HANDLERS;
 }
 
 /**

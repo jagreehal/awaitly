@@ -242,8 +242,10 @@ export function enrichStepOutputTypes(root: StaticWorkflowNode): void {
       const step = node as StaticStepNode;
       if (step.outputTypeInfo) return;
       const callee = step.callee ?? step.name;
-      if (!callee) return;
-      const dep = depMap.get(callee) ?? depMap.get(extractFunctionName(callee));
+      if (!callee && !step.depSource) return;
+      const dep =
+        (step.depSource ? depMap.get(step.depSource) : undefined) ??
+        (callee ? depMap.get(callee) ?? depMap.get(extractFunctionName(callee)) : undefined);
       const sig = dep?.signature;
       if (!sig?.returnType) return;
       const resultLike = extractResultLikeFromTypeString(sig.returnType.display);

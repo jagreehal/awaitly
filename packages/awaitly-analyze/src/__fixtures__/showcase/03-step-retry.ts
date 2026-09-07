@@ -1,6 +1,6 @@
 /**
  * Showcase: step.retry()
- * Renders as a step with "(Retry: 3)" in the diagram.
+ * Renders as a step with "(Retry: 3, exponential)" in the diagram.
  */
 import { createWorkflow, ok, type AsyncResult } from "awaitly";
 
