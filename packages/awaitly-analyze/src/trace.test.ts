@@ -57,7 +57,47 @@ describe("traceFromEvents", () => {
     ]);
 
     expect(trace.steps).toEqual([
-      { stepId: "fetchUser", status: "success", durationMs: 3 },
+      {
+        stepId: "fetchUser",
+        instanceId: "user:42",
+        status: "success",
+        durationMs: 3,
+      },
+    ]);
+  });
+
+  it("keeps each forEach iteration as its own step so later statuses cannot wipe earlier ones", () => {
+    const trace = traceFromEvents([
+      ev("step_success", "submitPayment@submit-0", {
+        stepKey: "submitPayment@submit-0",
+        name: "submitPayment",
+      }),
+      ev("step_success", "submitPayment@submit-1", {
+        stepKey: "submitPayment@submit-1",
+        name: "submitPayment",
+      }),
+      ev("step_aborted", "submitPayment@submit-2", {
+        stepKey: "submitPayment@submit-2",
+        name: "submitPayment",
+      }),
+    ]);
+
+    expect(trace.steps).toEqual([
+      {
+        stepId: "submitPayment",
+        instanceId: "submitPayment@submit-0",
+        status: "success",
+      },
+      {
+        stepId: "submitPayment",
+        instanceId: "submitPayment@submit-1",
+        status: "success",
+      },
+      {
+        stepId: "submitPayment",
+        instanceId: "submitPayment@submit-2",
+        status: "aborted",
+      },
     ]);
   });
 
@@ -165,6 +205,124 @@ describe("renderStaticMermaidWithTrace", () => {
     expect(matched).toContain("premium-check");
     expect(mermaid).toContain("classDef trace_decision");
     expect(mermaid).toMatch(/class decision_\d+ trace_decision/);
+  });
+
+  it("unrolls observed forEach iterations so crash statuses sit on different nodes", () => {
+    const forEachSource = `
+      import { createWorkflow, ok, type AsyncResult } from "awaitly";
+      type ProviderRejected = { type: "PROVIDER_REJECTED" };
+      const wf = createWorkflow("submit-batch", {
+        submitPayment: async (
+          _id: string
+        ): Promise<AsyncResult<{ ref: string }, ProviderRejected>> => ok({ ref: "r1" }),
+      });
+      export async function run(payments: string[]) {
+        return wf.run(async ({ step, deps }) => {
+          await step.forEach("submitPayments", payments, {
+            stepIdPattern: "submit-{i}",
+            maxIterations: 500,
+            run: (payment) =>
+              step.retry("submitPayment", () => deps.submitPayment(payment), {
+                attempts: 3,
+                backoff: "exponential",
+              }),
+          });
+        });
+      }
+    `;
+    const [ir] = analyzeWorkflowSource(forEachSource);
+    const skeleton = renderStaticMermaid(ir);
+    expect(skeleton).toMatch(/loop_start_/);
+    expect(skeleton).not.toContain("submit-0");
+
+    const { mermaid, unmatched } = renderStaticMermaidWithTrace(ir, {
+      steps: [
+        {
+          stepId: "submitPayment",
+          instanceId: "submitPayment@submit-0",
+          status: "success",
+        },
+        {
+          stepId: "submitPayment",
+          instanceId: "submitPayment@submit-1",
+          status: "success",
+        },
+        {
+          stepId: "submitPayment",
+          instanceId: "submitPayment@submit-2",
+          status: "aborted",
+        },
+      ],
+    });
+
+    expect(unmatched).toEqual([]);
+    expect(mermaid).toContain("submit-0");
+    expect(mermaid).toContain("submit-1");
+    expect(mermaid).toContain("submit-2");
+    const successNodes = [...mermaid.matchAll(/class (step_\d+) trace_success/g)].map(
+      (m) => m[1]
+    );
+    const abortedNodes = [...mermaid.matchAll(/class (step_\d+) trace_aborted/g)].map(
+      (m) => m[1]
+    );
+    expect(successNodes).toHaveLength(2);
+    expect(abortedNodes).toHaveLength(1);
+    expect(new Set([...successNodes, ...abortedNodes]).size).toBe(3);
+  });
+
+  it("unrolls a resume run so cache hits and the replayed iteration sit on different nodes", () => {
+    const forEachSource = `
+      import { createWorkflow, ok, type AsyncResult } from "awaitly";
+      type ProviderRejected = { type: "PROVIDER_REJECTED" };
+      const wf = createWorkflow("submit-batch", {
+        submitPayment: async (
+          _id: string
+        ): Promise<AsyncResult<{ ref: string }, ProviderRejected>> => ok({ ref: "r1" }),
+      });
+      export async function run(payments: string[]) {
+        return wf.run(async ({ step, deps }) => {
+          await step.forEach("submitPayments", payments, {
+            stepIdPattern: "submit-{i}",
+            maxIterations: 500,
+            run: (payment) =>
+              step.retry("submitPayment", () => deps.submitPayment(payment), {
+                attempts: 3,
+              }),
+          });
+        });
+      }
+    `;
+    const [ir] = analyzeWorkflowSource(forEachSource);
+    const { mermaid, unmatched } = renderStaticMermaidWithTrace(ir, {
+      steps: [
+        {
+          stepId: "submitPayment",
+          instanceId: "submitPayment@submit-0",
+          status: "cache-hit",
+        },
+        {
+          stepId: "submitPayment",
+          instanceId: "submitPayment@submit-1",
+          status: "cache-hit",
+        },
+        {
+          stepId: "submitPayment",
+          instanceId: "submitPayment@submit-2",
+          status: "success",
+        },
+      ],
+    });
+
+    expect(unmatched).toEqual([]);
+    const cacheHitNodes = [
+      ...mermaid.matchAll(/class (step_\d+) trace_cache-hit/g),
+    ].map((m) => m[1]);
+    const successNodes = [...mermaid.matchAll(/class (step_\d+) trace_success/g)].map(
+      (m) => m[1]
+    );
+    expect(cacheHitNodes).toHaveLength(2);
+    expect(successNodes).toHaveLength(1);
+    expect(new Set([...cacheHitNodes, ...successNodes]).size).toBe(3);
   });
 });
 

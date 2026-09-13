@@ -263,16 +263,16 @@ renderDiffMermaid(after, diff, { showRemovedSteps: true, direction: 'TD' });
 ## CLI (deterministic)
 
 ```bash
-# Static analysis (default: generates mermaid diagram + types file)
+# Static analysis (default: prints the diagram and writes <basename>.workflow.md next to the source)
 npx awaitly-analyze ./workflow.ts
+npx awaitly-analyze ./workflow.ts --no-output-adjacent  # Print only
 
 # Output formats
 npx awaitly-analyze ./workflow.ts --format=json
 npx awaitly-analyze ./workflow.ts --format=markdown
 
 # Control outputs
-npx awaitly-analyze ./workflow.ts --types              # Generate types file (default: on)
-npx awaitly-analyze ./workflow.ts --no-types           # Skip types file generation
+npx awaitly-analyze ./workflow.ts --types              # Generate <workflowName>.types.ts (default: off)
 npx awaitly-analyze ./workflow.ts --test               # Generate test stubs (default: off)
 npx awaitly-analyze ./workflow.ts --test --test-runner=jest  # Test runner: vitest (default), jest, mocha
 npx awaitly-analyze ./workflow.ts --errors             # Show error nodes in diagrams (default: on)
@@ -284,7 +284,7 @@ npx awaitly-analyze ./workflow.ts --keys
 npx awaitly-analyze ./workflow.ts --railway
 
 # Output files
-npx awaitly-analyze ./workflow.ts -o              # Write adjacent .workflow.md
+npx awaitly-analyze ./workflow.ts --suffix=diagram  # Adjacent file name: <basename>.diagram.md
 npx awaitly-analyze ./workflow.ts --html          # Generate interactive HTML
 npx awaitly-analyze ./workflow.ts --write-dsl    # Write .awaitly/dsl/ folder
 

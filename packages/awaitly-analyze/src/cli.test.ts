@@ -160,7 +160,10 @@ describe("CLI", () => {
       for (const file of readdirSync(FIXTURES_DIR)) {
         if (
           file !== "errorUnionPipeline.types.ts" &&
-          (file.endsWith(".types.ts") || file.endsWith(".test.ts"))
+          (file.endsWith(".types.ts") ||
+            file.endsWith(".test.ts") ||
+            file.endsWith(".workflow.md") ||
+            file.endsWith(".workflow.json"))
         ) {
           unlinkSync(join(FIXTURES_DIR, file));
         }
@@ -174,6 +177,7 @@ describe("CLI", () => {
       expect(exitCode).toBe(0);
       expect(stdout).toContain("awaitly-analyze - Static workflow analysis tool");
       expect(stdout).toContain("--output-adjacent");
+      expect(stdout).toContain("--no-output-adjacent");
       expect(stdout).toContain("--suffix");
       expect(stdout).toContain("--no-stdout");
     });
@@ -190,10 +194,10 @@ describe("CLI", () => {
       expect(stdout).toContain("--railway             Generate railway-style flow diagram (LR or TD");
     });
 
-    it("should document that --no-stdout also works with --html", () => {
+    it("should document that --no-stdout works when a file is written", () => {
       const { stdout, exitCode } = runCli(["--help"]);
       expect(exitCode).toBe(0);
-      expect(stdout).toContain("--no-stdout           Suppress stdout when writing to file (requires -o or --html)");
+      expect(stdout).toContain("--no-stdout           Suppress stdout when a file is being written");
     });
 
     it("should document --doctor", () => {
@@ -227,6 +231,33 @@ describe("CLI", () => {
       expect(parsed.length).toBeGreaterThan(0);
       expect(parsed[0]?.diagnostics?.[0]?.code).toBeDefined();
       expect(parsed[0]?.diagnostics?.[0]?.docsUrl).toContain("https://jagreehal.github.io/awaitly/rules/#");
+    });
+  });
+
+  describe("default output", () => {
+    it("writes mermaid next to the source and does not write types", () => {
+      const { stdout, stderr, exitCode } = runCli([testFilePath]);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("flowchart");
+      expect(stderr).toContain("Wrote");
+      expect(stderr).toContain("cli-test-workflow.workflow.md");
+      expect(stderr).not.toContain("Wrote types:");
+      expect(existsSync(outputMdPath)).toBe(true);
+      const generatedTypes = readdirSync(FIXTURES_DIR).filter((file) =>
+        file.endsWith(".types.ts") && file !== "errorUnionPipeline.types.ts",
+      );
+      expect(generatedTypes).toEqual([]);
+    });
+
+    it("skips the adjacent file with --no-output-adjacent", () => {
+      const { stdout, stderr, exitCode } = runCli([
+        testFilePath,
+        "--no-output-adjacent",
+      ]);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("flowchart");
+      expect(stderr).not.toContain("cli-test-workflow.workflow.md");
+      expect(existsSync(outputMdPath)).toBe(false);
     });
   });
 
@@ -341,10 +372,22 @@ describe("CLI", () => {
       expect(stdout).toBe("");
     });
 
-    it("should fail when used without --output-adjacent", () => {
-      const { stderr, exitCode } = runCli([testFilePath, "--no-stdout"]);
+    it("works without an explicit -o because adjacent write is the default", () => {
+      const { stdout, stderr, exitCode } = runCli([testFilePath, "--no-stdout"]);
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain("Wrote");
+      expect(stdout).toBe("");
+      expect(existsSync(outputMdPath)).toBe(true);
+    });
+
+    it("should fail when used without any file write", () => {
+      const { stderr, exitCode } = runCli([
+        testFilePath,
+        "--no-output-adjacent",
+        "--no-stdout",
+      ]);
       expect(exitCode).toBe(1);
-      expect(stderr).toContain("--no-stdout requires --output-adjacent");
+      expect(stderr).toContain("--no-stdout requires a file write");
     });
   });
 
@@ -584,7 +627,7 @@ describe("--railway", () => {
       "--railway",
       "--direction=TD",
       "--no-test",
-      "--no-types",
+      "--no-output-adjacent",
     ]);
 
     expect(exitCode).toBe(0);
@@ -599,7 +642,7 @@ describe("--railway", () => {
       "--railway",
       "--keys",
       "--no-test",
-      "--no-types",
+      "--no-output-adjacent",
     ]);
 
     expect(exitCode).toBe(0);
@@ -650,6 +693,13 @@ describe("auto-detection mode", () => {
     expect(options.auto).toBe(true);
     expect(options.railway).toBe(false);
     expect(options.watch).toBe(false);
+    expect(options.types).toBe(false);
+    expect(options.outputAdjacent).toBe(true);
+  });
+
+  it("turns adjacent write off with --no-output-adjacent", () => {
+    const options = parseArgs(["file.ts", "--no-output-adjacent"]);
+    expect(options.outputAdjacent).toBe(false);
   });
 
   it("disables auto when --railway is explicit", () => {

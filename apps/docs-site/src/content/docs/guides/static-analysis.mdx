@@ -42,18 +42,33 @@ See [Control flow and diagrammability](foundations/control-flow/#stepif-for-labe
 
 ## Fast start
 
+The npm package is `awaitly-analyze` (not `awaitly-analyzer`). Point it at any TypeScript file that contains `run()`, `createWorkflow()`, `runSaga()`, or `durable.run()` — a test file works if the `run()` call is in the source.
+
+The default command writes `<basename>.workflow.md` next to the source and prints the diagram. Bound steps such as `s.getUser()` show the dep's Result errors (`NOT_FOUND`, `FETCH_ERROR`) as `-->|err|` branches. `--types` is opt-in and writes `<workflowName>.types.ts`. `--html` writes `<basename>.html` and still prints the diagram.
+
+When you omit `--format` and `--railway`, the CLI picks the diagram: railway (`flowchart LR`) for linear happy paths, Mermaid flowchart for branches, loops, parallel, and race. Pass `--format=mermaid` or `--railway` to lock the choice.
+
 ```bash
-# Mermaid markdown (default)
+# Writes checkout.workflow.md and prints the diagram
 npx awaitly-analyze ./src/workflows/checkout.ts
 
-# JSON
+# Print only
+npx awaitly-analyze ./src/workflows/checkout.ts --no-output-adjacent
+
+# Force a Mermaid flowchart (direction TB unless you set --direction)
+npx awaitly-analyze ./src/workflows/checkout.ts --format=mermaid
+
+# JSON (also writes checkout.workflow.json)
 npx awaitly-analyze ./src/workflows/checkout.ts --format=json
 
-# Interactive HTML artifact
+# Interactive HTML next to the source
 npx awaitly-analyze ./src/workflows/checkout.ts --html
 
-# Workflow diff
-npx awaitly-analyze --diff v1.ts v2.ts
+# Generate .types.ts
+npx awaitly-analyze ./src/workflows/checkout.ts --types
+
+# Diff two existing files (not placeholders — both paths must exist)
+npx awaitly-analyze --diff before.ts after.ts
 
 # Strict diagnostics
 npx awaitly-analyze ./src/workflows/checkout.ts --doctor
@@ -61,7 +76,7 @@ npx awaitly-analyze ./src/workflows/checkout.ts --doctor
 # CI gate: fail if a workflow has unstable graph identities
 npx awaitly-analyze ./src/workflows/checkout.ts --assert-diagrammable
 
-# Overlay a recorded run's executed path onto the static diagram
+# Overlay a recorded run (JSON array of WorkflowEvent from onEvent)
 npx awaitly-analyze ./src/workflows/checkout.ts --trace=./run-events.json
 
 # Live inspector: static graph + runtime trace overlay in the browser
@@ -162,11 +177,10 @@ Capture `WorkflowEvent[]` from `onEvent`, save the array as `run-events.json`, a
 
 ```bash
 npx awaitly-analyze ./checkout.ts \
-  --trace=./run-events.json --no-types \
-  -o --suffix=failed-run
+  --trace=./run-events.json --suffix=failed-run
 ```
 
-The output keeps both checkout branches visible and marks the steps from that run. `unmatched` trace ids expose runtime steps that have no node in the static graph.
+The output keeps both checkout branches visible and marks the steps from that run. `unmatched` trace ids expose runtime steps that have no node in the static graph. Each `step.forEach` iteration is its own node on the overlay, so a resume run shows `cache-hit` iterations next to the one that ran.
 
 Browse [Analyzer Showcase](guides/analyzer-showcase/) for source and generated diagrams covering retries, resources, loops, workflow composition, and sagas.
 
@@ -176,8 +190,8 @@ Browse [Analyzer Showcase](guides/analyzer-showcase/) for source and generated d
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--format=<fmt>` | `mermaid` | `mermaid`, `json`, `markdown` |
-| `--direction=<dir>` | `TB` | `TB`, `TD`, `LR`, `BT`, `RL` |
+| `--format=<fmt>` | auto, else `mermaid` | `mermaid` or `json` for a single file. `markdown` only with `--diff`. Omit `--format` to auto-pick railway vs Mermaid. |
+| `--direction=<dir>` | `TB` (`LR` when auto-railway) | `TB`, `TD`, `LR`, `BT`, `RL` |
 | `--railway` | off | Linear happy-path + ok/err branching |
 | `--keys` | off | Show step cache keys |
 | `--errors` / `--no-errors` | on | Show/hide error nodes |
@@ -188,12 +202,13 @@ Browse [Analyzer Showcase](guides/analyzer-showcase/) for source and generated d
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--types` / `--no-types` | on | Generate `.types.ts` (input, output, and the error union) |
+| `--types` / `--no-types` | off | Generate `.types.ts` (input, output, and the error union) |
 | `--test` / `--no-test` | off | Generate test stubs |
 | `--test-runner=<runner>` | `vitest` | `vitest`, `jest`, `mocha` |
-| `-o`, `--output-adjacent` | off | Write output next to source |
+| `-o`, `--output-adjacent` | on | Write `<basename>.workflow.md` (or `.json`) next to the source |
+| `--no-output-adjacent` | off | Print only; skip the adjacent diagram file |
 | `--suffix=<value>` | `workflow` | Adjacent output file suffix |
-| `--no-stdout` | off | Suppress stdout output |
+| `--no-stdout` | off | Suppress stdout when a file is being written |
 | `--dsl-output=<value>` | `off` | Write DSL output |
 | `--write-dsl` | off | Same as `--dsl-output=.awaitly` |
 | `--watch` | off | Re-analyze on source changes |
@@ -242,7 +257,7 @@ Pair with `--assert-diagrammable` in CI: the analyzer checks that source is diag
 ## Interactive HTML artifact
 
 ```bash
-# Writes <basename>.html next to workflow source
+# Writes <basename>.html next to the source; still prints the diagram to stdout
 npx awaitly-analyze ./src/workflows/checkout.ts --html
 
 # Custom path
@@ -328,6 +343,8 @@ const { mermaid, matched, unmatched } = renderStaticMermaidWithTrace(ir, trace);
 | `.firstOrNull()` | IR or null | Never | Safe first workflow |
 
 ## Diff workflows
+
+`--format=markdown` is the default for `--diff` and is only valid in this mode.
 
 ```bash
 # Local files
@@ -469,7 +486,7 @@ attempts and backoff and its errors come from the dep signature.
     {
       choice: '--assert-diagrammable',
       bestFor: 'CI gate that blocks non-deterministic workflow diagrams.',
-      tradeoff: 'Requires declarative control flow (step.if, when, step.forEach).'
+      tradeoff: 'Fails on dynamic step ids or conditions the analyzer cannot name. Bound steps and native if/for are fine when identities are stable.'
     },
     {
       choice: '--trace',
@@ -490,9 +507,9 @@ A workflow's name is what the diagram title, the doctor report, and the generate
 
 1. The enclosing function — `export function runBatch() { return durable.run(...) }` and `const settleInvoices = async () => durable.run(...)` are the common wrapper shapes.
 2. A string-literal durable `id`, for a call at module level. A runtime-built id such as `` `batch-${x}` `` is skipped.
-3. `run@file:line`, for a genuinely anonymous call.
+3. `run@file:line`, for a genuinely anonymous call — including `run()` inside `it(...)` or another callback. That becomes a filename like `run_awaitly_test_ts_26.types.ts`.
 
-Generated `.types.ts` filenames follow the workflow name, so a committed one may be written under a new name after a rename.
+Generated `.types.ts` filenames follow the workflow name, so a committed one may be written under a new name after a rename. Pass `--types` only when you want that file.
 
 ## Generated error union
 

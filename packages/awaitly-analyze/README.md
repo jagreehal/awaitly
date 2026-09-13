@@ -17,26 +17,29 @@ A workflow built from those constructs is **fully diagrammable**: its diagram is
 ## CLI Usage
 
 ```bash
-# Basic usage - output to stdout
+# Writes checkout.workflow.md next to the source and prints the diagram
 awaitly-analyze ./src/workflows/checkout.ts
 
-# JSON format
+# Print only (no adjacent file)
+awaitly-analyze ./src/workflows/checkout.ts --no-output-adjacent
+
+# JSON format (also writes checkout.workflow.json unless you pass --no-output-adjacent)
 awaitly-analyze ./src/workflows/checkout.ts --format=json
 
 # Show step keys and change diagram direction
 awaitly-analyze ./src/workflows/checkout.ts --keys --direction=LR
 
-# Write output file adjacent to source (creates checkout.workflow.md)
-awaitly-analyze ./src/workflows/checkout.ts --output-adjacent
-
 # Custom suffix (creates checkout.diagram.md)
-awaitly-analyze ./src/workflows/checkout.ts -o --suffix=diagram
+awaitly-analyze ./src/workflows/checkout.ts --suffix=diagram
 
-# JSON format with adjacent output (creates checkout.analysis.json)
-awaitly-analyze ./src/workflows/checkout.ts -o --suffix=analysis --format=json
+# JSON with a custom adjacent name (creates checkout.analysis.json)
+awaitly-analyze ./src/workflows/checkout.ts --suffix=analysis --format=json
 
 # Write to file only, suppress stdout
-awaitly-analyze ./src/workflows/checkout.ts -o --no-stdout
+awaitly-analyze ./src/workflows/checkout.ts --no-stdout
+
+# Generate .types.ts next to the source
+awaitly-analyze ./src/workflows/checkout.ts --types
 
 # Generate interactive HTML with click-to-inspect
 awaitly-analyze ./src/workflows/checkout.ts --html
@@ -66,9 +69,11 @@ awaitly-analyze ./src/workflows/checkout.ts --trace=./run-events.json
 | `--html-output=<path>` | `<basename>.html` | Output path for the HTML file |
 | `--keys` | - | Show step cache keys in diagram |
 | `--direction=<dir>` | `TB` | Diagram direction: `TB`, `LR`, `BT`, `RL` |
-| `--output-adjacent`, `-o` | - | Write output file next to source file |
+| `--output-adjacent`, `-o` | on | Write `<basename>.workflow.md` (or `.json`) next to the source |
+| `--no-output-adjacent` | - | Print only; skip the adjacent diagram file |
 | `--suffix=<value>` | `workflow` | Configurable suffix for output file |
-| `--no-stdout` | - | Suppress stdout when writing to file (requires `-o` or `--html`) |
+| `--no-stdout` | - | Suppress stdout when a file is being written |
+| `--types` / `--no-types` | off | Generate `<workflowName>.types.ts` |
 | `--dsl-output=<value>` | `off` | Write DSL: `off`, `.awaitly`, or custom path (for visualization) |
 | `--write-dsl` | - | Shorthand for `--dsl-output=.awaitly` |
 | `--doctor` | - | Print strict diagnostics with fix suggestions (includes the diagrammability verdict) |
@@ -78,7 +83,7 @@ awaitly-analyze ./src/workflows/checkout.ts --trace=./run-events.json
 
 ### Output File Naming
 
-When using `--output-adjacent`:
+Adjacent output (default):
 - Mermaid format: `{basename}.{suffix}.md`
 - JSON format: `{basename}.{suffix}.json`
 

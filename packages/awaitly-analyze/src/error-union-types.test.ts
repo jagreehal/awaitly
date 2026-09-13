@@ -22,7 +22,7 @@ afterEach(() => {
 
 describe('generated types error union', () => {
   it('names the same errors the diagram draws', () => {
-    const run = spawnSync('node', [CLI_PATH, fixture], { encoding: 'utf-8' });
+    const run = spawnSync('node', [CLI_PATH, fixture, '--types', '--no-output-adjacent'], { encoding: 'utf-8' });
     expect(run.status).toBe(0);
 
     // The diagram is the reference: it draws both error exits.

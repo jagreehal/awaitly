@@ -333,6 +333,40 @@ export function inferErrorsFromErrorTypeInfo(root: StaticWorkflowNode): void {
 }
 
 /**
+ * Copy `dependencies[].errorTypes` onto bound steps that still have no
+ * `step.errors`. `s.getUser()` type-checks as `User`, so errorTypeInfo is empty
+ * even though the dep's Result union is already known.
+ */
+export function inferErrorsFromDependencies(root: StaticWorkflowNode): void {
+  const depsByName = new Map(
+    root.dependencies.map((dep) => [dep.name, dep] as const),
+  );
+
+  function visit(node: StaticFlowNode): void {
+    if (node.type === "step") {
+      const step = node as StaticStepNode;
+      if (step.errors !== undefined) return;
+
+      const keys = [step.depSource, step.stepId, step.name].filter(
+        (key): key is string => Boolean(key),
+      );
+      for (const key of keys) {
+        const errorTypes = (depsByName.get(key)?.errorTypes ?? []).filter(
+          (t) => t !== "unknown" && t !== "never",
+        );
+        if (errorTypes.length > 0) {
+          step.errors = errorTypes;
+          step.errorsSource = "inferred";
+          break;
+        }
+      }
+    }
+    for (const c of getStaticChildren(node)) visit(c);
+  }
+  for (const c of root.children) visit(c);
+}
+
+/**
  * Split a type string on top-level `|` only, respecting angle brackets.
  * e.g. `Envelope<"A" | "B"> | FooError` → [`Envelope<"A" | "B">`, `FooError`]
  */
