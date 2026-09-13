@@ -117,6 +117,35 @@ wf.run(async ({ step, deps }) => {
 
 Applies to `createWorkflow`, `createSagaWorkflow`, and the deps-first `run(deps, fn)` form, where the bound steps parameter (`s.validateCart(...)`) counts as correct usage. A dep name shadowed by a callback parameter is left alone, and a deps object built with a spread is skipped because its keys cannot be enumerated statically.
 
+### `awaitly/error-prefer-match` (warn; error in strict)
+
+Flags hand-normalising `result.error` before a `switch`, and `switch (true)` fan-outs over it. Both reimplement what `match` does, minus the exhaustiveness check.
+
+```typescript
+// BAD - normalise strings vs { type } by hand, then switch
+const code = typeof result.error === 'string' ? result.error : result.error.type;
+switch (code) {
+  case 'NOT_FOUND': return 404;
+}
+
+// BAD - switch (true) over instanceof / typeof checks
+switch (true) {
+  case typeof result.error === 'string': return 400;
+  case result.error instanceof ValidationError: return 422;
+}
+
+// GOOD - one key per error: strings match themselves, objects and
+// TaggedError classes match on `type`; arms are exhaustive
+return match(result, {
+  ok: (v) => 200,
+  NOT_FOUND: () => 404,
+  ValidationError: (e) => 422,
+  UnexpectedError: () => 500,
+});
+```
+
+A plain `switch (result.error)` on an all-string union is left alone.
+
 ### `awaitly/workflow-options-position` (error)
 
 Prevents passing workflow options in the wrong argument position. Use `workflow.run(fn, config)` or `workflow.run(name, fn, config)`, where the callback comes before config.

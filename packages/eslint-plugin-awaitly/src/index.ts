@@ -21,6 +21,7 @@ import workflowNoCallableForm from './rules/workflow-no-callable-form.js';
 import workflowCallbackShape from './rules/workflow-callback-shape.js';
 import errorCheckUnexpectedFirst from './rules/error-check-unexpected-first.js';
 import errorRequireDiscriminant from './rules/error-require-discriminant.js';
+import errorPreferMatch from './rules/error-prefer-match.js';
 
 // Canonical slug-native rule names. No legacy aliases — the rename is a
 // breaking change accompanying the AI-DX slug spine.
@@ -54,6 +55,7 @@ const rules = {
   // error-*
   'error-check-unexpected-first': errorCheckUnexpectedFirst,
   'error-require-discriminant': errorRequireDiscriminant,
+  'error-prefer-match': errorPreferMatch,
 };
 
 const configs: Record<string, Linter.Config[]> = {
@@ -83,6 +85,7 @@ const configs: Record<string, Linter.Config[]> = {
         'awaitly/result-no-direct-ok-err': 'error',
         'awaitly/workflow-no-callable-form': 'error',
         'awaitly/workflow-callback-shape': 'error',
+        'awaitly/error-prefer-match': 'warn',
         // 'awaitly/error-check-unexpected-first': 'warn',
         // ^ deliberately opt-in. The rule uses heuristic AST matching to
         //   flag `if (result.error._tag === ...)` without an
@@ -126,6 +129,7 @@ const configs: Record<string, Linter.Config[]> = {
         "awaitly/workflow-no-callable-form": "error",
         "awaitly/workflow-callback-shape": "error",
         "awaitly/error-require-discriminant": "error",
+        "awaitly/error-prefer-match": "error",
         // error-check-unexpected-first is opt-in (see note in `recommended`).
       },
     },

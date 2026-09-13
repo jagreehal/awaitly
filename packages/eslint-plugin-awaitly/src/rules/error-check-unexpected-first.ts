@@ -1,4 +1,5 @@
 import type { Rule } from 'eslint';
+import { anyDescendant } from '../ast-walk.js';
 import type {
   CallExpression,
   IfStatement,
@@ -29,40 +30,6 @@ function isUnexpectedGuardCall(node: Node): boolean {
   if (node.type !== 'CallExpression') return false;
   const callee = (node as CallExpression).callee;
   return callee.type === 'Identifier' && callee.name === 'isUnexpectedError';
-}
-
-/**
- * Walks the AST under `root` looking for any node that satisfies `predicate`.
- * Stops on first match.
- */
-function anyDescendant(root: Node, predicate: (n: Node) => boolean): boolean {
-  let found = false;
-  const stack: Node[] = [root];
-  while (stack.length && !found) {
-    const n = stack.pop() as Node;
-    if (predicate(n)) {
-      found = true;
-      break;
-    }
-    for (const key of Object.keys(n)) {
-      // ESLint augments the AST with a `parent` back-reference at runtime;
-      // skip it to avoid infinite loops. The estree types don't declare it,
-      // so this comparison is intentionally loose.
-      if ((key as string) === 'parent') continue;
-      const v = (n as unknown as Record<string, unknown>)[key];
-      if (!v || typeof v !== 'object') continue;
-      if (Array.isArray(v)) {
-        for (const item of v) {
-          if (item && typeof item === 'object' && 'type' in item) {
-            stack.push(item as Node);
-          }
-        }
-      } else if ('type' in (v as object)) {
-        stack.push(v as Node);
-      }
-    }
-  }
-  return found;
 }
 
 const rule: Rule.RuleModule = {

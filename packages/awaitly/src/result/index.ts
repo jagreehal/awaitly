@@ -561,17 +561,34 @@ export type ErrorByType<E, K extends string> = Extract<
  * union, keyed by its type string, plus the `ok` arm. Each handler
  * receives the full narrowed error (string, tagged object, or TaggedError).
  */
-export type MatchTypeHandlers<T, E, C, R> = { ok: (value: T) => R } & {
-  [K in ErrorTypeOf<E>]: (error: ErrorByType<E, K>, cause?: C) => R;
+export type MatchTypeHandlers<T, E, C> = { ok: (value: T) => unknown } & {
+  [K in ErrorTypeOf<E>]: (error: ErrorByType<E, K>, cause?: C) => unknown;
 };
 
+/** The two-arm form: `ok` plus an `err` catch-all. */
+export type MatchHandlers<T, E, C = unknown> = {
+  ok: (value: T) => unknown;
+  err: (error: E, cause?: C) => unknown;
+};
+
+/**
+ * Union of every arm's return type, so arms may return different shapes
+ * (`{ status: 200, body }` next to `{ status: 404 }`) without an annotation.
+ */
+export type MatchResult<H> = {
+  [K in keyof H]: H[K] extends (...args: never[]) => infer R ? R : never;
+}[keyof H];
+
+/** Rejects arms that name no member of the union (`NOPE: () => ...`). */
+type NoExtraArms<H, S> = { [K in keyof H]: K extends keyof S ? H[K] : never };
+
 // Two-arm form (ok/err catch-all), curried and direct
-export function match<T, E, R>(handlers: { ok: (value: T) => R; err: (error: E, cause?: unknown) => R }): (r: Result<T, E>) => R;
-export function match<T, E, R>(r: Ok<T>, handlers: { ok: (value: T) => R; err: (error: E, cause?: unknown) => R }): R;
-export function match<T, E, C, R>(r: Err<E, C>, handlers: { ok: (value: T) => R; err: (error: E, cause?: unknown) => R }): R;
-export function match<T, E, R>(r: Result<T, E>, handlers: { ok: (value: T) => R; err: (error: E, cause?: unknown) => R }): R;
+export function match<T, E, H extends MatchHandlers<T, E>>(handlers: H & NoExtraArms<H, MatchHandlers<T, E>>): (r: Result<T, E>) => MatchResult<H>;
+export function match<T, E, H extends MatchHandlers<T, E>>(r: Ok<T>, handlers: H & NoExtraArms<H, MatchHandlers<T, E>>): MatchResult<H>;
+export function match<E, C, H extends MatchHandlers<never, E, C>>(r: Err<E, C>, handlers: H & NoExtraArms<H, MatchHandlers<never, E, C>>): MatchResult<H>;
+export function match<T, E, H extends MatchHandlers<T, E>>(r: Result<T, E>, handlers: H & NoExtraArms<H, MatchHandlers<T, E>>): MatchResult<H>;
 // Exhaustive per-type form: match(result, { ok, USER_NOT_FOUND, CHARGE_DECLINED, ... })
-export function match<T, E, C, R>(r: Result<T, E>, handlers: MatchTypeHandlers<T, E, C, R>): R;
+export function match<T, E, C, H extends MatchTypeHandlers<T, E, C>>(r: Result<T, E>, handlers: H & NoExtraArms<H, MatchTypeHandlers<T, E, C>>): MatchResult<H>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function match(r: any, handlers?: any): any {
   if (handlers === undefined) {

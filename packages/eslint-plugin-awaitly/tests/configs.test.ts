@@ -26,6 +26,7 @@ describe('plugin configs', () => {
       'concurrency-no-promise-race',
       'concurrency-no-promise-allsettled',
       'error-check-unexpected-first',
+      'error-prefer-match',
     ];
     for (const key of canonical) {
       expect(keys).toContain(key);
