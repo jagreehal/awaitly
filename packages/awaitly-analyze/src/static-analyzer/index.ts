@@ -77,6 +77,7 @@ import {
   extractDependencies,
   extractErrorTypes,
   inferErrorsFromErrorTypeInfo,
+  inferErrorsFromDependencies,
   attachWorkflowRefsFromDeps,
   inferStepIOFromInnerCall,
 } from "./deps-types";
@@ -528,6 +529,7 @@ function analyzeWorkflowCall(
   enrichStepOutputTypes(root);
   inferErrorsFromErrorTypeInfo(root);
   enrichStepDepSource(root);
+  inferErrorsFromDependencies(root);
   // After enrichStepDepSource: matching a step to its dep relies on depSource.
   stats.workflowRefCount += attachWorkflowRefsFromDeps(root);
 

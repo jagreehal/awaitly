@@ -89,9 +89,10 @@ Options:
   --html-output=<path>  Output path for HTML file (default: <basename>.html)
   --keys                Show step cache keys in diagram
   --direction=<dir>     Diagram direction: TB (default), TD, LR, BT, RL
-  --output-adjacent, -o Write output file next to source file
+  --output-adjacent, -o Write the diagram next to the source (default: on)
+  --no-output-adjacent  Print only; do not write the adjacent diagram file
   --suffix=<value>      Configurable suffix for output file (default: workflow)
-  --no-stdout           Suppress stdout when writing to file (requires -o or --html)
+  --no-stdout           Suppress stdout when a file is being written (--html or adjacent)
   --dsl-output=<value>  Write DSL: off (default), .awaitly, or custom path
   --write-dsl           Shorthand for --dsl-output=.awaitly
   --diff                Compare workflows:
@@ -103,7 +104,7 @@ Options:
   --regression          Flag removed steps as regressions (use with --diff)
   --railway             Generate railway-style flow diagram (LR or TD with ok/err branches)
   --watch               Watch source file and re-analyze on changes
-  --types / --no-types   Generate TypeScript types file (default: on)
+  --types / --no-types   Generate TypeScript types file (default: off)
   --test / --no-test     Generate test stubs (default: off)
   --test-runner=<runner> Test runner: vitest (default), jest, or mocha
   --errors / --no-errors Show error nodes in diagrams (default: on)
@@ -121,8 +122,10 @@ Auto-detection:
 
 Examples:
   awaitly-analyze ./src/workflows/checkout.ts
+  awaitly-analyze ./src/workflows/checkout.ts --no-output-adjacent
   awaitly-analyze ./src/workflows/checkout.ts --format=json
   awaitly-analyze ./src/workflows/checkout.ts --html
+  awaitly-analyze ./src/workflows/checkout.ts --types
   awaitly-analyze ./src/workflows/checkout.ts --html --html-output=docs/checkout.html
   awaitly-analyze ./src/workflows/checkout.ts --keys --direction=LR
   awaitly-analyze ./src/workflows/checkout.ts --output-adjacent
@@ -145,7 +148,7 @@ export function parseArgs(args: string[]): CliOptions {
     showKeys: false,
     direction: "TB",
     help: false,
-    outputAdjacent: false,
+    outputAdjacent: true,
     suffix: "workflow",
     noStdout: false,
     dslOutput: "off",
@@ -159,7 +162,7 @@ export function parseArgs(args: string[]): CliOptions {
     railway: false,
     auto: true,
     watch: false,
-    types: true,
+    types: false,
     test: false,
     testRunner: "vitest",
     errors: true,
@@ -196,6 +199,8 @@ export function parseArgs(args: string[]): CliOptions {
       options.showKeys = true;
     } else if (arg === "--output-adjacent" || arg === "-o") {
       options.outputAdjacent = true;
+    } else if (arg === "--no-output-adjacent") {
+      options.outputAdjacent = false;
     } else if (arg === "--no-stdout") {
       options.noStdout = true;
     } else if (arg === "--write-dsl") {
@@ -319,11 +324,6 @@ function main(): void {
 
     const sources = options.diffSources;
 
-    if (options.outputAdjacent && sources.some((s) => s.startsWith("gh:#"))) {
-      console.error("Error: --output-adjacent is not supported with GitHub PR sources.");
-      process.exit(1);
-    }
-
     const diffFormat = options.formatExplicit ? options.format : "markdown";
 
     // GitHub PR mode
@@ -445,9 +445,8 @@ function main(): void {
     process.exit(1);
   }
 
-  // Validate: --no-stdout requires --output-adjacent or --html
   if (options.noStdout && !options.outputAdjacent && !options.html) {
-    console.error("Error: --no-stdout requires --output-adjacent (-o) or --html.");
+    console.error("Error: --no-stdout requires a file write (adjacent output or --html).");
     process.exit(1);
   }
 
@@ -754,7 +753,6 @@ function runAnalysis(options: CliOptions, filePath: string): void {
       }
     }
 
-    // Write to adjacent file if requested
     if (options.outputAdjacent) {
       const outputPath = getOutputFilePath(
         filePath,

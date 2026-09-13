@@ -7,6 +7,7 @@
 
 import {
   extractFunctionName,
+  getStaticChildren,
   type StaticWorkflowIR,
   type StaticFlowNode,
   type StaticStepNode,
@@ -241,6 +242,88 @@ const TRACE_STYLES: Record<string, string> = {
   decision: "fill:#1e3a5f,stroke:#38bdf8,stroke-width:3px,color:#e0f2fe",
 };
 
+function iterationScope(instanceId: string, stepId: string): string {
+  const prefix = `${stepId}@`;
+  return instanceId.startsWith(prefix) ? instanceId.slice(prefix.length) : instanceId;
+}
+
+function collectBodyStepIds(nodes: StaticFlowNode[]): string[] {
+  const ids: string[] = [];
+  for (const node of nodes) {
+    if (node.type === "step" && node.stepId) ids.push(node.stepId);
+    ids.push(...collectBodyStepIds(getStaticChildren(node)));
+  }
+  return ids;
+}
+
+/** Shallow-copy each node, replacing every child list with `visit(children)`. */
+function mapTree(
+  nodes: StaticFlowNode[],
+  visit: (nodes: StaticFlowNode[]) => StaticFlowNode[]
+): StaticFlowNode[] {
+  return nodes.map((node) => {
+    const copy: StaticFlowNode = { ...node };
+    switch (copy.type) {
+      case "sequence":
+      case "parallel":
+      case "race":
+        copy.children = visit(copy.children);
+        break;
+      case "conditional":
+      case "decision":
+        copy.consequent = visit(copy.consequent);
+        if (copy.alternate) copy.alternate = visit(copy.alternate);
+        break;
+      case "switch":
+        copy.cases = copy.cases.map((clause) => ({ ...clause, body: visit(clause.body) }));
+        break;
+      case "loop":
+        copy.body = visit(copy.body);
+        break;
+      default:
+        break;
+    }
+    return copy;
+  });
+}
+
+function rewriteStepsForScope(nodes: StaticFlowNode[], scope: string): StaticFlowNode[] {
+  return mapTree(nodes, (children) => rewriteStepsForScope(children, scope)).map((node) => {
+    if (node.type === "step" && node.stepId) {
+      node.name = `${node.name ?? node.stepId} (${scope})`;
+      node.stepId = `${node.stepId}@${scope}`;
+    }
+    return node;
+  });
+}
+
+/**
+ * Replace a forEach whose body appears as multiple runtime instances with a
+ * sequence of copies, one per observed iteration. The static skeleton is
+ * unchanged; this is overlay-only.
+ */
+function unrollLoopsForTrace(ir: StaticWorkflowIR, trace: WorkflowTrace): StaticWorkflowIR {
+  return { ...ir, root: { ...ir.root, children: unrollNodes(ir.root.children, trace) } };
+}
+
+function unrollNodes(nodes: StaticFlowNode[], trace: WorkflowTrace): StaticFlowNode[] {
+  return nodes.flatMap((node) => {
+    if (node.type === "loop") {
+      const bodyIds = new Set(collectBodyStepIds(node.body));
+      const scopes: string[] = [];
+      for (const step of trace.steps) {
+        if (!step.instanceId || !bodyIds.has(step.stepId)) continue;
+        const scope = iterationScope(step.instanceId, step.stepId);
+        if (!scopes.includes(scope)) scopes.push(scope);
+      }
+      if (scopes.length > 1) {
+        return scopes.flatMap((scope) => rewriteStepsForScope(node.body, scope));
+      }
+    }
+    return mapTree([node], (children) => unrollNodes(children, trace));
+  });
+}
+
 /**
  * Render the static diagram with a runtime trace overlaid: every step the run
  * touched is restyled by its status (success / error / aborted / skipped /
@@ -249,7 +332,8 @@ const TRACE_STYLES: Record<string, string> = {
  *
  * Matching is exact when the workflow is diagrammable (literal step ids); a
  * trace step whose id has no static node is reported via the returned
- * `unmatched` list rather than silently dropped.
+ * `unmatched` list rather than silently dropped. forEach iterations that share
+ * a literal id are unrolled onto the overlay when the trace carries instance keys.
  */
 export function renderStaticMermaidWithTrace(
   ir: StaticWorkflowIR,
@@ -257,7 +341,8 @@ export function renderStaticMermaidWithTrace(
   options: MermaidOptions = {}
 ): { mermaid: string; matched: string[]; unmatched: string[] } {
   const opts = { ...DEFAULT_OPTIONS, ...options };
-  const { lines, context } = renderStaticMermaidInternal(ir, opts);
+  const overlayIr = unrollLoopsForTrace(ir, trace);
+  const { lines, context } = renderStaticMermaidInternal(overlayIr, opts);
 
   const usedStatuses = new Set<string>();
   const overlay: string[] = [];
@@ -265,12 +350,13 @@ export function renderStaticMermaidWithTrace(
   const unmatched: string[] = [];
 
   for (const step of trace.steps) {
-    const nodeId = context.stepIdMap.get(step.stepId);
+    const matchKey = step.instanceId ?? step.stepId;
+    const nodeId = context.stepIdMap.get(matchKey);
     if (!nodeId) {
-      unmatched.push(step.stepId);
+      unmatched.push(matchKey);
       continue;
     }
-    matched.push(step.stepId);
+    matched.push(matchKey);
     usedStatuses.add(step.status);
     // Appended last, so this class assignment wins over the base step style.
     overlay.push(`  class ${nodeId} trace_${step.status}`);

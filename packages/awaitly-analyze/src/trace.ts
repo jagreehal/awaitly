@@ -31,6 +31,11 @@ export type StepStatus =
 export interface TraceStep {
   /** Literal step id — matches the static IR stepId */
   stepId: string;
+  /**
+   * Runtime identity when it differs from {@link stepId} (forEach scoped key,
+   * caller-supplied cache key). Absent when the event's identity is the step id.
+   */
+  instanceId?: string;
   /** Terminal (or in-flight) status of this step in the run */
   status: StepStatus;
   /** Wall-clock duration in ms, when the event carried one */
@@ -60,12 +65,24 @@ export interface WorkflowTrace {
 // =============================================================================
 
 /**
+ * Runtime cache/instance identity. Distinct forEach iterations share a `name`
+ * but differ on `stepKey` (`submitPayment@submit-0`).
+ */
+function instanceKeyOf(event: {
+  stepId?: string;
+  stepKey?: string;
+  name?: string;
+}): string | undefined {
+  return event.stepKey ?? event.name ?? event.stepId;
+}
+
+/**
  * Extract the literal source step id from an event. ID-first events use
  * `name` for that literal id, while `stepId` and `stepKey` may contain a
  * caller-supplied cache identity. Older events without a name fall back to
  * their runtime identity.
  */
-function stepKeyOf(event: {
+function staticStepIdOf(event: {
   stepId?: string;
   stepKey?: string;
   name?: string;
@@ -82,20 +99,30 @@ const TERMINAL: Partial<Record<string, StepStatus>> = {
 };
 
 /**
- * Reduce a workflow event stream into a trace: one entry per step, carrying the
- * step's final status (a `step_start` with no terminal event stays `running`).
- * Preserves first-seen order so the trace reads top-to-bottom like the diagram.
+ * Reduce a workflow event stream into a trace: one entry per runtime instance,
+ * carrying the step's final status (a `step_start` with no terminal event stays
+ * `running`). Preserves first-seen order so the trace reads top-to-bottom like
+ * the diagram.
  */
 export function traceFromEvents(events: readonly AnyWorkflowEvent[]): WorkflowTrace {
   const order: string[] = [];
   const byId = new Map<string, TraceStep>();
 
-  const upsert = (stepId: string, patch: Partial<TraceStep>): void => {
-    let entry = byId.get(stepId);
+  const upsert = (
+    instanceKey: string,
+    stepId: string,
+    patch: Partial<TraceStep>
+  ): void => {
+    let entry = byId.get(instanceKey);
     if (!entry) {
-      entry = { stepId, status: "running" };
-      byId.set(stepId, entry);
-      order.push(stepId);
+      const instanceId = instanceKey !== stepId ? instanceKey : undefined;
+      entry = {
+        stepId,
+        status: "running",
+        ...(instanceId ? { instanceId } : {}),
+      };
+      byId.set(instanceKey, entry);
+      order.push(instanceKey);
     }
     Object.assign(entry, patch);
   };
@@ -124,21 +151,22 @@ export function traceFromEvents(events: readonly AnyWorkflowEvent[]): WorkflowTr
       continue;
     }
 
-    const key = stepKeyOf(e);
-    if (!key) continue;
+    const instanceKey = instanceKeyOf(e);
+    const stepId = staticStepIdOf(e);
+    if (!instanceKey || !stepId) continue;
 
     if (e.type === "step_start") {
-      upsert(key, { status: "running" });
+      upsert(instanceKey, stepId, { status: "running" });
       continue;
     }
     if (e.type === "step_retry") {
-      const entry = byId.get(key);
-      upsert(key, { retries: (entry?.retries ?? 0) + 1 });
+      const entry = byId.get(instanceKey);
+      upsert(instanceKey, stepId, { retries: (entry?.retries ?? 0) + 1 });
       continue;
     }
     const terminal = TERMINAL[e.type];
     if (terminal) {
-      upsert(key, {
+      upsert(instanceKey, stepId, {
         status: terminal,
         ...(typeof e.durationMs === "number" ? { durationMs: e.durationMs } : {}),
       });

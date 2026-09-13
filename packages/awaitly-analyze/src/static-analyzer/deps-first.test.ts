@@ -7,7 +7,9 @@
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { analyzeWorkflowSource, resetIdCounter } from ".";
-import type { StaticFlowNode, StaticStepNode } from "../types";
+import { inferErrorsFromDependencies } from "./deps-types";
+import { renderRailwayMermaid } from "../output/railway";
+import type { StaticFlowNode, StaticStepNode, StaticWorkflowNode } from "../types";
 import { getStaticChildren } from "../types";
 
 function collectStepNodes(root: { children: StaticFlowNode[] }): StaticStepNode[] {
@@ -247,6 +249,65 @@ describe("deps-first form: run(deps, fn)", () => {
     expect(results[0].root.dependencies).toEqual([]);
     const steps = collectStepNodes(results[0].root);
     expect(steps.map((s) => s.stepId)).toEqual(["getOrder"]);
+  });
+
+  it("copies dep errorTypes onto bound steps so diagrams can draw err edges", () => {
+    const source = `${PREAMBLE}
+      await run({ getUser, getOrder }, async (s) => {
+        const user = await s.getUser('1');
+        return s.getOrder(user.id);
+      });
+    `;
+
+    const results = analyzeWorkflowSource(source);
+    const steps = collectStepNodes(results[0].root);
+    expect(steps.find((s) => s.stepId === "getUser")?.errors).toEqual(["USER_NOT_FOUND"]);
+    expect(steps.find((s) => s.stepId === "getUser")?.errorsSource).toBe("inferred");
+
+    const mermaid = renderRailwayMermaid(results[0]);
+    expect(mermaid).toContain("-->|err|");
+    expect(mermaid).toContain("USER_NOT_FOUND");
+  });
+
+  it("copies each dep's own error union onto the matching bound step", () => {
+    const source = `${PREAMBLE}
+      await run({ getOrder, getUser, charge }, async (s) => {
+        const order = await s.getOrder('o-1');
+        const user = await s.getUser(order.userId);
+        return s.charge(order.total);
+      });
+    `;
+
+    const steps = collectStepNodes(analyzeWorkflowSource(source)[0].root);
+    expect(steps.find((s) => s.stepId === "getOrder")?.errors).toEqual(["ORDER_NOT_FOUND"]);
+    expect(steps.find((s) => s.stepId === "getUser")?.errors).toEqual(["USER_NOT_FOUND"]);
+    expect(steps.find((s) => s.stepId === "charge")?.errors).toEqual(["CHARGE_DECLINED"]);
+  });
+
+  it("does not overwrite an explicit empty errors array", () => {
+    const root: StaticWorkflowNode = {
+      id: "wf",
+      type: "workflow",
+      workflowName: "test",
+      source: "run",
+      errorTypes: ["NOT_FOUND"],
+      dependencies: [{ name: "getUser", errorTypes: ["NOT_FOUND"] }],
+      children: [
+        {
+          id: "s1",
+          type: "step",
+          stepId: "getUser",
+          name: "getUser",
+          depSource: "getUser",
+          errors: [],
+          errorsSource: "explicit",
+        } as StaticStepNode,
+      ],
+    };
+
+    inferErrorsFromDependencies(root);
+    expect((root.children[0] as StaticStepNode).errors).toEqual([]);
+    expect((root.children[0] as StaticStepNode).errorsSource).toBe("explicit");
   });
 
   it("keeps legacy run(cb, options) detection unchanged", () => {
