@@ -141,6 +141,20 @@ describe("deps-first form: run(deps, fn)", () => {
     expect(steps.map((s) => s.depSource)).toEqual(["getOrder", "getUser"]);
   });
 
+  it("detects steps awaited inline as arguments, in evaluation order", () => {
+    const source = `${PREAMBLE}
+      await run({ getOrder, getUser, charge }, async (s) => {
+        const user = await s.getUser((await s.getOrder('o-1')).userId);
+        return s.charge(100);
+      });
+    `;
+
+    const results = analyzeWorkflowSource(source);
+    const steps = collectStepNodes(results[0].root);
+    expect(steps.map((s) => s.stepId)).toEqual(["getOrder", "getUser", "charge"]);
+    expect(results[0].metadata.warnings.some((w) => w.code === "UNANALYZED_AWAIT")).toBe(false);
+  });
+
   it("detects nested destructured workflow steps: ({ steps: { getOrder } })", () => {
     const source = `${PREAMBLE}
       import { createWorkflow } from 'awaitly';
