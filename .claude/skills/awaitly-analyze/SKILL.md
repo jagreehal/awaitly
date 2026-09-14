@@ -33,7 +33,7 @@ Use awaitly-analyze to understand workflow structure **without execution**. Entr
 ### What gets discovered
 - `createWorkflow(...)`, `run(deps, fn)`, `run(fn)`, `runSaga(...)`, and `durable.run(deps, fn, options)` are all discovered, including through an import alias.
 - A workflow value is analyzed whether it is invoked with `.run(...)` or `.runWithState(...)` — both produce the same diagram.
-- The deps-first form takes two callback shapes and both are supported: bound steps (`run(deps, async (s) => s.loadBatch())`) and the workflow form (`run(deps, async ({ step, deps }) => step('loadBatch', ...))`). Steps are named by their id in both.
+- The deps-first form takes two callback shapes and both are supported: bound steps (`run(deps, async (s) => s.loadBatch())`) and the workflow form (`run(deps, async ({ step, deps }) => step('loadBatch', ...))`). Steps are named by their id in both. A step awaited inline as an argument (`s.validateUser(await s.getUser(id))`, `s.getUser((await s.getOrder(id)).userId)`) is detected and ordered before the call that consumes it.
 - **Workflow names**: `ir.root.workflowName` for a `run`/`durable.run` call comes from the enclosing function (`export function runBatch()`, `const settleInvoices = async () =>`), then a string-literal durable `id`, and only falls back to `run@file:line` for a genuinely anonymous call. Generated `*.types.ts` filenames follow that name.
 
 ### Strict mode and step IDs

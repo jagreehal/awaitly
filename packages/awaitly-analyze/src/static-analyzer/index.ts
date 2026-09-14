@@ -895,6 +895,21 @@ function analyzeNode(
 
   // Handle call expression
   if (Node.isCallExpression(node)) {
+    // Steps awaited inline as arguments run before the call itself:
+    //   s.validateUser(await s.getUser('1'))
+    //   s.getUser((await s.getOrder('o-1')).userId)
+    for (let arg of node.getArguments()) {
+      while (
+        Node.isParenthesizedExpression(arg) ||
+        Node.isPropertyAccessExpression(arg) ||
+        Node.isNonNullExpression(arg)
+      ) {
+        arg = arg.getExpression();
+      }
+      if (Node.isAwaitExpression(arg)) {
+        results.push(...analyzeNode(arg, opts, warnings, stats, sagaContext, context));
+      }
+    }
     const analyzed = analyzeCallExpression(node, opts, warnings, stats, sagaContext, context);
     if (analyzed) {
       results.push(analyzed);

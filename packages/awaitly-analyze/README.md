@@ -464,6 +464,7 @@ The analyzer detects the following awaitly patterns:
 Within workflows, it detects:
 
 - `steps.fetchUser(id)` / `step('fetchUser', () => deps.fetchUser(id))` - Deps-first bound steps and classic step calls
+- `steps.validateUser(await steps.fetchUser(id))` - Steps awaited inline as call arguments, in evaluation order
 - `step.parallel()` / `allAsync()` / `allSettledAsync()` - Parallel execution
 - `step.race()` / `anyAsync()` - Race execution
 - `step.sleep(id, duration, opts?)` - Sleep steps (ID required as first argument)
