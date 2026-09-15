@@ -133,4 +133,59 @@ describe("unified match — per-type arms", () => {
 
     expect(http).toEqual({ status: 402, body: "limit" });
   });
+
+  describe("arms may return different shapes", () => {
+    type E = "ORDER_FAILED" | UserNotFound | { type: "STEP_TIMEOUT" };
+    const failed: Result<{ id: string }, E> = err("ORDER_FAILED");
+
+    it("infers the union of every arm's return type", () => {
+      const http = match(failed, {
+        ok: (v) => ({ status: 200, body: v }),
+        USER_NOT_FOUND: (e) => ({ status: 404, body: { userId: e.userId } }),
+        ORDER_FAILED: () => ({ status: 400 }),
+        STEP_TIMEOUT: () => "timeout",
+      });
+      expectTypeOf(http).toEqualTypeOf<
+        | { status: number; body: { id: string } }
+        | { status: number; body: { userId: string } }
+        | { status: number }
+        | string
+      >();
+      expect(http).toEqual({ status: 400 });
+    });
+
+    it("keeps the two-arm form heterogeneous too", () => {
+      const out = match(failed, { ok: (v) => v.id, err: (e) => e });
+      expectTypeOf(out).toEqualTypeOf<string | E>();
+      expect(out).toBe("ORDER_FAILED");
+    });
+
+    it("still narrows the error inside each arm", () => {
+      match(failed, {
+        ok: () => 0,
+        USER_NOT_FOUND: (e) => {
+          expectTypeOf(e).toEqualTypeOf<UserNotFound>();
+          return 0;
+        },
+        ORDER_FAILED: (e) => {
+          expectTypeOf(e).toEqualTypeOf<"ORDER_FAILED">();
+          return 0;
+        },
+        STEP_TIMEOUT: () => 0,
+      });
+    });
+
+    it("rejects a missing arm and an arm for no member", () => {
+      // @ts-expect-error STEP_TIMEOUT arm missing
+      match(failed, { ok: () => 0, USER_NOT_FOUND: () => 0, ORDER_FAILED: () => 0 });
+      match(failed, {
+        ok: () => 0,
+        USER_NOT_FOUND: () => 0,
+        ORDER_FAILED: () => 0,
+        STEP_TIMEOUT: () => 0,
+        // @ts-expect-error no such error type
+        NOPE: () => 0,
+      });
+    });
+  });
 });

@@ -25,6 +25,7 @@ const CANONICAL_LINT_SLUGS = [
   'concurrency-no-promise-race',
   'concurrency-no-promise-allsettled',
   'error-check-unexpected-first',
+  'error-prefer-match',
 ] as const;
 
 describe('spine parity', () => {

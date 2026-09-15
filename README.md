@@ -487,7 +487,7 @@ return match(result, {
 });
 ```
 
-TypeScript enforces the arms exhaustively from the inferred union. Add a step that can fail a new way, and this `match` won't compile until the boundary handles it. One error model everywhere: string errors match themselves, tagged objects match on `type`, and awaitly's system errors (`TimeoutError`, `UnexpectedError`) are matched by the same key. The `{ ok, err }` two-arm form remains when you want a catch-all.
+TypeScript enforces the arms exhaustively from the inferred union. Add a step that can fail a new way, and this `match` won't compile until the boundary handles it. Arms may return different shapes; the result is the union of every arm's return type. One error model everywhere: string errors match themselves, tagged objects match on `type`, and awaitly's system errors (`TimeoutError`, `UnexpectedError`) are matched by the same key. The `{ ok, err }` two-arm form remains when you want a catch-all.
 
 `if`/`switch` on `result.error.type` works too, `match` is the same thing with exhaustiveness checking.
 

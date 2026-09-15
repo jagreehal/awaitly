@@ -43,9 +43,9 @@ Use this as a checklist when generating or editing awaitly code. Satisfy every i
 - **MUST NOT** use a computed, concatenated, templated, or variable-derived value (e.g. `` step(`user-${i}`, ...) `` or `const id = 'getUser'; step(id, ...)`). Use a literal ID + optional `{ key }` for per-item identity.
 
 ### Error handling at boundaries
-- **MUST** check `isUnexpectedError(result.error)` first when handling `!result.ok`.
-- **MUST** access the original thrown value via `result.error.cause` (it's a property on the `UnexpectedError` instance).
-- **MUST** narrow before reading a tag: `typeof result.error === 'string' ? result.error : result.error.type`. `result.error.type ?? result.error` does not typecheck, because `.type` does not exist on the string members of the union.
+- **MUST** use `match(result, { ok, ...arms, UnexpectedError })` at the boundary. One key per error: a string error is its own key, an object or `TaggedError` is keyed by its `type`. Arms are exhaustive; `{ ok, err }` is the two-arm catch-all.
+- **MUST NOT** hand-normalise: `typeof result.error === 'string' ? result.error : result.error.type` followed by a `switch`, or `switch (true) { case result.error instanceof X: }`. That is `match` without the exhaustiveness check (lint: `awaitly/error-prefer-match`).
+- **MUST** access the original thrown value via `e.cause` inside the `UnexpectedError` arm.
 
 ### Concurrency inside workflows
 - **MUST NOT** use `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows. Replace with `step.all`, `step.map`, or `step.race` (consult types).
@@ -171,37 +171,51 @@ const order = await step('createOrder', () => deps.createOrder(userResult.value)
 // Replace with: const user = await step('getUser', () => deps.getUser(id)); then use user.
 ```
 
-### R3: Handle `UnexpectedError` at boundaries, then narrow the error before reading its tag
+### R3: Map the result at the boundary with `match`
 
-Errors can be strings (`'NOT_FOUND'`), objects (`{ type: 'NOT_FOUND', id }`), or an `UnexpectedError` instance for uncaught exceptions. Always check for `UnexpectedError` first using the type guard, then normalize the rest:
+Errors can be strings (`'NOT_FOUND'`), objects (`{ type: 'NOT_FOUND', id }`), `TaggedError` classes, or an `UnexpectedError` instance for uncaught exceptions. `match` keys every one of them the same way, so a mixed union needs no normalisation:
 
 ```typescript
-import { isUnexpectedError } from 'awaitly';
+import { match, type Result, type UnexpectedError } from 'awaitly';
 
-if (!result.ok) {
-  if (isUnexpectedError(result.error)) {
-    // result.error.cause has the original thrown Error
-    console.error('Bug:', result.error.cause);
+// A mixed union, as run()/createWorkflow infer it from the deps:
+declare const result: Result<
+  Order,
+  'ORDER_FAILED' | { type: 'NOT_FOUND'; id: string } | { type: 'STEP_TIMEOUT' } | UnexpectedError
+>;
+
+return match(result, {
+  ok: (order) => ({ status: 200, body: order }),
+  NOT_FOUND: (e) => ({ status: 404, body: { id: e.id } }),
+  ORDER_FAILED: () => ({ status: 400 }),
+  STEP_TIMEOUT: () => ({ status: 504 }),
+  UnexpectedError: (e) => {
+    console.error('Bug:', e.cause); // the original thrown value
     return { status: 500 };
-  }
+  },
+});
+```
 
-  // Typed errors: narrow, then switch. Covers string and object unions,
-  // including STEP_TIMEOUT.
-  const code =
-    typeof result.error === 'string' ? result.error : result.error.type;
-  switch (code) {
-    case 'NOT_FOUND': return { status: 404 };
-    case 'ORDER_FAILED': return { status: 400 };
-    case 'STEP_TIMEOUT': return { status: 504 };
-  }
+A string error is its own key; an object or class is keyed by its `type`. TypeScript enforces the arms from the inferred union: add a failing step and this `match` stops compiling until the boundary handles it.
+
+```typescript
+// MUST NOT - hand-normalising is match without the exhaustiveness check
+const code = typeof result.error === 'string' ? result.error : result.error.type;
+switch (code) { case 'NOT_FOUND': return { status: 404 }; }
+
+// MUST NOT - switch (true) fan-out
+switch (true) {
+  case result.error instanceof ValidationError: return { status: 422 };
 }
 ```
 
+A plain `switch (result.error)` is fine when the union is all strings; `if (isUnexpectedError(result.error))` is fine for a one-off guard. `match` is the same thing with the arms checked.
+
 ### R4: `UnexpectedError` is a TaggedError class in the error union
 
-`run()` and `createWorkflow` always include `UnexpectedError` in the error union. It's a `TaggedError` class (with `_tag: "UnexpectedError"`) representing any thrown exception escaping a dep. The original thrown value is in `result.error.cause`.
+`run()` and `createWorkflow` always include `UnexpectedError` in the error union. It's a `TaggedError` class (with `type: "UnexpectedError"`) representing any thrown exception escaping a dep. The original thrown value is in `result.error.cause`.
 
-Use `isUnexpectedError(error)` to narrow, or use `matchError` / `matchErrorPartial` for exhaustive pattern matching:
+Give it an arm in `match` (R3). When you only have the error value, `matchError` / `matchErrorPartial` take the same arms:
 
 ```typescript
 import { matchError } from 'awaitly';
@@ -246,19 +260,11 @@ const result = await workflow.run(async ({ step, deps }) => {
 });
 
 // Handle errors at the boundary
-if (!result.ok) {
-  if (isUnexpectedError(result.error)) {
-    console.error('Bug:', result.error.cause);
-  } else {
-    const code =
-    typeof result.error === 'string' ? result.error : result.error.type;
-  switch (code) {
-      case 'PAYMENT_FAILED':
-        await handleFailedPayment(result.error);
-        break;
-    }
-  }
-}
+await match(result, {
+  ok: () => undefined,
+  PAYMENT_FAILED: (e) => handleFailedPayment(e),
+  UnexpectedError: (e) => console.error('Bug:', e.cause),
+});
 ```
 
 ```typescript
@@ -310,7 +316,7 @@ When you see these patterns, apply the rewrite:
 | `try { await step(...) } catch (e) { ... }` | Remove try/catch; handle errors at boundary. If converting throws: `step.try('id', fn, { error: 'ERR' })`. |
 | `const x = await deps.fn()` (no step) | `const x = await step('id', () => deps.fn())`. |
 | Options object as first argument to `workflow.run(...)` | Move options to second argument: `workflow.run(fn, options)`. |
-| `return result` from a boundary handler (e.g. HTTP) | **MUST NOT** let Result objects escape. Convert to HTTP/status mapping using the boundary handling canonical snippet (check `result.ok`, then `isUnexpectedError(result.error)`, then narrow with `typeof result.error === 'string' ? result.error : result.error.type`). |
+| `return result` from a boundary handler (e.g. HTTP) | **MUST NOT** let Result objects escape. Convert to HTTP/status mapping with `match(result, { ok, ...arms, UnexpectedError })` (see boundary handling canonical). |
 
 ---
 
@@ -406,21 +412,23 @@ const result = await workflow.run(async ({ step, deps }) => {
 
 ### Boundary handling canonical
 ```typescript
-import { isUnexpectedError } from 'awaitly';
+import { match, type Result, type UnexpectedError } from 'awaitly';
 
-if (!result.ok) {
-  if (isUnexpectedError(result.error)) {
-    console.error('Bug:', result.error.cause);
+declare const result: Result<
+  Order,
+  'ORDER_FAILED' | { type: 'NOT_FOUND'; id: string } | { type: 'STEP_TIMEOUT' } | UnexpectedError
+>;
+
+return match(result, {
+  ok: (value) => ({ status: 200, body: value }),
+  NOT_FOUND: () => ({ status: 404 }),
+  ORDER_FAILED: () => ({ status: 400 }),
+  STEP_TIMEOUT: () => ({ status: 504 }),
+  UnexpectedError: (e) => {
+    console.error('Bug:', e.cause);
     return { status: 500 };
-  }
-  const code =
-    typeof result.error === 'string' ? result.error : result.error.type;
-  switch (code) {
-    case 'NOT_FOUND': return { status: 404 };
-    case 'ORDER_FAILED': return { status: 400 };
-    case 'STEP_TIMEOUT': return { status: 504 };
-  }
-}
+  },
+});
 ```
 
 ---
@@ -616,7 +624,7 @@ All step helpers run through the full step engine: they emit step events, suppor
 
 **`step.try()` has the same control-flow as `step()`**: It returns the unwrapped value on success, or exits the workflow with the provided typed error on throw/rejection. Do not check `.ok` on its return value.
 
-**Timeout returns `STEP_TIMEOUT`**: When `step.withTimeout()` times out, it returns `{ type: 'STEP_TIMEOUT', timeoutMs, stepName }` directly (not wrapped in `UnexpectedError`). Handle it at the boundary like other typed errors (narrow with `typeof result.error === 'string' ? result.error : result.error.type`; see R3).
+**Timeout returns `STEP_TIMEOUT`**: When `step.withTimeout()` times out, it returns `{ type: 'STEP_TIMEOUT', timeoutMs, stepName }` directly (not wrapped in `UnexpectedError`). Handle it at the boundary like other typed errors (a `STEP_TIMEOUT` arm in `match`; see R3).
 
 ---
 
@@ -846,7 +854,9 @@ const result = await testWorkflow.run(async ({ step, deps }) => {
 |------|-----|
 | Simple states | String: `'NOT_FOUND'` |
 | Error with context | Object: `{ type: 'NOT_FOUND', userId: string }` |
-| 3+ variants | `TaggedError` with `match()` |
+| Needs stack / cause / `instanceof` | `TaggedError` class |
+
+All three match on one key in `match()`: a string is its own key, an object or class is keyed by its `type`.
 
 Start with strings. Migrate to objects when you need context.
 
@@ -1189,7 +1199,8 @@ import {
   ok, err,                           // constructors
   type AsyncResult, type Result,     // types
   type ErrorOf, type Errors, type ErrorsOf, // type helpers
-  UnexpectedError, isUnexpectedError, matchError,  // error handling
+  match, matchError,                 // boundary mapping
+  UnexpectedError, isUnexpectedError, // error handling
   unwrapOr, unwrapOrElse,           // defaults
   map, mapError,                     // transform
   andThen, orElse,                   // chain

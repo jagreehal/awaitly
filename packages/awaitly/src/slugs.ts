@@ -45,6 +45,7 @@ export const AWAITLY_SLUGS = {
   // --- error-* ---
   "error-check-unexpected-first": "error-check-unexpected-first",
   "error-require-discriminant": "error-require-discriminant",
+  "error-prefer-match": "error-prefer-match",
   "error-access-cause": "error-access-cause",
   "error-normalize": "error-normalize",
   "error-no-throw-in-deps": "error-no-throw-in-deps",
