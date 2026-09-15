@@ -1,5 +1,12 @@
 # awaitly-mongo
 
+## 37.0.0
+
+### Patch Changes
+
+- Updated dependencies [9bc63bf]
+  - awaitly@6.2.0
+
 ## 36.0.0
 
 ### Patch Changes
