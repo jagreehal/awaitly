@@ -1,5 +1,11 @@
 # awaitly-analyze
 
+## 0.31.1
+
+### Patch Changes
+
+- f1dd5c7: Detect steps awaited inline as call arguments. `s.validateUser(await s.getUser('1'))` produces both `getUser` and `validateUser` nodes in evaluation order, each with its error edges.
+
 ## 0.31.0
 
 ### Minor Changes
