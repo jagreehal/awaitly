@@ -30,7 +30,7 @@ function expectSameAsCanonical(
 }
 
 const wrap = (body: string, binding = 'step') =>
-  `run(deps, async ({ step: ${binding}, deps: d }) => { ${body} });`;
+  `run(async ({ step: ${binding}, deps: d }) => { ${body} });`;
 
 describe('step aliasing', () => {
   it('checks helper IDs for arbitrary aliases', () => {
@@ -66,12 +66,12 @@ describe('step aliasing', () => {
 
   it('recognizes defaulted and quoted context properties', () => {
     for (const binding of ['step: execute = fallback', '"step": execute', '["step"]: execute']) {
-      expect(verify(`run(deps, async ({ ${binding} }) => { execute(() => load()); });`, 'awaitly/step-require-id')).toHaveLength(1);
+      expect(verify(`run(async ({ ${binding} }) => { execute(() => load()); });`, 'awaitly/step-require-id')).toHaveLength(1);
     }
   });
 
   it('does not treat a dynamic property key as the step property', () => {
-    expect(verify(`const step = 'other'; run(deps, async ({ [step]: execute }) => { execute(42); });`, 'awaitly/step-require-id')).toEqual([]);
+    expect(verify(`const step = 'other'; run(async ({ [step]: execute }) => { execute(42); });`, 'awaitly/step-require-id')).toEqual([]);
   });
 
   it('preserves aliases and helper methods in immediate-execution fixes', () => {
@@ -162,8 +162,8 @@ describe('step aliasing', () => {
   it('step-no-bare-await resolves an aliased deps binding', () => {
     expectSameAsCanonical(
       'awaitly/step-no-bare-await',
-      `run(deps, async ({ step, deps }) => { await deps.load('x'); });`,
-      `run(deps, async ({ step: s, deps: d }) => { await d.load('x'); });`
+      `run(async ({ step, deps }) => { await deps.load('x'); });`,
+      `run(async ({ step: s, deps: d }) => { await d.load('x'); });`
     );
   });
 
@@ -174,5 +174,17 @@ describe('step aliasing', () => {
       wrap(`const r = step('load', () => d.load()); console.log(r.value);`),
       wrap(`const r = s('load', () => d.load()); console.log(r.value);`, 's')
     );
+  });
+});
+
+describe('deps-first context bindings', () => {
+  it('checks step aliases in the second parameter', () => {
+    expect(verify(`run({ load }, async (s, { step: execute }) => { execute(() => load()); });`, 'awaitly/step-require-id')).toHaveLength(1);
+  });
+  it('does not interpret bound dependencies as context properties', () => {
+    expect(verify(`run({ step: load }, async ({ step: execute }) => { execute(42); });`, 'awaitly/step-require-id')).toHaveLength(0);
+  });
+  it('respects shadowing of second-parameter step aliases', () => {
+    expect(verify(`run({ load }, async (s, { step: execute }) => { { const execute = other; execute(42); } execute(() => load()); });`, 'awaitly/step-require-id')).toHaveLength(1);
   });
 });

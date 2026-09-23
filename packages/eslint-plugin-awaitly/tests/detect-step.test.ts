@@ -62,7 +62,7 @@ describe('stepNamesAt', () => {
 
   it('resolves a destructured alias', () => {
     const node = callAt(
-      `run(deps, async ({ step: s }) => { s('id', () => load()); });`,
+      `run(async ({ step: s }) => { s('id', () => load()); });`,
       's'
     );
     expect([...stepNamesAt(node, sources.get(node)!)]).toContain('s');
@@ -70,7 +70,7 @@ describe('stepNamesAt', () => {
 
   it('resolves an alias inside a nested callback', () => {
     const node = callAt(
-      `run(deps, async ({ step: s }) => {
+      `run(async ({ step: s }) => {
          [1].forEach(() => { s('id', () => load()); });
        });`,
       's'
@@ -80,7 +80,7 @@ describe('stepNamesAt', () => {
 
   it('does not leak an alias out of the callback that bound it', () => {
     const node = callAt(
-      `run(deps, async ({ step: s }) => s('a', () => load()));
+      `run(async ({ step: s }) => s('a', () => load()));
        s('b', () => load());`,
       's'
     );

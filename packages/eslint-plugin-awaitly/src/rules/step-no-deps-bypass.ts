@@ -1,4 +1,5 @@
 import type { Rule } from 'eslint';
+import { staticPropertyName } from '../workflow-context.js';
 import type {
   ArrowFunctionExpression,
   CallExpression,
@@ -21,11 +22,9 @@ function collectDepNames(obj: ObjectExpression): Set<string> | null {
   const names = new Set<string>();
   for (const prop of obj.properties) {
     if (prop.type === 'SpreadElement') return null;
-    if (prop.key.type === 'Identifier') {
-      names.add(prop.key.name);
-    } else if (prop.key.type === 'Literal' && typeof prop.key.value === 'string') {
-      names.add(prop.key.value);
-    }
+    const name = staticPropertyName(prop);
+    if (name === undefined) return null;
+    names.add(name);
   }
   return names.size > 0 ? names : null;
 }
@@ -53,8 +52,7 @@ function isCalleeNamed(node: CallExpression, name: string): boolean {
 function isMethodNamed(node: CallExpression, name: string): boolean {
   return (
     node.callee.type === 'MemberExpression' &&
-    node.callee.property.type === 'Identifier' &&
-    node.callee.property.name === name
+    staticPropertyName(node.callee) === name
   );
 }
 
@@ -161,8 +159,7 @@ const rule: Rule.RuleModule = {
           // Chained: createWorkflow('n', {...}).run(cb)
           if (
             parent?.type === 'MemberExpression' &&
-            parent.property.type === 'Identifier' &&
-            parent.property.name === 'run'
+            staticPropertyName(parent) === 'run'
           ) {
             const grandparent = (parent as Node & { parent?: Node }).parent;
             if (grandparent?.type === 'CallExpression') {
@@ -178,8 +175,8 @@ const rule: Rule.RuleModule = {
 
           // `run(deps, fn)` — deps object and callback in the same call.
           if (isCalleeNamed(call, 'run')) {
-            const obj = findObjectArg(call);
-            if (obj) register(findCallback(call), collectDepNames(obj));
+            const obj = call.arguments[0];
+            if (obj?.type === 'ObjectExpression') register(findCallback(call), collectDepNames(obj));
             return;
           }
 
@@ -196,8 +193,8 @@ const rule: Rule.RuleModule = {
                 return;
               }
             }
-            const obj = findObjectArg(call);
-            if (obj) register(findCallback(call), collectDepNames(obj));
+            const obj = call.arguments[0];
+            if (obj?.type === 'ObjectExpression') register(findCallback(call), collectDepNames(obj));
           }
         });
       },

@@ -11,7 +11,7 @@ import type { Node } from "ts-morph";
 import type * as ts from "typescript";
 import { loadTsMorph, loadTypescript } from "../ts-morph-loader";
 
-import { extractResultLike } from "../type-extractor";
+import { extractErrorNamesFromFunctionType, extractResultLike } from "../type-extractor";
 import {
   extractFunctionName,
   getStaticChildren,
@@ -121,6 +121,7 @@ export function extractDependencies(
   for (const prop of depsNode.getProperties()) {
     let name: string;
     let typeSignature: string | undefined;
+    let depType: MorphTypeForExtraction | undefined;
     let signature: DependencyInfo["signature"] = undefined;
     let policies: DependencyInfo["policies"];
     let analyzedPolicies: AnalyzedPolicy[] | undefined;
@@ -149,6 +150,7 @@ export function extractDependencies(
       if (init && typeof (init as { getType?: () => MorphTypeForExtraction }).getType === "function") {
         try {
           const morphType = (init as { getType: () => MorphTypeForExtraction }).getType();
+          depType = morphType;
           typeSignature = morphType.getText();
           signature = extractTypedSignature(init, morphType);
         } catch {
@@ -161,6 +163,7 @@ export function extractDependencies(
       if (ident && typeof (ident as { getType?: () => MorphTypeForExtraction }).getType === "function") {
         try {
           const morphType = (ident as { getType: () => MorphTypeForExtraction }).getType();
+          depType = morphType;
           typeSignature = morphType.getText();
           signature = extractTypedSignature(ident, morphType);
         } catch {
@@ -171,7 +174,20 @@ export function extractDependencies(
       continue;
     }
 
-    let errorTypes = inferErrorTypesFromSignature(typeSignature);
+    // Ask the type checker for the call signature's error union: it handles an imported
+    // function (`typeof loadPdf`), error classes (`import("./errors").NotFound`) and a literal
+    // containing `|`, none of which the type's text parses for. Text is the fallback when
+    // there is no checker.
+    let errorTypes: string[] = [];
+    if (depType) {
+      try {
+        const checker = prop.getSourceFile().getProject().getTypeChecker().compilerObject as ts.TypeChecker;
+        errorTypes = extractErrorNamesFromFunctionType(depType.compilerType, checker);
+      } catch {
+        // Type checker unavailable; fall back to the text below
+      }
+    }
+    if (errorTypes.length === 0) errorTypes = inferErrorTypesFromSignature(typeSignature);
 
     // Apply policy error-union math (mirrors the runtime wrappers):
     // retry preserves errors; timeout adds TimeoutError; fallback replaces
@@ -333,9 +349,13 @@ export function inferErrorsFromErrorTypeInfo(root: StaticWorkflowNode): void {
 }
 
 /**
- * Copy `dependencies[].errorTypes` onto bound steps that still have no
- * `step.errors`. `s.getUser()` type-checks as `User`, so errorTypeInfo is empty
- * even though the dep's Result union is already known.
+ * Copy `dependencies[].errorTypes` onto bound steps whose errors aren't declared.
+ * `s.getUser()` type-checks as `User`, so errorTypeInfo is empty even though the
+ * dep's Result union is already known. The dep's list also replaces errors inferred
+ * from errorTypeInfo's display text, which shows a named union (`type PdfError =
+ * NotFound | Unreadable`) as the one name `PdfError`; the dep's list names each member.
+ * Explicit `errors: [...]` and exact call-site inference always win. A known
+ * dependency source never falls back to a coincidentally matching display ID.
  */
 export function inferErrorsFromDependencies(root: StaticWorkflowNode): void {
   const depsByName = new Map(
@@ -345,9 +365,15 @@ export function inferErrorsFromDependencies(root: StaticWorkflowNode): void {
   function visit(node: StaticFlowNode): void {
     if (node.type === "step") {
       const step = node as StaticStepNode;
-      if (step.errors !== undefined) return;
+      if (step.errors !== undefined && step.errorsSource !== "inferred") return;
 
-      const keys = [step.depSource, step.stepId, step.name].filter(
+      // A resolved call can select a narrower overload (including never). Dependency
+      // metadata is only a fallback, and must not replace that call-specific result.
+      if (step.errorTypeInfo?.confidence === "exact") return;
+
+      // An identified source is authoritative: a display ID can coincidentally name
+      // another dependency, even when the real source has no known errors.
+      const keys = (step.depSource ? [step.depSource] : [step.stepId, step.name]).filter(
         (key): key is string => Boolean(key),
       );
       for (const key of keys) {
