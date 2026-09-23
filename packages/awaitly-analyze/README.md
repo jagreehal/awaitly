@@ -58,7 +58,12 @@ awaitly-analyze ./src/workflows/checkout.ts --assert-diagrammable
 
 # Overlay a recorded run's executed path onto the static diagram
 awaitly-analyze ./src/workflows/checkout.ts --trace=./run-events.json
+
+# Review every workflow your branch changed: diff, regressions, new doctor findings, railway diagrams
+awaitly-analyze review --base origin/main src/
 ```
+
+The same review runs on pull requests as a GitHub Action (`uses: jagreehal/awaitly@analyze-v0`) and posts one sticky comment. See [GitHub Action](https://jagreehal.github.io/awaitly/guides/github-action/).
 
 ### CLI Options
 

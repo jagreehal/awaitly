@@ -32,6 +32,7 @@ import { inferBestDiagramType } from "./auto-diagram";
 import { startWatch } from "./watch";
 import { formatDiagnostics, formatDiagnosticsJSON, validateStrict } from "./strict-diagnostics";
 import { computeDiagrammability, formatDiagrammability } from "./diagrammability";
+import { buildReview, renderReviewMarkdown } from "./review";
 
 type Direction = "TB" | "TD" | "LR" | "BT" | "RL";
 type Format = "mermaid" | "json" | "markdown";
@@ -77,6 +78,18 @@ awaitly-analyze - Static workflow analysis tool
 
 Usage:
   awaitly-analyze <file> [options]
+  awaitly-analyze review [PATHSPEC...] [options]
+
+Review:
+  Reviews the workflows a change touched: structural diff per workflow, regressions,
+  new doctor findings, railway diagrams and a merge-risk verdict.
+  --base <ref>          Ref to compare against (default: HEAD)
+  --head <ref>          Ref holding the change (default: the working tree)
+  --format <format>     markdown (default) or json
+  -o, --output <file>   Write the report to a file
+  --fail-on-regression  Exit 1 when merge risk is high
+  --include-tests       Also review *.test.ts / *.spec.ts files
+  --diagrams <mode>     Railway diagrams open (default) or collapsed
 
 Arguments:
   <file>                Path to TypeScript file containing workflow(s)
@@ -138,6 +151,8 @@ Examples:
   awaitly-analyze --diff v1.ts v2.ts --format=json
   awaitly-analyze --diff v1.ts v2.ts --format=mermaid --regression
   awaitly-analyze ./src/workflows/checkout.ts --doctor
+  awaitly-analyze review --base origin/main src/
+  awaitly-analyze review --base main --head HEAD --format json --fail-on-regression
 `);
 }
 
@@ -301,8 +316,122 @@ function getOutputFilePath(
   return join(dir, `${base}.${suffix}${outputExt}`);
 }
 
+export interface ReviewArgs {
+  base: string;
+  head?: string;
+  paths: string[];
+  format: "markdown" | "json";
+  output?: string;
+  failOnRegression: boolean;
+  includeTests: boolean;
+  diagrams: "open" | "collapsed";
+  errors: string[];
+}
+
+export function parseReviewArgs(args: readonly string[]): ReviewArgs {
+  const parsed: ReviewArgs = {
+    base: "HEAD",
+    paths: [],
+    format: "markdown",
+    failOnRegression: false,
+    includeTests: false,
+    diagrams: "open",
+    errors: [],
+  };
+
+  // Accepts both `--flag value` and `--flag=value`.
+  const valueOf = (i: number, flag: string): [string | undefined, number] => {
+    const arg = args[i] ?? "";
+    if (arg.startsWith(`${flag}=`)) return [arg.slice(flag.length + 1), i];
+    const next = args[i + 1];
+    if (next === undefined || next.startsWith("-")) {
+      parsed.errors.push(`${flag} requires a value`);
+      return [undefined, i];
+    }
+    return [next, i + 1];
+  };
+  const flagOf = (arg: string, ...names: string[]) =>
+    names.find((n) => arg === n || arg.startsWith(`${n}=`));
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? "";
+    const flag = flagOf(arg, "--base", "--head", "--format", "-f", "--output", "-o", "--diagrams");
+    if (flag) {
+      const [v, j] = valueOf(i, flag);
+      i = j;
+      if (v === undefined) continue;
+      if (flag === "--base") parsed.base = v;
+      else if (flag === "--head") parsed.head = v;
+      else if (flag === "--output" || flag === "-o") parsed.output = v;
+      else if (flag === "--diagrams") {
+        if (v === "open" || v === "collapsed") parsed.diagrams = v;
+        else parsed.errors.push(`Invalid value for --diagrams: ${v} (expected open or collapsed)`);
+      } else if (v === "markdown" || v === "json") parsed.format = v;
+      else parsed.errors.push(`Invalid value for --format: ${v} (expected markdown or json)`);
+    } else if (arg === "--fail-on-regression") {
+      parsed.failOnRegression = true;
+    } else if (arg === "--include-tests") {
+      parsed.includeTests = true;
+    } else if (arg.startsWith("-")) {
+      parsed.errors.push(`Unknown option: ${arg}`);
+    } else {
+      parsed.paths.push(arg);
+    }
+  }
+  return parsed;
+}
+
+function packageVersion(): string | undefined {
+  try {
+    return (JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { version?: string }).version;
+  } catch {
+    return undefined;
+  }
+}
+
+function runReview(args: readonly string[]): void {
+  const invocation = parseReviewArgs(args);
+  if (invocation.errors.length > 0) {
+    console.error(`Error: ${invocation.errors.join("\n")}`);
+    process.exit(1);
+  }
+
+  let report;
+  try {
+    report = buildReview({
+      base: invocation.base,
+      ...(invocation.head ? { head: invocation.head } : {}),
+      paths: invocation.paths,
+      includeTests: invocation.includeTests,
+    });
+  } catch (err: unknown) {
+    console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+
+  const version = packageVersion();
+  const markdown = renderReviewMarkdown(report, { ...(version ? { version } : {}), diagrams: invocation.diagrams });
+  // JSON carries the rendering too, so a bot needs one run for the gate and the comment.
+  const rendered = invocation.format === "json" ? JSON.stringify({ ...report, markdown }, null, 2) : markdown;
+
+  if (invocation.output) writeFileSync(resolve(invocation.output), rendered, "utf-8");
+  else console.log(rendered);
+
+  if (invocation.failOnRegression && report.risk === "high") {
+    const errors = report.newFindings.filter((f) => f.severity === "error").length;
+    console.error(
+      `Review found ${report.regressions.length} structural regression(s) and ${errors} new doctor error(s)`
+    );
+    process.exit(1);
+  }
+}
+
 function main(): void {
   const args = process.argv.slice(2);
+  if (args[0] === "review") {
+    runReview(args.slice(1));
+    return;
+  }
   const options = parseArgs(args);
 
   if (options.help) {

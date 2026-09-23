@@ -171,6 +171,8 @@ The matrix includes the `cart.total === 0` path and the paid path through `charg
 
 The first command reports source-level diagnostics, including missing ids and unmodeled awaits. Each diagnostic includes a location. The second command returns a non-zero exit code when the analyzer cannot assign stable identities to the graph.
 
+To review a whole pull request, with a structural diff, new doctor findings and a railway diagram for every workflow it touched, use the [GitHub Action](guides/github-action/) or run `awaitly-analyze review --base origin/main` locally.
+
 ### Review the executed path after a failure
 
 Capture `WorkflowEvent[]` from `onEvent`, save the array as `run-events.json`, and overlay it:

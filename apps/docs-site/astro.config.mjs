@@ -165,6 +165,7 @@ export default defineConfig({
               label: 'Tooling',
               items: [
                 { label: 'Static Analysis', slug: 'guides/static-analysis' },
+                { label: 'GitHub Action', slug: 'guides/github-action' },
                 { label: 'Analyzer Showcase', slug: 'guides/analyzer-showcase' },
                 { label: 'Visualization', slug: 'guides/visualization' },
                 { label: 'Documenting Workflows', slug: 'guides/documenting-workflows' },

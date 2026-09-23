@@ -310,6 +310,13 @@ npx awaitly-analyze --diff v1.ts v2.ts --regression
 npx awaitly-analyze --diff v1.ts v2.ts --format json
 npx awaitly-analyze --diff v1.ts v2.ts --format mermaid --direction LR
 
+# Review every workflow a change touched: per-workflow diff, regressions, new doctor
+# findings, railway diagrams, merge risk (low | moderate | high)
+npx awaitly-analyze review                                   # working tree vs HEAD
+npx awaitly-analyze review --base origin/main src/           # branch vs main, scoped to src/
+npx awaitly-analyze review --base main --head HEAD --format json --fail-on-regression  # CI gate
+# On GitHub: `uses: jagreehal/awaitly@analyze-v0` posts the same report as a sticky PR comment.
+
 # Live inspector: static graph + runtime trace overlay in the browser
 npx awaitly-analyze ./workflow.ts --dev            # serves http://localhost:4747
 npx awaitly-analyze ./workflow.ts --dev --port=5000
