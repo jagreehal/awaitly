@@ -1,4 +1,5 @@
 import type { Rule } from 'eslint';
+import { staticPropertyName, workflowContextParam } from '../workflow-context.js';
 import type {
   ArrowFunctionExpression,
   CallExpression,
@@ -18,7 +19,7 @@ function getWorkflowCallback(
 }
 
 /**
- * Workflow callbacks receive a single destructured object: `{ step, steps?, raw?, ctx? }`.
+ * Workflow callbacks receive a destructured context object: `{ step, steps?, raw?, ctx? }`.
  *
  * `step` is always present — `steps`, `raw`, and `ctx` are optional depending on the
  * entry point (`run()` vs `createWorkflow().run()` and whether `createContext`
@@ -29,8 +30,7 @@ function destructuresStep(pattern: ObjectPattern): boolean {
   return pattern.properties.some(
     (p) =>
       p.type === 'Property' &&
-      p.key.type === 'Identifier' &&
-      p.key.name === 'step'
+      staticPropertyName(p) === 'step'
   );
 }
 
@@ -51,25 +51,26 @@ const rule: Rule.RuleModule = {
   create(context) {
     return {
       CallExpression(node: CallExpression) {
-        // Only inspect calls to a function literally named `run` (top-level) or
-        // a `.run(...)` method call.
-        if (node.callee.type === 'Identifier' && node.callee.name !== 'run') {
-          return;
-        }
-        if (
+        // Only inspect calls to a function literally named `run` (top-level) or a `.run(...)`
+        // method call. Anything else - including curried calls like `it.each(rows)(name, fn)`,
+        // whose callee is itself a call - is not a workflow.
+        const isTopLevelRun = node.callee.type === 'Identifier' && node.callee.name === 'run';
+        const isRunMethod =
           node.callee.type === 'MemberExpression' &&
-          !(
-            node.callee.property.type === 'Identifier' &&
-            node.callee.property.name === 'run'
-          )
-        ) {
-          return;
-        }
+          staticPropertyName(node.callee) === 'run';
+        if (!isTopLevelRun && !isRunMethod) return;
 
         const cb = getWorkflowCallback(node);
         if (!cb) return;
-        const param = cb.params[0];
-        if (!param || param.type !== 'ObjectPattern' || !destructuresStep(param)) {
+
+        // Deps-first run(deps, (steps, context) => ...): the first parameter is the bound
+        // steps object (conventionally `s`), so only the context, if taken, must be
+        // destructured. durable.run(deps, fn) and workflow.run(fn) pass the context first.
+        const isDepsFirstRun = isTopLevelRun && node.arguments[1] === cb;
+        const contextParam = workflowContextParam(cb);
+        if (isDepsFirstRun && !contextParam) return;
+
+        if (!contextParam || contextParam.type !== 'ObjectPattern' || !destructuresStep(contextParam)) {
           context.report({ node: cb, messageId: 'callbackShape' });
         }
       },

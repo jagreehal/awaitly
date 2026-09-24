@@ -1,4 +1,5 @@
 import type { Rule } from 'eslint';
+import { staticPropertyName, workflowContextParam } from '../workflow-context.js';
 import type {
   ArrowFunctionExpression,
   CallExpression,
@@ -17,13 +18,12 @@ import type {
 function callbackHasStepDestructure(
   fn: FunctionExpression | ArrowFunctionExpression
 ): boolean {
-  const param = fn.params[0];
+  const param = workflowContextParam(fn);
   if (!param || param.type !== 'ObjectPattern') return false;
   return (param as ObjectPattern).properties.some(
     (p) =>
       p.type === 'Property' &&
-      p.key.type === 'Identifier' &&
-      p.key.name === 'step'
+      staticPropertyName(p) === 'step'
   );
 }
 

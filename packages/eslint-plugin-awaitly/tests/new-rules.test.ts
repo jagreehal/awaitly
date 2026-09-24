@@ -45,7 +45,7 @@ describe('new slug rules', () => {
     // actionable inside a workflow callback, so that is where they fire.
     // See tests/concurrency-scope.test.ts for the out-of-workflow cases.
     const inWorkflow = (call: string) =>
-      `run(deps, async ({ step }) => { await ${call}; });`;
+      `run(async ({ step }) => { await ${call}; });`;
 
     it('flags Promise.all in a workflow', () => {
       expect(
@@ -122,6 +122,12 @@ describe('new slug rules', () => {
   });
 
   describe('workflow-no-callable-form', () => {
+    it.each(['"step": execute', '["step"]: execute', 'step: execute = fallback'])('detects static binding %s', binding => {
+      expect(verify(`workflow(async ({ ${binding} } = {}) => {});`, { 'awaitly/workflow-no-callable-form': 'error' })).toHaveLength(1);
+    });
+    it('ignores a dynamic property named step', () => {
+      expect(verify(`consume(({ [step]: value }) => value);`, { 'awaitly/workflow-no-callable-form': 'error' })).toHaveLength(0);
+    });
     it('flags workflow(callback) where the callback destructures step', () => {
       const bad = `workflow(async ({ step }) => { await step('a', () => deps.fn()); });`;
       expect(
@@ -149,6 +155,19 @@ describe('new slug rules', () => {
   });
 
   describe('workflow-callback-shape', () => {
+    it.each(['"step": execute', '["step"]: execute', 'step: execute = fallback'])('accepts static context binding %s', binding => {
+      expect(verify(`run(async ({ ${binding} } = {}) => {});`, { 'awaitly/workflow-callback-shape': 'error' })).toHaveLength(0);
+    });
+    it('rejects a dynamic context key named step', () => {
+      expect(verify(`run(async ({ [step]: execute }) => {});`, { 'awaitly/workflow-callback-shape': 'error' })).toHaveLength(1);
+    });
+    it('ignores a dynamically selected method named run', () => {
+      expect(verify(`obj[run](async (value) => value);`, { 'awaitly/workflow-callback-shape': 'error' })).toHaveLength(0);
+    });
+    it('checks a statically quoted run method', () => {
+      expect(verify(`wf['run'](async (ctx) => ctx);`, { 'awaitly/workflow-callback-shape': 'error' })).toHaveLength(1);
+    });
+
     it('flags non-destructured single param', () => {
       const bad = `workflow.run(async (ctx) => { return ctx; });`;
       expect(
@@ -169,6 +188,48 @@ describe('new slug rules', () => {
     });
     it('accepts ({ step, deps, ctx })', () => {
       const good = `workflow.run(async ({ step, deps, ctx }) => ctx);`;
+      expect(
+        verify(good, { 'awaitly/workflow-callback-shape': 'error' })
+      ).toHaveLength(0);
+    });
+    it('flags a non-destructured context in callback-only run()', () => {
+      const bad = `run(async (ctx) => ctx);`;
+      expect(
+        verify(bad, { 'awaitly/workflow-callback-shape': 'error' })
+      ).toHaveLength(1);
+    });
+    it('accepts deps-first run(deps, (s) => ...) - the first param is the steps object', () => {
+      const good = `run({ getUser }, async (s) => s.getUser('1'));`;
+      expect(
+        verify(good, { 'awaitly/workflow-callback-shape': 'error' })
+      ).toHaveLength(0);
+    });
+    it('accepts deps-first run(deps, (s, { step }) => ...)', () => {
+      const good = `run({ getUser }, async (s, { step }) => step('x', () => s.getUser('1')));`;
+      expect(
+        verify(good, { 'awaitly/workflow-callback-shape': 'error' })
+      ).toHaveLength(0);
+    });
+    it('flags deps-first run() whose context param is not destructured', () => {
+      const bad = `run({ getUser }, async (s, ctx) => ctx);`;
+      expect(
+        verify(bad, { 'awaitly/workflow-callback-shape': 'error' })
+      ).toHaveLength(1);
+    });
+    it('still requires durable.run(deps, fn) to destructure its context', () => {
+      expect(
+        verify(`durable.run({ a }, async ({ step, deps }) => {});`, { 'awaitly/workflow-callback-shape': 'error' })
+      ).toHaveLength(0);
+      expect(
+        verify(`durable.run({ a }, async (ctx) => ctx);`, { 'awaitly/workflow-callback-shape': 'error' })
+      ).toHaveLength(1);
+    });
+    it('ignores curried calls that are not workflows, like it.each(rows)(name, fn)', () => {
+      const good = [
+        `it.each(rows)('parses $name', ({ body }) => {});`,
+        `describe.skipIf(!uri)('mongo', () => {});`,
+        `it.skipIf(!exists)('reads the pdf', async () => {});`,
+      ].join('\n');
       expect(
         verify(good, { 'awaitly/workflow-callback-shape': 'error' })
       ).toHaveLength(0);

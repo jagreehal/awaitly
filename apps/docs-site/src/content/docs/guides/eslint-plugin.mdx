@@ -190,7 +190,7 @@ await workflow.run(async ({ step }) => {});
 
 **Severity**: warn
 
-Workflow callbacks should destructure their context. Only `step` is required; `raw` and `ctx` are optional depending on the entry point.
+Workflow callbacks should destructure their context. Only `step` is required; `raw` and `ctx` are optional depending on the entry point. In deps-first `run(deps, (s, context) => ...)`, the first parameter is the bound steps object, so the rule checks the second parameter, if you take one.
 
 ```typescript
 // Bad — opaque parameter
@@ -200,6 +200,8 @@ workflow.run(async (ctx) => { /* */ });
 workflow.run(async ({ step }) => { /* */ });
 workflow.run(async ({ step, deps }) => { /* */ });
 workflow.run(async ({ step, deps, ctx }) => { /* */ });
+run(deps, async (s) => { /* */ });
+run(deps, async (s, { step }) => { /* */ });
 ```
 
 #### `awaitly/workflow-no-callable-form`

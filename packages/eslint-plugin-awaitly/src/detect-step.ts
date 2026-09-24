@@ -1,4 +1,5 @@
 import type { SourceCode, Scope } from 'eslint';
+import { staticPropertyName, workflowContextParam } from './workflow-context.js';
 import type {
   ArrowFunctionExpression,
   CallExpression,
@@ -21,19 +22,16 @@ function isFunctionNode(node: Node): node is FunctionNode {
 }
 
 /**
- * Names bound by the first parameter's static context properties.
+ * Names bound by the callback's static context properties.
  * Defaults and quoted keys do not change which property is being bound.
  */
 function workflowContextAliases(fn: FunctionNode, key: string): string[] {
-  const param = fn.params[0];
-  const first = param?.type === 'AssignmentPattern' ? param.left : param;
+  const first = workflowContextParam(fn);
   if (!first || first.type !== 'ObjectPattern') return [];
   const aliases: string[] = [];
   for (const property of first.properties) {
     if (property.type !== 'Property') continue;
-    const propertyName = property.key.type === 'Identifier' && !property.computed
-      ? property.key.name
-      : property.key.type === 'Literal' ? property.key.value : undefined;
+    const propertyName = staticPropertyName(property);
     const value = property.value.type === 'AssignmentPattern'
       ? property.value.left : property.value;
     if (propertyName === key && value.type === 'Identifier') {

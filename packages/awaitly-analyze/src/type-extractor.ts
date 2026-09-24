@@ -163,6 +163,59 @@ function extractPromiseResultGenerics(
   return null;
 }
 
+/**
+ * The error names a Result-returning function can fail with, read from its call signature
+ * with the type checker: `NOT_FOUND` for the literal `"NOT_FOUND"`, `ModelCallError` for a
+ * class or named type, `X` for an anonymous `{ type: "X" }` / `{ _tag: "X" }` object. Works where a type's text
+ * doesn't parse, e.g. `typeof loadPdf` or `import("./errors").NotFound`.
+ */
+export function extractErrorNamesFromFunctionType(fnType: ts.Type, checker: ts.TypeChecker): string[] {
+  // Dependency metadata describes every supported call, not just the first overload.
+  const names = fnType.getCallSignatures().flatMap(signature => {
+    const errorType = resultErrorType(signature.getReturnType(), checker);
+    return errorType ? errorMemberNames(errorType, checker) : [];
+  });
+  return [...new Set(names)];
+}
+
+function resultErrorType(type: ts.Type, checker: ts.TypeChecker): ts.Type | undefined {
+  if (isAsyncResult(type, checker)) {
+    let typeArgs = getTypeArguments(type, checker);
+    // AsyncResult<T, E> can resolve to Promise<Result<T, E, C>> (see extractAsyncResultGenerics)
+    if (typeArgs.length === 1 && typeArgs[0] && isResult(typeArgs[0], checker)) {
+      typeArgs = getTypeArguments(typeArgs[0], checker);
+    }
+    return typeArgs[1];
+  }
+  if (isResult(type, checker)) return getTypeArguments(type, checker)[1];
+  // Promise<Result<T, E>>, or a Promise around any of these, e.g. Promise<AsyncResult<T, E>>
+  if (["Promise", "PromiseLike"].includes(type.getSymbol()?.getName() ?? "")) {
+    const [inner] = getTypeArguments(type, checker);
+    return inner ? resultErrorType(inner, checker) : undefined;
+  }
+  return undefined;
+}
+
+function errorMemberNames(errorType: ts.Type, checker: ts.TypeChecker): string[] {
+  const tsLib = loadTypescript();
+  const members = errorType.isUnion() ? errorType.types : [errorType];
+  const names = members.flatMap((member): string[] => {
+    if (member.flags & (tsLib.TypeFlags.Never | tsLib.TypeFlags.Unknown | tsLib.TypeFlags.Any)) return [];
+    // Named the way the step-level inference names them: TypeScript's own text, with a string
+    // literal's quotes removed - `"NOT_FOUND"` is NOT_FOUND, `Envelope<"A" | "B">` stays whole.
+    const isAnonymousObject = !member.aliasSymbol && member.getSymbol()?.getName().startsWith("__");
+    if (!isAnonymousObject) return [checker.typeToString(member).replace(/^(['"])(.*)\1$/, "$2")];
+    // `{ type: "X" }` / `{ _tag: "X" }`: the discriminant is its name
+    for (const key of ["type", "_tag"]) {
+      const property = member.getProperty(key);
+      const propertyType = property && checker.getTypeOfSymbol(property);
+      if (propertyType?.isStringLiteral()) return [propertyType.value];
+    }
+    return [checker.typeToString(member)];
+  });
+  return [...new Set(names)];
+}
+
 /** TypeScript compiler types may have type arguments; public Type interface doesn't declare them. */
 interface TypeWithArguments extends ts.Type {
   typeArguments?: ts.Type[];

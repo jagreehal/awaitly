@@ -26,13 +26,19 @@ const cases = [
 
 describe('concurrency rules are scoped to workflows', () => {
   for (const [rule, call] of cases) {
+    it(`${rule} sees the second context parameter in deps-first run`, () => {
+      expect(verify(`run({ load }, async (s, { step: execute }) => { await ${call}; });`, rule)).toHaveLength(1);
+    });
+    it(`${rule} does not confuse a dependency named step with context`, () => {
+      expect(verify(`run({ step: load }, async ({ step: execute }) => { await ${call}; });`, rule)).toHaveLength(0);
+    });
     it(`${rule} flags it inside a workflow callback`, () => {
-      const code = `run(deps, async ({ step, deps: d }) => { await ${call}; });`;
+      const code = `run(async ({ step, deps: d }) => { await ${call}; });`;
       expect(verify(code, rule)).toHaveLength(1);
     });
 
     it(`${rule} flags it inside an aliased workflow callback`, () => {
-      const code = `run(deps, async ({ step: s, deps: d }) => { s('x', () => d.a()); await ${call}; });`;
+      const code = `run(async ({ step: s, deps: d }) => { s('x', () => d.a()); await ${call}; });`;
       expect(verify(code, rule)).toHaveLength(1);
     });
 
@@ -42,7 +48,7 @@ describe('concurrency rules are scoped to workflows', () => {
     });
 
     it(`${rule} respects block shadowing and restores the outer binding`, () => {
-      const code = `run(deps, async ({ step: execute }) => {
+      const code = `run(async ({ step: execute }) => {
         { const execute = unrelated; await ${call}; }
         await ${call};
       });`;
@@ -50,7 +56,7 @@ describe('concurrency rules are scoped to workflows', () => {
     });
 
     it(`${rule} recognizes a defaulted context binding`, () => {
-      expect(verify(`run(deps, async ({ step: execute = fallback }) => { await ${call}; });`, rule)).toHaveLength(1);
+      expect(verify(`run(async ({ step: execute = fallback }) => { await ${call}; });`, rule)).toHaveLength(1);
     });
   }
 });

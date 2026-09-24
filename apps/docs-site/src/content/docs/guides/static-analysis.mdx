@@ -87,7 +87,7 @@ npx awaitly-analyze ./src/workflows/checkout.ts --dev --port=5000
 ## What the analyzer reads
 
 - Workflow calls: `createWorkflow(...)`, `run(deps, fn)`, `run(fn)`, `runSaga(...)`, and `durable.run(deps, fn, options)` — including through an import alias, and whether the workflow is invoked with `.run()` or `.runWithState()`.
-- Both deps-first callback shapes: bound steps (`run(deps, async (s) => s.loadBatch())`) and the workflow form (`run(deps, async ({ step, deps }) => step('loadBatch', ...))`).
+- Deps-first callbacks, with bound steps (`run(deps, async (s) => s.loadBatch())`) and the classic `step` from the second parameter (`run(deps, async (s, { step }) => step('loadBatch', ...))`).
 - Step IDs from `step('id', fn, opts)` as canonical names.
 - Workflow and step docs from `description` and `markdown`.
 - JSDoc descriptions as `jsdocDescription` fallback.

@@ -163,3 +163,15 @@ describe('step-no-deps-bypass', () => {
     });
   });
 });
+
+describe('callback options are not dependencies', () => {
+  it.each([
+    `run(async ({ step }) => onError(), { onError });`,
+    `wf.run(async ({ step }) => onEvent(), { onEvent });`,
+    `wf.run('id', async ({ step }) => onEvent(), { onEvent });`,
+    `run({ [depName]: load }, async (s) => depName());`,
+    `wf[run]({ load }, async () => load());`,
+  ])('does not report %s', code => {
+    expect(verify(code)).toHaveLength(0);
+  });
+});

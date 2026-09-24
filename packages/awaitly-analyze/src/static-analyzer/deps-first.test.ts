@@ -283,6 +283,52 @@ describe("deps-first form: run(deps, fn)", () => {
     expect(mermaid).toContain("USER_NOT_FOUND");
   });
 
+  it("infers errors for a dep typed by reference (typeof fn) with error classes", () => {
+    // An imported or declared function's type prints as \`typeof loadPdf\`, and error classes
+    // print as \`import("./errors").PdfNotFound\` - neither parses as text, so this needs
+    // the type checker.
+    const source = `
+      import { run, ok, err, type AsyncResult } from 'awaitly';
+
+      class PdfNotFound extends Error { readonly _tag = 'PdfNotFound' as const; }
+      class PdfUnreadable extends Error { readonly _tag = 'PdfUnreadable' as const; }
+      type PdfError = PdfNotFound | PdfUnreadable;
+
+      async function loadPdf(path: string): AsyncResult<string[], PdfError> {
+        return path ? ok([path]) : err(new PdfNotFound());
+      }
+
+      await run({ loadPdf }, async (s) => s.loadPdf('a.pdf'));
+    `;
+
+    const results = analyzeWorkflowSource(source);
+    const step = collectStepNodes(results[0].root).find((s) => s.stepId === "loadPdf");
+
+    // each member of the named union, not the alias name "PdfError"
+    expect(results[0].root.dependencies[0]?.errorTypes).toEqual(["PdfNotFound", "PdfUnreadable"]);
+    expect(step?.errors).toEqual(["PdfNotFound", "PdfUnreadable"]);
+    expect(step?.errorsSource).toBe("inferred");
+  });
+
+  it("infers errors for a dep that wraps another function", () => {
+    const source = `
+      import { run, ok, type AsyncResult } from 'awaitly';
+
+      class ModelCallError extends Error { readonly _tag = 'ModelCallError' as const; }
+      async function readContract(args: { pages: string[] }, deps: { model: string }): AsyncResult<string, ModelCallError | 'NO_USABLE_ANSWER'> {
+        return ok(args.pages.join() + deps.model);
+      }
+      const deps = { model: 'gpt' };
+
+      await run({ readContract: (pages: string[]) => readContract({ pages }, deps) }, async (s) => s.readContract(['p1']));
+    `;
+
+    const results = analyzeWorkflowSource(source);
+    const step = collectStepNodes(results[0].root).find((s) => s.stepId === "readContract");
+
+    expect(step?.errors).toEqual(["ModelCallError", "NO_USABLE_ANSWER"]);
+  });
+
   it("copies each dep's own error union onto the matching bound step", () => {
     const source = `${PREAMBLE}
       await run({ getOrder, getUser, charge }, async (s) => {
@@ -335,5 +381,76 @@ describe("deps-first form: run(deps, fn)", () => {
     expect(results).toHaveLength(1);
     const steps = collectStepNodes(results[0].root);
     expect(steps.map((s) => s.stepId)).toEqual(["getOrder"]);
+  });
+});
+
+describe("dependency error inference", () => {
+  it.each([undefined, ['OTHER']])("does not fall back from a known source to its display ID: %s", errors => {
+    const step: StaticStepNode = {
+      id: 's', type: 'step', stepId: 'load', depSource: 'other',
+      errors, errorsSource: errors ? 'inferred' : undefined,
+    };
+    const root: StaticWorkflowNode = {
+      id: 'wf', type: 'workflow', workflowName: 'test', source: 'run', errorTypes: [],
+      dependencies: [
+        { name: 'load', errorTypes: ['LOAD'] },
+        { name: 'other', errorTypes: [] },
+      ],
+      children: [step],
+    };
+    inferErrorsFromDependencies(root);
+    expect(step.errors).toEqual(errors);
+  });
+
+  it("preserves errors when the step ID matches a different dependency", () => {
+    const source = `
+      import { ok, type AsyncResult } from 'awaitly';
+      import { createWorkflow } from 'awaitly/workflow';
+      const load = async (): AsyncResult<string, 'LOAD'> => ok('x');
+      const other = async (): AsyncResult<string, 'OTHER'> => ok('x');
+      const wf = createWorkflow('x', { load });
+      await wf.run(async ({ step }) => step('load', () => other()));
+    `;
+    const step = collectStepNodes(analyzeWorkflowSource(source)[0].root)[0];
+    expect(step.errors).toEqual(['OTHER']);
+  });
+
+  it.each(['never', "'STRING'"])("collects all overload errors when the first returns %s", firstError => {
+    const source = `
+      import { run, ok, type AsyncResult } from 'awaitly';
+      function choose(x: string): AsyncResult<string, ${firstError}>;
+      function choose(x: number): AsyncResult<string, 'NUMBER'>;
+      async function choose(x: string | number): AsyncResult<string, ${firstError} | 'NUMBER'> { return ok('x'); }
+      await run({ choose }, async s => s.choose(42));
+    `;
+    const root = analyzeWorkflowSource(source)[0].root;
+    const expected = firstError === 'never' ? ['NUMBER'] : ['STRING', 'NUMBER'];
+    expect(root.dependencies[0].errorTypes).toEqual(expected);
+    expect(collectStepNodes(root)[0].errors).toEqual(expected);
+  });
+
+  it("keeps call-specific inference for an overloaded dependency", () => {
+    const source = `
+      import { ok, type AsyncResult } from 'awaitly';
+      import { createWorkflow } from 'awaitly/workflow';
+      function choose(x: string): AsyncResult<string, 'STRING'>;
+      function choose(x: number): AsyncResult<string, 'NUMBER'>;
+      async function choose(x: string | number): AsyncResult<string, 'STRING' | 'NUMBER'> { return ok('x'); }
+      const wf = createWorkflow('x', { choose });
+      await wf.run(async ({ step }) => step('chosen', () => choose(42)));
+    `;
+    const step = collectStepNodes(analyzeWorkflowSource(source)[0].root)[0];
+    expect(step.errors).toEqual(['NUMBER']);
+  });
+
+  it("reads named errors inside PromiseLike results", () => {
+    const source = `
+      import { run, type Result } from 'awaitly';
+      class Unreadable extends Error { readonly _tag = 'Unreadable'; }
+      declare function load(): PromiseLike<Result<string, Unreadable | 'A|B'>>;
+      await run({ load }, async s => s.load());
+    `;
+    const root = analyzeWorkflowSource(source)[0].root;
+    expect(root.dependencies[0].errorTypes).toEqual(['Unreadable', 'A|B']);
   });
 });
