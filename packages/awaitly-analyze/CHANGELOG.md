@@ -1,5 +1,17 @@
 # awaitly-analyze
 
+## 0.32.0
+
+### Minor Changes
+
+- 9a12606: Add `awaitly-analyze review` and a GitHub Action (`uses: jagreehal/awaitly@analyze-v0`). The review covers every workflow a change touched: a structural diff, removed steps and blocks, new doctor findings, error type changes and a railway diagram of the new version. It posts one sticky PR comment with a merge-risk verdict and writes the same report to the job summary. Run it locally with `awaitly-analyze review --base origin/main`.
+
+### Patch Changes
+
+- 75a1c49: `awaitly-analyze` reads a dependency's errors from its call signature with the TypeScript checker, so deps-first `run(deps, fn)` steps pick up errors from `typeof fn` references, imported error classes, named unions and every overload. The text parser covers projects without a checker.
+
+  `workflow-callback-shape` supports deps-first `run(deps, (s, context?) => ...)` and checks only `run` calls. Related rules read step aliases from the deps-first context parameter and match quoted property names.
+
 ## 0.31.2
 
 ### Patch Changes
