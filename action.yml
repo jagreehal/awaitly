@@ -1,0 +1,140 @@
+name: 'awaitly review'
+description: >-
+  Reviews the awaitly workflows a pull request touched: structural diff per workflow,
+  regressions, new doctor findings, railway diagrams and a merge-risk verdict, posted
+  as one sticky PR comment and the job summary.
+author: 'Jag Reehal'
+branding:
+  icon: 'git-pull-request'
+  color: 'blue'
+
+inputs:
+  path:
+    description: 'Git pathspec(s) to review, space separated. Empty reviews the whole change.'
+    default: ''
+  base:
+    description: 'Ref to compare against. Defaults to the PR base, or the previous commit on push.'
+    default: ''
+  head:
+    description: 'Ref holding the change. Defaults to the PR head, or HEAD on push.'
+    default: ''
+  comment:
+    description: 'Post (and keep updating) one review comment on the pull request.'
+    default: 'true'
+  annotations:
+    description: 'Annotate new doctor findings inline in the Files changed tab.'
+    default: 'true'
+  fail-on-regression:
+    description: 'Fail the job when merge risk is high (a structural regression or a new doctor error).'
+    default: 'false'
+  include-tests:
+    description: 'Also review *.test.ts / *.spec.ts files, for projects whose workflows live in their tests.'
+    default: 'false'
+  diagrams:
+    description: 'Railway diagrams in the comment: open (expanded) or collapsed.'
+    default: 'open'
+  cli:
+    description: 'Command that runs the analyzer. Pin an exact version with "npx -y -p awaitly-analyze@0.32.0 awaitly-analyze", or use your own install ("pnpm exec awaitly-analyze").'
+    default: 'npx -y -p awaitly-analyze@0 awaitly-analyze'
+  github-token:
+    description: 'Token used to post the comment.'
+    default: ${{ github.token }}
+
+outputs:
+  risk:
+    description: 'Merge risk: low, moderate or high.'
+    value: ${{ steps.review.outputs.risk }}
+  report:
+    description: 'Path of the markdown report.'
+    value: ${{ steps.review.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve refs
+      id: refs
+      shell: bash
+      env:
+        INPUT_BASE: ${{ inputs.base }}
+        INPUT_HEAD: ${{ inputs.head }}
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        PUSH_BEFORE: ${{ github.event.before }}
+      run: |
+        base="${INPUT_BASE:-${PR_BASE:-$PUSH_BEFORE}}"
+        head="${INPUT_HEAD:-${PR_HEAD:-HEAD}}"
+        # First push of a branch has an all-zero "before".
+        case "$base" in ''|0000000000000000000000000000000000000000) base=HEAD~1; git fetch --no-tags --deepen=1 origin 2>/dev/null || true ;; esac
+        node -e 'process.exit(+process.versions.node.split(".")[0] >= 22 ? 0 : 1)' \
+          || { echo "::error::awaitly-analyze needs Node 22+; add actions/setup-node with node-version: 22 before this step"; exit 1; }
+        # A shallow checkout has neither side; fetch just those commits.
+        git fetch --no-tags --depth=1 origin "$base" "$head" 2>/dev/null || true
+        echo "base=$base" >> "$GITHUB_OUTPUT"
+        echo "head=$head" >> "$GITHUB_OUTPUT"
+
+    - name: Review
+      id: review
+      shell: bash
+      env:
+        CLI: ${{ inputs.cli }}
+        PATHS: ${{ inputs.path }}
+        INCLUDE_TESTS: ${{ inputs.include-tests == 'true' && '--include-tests' || '' }}
+        DIAGRAMS: ${{ inputs.diagrams }}
+        BASE: ${{ steps.refs.outputs.base }}
+        HEAD: ${{ steps.refs.outputs.head }}
+      run: |
+        set -euo pipefail
+        out="$RUNNER_TEMP/awaitly-review"
+        mkdir -p "$out"
+        # shellcheck disable=SC2086
+        $CLI review $PATHS $INCLUDE_TESTS --diagrams "$DIAGRAMS" --base "$BASE" --head "$HEAD" --format json -o "$out/review.json"
+        jq -r .markdown "$out/review.json" > "$out/review.md"
+        cat "$out/review.md" >> "$GITHUB_STEP_SUMMARY"
+        echo "risk=$(jq -r .risk "$out/review.json")" >> "$GITHUB_OUTPUT"
+        echo "report=$out/review.md" >> "$GITHUB_OUTPUT"
+        echo "dir=$out" >> "$GITHUB_OUTPUT"
+
+    - name: Annotate new findings
+      if: inputs.annotations == 'true'
+      shell: bash
+      env:
+        DIR: ${{ steps.review.outputs.dir }}
+      run: |
+        # Workflow-command escaping: % \r \n in the message; also , and : in properties.
+        jq -r '
+          def msg: gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
+          def prop: msg | gsub(","; "%2C") | gsub(":"; "%3A");
+          .newFindings[]
+          | "::\(if .severity == "error" then "error" else "warning" end) file=\(.file | prop),line=\(.line),title=\("awaitly-analyze " + .rule | prop)::\(.message | msg)"
+        ' "$DIR/review.json"
+
+    - name: Post review comment
+      if: inputs.comment == 'true' && github.event.pull_request
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPORT: ${{ steps.review.outputs.report }}
+        REPO: ${{ github.repository }}
+        PR: ${{ github.event.pull_request.number }}
+      run: |
+        set -euo pipefail
+        marker='<!-- awaitly-analyze-review -->'
+        existing=$( (gh api "repos/$REPO/issues/$PR/comments" --paginate \
+          --jq "map(select(.body | startswith(\"$marker\"))) | .[].id" || true) | head -n1)
+        # A fork PR's token is read-only: the summary and annotations still land,
+        # so a comment that cannot be posted is a warning, not a failed review.
+        post() {
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$existing" -F body=@"$REPORT" --silent
+          else
+            gh api "repos/$REPO/issues/$PR/comments" -F body=@"$REPORT" --silent
+          fi
+        }
+        post || echo "::warning::awaitly-analyze could not post the review comment (read-only token? fork PR?). The report is in the job summary."
+
+    - name: Gate
+      if: inputs.fail-on-regression == 'true' && steps.review.outputs.risk == 'high'
+      shell: bash
+      run: |
+        echo "::error::awaitly-analyze: merge risk is high (see the review comment or job summary)"
+        exit 1

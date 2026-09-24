@@ -62,3 +62,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
+
+      # `uses: jagreehal/awaitly@analyze-v0` follows the latest awaitly-analyze
+      # release of the GitHub Action, the way actions/checkout@v4 does.
+      - name: Move the major version tag for the GitHub Action
+        if: steps.changesets.outputs.published == 'true'
+        env:
+          PUBLISHED: ${{ steps.changesets.outputs.publishedPackages }}
+        run: |
+          version=$(jq -r '.[] | select(.name == "awaitly-analyze") | .version' <<< "$PUBLISHED")
+          [ -n "$version" ] || exit 0
+          git tag -f "analyze-v${version%%.*}"
+          git push -f origin "analyze-v${version%%.*}"
