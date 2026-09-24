@@ -36,17 +36,8 @@ export function loadTsMorph(): TsMorphModule {
 /** Load TypeScript compiler module (used for SyntaxKind and type-checker APIs). */
 export function loadTypescript(): TypeScriptModule {
   if (cachedTs) return cachedTs;
-  try {
-    const require = createRequire(import.meta.url);
-    cachedTs = require("typescript") as TypeScriptModule;
-    return cachedTs;
-  } catch {
-    throw new Error(
-      `awaitly-analyze requires typescript as a peer dependency.\n\n` +
-        `Install it with:\n` +
-        `  npm install typescript\n` +
-        `  # or\n` +
-        `  pnpm add typescript`
-    );
-  }
+  // Use the compiler bundled with ts-morph so SyntaxKind and TypeFlags match the nodes it produces.
+  // TypeScript 7's `typescript` package is native and exposes no compiler API.
+  cachedTs = loadTsMorph().ts as unknown as TypeScriptModule;
+  return cachedTs;
 }
