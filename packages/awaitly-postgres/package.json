@@ -56,7 +56,7 @@
   "devDependencies": {
     "@total-typescript/ts-reset": "0.6.1",
     "@total-typescript/tsconfig": "1.0.4",
-    "@types/node": "25.9.3",
+    "@types/node": "26.6.4",
     "awaitly": "workspace:^",
     "tsgo": "npm:typescript@7.0.2",
     "tsup": "8.5.1",
