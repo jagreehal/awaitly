@@ -42,6 +42,7 @@ import {
 } from "../types";
 
 import { generateId, getLocation, type AnalyzerOptions } from "./shared";
+import { analyzeDurableOperation } from "./durable";
 import {
   findWorkflowCalls,
   findWorkflowInvocations,
@@ -430,7 +431,14 @@ function analyzeWorkflowCall(
   const children: StaticFlowNode[] = [];
   let callbackForReturnType: Node | undefined;
 
-  if (source === "run" || source === "runSaga") {
+  if (source === "withDurableExecution") {
+    callbackForReturnType = workflowInfo.callbackFunction;
+    if (workflowInfo.callbackFunction) {
+      children.push(
+        ...analyzeDurableCallback(workflowInfo.callbackFunction, 1, new Set(), 0, opts, warnings, stats)
+      );
+    }
+  } else if (source === "run" || source === "runSaga") {
     callbackForReturnType = workflowInfo.callbackFunction;
     // run() and runSaga() have the callback as the first argument
     if (workflowInfo.callbackFunction) {
@@ -794,6 +802,33 @@ function analyzeCallback(
 
   // Analyze the body with workflow callback context
   return analyzeNode(body, opts, warnings, stats, sagaContext, context);
+}
+
+/**
+ * Analyze a durable function body: the handler passed to withDurableExecution
+ * (its DurableContext is parameter 1) or a child-context callback such as a
+ * runInChildContext, parallel branch, or map item function (parameter 0).
+ * Context names stay in scope for nested callbacks, so a call on an enclosing
+ * context is still diagrammed (the durable-context-scope lint rule flags it).
+ */
+function analyzeDurableCallback(
+  callback: Node,
+  contextParam: number | undefined,
+  enclosing: ReadonlySet<string>,
+  depth: number,
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats
+): StaticFlowNode[] {
+  const { Node } = loadTsMorph();
+  if (!Node.isArrowFunction(callback) && !Node.isFunctionExpression(callback)) return [];
+  const durableContexts = new Set(enclosing);
+  const param = contextParam === undefined ? undefined : callback.getParameters()[contextParam];
+  const paramName = param?.getNameNode();
+  if (paramName && Node.isIdentifier(paramName)) durableContexts.add(paramName.getText());
+  // No step names: a stray `step` identifier in a durable function is not awaitly's step.
+  const context: AnalysisContext = { stepNames: new Set(), isInWorkflowCallback: true, depth, durableContexts };
+  return analyzeNode(callback.getBody(), opts, warnings, stats, { isSagaWorkflow: false }, context);
 }
 
 function truncate(text: string, max: number): string {
@@ -1276,6 +1311,28 @@ function analyzeCallExpression(
   const expression = node.getExpression();
   const callee = expression.getText();
   const args = node.getArguments();
+
+  // Calls on a Lambda DurableContext: context.step/wait/parallel/map/... and
+  // the context.promise combinators. Checked first so context.map is not
+  // mistaken for Array.prototype.map below.
+  if (context.durableContexts && Node.isPropertyAccessExpression(expression)) {
+    const receiver = expression.getExpression();
+    const isCombinator =
+      Node.isPropertyAccessExpression(receiver) &&
+      receiver.getName() === "promise" &&
+      context.durableContexts.has(receiver.getExpression().getText());
+    if (isCombinator || context.durableContexts.has(receiver.getText())) {
+      const durableContexts = context.durableContexts;
+      const analyzed = analyzeDurableOperation(node, expression.getName(), args, isCombinator, {
+        opts,
+        stats,
+        analyzeCallback: (fn, contextParam) =>
+          analyzeDurableCallback(fn, contextParam, durableContexts, context.depth + 1, opts, warnings, stats),
+        analyzeExpression: (expr) => analyzeNode(expr, opts, warnings, stats, sagaContext, context),
+      });
+      if (analyzed) return analyzed;
+    }
+  }
 
   // Handle saga workflow step detection
           if (sagaContext.isSagaWorkflow && sagaContext.sagaParamInfo) {
@@ -3130,6 +3187,21 @@ function extractSagaStepOptions(optionsNode: Node): {
 // Conditional Analysis
 // =============================================================================
 
+/** Whether a statement always leaves the function: return/throw, or an if/else whose branches both do. */
+function endsRun(statement: Node): boolean {
+  const { Node } = loadTsMorph();
+  if (Node.isReturnStatement(statement) || Node.isThrowStatement(statement)) return true;
+  if (Node.isBlock(statement)) {
+    const last = statement.getStatements().at(-1);
+    return last !== undefined && endsRun(last);
+  }
+  if (Node.isIfStatement(statement)) {
+    const otherwise = statement.getElseStatement();
+    return otherwise !== undefined && endsRun(statement.getThenStatement()) && endsRun(otherwise);
+  }
+  return false;
+}
+
 function analyzeIfStatement(
   node: Node,
   opts: Required<AnalyzerOptions>,
@@ -3151,6 +3223,11 @@ function analyzeIfStatement(
     ? analyzeNode(elseStatement, opts, warnings, stats, sagaContext, context)
     : undefined;
 
+  // Durable handlers return Results early (`if (!r.ok) return r;`): the branch
+  // ends the run, so it is drawn to End even when it runs no operation.
+  const consequentExits = Boolean(context.durableContexts) && endsRun(thenStatement);
+  const alternateExits = Boolean(context.durableContexts) && elseStatement !== undefined && endsRun(elseStatement);
+
   // Always count conditionals when inside workflow callback (for tree-sitter parity)
   // Only return undefined (no node) if no content, but still count it
   if (context.isInWorkflowCallback) {
@@ -3169,7 +3246,13 @@ function analyzeIfStatement(
   const stepIfInfo = extractStepIfInfo(conditionExpr, context);
 
   // Only create conditional node if there are step calls inside
-  if (!stepIfInfo && consequent.length === 0 && (!alternate || alternate.length === 0)) {
+  if (
+    !stepIfInfo &&
+    consequent.length === 0 &&
+    (!alternate || alternate.length === 0) &&
+    !consequentExits &&
+    !alternateExits
+  ) {
     return undefined;
   }
 
@@ -3208,6 +3291,8 @@ function analyzeIfStatement(
     alternate,
     location: opts.includeLocations ? getLocation(node) : undefined,
     conditionType,
+    ...(consequentExits ? { consequentExits } : {}),
+    ...(alternateExits ? { alternateExits } : {}),
   };
 }
 

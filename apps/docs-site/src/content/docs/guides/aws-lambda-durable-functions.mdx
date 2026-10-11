@@ -1,0 +1,148 @@
+---
+title: AWS Lambda Durable Functions
+description: Typed durable functions on AWS Lambda with awaitly Results, lint rules, and diagrams
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`awaitly-durable-lambda` is a typed handler facade over the AWS Lambda durable execution SDK (`@aws/durable-execution-sdk-js`). You change one import path and keep every native signature. In return, your handlers carry their event and result types, `context.invoke` checks what you send, and steps that return awaitly `Result`s record expected failures without retrying them.
+
+## Install
+
+```bash
+pnpm add awaitly-durable-lambda @aws/durable-execution-sdk-js awaitly
+pnpm add -D @aws/durable-execution-sdk-js-testing
+```
+
+## Write a handler
+
+```typescript
+import { withDurableExecution } from 'awaitly-durable-lambda'; // was '@aws/durable-execution-sdk-js'
+import type { AsyncResult } from 'awaitly';
+
+declare function getUser(id: string): AsyncResult<User, 'NOT_FOUND'>;
+declare function charge(user: User): AsyncResult<Receipt, 'DECLINED'>;
+
+export const checkout = withDurableExecution(async (event: { userId: string }, context) => {
+  const user = await context.step('getUser', () => getUser(event.userId));
+  if (!user.ok) return user;
+
+  await context.wait('coolingOff', { minutes: 5 });
+
+  return context.step('charge', () => charge(user.value));
+});
+```
+
+TypeScript unions the handler's returns, so `HandlerResult<typeof checkout>` lists both failures a caller handles: `'NOT_FOUND' | 'DECLINED'`.
+
+## Expected and thrown failures
+
+| In the step | Lambda | Your code sees |
+|---|---|---|
+| `return ok(value)` | checkpoints the Result | `{ ok: true, value }` on the first run and every replay |
+| `return err('DECLINED')` | checkpoints the Result, with no retry | `{ ok: false, error: 'DECLINED' }`, recorded once |
+| `throw new Error(...)` | retries with the step's `retryStrategy`, then fails the execution | the native `StepError` |
+
+Return `err(...)` for outcomes you expect, such as a declined card, and throw for faults you want Lambda to retry.
+
+Lambda checkpoints a step after its function returns, and steps run at least once by default. Give each external call an idempotency key. Lambda also stores Results as JSON: your code receives a `Date` as a string, so keep Results JSON-safe or pass a custom `serdes`.
+
+## Replay
+
+After a wait, a callback, or a retry, Lambda runs your handler again from the top and serves completed steps from their checkpoints. Compute time, random values, and IDs inside a step so each replay reuses them:
+
+```typescript
+const id = await context.step('newId', async () => crypto.randomUUID());
+```
+
+## Validate the event
+
+```typescript
+import { validateEvent, withDurableExecution } from 'awaitly-durable-lambda';
+import { z } from 'zod';
+
+const Order = z.object({ orderId: z.string().min(1), amount: z.coerce.number().positive() });
+
+export const order = withDurableExecution(
+  validateEvent(Order, async (event, context) => {
+    return context.step('charge', () => charge(event.orderId, event.amount));
+  })
+);
+```
+
+`validateEvent` accepts any [Standard Schema](https://standardschema.dev) library. An invalid event returns `{ ok: false, error: { type: 'INVALID_EVENT', message, issues } }`, with a dotted `path` on each issue, and runs no operation.
+
+## Typed invoke
+
+```typescript
+import { durableFunction } from 'awaitly-durable-lambda';
+import type { paymentHandler } from './payments';
+
+const payments = durableFunction<typeof paymentHandler>(process.env.PAYMENTS_ARN!);
+
+const receipt = await context.invoke('pay', payments, { orderId, amount });
+//    ^? HandlerResult<typeof paymentHandler>
+```
+
+TypeScript checks the input against the target's event. You can omit it when the target's event is `void`. Invoke durable functions through a published version or alias.
+
+## Test
+
+```typescript
+import { LocalDurableTestRunner } from 'awaitly-durable-lambda/testing';
+
+beforeAll(() => LocalDurableTestRunner.setupTestEnvironment({ skipTime: true }));
+afterAll(() => LocalDurableTestRunner.teardownTestEnvironment());
+
+it('declines without retrying', async () => {
+  const runner = new LocalDurableTestRunner({ handlerFunction: checkout });
+  const execution = await runner.run({ payload: { userId: 'broke' } });
+
+  expect(execution.getResult()).toEqual({ ok: false, error: 'DECLINED' });
+});
+```
+
+The runners infer the payload and result types from the handler, and `LocalDurableTestRunner<MyResult>` still works. `CloudDurableTestRunner` runs the same assertions against a deployed function.
+
+## Replay diagnostics
+
+```typescript
+import { replayDiagnostics, withDurableExecution } from 'awaitly-durable-lambda';
+
+export const handler = withDurableExecution(checkoutHandler, { plugins: [replayDiagnostics()] });
+```
+
+When a replay diverges from the first run, the plugin logs one JSON line to CloudWatch with the kind of divergence and the change to make.
+
+## Observability
+
+Pass AWS's OpenTelemetry plugin (`@aws/durable-execution-sdk-js-otel`) and other instrumentation plugins in the native `plugins` option. With [autotel-aws](https://www.npmjs.com/package/autotel-aws):
+
+```typescript
+import { init } from 'autotel';
+import { ExecutionOtelPlugin } from '@aws/durable-execution-sdk-js-otel';
+import { autotelContextExtractor, durableFlush, withInvokeTraceContext } from 'autotel-aws/durable';
+import { replayDiagnostics, withDurableExecution } from 'awaitly-durable-lambda';
+
+init({ service: 'orders' });
+
+export const order = withDurableExecution(orderHandler, {
+  plugins: [new ExecutionOtelPlugin({ contextExtractor: autotelContextExtractor }), durableFlush(), replayDiagnostics()],
+});
+```
+
+You get one trace per durable execution, with a span for each invocation, step, and attempt. A typed invoke accepts a traced payload, `context.invoke('pay', payments, withInvokeTraceContext({ orderId }))`, and the invoked execution joins the caller's trace. `validateEvent` leaves the `_traceContext` field out of validation, so strict schemas accept traced payloads.
+
+## Lint and diagrams
+
+<Aside>
+These tools also work on handlers written with `@aws/durable-execution-sdk-js` directly.
+</Aside>
+
+`eslint-plugin-awaitly` checks durable handlers with four rules: `durable-no-nondeterminism`, `durable-context-scope`, `durable-callback-timeout`, and `durable-no-step-closure-mutation`. Add them with `...awaitly.configs.durable`, or use `recommended`, which includes them. See the [rule index](rules/#durable-no-nondeterminism).
+
+`awaitly-analyze` diagrams durable handlers: steps, waits with durations, callbacks with timeouts, invokes, `parallel` branches, `map` loops, child contexts, and early returns of a failed Result.
+
+```bash
+npx awaitly-analyze src/checkout.ts
+```

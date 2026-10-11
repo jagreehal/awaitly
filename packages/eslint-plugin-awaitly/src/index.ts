@@ -22,6 +22,10 @@ import workflowCallbackShape from './rules/workflow-callback-shape.js';
 import errorCheckUnexpectedFirst from './rules/error-check-unexpected-first.js';
 import errorRequireDiscriminant from './rules/error-require-discriminant.js';
 import errorPreferMatch from './rules/error-prefer-match.js';
+import durableNoNondeterminism from './rules/durable-no-nondeterminism.js';
+import durableContextScope from './rules/durable-context-scope.js';
+import durableCallbackTimeout from './rules/durable-callback-timeout.js';
+import durableNoStepClosureMutation from './rules/durable-no-step-closure-mutation.js';
 
 // Canonical slug-native rule names. No legacy aliases — the rename is a
 // breaking change accompanying the AI-DX slug spine.
@@ -56,6 +60,20 @@ const rules = {
   'error-check-unexpected-first': errorCheckUnexpectedFirst,
   'error-require-discriminant': errorRequireDiscriminant,
   'error-prefer-match': errorPreferMatch,
+  // durable-*: AWS Lambda durable functions written with the native SDK
+  // (@aws/durable-execution-sdk-js or awaitly-durable-lambda). They apply
+  // inside handlers passed to withDurableExecution.
+  'durable-no-nondeterminism': durableNoNondeterminism,
+  'durable-context-scope': durableContextScope,
+  'durable-callback-timeout': durableCallbackTimeout,
+  'durable-no-step-closure-mutation': durableNoStepClosureMutation,
+};
+
+const durableRules: Linter.RulesRecord = {
+  'awaitly/durable-no-nondeterminism': 'error',
+  'awaitly/durable-context-scope': 'error',
+  'awaitly/durable-callback-timeout': 'warn',
+  'awaitly/durable-no-step-closure-mutation': 'error',
 };
 
 const configs: Record<string, Linter.Config[]> = {
@@ -86,6 +104,7 @@ const configs: Record<string, Linter.Config[]> = {
         'awaitly/workflow-no-callable-form': 'error',
         'awaitly/workflow-callback-shape': 'error',
         'awaitly/error-prefer-match': 'warn',
+        ...durableRules,
         // 'awaitly/error-check-unexpected-first': 'warn',
         // ^ deliberately opt-in. The rule uses heuristic AST matching to
         //   flag `if (result.error._tag === ...)` without an
@@ -130,8 +149,19 @@ const configs: Record<string, Linter.Config[]> = {
         "awaitly/workflow-callback-shape": "error",
         "awaitly/error-require-discriminant": "error",
         "awaitly/error-prefer-match": "error",
+        ...Object.fromEntries(Object.keys(durableRules).map((name) => [name, "error"])),
         // error-check-unexpected-first is opt-in (see note in `recommended`).
       },
+    },
+  ],
+  // Only the durable-* rules, for native-SDK durable functions that do not
+  // use awaitly workflows.
+  durable: [
+    {
+      plugins: {
+        awaitly: { rules },
+      },
+      rules: durableRules,
     },
   ],
 };

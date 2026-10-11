@@ -237,6 +237,16 @@ Require error classes extending Error to declare a literal discriminant, so a un
 {{name}} adds nothing to Error, so TypeScript treats it as the same type as every other bare error class and collapses them in a union. Add `readonly type = '{{name}}'`, or declare it with TaggedError.
 ```
 
+### `error-prefer-match` \{#error-prefer-match\}
+
+Prefer match(result, \{ ... \}) over hand-normalising result.error with typeof checks or switch (true).
+
+- **ESLint rule:** `awaitly/error-prefer-match`
+
+```text
+Use match(result, { ok, ...arms }) instead of normalising result.error by hand. Strings, { type } objects and TaggedError classes all match on one key, and the arms are checked exhaustively.
+```
+
 ### `error-access-cause` \{#error-access-cause\}
 
 Canonical awaitly slug: error-access-cause
@@ -281,6 +291,51 @@ Disallow Promise.allSettled in workflows; use step.map.
 
 ```text
 Use step.map() instead of Promise.allSettled() inside workflows.
+```
+
+## `durable-*`
+
+AWS Lambda durable functions: what replays, and what a step must contain.
+
+### `durable-no-nondeterminism` \{#durable-no-nondeterminism\}
+
+Disallow time, randomness, and IDs in durable orchestration code; compute them in a step so replays see the checkpointed value.
+
+- **ESLint rule:** `awaitly/durable-no-nondeterminism`
+
+```text
+{{api}} returns a different value when this durable function replays. Compute it inside context.step(...) so the value is checkpointed.
+```
+
+### `durable-context-scope` \{#durable-context-scope\}
+
+Call durable operations from orchestration code, on the context that code received.
+
+- **ESLint rule:** `awaitly/durable-context-scope`
+
+```text
+context.{{operation}}() runs inside a {{zone}} function, and Lambda cannot run durable operations there. Move it out, or group operations with context.runInChildContext(...).
+"{{used}}.{{operation}}()" uses an enclosing durable context inside a child context. Use this callback's own context parameter "{{own}}" instead.
+```
+
+### `durable-callback-timeout` \{#durable-callback-timeout\}
+
+Require a timeout on waitForCallback and createCallback, so the wait for a missing callback ends at that timeout.
+
+- **ESLint rule:** `awaitly/durable-callback-timeout`
+
+```text
+context.{{operation}}() has no timeout, so a callback that never arrives holds the execution open until its execution timeout (up to a year). Pass { timeout: { ... } }.
+```
+
+### `durable-no-step-closure-mutation` \{#durable-no-step-closure-mutation\}
+
+Require a step to return its result instead of writing it to a variable declared outside the step, which a replay skips.
+
+- **ESLint rule:** `awaitly/durable-no-step-closure-mutation`
+
+```text
+Writing to "{{name}}" inside a step is lost on replay: completed steps do not run again. Return the value from the step and use its result instead.
 ```
 
 ## `runtime-*`

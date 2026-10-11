@@ -167,6 +167,8 @@ export interface AnalysisContext {
   depth: number;
   /** Bound-steps info for the deps-first form run(deps, fn) */
   boundSteps?: BoundStepsInfo;
+  /** Names bound to a Lambda DurableContext (handler or child-context parameter) */
+  durableContexts?: ReadonlySet<string>;
 }
 
 /**

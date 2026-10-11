@@ -8,6 +8,7 @@
  * `state.key` for snapshot alignment (`currentStepId === state.key ?? state.id`).
  */
 
+import { durableStepKindSuffix } from "../static-analyzer/durable";
 import type {
   WorkflowDiagramDSL,
   WorkflowDiagramState,
@@ -185,6 +186,8 @@ function processNode(node: StaticFlowNode, ctx: DSLContext): { firstId: string |
 
 /** Step kind suffix for DSL label from callee and node metadata. */
 function getDSLStepKindSuffix(node: StaticStepNode): string {
+  const durable = durableStepKindSuffix(node);
+  if (durable) return durable;
   const callee = node.callee;
   if (!callee) return "";
   if (callee === "step.sleep") return node.sleepDuration ? ` (Sleep: ${node.sleepDuration})` : " (Sleep)";

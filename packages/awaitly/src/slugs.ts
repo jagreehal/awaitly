@@ -13,6 +13,7 @@
  * - result-*     Result usage
  * - error-*      Boundary handling
  * - concurrency-* step.all/map/race vs Promise.*
+ * - durable-*    AWS Lambda durable functions and replay
  * - runtime-*    Failures only observable at runtime
  */
 
@@ -55,6 +56,12 @@ export const AWAITLY_SLUGS = {
   "concurrency-no-promise-race": "concurrency-no-promise-race",
   "concurrency-no-promise-allsettled": "concurrency-no-promise-allsettled",
 
+  // --- durable-* ---
+  "durable-no-nondeterminism": "durable-no-nondeterminism",
+  "durable-context-scope": "durable-context-scope",
+  "durable-callback-timeout": "durable-callback-timeout",
+  "durable-no-step-closure-mutation": "durable-no-step-closure-mutation",
+
   // --- runtime-* ---
   "runtime-step-timeout": "runtime-step-timeout",
   "runtime-step-aborted": "runtime-step-aborted",
@@ -77,6 +84,7 @@ export type AwaitlySlugCategory =
   | "result"
   | "error"
   | "concurrency"
+  | "durable"
   | "runtime";
 
 /** Returns the category (prefix) of a slug. */

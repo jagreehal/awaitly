@@ -12,6 +12,7 @@ import type { SourceFile, Node, CallExpression } from "ts-morph";
 import { loadTsMorph } from "../ts-morph-loader";
 
 import type { AnalyzerOptions } from "./shared";
+import { DURABLE_MODULES } from "./durable";
 
 export interface WorkflowCallInfo {
   name: string;
@@ -28,7 +29,7 @@ export interface WorkflowCallInfo {
   optionsObject: Node | undefined;
   callbackFunction: Node | undefined;
   variableDeclaration: Node | undefined;
-  source: "createWorkflow" | "createSagaWorkflow" | "runSaga" | "run";
+  source: "createWorkflow" | "createSagaWorkflow" | "runSaga" | "run" | "withDurableExecution";
 }
 
 /**
@@ -132,6 +133,9 @@ export function findWorkflowCalls(sourceFile: SourceFile, opts: Required<Analyze
 
   // Track local declarations that shadow imports
   const localDeclarations = findLocalDeclarations(sourceFile);
+
+  // withDurableExecution from the AWS durable SDK (or its awaitly drop-in)
+  const durableImports = findDurableImports(sourceFile);
 
   function resolveWorkflowNameArg(arg: Node | undefined): string | undefined {
     if (!arg) return undefined;
@@ -317,6 +321,38 @@ export function findWorkflowCalls(sourceFile: SourceFile, opts: Required<Analyze
       }
     }
 
+    // withDurableExecution(handler): an AWS Lambda durable function. Its
+    // handler is analysed like a workflow callback, with calls on its
+    // DurableContext parameter mapped to steps, waits, callbacks, and so on.
+    const isWithDurableExecution =
+      durableImports.named.has(text) ||
+      (Node.isPropertyAccessExpression(callee) &&
+        callee.getName() === "withDurableExecution" &&
+        durableImports.namespaces.has(calleeExprText));
+    if (isWithDurableExecution && (opts.detect === "all" || opts.detect === "withDurableExecution")) {
+      const handler = unwrapDurableHandler(node.getArguments()[0], durableImports, localDeclarations);
+      const isShadowed = isIdentifierShadowed(
+        Node.isPropertyAccessExpression(callee) ? calleeExprText : text,
+        node,
+        localDeclarations
+      );
+      if (handler && (Node.isArrowFunction(handler) || Node.isFunctionExpression(handler)) && !isShadowed) {
+        const parent = node.getParent();
+        const variableDeclaration = Node.isVariableDeclaration(parent) ? parent : undefined;
+        const fileName = sourceFile.getFilePath().split("/").pop() ?? sourceFile.getFilePath();
+        workflows.push({
+          name: variableDeclaration?.getName() ?? `withDurableExecution@${fileName}:${node.getStartLineNumber()}`,
+          bindingName: variableDeclaration?.getName(),
+          callExpression: node,
+          depsObject: undefined,
+          optionsObject: undefined,
+          callbackFunction: handler,
+          variableDeclaration,
+          source: "withDurableExecution",
+        });
+      }
+    }
+
     // durable.run(deps, fn, options) — `durable` is a NAMED import from
     // awaitly/durable, not a namespace or default import, so the
     // property-access guard below rejected it and a durable workflow produced
@@ -391,6 +427,65 @@ export function findWorkflowCalls(sourceFile: SourceFile, opts: Required<Analyze
   });
 
   return workflows;
+}
+
+interface DurableImports {
+  /** Local names bound to `withDurableExecution` (aliases included) */
+  named: Set<string>;
+  /** Namespace imports of a durable SDK module (import * as sdk) */
+  namespaces: Set<string>;
+  /** Local names bound to awaitly-durable-lambda's `validateEvent` handler wrapper */
+  wrappers: Set<string>;
+  /** Namespace imports of awaitly-durable-lambda, whose `validateEvent` wraps handlers */
+  wrapperNamespaces: Set<string>;
+}
+
+/** The module whose `validateEvent(schema, handler)` passes the handler through. */
+const HANDLER_WRAPPER_MODULE = "awaitly-durable-lambda";
+
+/**
+ * The handler function passed to withDurableExecution, seen through
+ * `validateEvent(schema, handler)`, which passes it on as its last argument.
+ */
+function unwrapDurableHandler(
+  arg: Node | undefined,
+  imports: DurableImports,
+  localDeclarations: Map<string, Node[]>
+): Node | undefined {
+  const { Node } = loadTsMorph();
+  if (!arg || !Node.isCallExpression(arg)) return arg;
+  const callee = arg.getExpression();
+  // The identifier that resolves the wrapper: the name, or the namespace.
+  const binding = Node.isPropertyAccessExpression(callee) ? callee.getExpression().getText() : callee.getText();
+  const isImported = Node.isPropertyAccessExpression(callee)
+    ? callee.getName() === "validateEvent" && imports.wrapperNamespaces.has(binding)
+    : imports.wrappers.has(binding);
+  // A local binding with the wrapper's name is a different function, so its
+  // callback stays unanalysed.
+  const isWrapper = isImported && !isIdentifierShadowed(binding, arg, localDeclarations);
+  return isWrapper ? arg.getArguments().at(-1) : arg;
+}
+
+/** Imports of `withDurableExecution` from a durable SDK module. */
+function findDurableImports(sourceFile: SourceFile): DurableImports {
+  const result: DurableImports = { named: new Set(), namespaces: new Set(), wrappers: new Set(), wrapperNamespaces: new Set() };
+  for (const importDecl of sourceFile.getImportDeclarations()) {
+    const moduleName = importDecl.getModuleSpecifierValue();
+    if (!DURABLE_MODULES.has(moduleName) || importDecl.isTypeOnly()) continue;
+    const isWrapperModule = moduleName === HANDLER_WRAPPER_MODULE;
+    for (const namedImport of importDecl.getNamedImports()) {
+      if (namedImport.isTypeOnly()) continue;
+      const local = namedImport.getAliasNode()?.getText() ?? namedImport.getName();
+      if (namedImport.getName() === "withDurableExecution") result.named.add(local);
+      if (isWrapperModule && namedImport.getName() === "validateEvent") result.wrappers.add(local);
+    }
+    const namespaceImport = importDecl.getNamespaceImport();
+    if (namespaceImport) {
+      result.namespaces.add(namespaceImport.getText());
+      if (isWrapperModule) result.wrapperNamespaces.add(namespaceImport.getText());
+    }
+  }
+  return result;
 }
 
 interface AwaitlyImports {

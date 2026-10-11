@@ -154,6 +154,7 @@ export default defineConfig({
                 { label: 'Prisma Integration', slug: 'guides/prisma' },
                 { label: 'Drizzle Integration', slug: 'guides/drizzle' },
                 { label: 'Zod Integration', slug: 'guides/zod' },
+                { label: 'AWS Lambda Durable Functions', slug: 'guides/aws-lambda-durable-functions' },
                 { label: 'Framework Integration', slug: 'guides/framework-integration' },
                 { label: 'Errors Across the Wire', slug: 'guides/errors-across-the-wire' },
                 { label: 'React Query Integration', slug: 'guides/react-query' },

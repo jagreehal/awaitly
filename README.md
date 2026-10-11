@@ -650,6 +650,8 @@ const result = await durable.run(
 - You can also pass an async function: `resumeState: async () => await loadFromDB()`
 - Works with HITL approvals and crash recovery
 
+On AWS Lambda durable functions, Lambda stores the checkpoints. [`awaitly-durable-lambda`](./packages/awaitly-durable-lambda) wraps the native SDK with typed handlers, typed `context.invoke`, event validation, and typed test runners, and keeps every native signature.
+
 ### 🧑‍💻 Human-in-the-Loop
 
 Pause for manual approvals (large transfers, deployments, refunds) and resume exactly where you left off.

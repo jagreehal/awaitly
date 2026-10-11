@@ -5,6 +5,7 @@
  * Shows all possible paths, not just executed ones.
  */
 
+import { durableStepKindSuffix } from "../static-analyzer/durable";
 import {
   extractFunctionName,
   getStaticChildren,
@@ -156,7 +157,7 @@ function renderStaticMermaidInternal(
   }
 
   // Add end node and connect last nodes to it
-  const endId = "end_node";
+  const endId = END_NODE_ID;
   lines.push(`  ${endId}((End))`);
 
   for (const lastId of lastNodeIds) {
@@ -405,6 +406,9 @@ export function renderStaticMermaid(
 // Internal Types
 // =============================================================================
 
+/** The End node every renderer emits; branches that exit early connect to it. */
+const END_NODE_ID = "end_node";
+
 interface RenderContext {
   opts: Required<MermaidOptions>;
   nodeCounter: number;
@@ -535,6 +539,8 @@ function renderNode(
  * Returns empty string if callee is not a known step.* helper.
  */
 function getStepKindSuffix(node: StaticStepNode): string {
+  const durable = durableStepKindSuffix(node);
+  if (durable) return durable;
   const callee = node.callee;
   if (!callee) return "";
   if (callee === "step.sleep") {
@@ -926,34 +932,29 @@ function renderConditionalNode(
 
   const lastNodeIds: string[] = [];
 
+  // A branch that ends the run (return/throw) goes to End instead of
+  // continuing past the conditional.
+  const renderBranch = (nodes: StaticFlowNode[], label: string, exits: boolean): void => {
+    const result = renderNodes(nodes, context, lines);
+    if (result.firstNodeId) {
+      context.edges.push({ from: decisionId, to: result.firstNodeId, label });
+      if (exits) {
+        for (const id of result.lastNodeIds) context.edges.push({ from: id, to: END_NODE_ID });
+      } else {
+        lastNodeIds.push(...result.lastNodeIds);
+      }
+    } else if (exits) {
+      context.edges.push({ from: decisionId, to: END_NODE_ID, label });
+    }
+  };
+
   // True/consequent branch
-  const trueResult = renderNodes(node.consequent, context, lines);
-  if (trueResult.firstNodeId) {
-    const trueLabel =
-      node.helper === "unless" || node.helper === "unlessOr" ? "false" : "true";
-    context.edges.push({
-      from: decisionId,
-      to: trueResult.firstNodeId,
-      label: trueLabel,
-    });
-    lastNodeIds.push(...trueResult.lastNodeIds);
-  }
+  const negated = node.helper === "unless" || node.helper === "unlessOr";
+  renderBranch(node.consequent, negated ? "false" : "true", node.consequentExits === true);
 
   // False/alternate branch
-  if (node.alternate && node.alternate.length > 0) {
-    const falseResult = renderNodes(node.alternate, context, lines);
-    if (falseResult.firstNodeId) {
-      const falseLabel =
-        node.helper === "unless" || node.helper === "unlessOr"
-          ? "true"
-          : "false";
-      context.edges.push({
-        from: decisionId,
-        to: falseResult.firstNodeId,
-        label: falseLabel,
-      });
-      lastNodeIds.push(...falseResult.lastNodeIds);
-    }
+  if ((node.alternate && node.alternate.length > 0) || node.alternateExits) {
+    renderBranch(node.alternate ?? [], negated ? "true" : "false", node.alternateExits === true);
   } else {
     // No alternate - decision can skip directly
     lastNodeIds.push(decisionId);

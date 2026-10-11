@@ -46,6 +46,14 @@ export default [
 ];
 ```
 
+For AWS Lambda durable functions without awaitly workflows, use the `durable` config. It holds the `durable-*` rules, which `recommended` also includes:
+
+```js
+import awaitly from 'eslint-plugin-awaitly';
+
+export default [...awaitly.configs.durable];
+```
+
 For projects that want hints upgraded to errors (CI gating), use `recommended-strict`:
 
 ```js
@@ -349,6 +357,42 @@ if (isUnexpectedError(result.error)) {
   /* */
 }
 ```
+
+### `durable-*`, AWS Lambda durable functions
+
+These rules apply inside handlers passed to `withDurableExecution` from `@aws/durable-execution-sdk-js` or `awaitly-durable-lambda`, including handlers wrapped in `validateEvent`. Lambda replays the handler body after every wait, callback, and retry, so that code must produce the same operations each time.
+
+#### `awaitly/durable-no-nondeterminism`
+
+**Severity**: error
+
+Flags `Date.now()`, `new Date()`, `Math.random()`, `crypto.randomUUID()`, and `performance.now()` outside a step. Compute the value in a step so each replay reuses the checkpoint.
+
+```typescript
+// Bad
+const id = crypto.randomUUID();
+
+// Good
+const id = await context.step('newId', async () => crypto.randomUUID());
+```
+
+#### `awaitly/durable-context-scope`
+
+**Severity**: error
+
+Flags a durable operation inside a step function, and an enclosing context used inside `runInChildContext`, `map`, or `parallel`. Call operations from the handler body, on the context your callback received.
+
+#### `awaitly/durable-callback-timeout`
+
+**Severity**: warn
+
+Flags `waitForCallback` and `createCallback` without a `timeout`, which would hold the execution open until its execution timeout.
+
+#### `awaitly/durable-no-step-closure-mutation`
+
+**Severity**: error
+
+Flags a step that writes to a variable declared outside it. A replayed step skips its function, so the write never happens on replay. Return the value from the step instead.
 
 ## Custom configuration
 

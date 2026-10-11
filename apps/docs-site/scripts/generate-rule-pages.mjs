@@ -91,6 +91,7 @@ const CATEGORY_ORDER = [
   "result",
   "error",
   "concurrency",
+  "durable",
   "runtime",
 ];
 
@@ -100,6 +101,7 @@ const CATEGORY_BLURB = {
   result: "Result usage: ok/err, propagation, double-wrap.",
   error: "Boundary handling: isUnexpectedError, .cause, normalization.",
   concurrency: "step.all / step.map / step.race vs Promise.*.",
+  durable: "AWS Lambda durable functions: what replays, and what a step must contain.",
   runtime: "Failures only observable at runtime.",
 };
 
