@@ -1391,3 +1391,19 @@ const result = await durable.run(deps, fn, {
   heartbeatIntervalMs: 10_000,
 });
 ```
+
+## AWS Lambda durable functions
+
+`awaitly-durable-lambda` is a drop-in for `@aws/durable-execution-sdk-js`: same `withDurableExecution`, same `context.*` signatures. Write native durable handlers; awaitly adds types.
+
+- **MUST** keep native signatures: `withDurableExecution(async (event: Event, context) => { ... })`, `context.step(name, fn)`.
+- **MUST** return `err(...)` from a step for an expected failure. Lambda checkpoints it and does not retry it. Throw for faults that Lambda should retry.
+- **MUST** handle a failed step Result with an early return: `if (!result.ok) return result;`. The handler's result type then unions every failure.
+- **MUST** compute time, random values, and IDs inside `context.step(...)`. Lambda replays the handler body after every wait, callback, and retry.
+- **MUST NOT** call durable operations inside a step function, or use a parent context inside `runInChildContext`, `map`, or `parallel` callbacks.
+- Keep step Results JSON-safe: Lambda stores them as JSON, so a `Date` returns as a string.
+- Validate events with `withDurableExecution(validateEvent(schema, handler))`; invalid input returns `err({ type: "INVALID_EVENT", issues })`.
+- Type invokes with `durableFunction<typeof handler>(qualifiedArn)` and `context.invoke(name, target, input)`.
+- Test with `awaitly-durable-lambda/testing`: `new LocalDurableTestRunner({ handlerFunction })` infers payload and result types.
+- Lint with `eslint-plugin-awaitly` (`configs.durable` or `recommended`).
+

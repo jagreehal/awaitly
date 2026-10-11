@@ -9,6 +9,7 @@ import { spawn, spawnSync } from "child_process";
 import { parseArgs } from "./cli";
 import { existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
+import { fileURLToPath } from "url";
 
 const CLI_PATH = join(__dirname, "..", "dist", "cli.js");
 const FIXTURES_DIR = join(__dirname, "__fixtures__");
@@ -326,11 +327,14 @@ describe("CLI", () => {
       expect(generated).toContain("user: { id: string; name: string; }");
       expect(generated).toContain("orders: { id: number; total: number; }[]");
 
+      // TypeScript 7 (tsgo), called directly: `pnpm exec tsc` could resolve
+      // either compiler. --ignoreConfig: TS7 refuses command-line files while
+      // the package tsconfig.json is in scope.
       const compiled = spawnSync(
-        "pnpm",
+        process.execPath,
         [
-          "exec",
-          "tsc",
+          fileURLToPath(new URL("../node_modules/tsgo/bin/tsc", import.meta.url)),
+          "--ignoreConfig",
           "--noEmit",
           "--skipLibCheck",
           "--target",

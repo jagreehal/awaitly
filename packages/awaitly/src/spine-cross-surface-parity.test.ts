@@ -34,6 +34,10 @@ const EXPECTED_LINT_SLUGS = new Set([
   'error-check-unexpected-first',
   'error-prefer-match',
   'error-require-discriminant',
+  'durable-no-nondeterminism',
+  'durable-context-scope',
+  'durable-callback-timeout',
+  'durable-no-step-closure-mutation',
 ]);
 
 describe('spine cross-surface parity', () => {

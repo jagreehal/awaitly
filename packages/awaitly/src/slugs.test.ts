@@ -15,8 +15,8 @@ describe("slugs namespace", () => {
     }
   });
 
-  it("contains exactly 37 slugs", () => {
-    expect(ALL_SLUGS).toHaveLength(37);
+  it("contains exactly 41 slugs", () => {
+    expect(ALL_SLUGS).toHaveLength(41);
   });
 
   it("every slug starts with a known category prefix", () => {
@@ -26,6 +26,7 @@ describe("slugs namespace", () => {
       "result",
       "error",
       "concurrency",
+      "durable",
       "runtime",
     ]);
     for (const slug of ALL_SLUGS) {

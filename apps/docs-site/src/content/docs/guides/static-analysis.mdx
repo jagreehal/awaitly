@@ -40,6 +40,23 @@ The analyzer reads native `if`/`else`, `for...of`, and `while` blocks. It derive
 
 See [Control flow and diagrammability](foundations/control-flow/#stepif-for-labelled-branches) for the workflow authoring patterns.
 
+
+## AWS Lambda durable functions
+
+The analyzer discovers handlers passed to `withDurableExecution` from `@aws/durable-execution-sdk-js` or `awaitly-durable-lambda`, including handlers wrapped in `validateEvent`. It names each diagram after the variable that holds the handler and maps the durable operations:
+
+| Code | Diagram |
+|---|---|
+| `context.step(name, fn)` | step, labelled with the function it calls |
+| `context.wait(name, { days: 1 })` | step with its duration, `(Wait: 1d)` |
+| `context.waitForCallback(name, submit, { timeout })` | step with its timeout |
+| `context.invoke(name, target, input)` | step naming the target ARN or `durableFunction` |
+| `context.parallel(name, branches)` | parallel branches |
+| `context.map(name, items, fn)` | loop over `items` |
+| `context.runInChildContext(name, fn)` | named group |
+| `if (!result.ok) return result;` | branch drawn to End |
+
+See [AWS Lambda Durable Functions](guides/aws-lambda-durable-functions/).
 ## Fast start
 
 The npm package is `awaitly-analyze` (not `awaitly-analyzer`). Point it at any TypeScript file that contains `run()`, `createWorkflow()`, `runSaga()`, or `durable.run()` — a test file works if the `run()` call is in the source.

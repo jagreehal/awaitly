@@ -41,9 +41,18 @@ try {
     // installed the way a real consumer installs it: as a direct dependency,
     // resolved to this checkout's tarball rather than the published version.
     const workspacePeers = Object.keys(manifest.peerDependencies ?? {}).filter((name) => overrides[name]);
+    // An optional peer backs an optional entry (e.g. a /testing entry over a
+    // test library). Importing every entry, as below, is what a consumer who
+    // installs those peers does, so install them from their peer range.
+    const optionalPeers = Object.entries(manifest.peerDependenciesMeta ?? {})
+      .filter(([name, meta]) => meta?.optional && !overrides[name])
+      .map(([name]) => [name, manifest.peerDependencies[name]]);
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({
       name: `smoke-${manifest.name}`, private: true, type: 'module',
-      dependencies: Object.fromEntries([manifest.name, ...workspacePeers].map((name) => [name, overrides[name]])),
+      dependencies: Object.fromEntries([
+        ...[manifest.name, ...workspacePeers].map((name) => [name, overrides[name]]),
+        ...optionalPeers,
+      ]),
       // Node consumers normally install Node's ambient types. Do not install
       // workspace devDependencies: that would hide missing published typings.
       devDependencies: { '@types/node': nodeTypes },

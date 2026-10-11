@@ -20,7 +20,7 @@
   ],
   "scripts": {
     "build": "tsup",
-    "type-check": "tsc --noEmit",
+    "type-check": "node node_modules/tsgo/bin/tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest watch",
     "lint": "eslint .",
@@ -58,6 +58,7 @@
     "@total-typescript/tsconfig": "1.0.4",
     "@types/node": "25.9.3",
     "awaitly": "workspace:^",
+    "tsgo": "npm:typescript@7.0.2",
     "tsup": "8.5.1",
     "typescript": "5.9.3",
     "vitest": "4.1.10"

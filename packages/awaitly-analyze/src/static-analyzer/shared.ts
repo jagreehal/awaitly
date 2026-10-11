@@ -24,8 +24,11 @@ export interface AnalyzerOptions {
   includeLocations?: boolean;
   /** Assume imports are present (for code snippets without imports) */
   assumeImported?: boolean;
-  /** Filter which patterns to detect: 'run', 'createWorkflow', 'createSagaWorkflow', or 'all' */
-  detect?: "run" | "createWorkflow" | "createSagaWorkflow" | "all";
+  /**
+   * Filter which patterns to detect: 'run', 'createWorkflow', 'createSagaWorkflow',
+   * 'withDurableExecution' (AWS Lambda durable functions), or 'all'
+   */
+  detect?: "run" | "createWorkflow" | "createSagaWorkflow" | "withDurableExecution" | "all";
 }
 
 export function getLocation(node: Node): SourceLocation {

@@ -298,6 +298,13 @@ export interface StaticConditionalNode extends StaticBaseNode {
   consequent: StaticFlowNode[];
   /** The "else" branch (or default value for whenOr/unlessOr) */
   alternate?: StaticFlowNode[];
+  /**
+   * The "if" branch ends the run (return/throw) instead of continuing past the
+   * conditional, e.g. `if (!result.ok) return result;`. Set for durable handlers.
+   */
+  consequentExits?: boolean;
+  /** The "else" branch ends the run (return/throw). Set for durable handlers. */
+  alternateExits?: boolean;
   /** For whenOr/unlessOr, the default value as source string */
   defaultValue?: string;
   /** Inferred type of the condition expression (e.g. "boolean") */
@@ -468,7 +475,7 @@ export interface StaticWorkflowNode extends StaticBaseNode {
   /** Name of the workflow (from variable name or file name) */
   workflowName: string;
   /** Source pattern: 'createWorkflow', 'run', 'createSagaWorkflow', or 'runSaga' */
-  source?: "createWorkflow" | "run" | "createSagaWorkflow" | "runSaga";
+  source?: "createWorkflow" | "run" | "createSagaWorkflow" | "runSaga" | "withDurableExecution";
   /** Dependencies declared in createWorkflow */
   dependencies: DependencyInfo[];
   /** Inferred error types from dependencies */
