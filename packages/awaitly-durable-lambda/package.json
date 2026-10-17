@@ -80,7 +80,7 @@
     "eslint-plugin-awaitly": "workspace:^",
     "tsgo": "npm:typescript@7.0.2",
     "tsup": "8.5.1",
-    "tsx": "4.23.8",
+    "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vitest": "4.1.10",
     "zod": "4.4.3"
