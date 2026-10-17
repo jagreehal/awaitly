@@ -50,8 +50,8 @@
     "awaitly": "workspace:^"
   },
   "dependencies": {
-    "@types/pg": "8.20.4",
-    "pg": "8.22.0"
+    "@types/pg": "8.23.1",
+    "pg": "8.23.1"
   },
   "devDependencies": {
     "@total-typescript/ts-reset": "0.6.1",
