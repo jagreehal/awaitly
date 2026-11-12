@@ -97,15 +97,15 @@ Create a file and run it to verify everything works:
 // test.ts
 import { ok, err, type AsyncResult } from 'awaitly';
 
-const divide = async (a: number, b: number): AsyncResult<number, 'DIVIDE_BY_ZERO'> =>
-  b === 0 ? err('DIVIDE_BY_ZERO') : ok(a / b);
+const divide = async (a: number, b: number): AsyncResult<number, { type: 'DIVIDE_BY_ZERO' }> =>
+  b === 0 ? err({ type: 'DIVIDE_BY_ZERO' }) : ok(a / b);
 
 const result = await divide(10, 2);
 
 if (result.ok) {
   console.log('Result:', result.value); // Result: 5
 } else {
-  console.log('Error:', result.error);
+  console.log('Error:', result.error.type);
 }
 ```
 

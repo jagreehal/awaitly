@@ -81,7 +81,7 @@ if (!userResult.ok) return userResult;  // Don't do this!
 ```typescript
 // Correct
 const user = await step('getUser', () => deps.getUser(id));
-const data = await step.try('fetch', () => fetch(url), { error: 'FETCH_ERROR' });
+const data = await step.try('fetch', () => fetch(url), { error: { type: 'FETCH_ERROR' } });
 
 // Wrong - bare await bypasses error handling
 const user = await deps.getUser(id);  // Don't do this!
@@ -121,12 +121,12 @@ async function getOrder(id: string) {
 import { ok, err, type AsyncResult, run } from 'awaitly';
 
 // 1. Convert deps to return Results
-async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
+async function fetchUser(id: string): AsyncResult<User, { type: 'NOT_FOUND' }> {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? ok(user) : err({ type: 'NOT_FOUND' });
 }
 
-async function createOrder(user: User): AsyncResult<Order, 'ORDER_FAILED'> {
+async function createOrder(user: User): AsyncResult<Order, { type: 'ORDER_FAILED' }> {
   // ...
 }
 

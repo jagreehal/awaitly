@@ -13,11 +13,11 @@ export type E2eEvent =
   | { scenario: "approval"; userId: string }
   | { scenario: "alwaysThrows" };
 
-const getUser = async (id: string): AsyncResult<User, "NOT_FOUND"> =>
-  id === "missing" ? err("NOT_FOUND") : ok({ id, name: "Ada" });
+const getUser = async (id: string): AsyncResult<User, { type: "NOT_FOUND" }> =>
+  id === "missing" ? err({ type: "NOT_FOUND" }) : ok({ id, name: "Ada" });
 
-const charge = async (user: User): AsyncResult<{ receipt: string }, "DECLINED"> =>
-  user.id === "broke" ? err("DECLINED") : ok({ receipt: `r-${user.id}` });
+const charge = async (user: User): AsyncResult<{ receipt: string }, { type: "DECLINED" }> =>
+  user.id === "broke" ? err({ type: "DECLINED" }) : ok({ receipt: `r-${user.id}` });
 
 // Two attempts, one second apart, so the retry scenario finishes in seconds.
 const twoAttempts = (_error: Error, attempt: number): RetryDecision =>

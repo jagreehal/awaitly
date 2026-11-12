@@ -53,15 +53,15 @@ If you can write `async/await`, you already know awaitly. There is no generator 
 ```typescript
 import { ok, err, type AsyncResult, run } from 'awaitly';
 
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
-  id === '1' ? ok({ id, name: 'Ada' }) : err('NOT_FOUND');
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> =>
+  id === '1' ? ok({ id, name: 'Ada' }) : err({ type: 'NOT_FOUND' });
 
 const result = await run(async ({ step }) => {
   const user = await step('fetchUser', () => fetchUser(id));
   return user.name;
 });
 
-// result.ok ? result.value : result.error  — error is "NOT_FOUND" | UnexpectedError
+// result.ok ? result.value : result.error  — error is { type: "NOT_FOUND" } | UnexpectedError
 ```
   </TabItem>
   <TabItem label="Effect">
@@ -98,10 +98,10 @@ import { run, ok, err, type AsyncResult } from 'awaitly';
 type User = { id: string; name: string };
 type Post = { id: string; userId: string };
 
-const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
-  id === '1' ? ok({ id, name: 'Ada' }) : err('NOT_FOUND');
+const getUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> =>
+  id === '1' ? ok({ id, name: 'Ada' }) : err({ type: 'NOT_FOUND' });
 
-const getPosts = async (userId: string): AsyncResult<Post[], 'POSTS_FAILED'> =>
+const getPosts = async (userId: string): AsyncResult<Post[], { type: 'POSTS_FAILED' }> =>
   ok([{ id: 'p1', userId }]);
 
 const result = await run({ getUser, getPosts }, async (s) => {
@@ -110,7 +110,7 @@ const result = await run({ getUser, getPosts }, async (s) => {
   return { user, posts };
 });
 
-// result.error: 'NOT_FOUND' | 'POSTS_FAILED' | UnexpectedError
+// result.error: { type: 'NOT_FOUND' } | { type: 'POSTS_FAILED' } | UnexpectedError
 ```
   </TabItem>
   <TabItem label="Effect">
@@ -248,8 +248,8 @@ These helpers are not thin wrappers: they emit step events, support retry/timeou
 ```typescript
 import { ok, err, type Result } from 'awaitly';
 
-const divide = (a: number, b: number): Result<number, 'DIVIDE_BY_ZERO'> =>
-  b === 0 ? err('DIVIDE_BY_ZERO') : ok(a / b);
+const divide = (a: number, b: number): Result<number, { type: 'DIVIDE_BY_ZERO' }> =>
+  b === 0 ? err({ type: 'DIVIDE_BY_ZERO' }) : ok(a / b);
 
 const result = divide(10, 2);
 if (result.ok) {
@@ -284,7 +284,7 @@ awaitly Result:
          ┌─── Success value type
          │       ┌─── Error type
          ▼       ▼
-Result<number, 'DIVIDE_BY_ZERO'>
+Result<number, { type: 'DIVIDE_BY_ZERO' }>
 
 Effect:
          ┌─── Success value
@@ -307,8 +307,8 @@ Effect has a third type parameter for dependencies (Requirements). awaitly handl
 ```typescript
 import { run, type ErrorsOf } from 'awaitly';
 
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
-const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> => { /* ... */ };
+const sendEmail = async (to: string): AsyncResult<void, { type: 'EMAIL_FAILED' }> => { /* ... */ };
 
 const deps = { fetchUser, sendEmail };
 type Errors = ErrorsOf<typeof deps>;
@@ -319,7 +319,7 @@ const result = await run<User, Errors>(async ({ step }) => {
   return user;
 });
 
-// TypeScript knows: result.error is 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
+// TypeScript knows: result.error is { type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' } | UnexpectedError
 ```
   </TabItem>
   <TabItem label="awaitly (workflow)">
@@ -377,7 +377,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 });
 
 if (!result.ok) {
-  switch (result.error) {
+  switch (result.error.type) {
     case 'NOT_FOUND':
       console.log('User not found');
       break;
@@ -753,13 +753,13 @@ const result = await Effect.runPromise(program);
 ```typescript
 import { ok, err, allSettled, partition } from 'awaitly';
 
-const results = [ok(1), err('A'), ok(3), err('B')];
+const results = [ok(1), err({ type: 'A' }), ok(3), err({ type: 'B' })];
 const settled = allSettled(results);
 /*
 Output (any Err present → Err with all errors collected):
 {
   ok: false,
-  error: [{ error: 'A' }, { error: 'B' }]
+  error: [{ error: { type: 'A' } }, { error: { type: 'B' } }]
 }
 
 If every Result is Ok, the success values are returned as an array:
@@ -917,17 +917,17 @@ import { ok, err, map, andThen, mapError, type Result } from 'awaitly';
 
 // Compose with the Result combinators — plain function calls, no pipe()
 const doubled = map(ok(5), (n) => n * 2);
-const checked = andThen(doubled, (n) => (n > 5 ? ok(n) : err('TOO_SMALL')));
-const result = mapError(checked, (e) => ({ code: e }));
+const checked = andThen(doubled, (n) => (n > 5 ? ok(n) : err({ type: 'TOO_SMALL' })));
+const result = mapError(checked, (e) => ({ type: 'MAPPED', code: e.type }));
 
 // Wrap the sequence in a reusable function
 const processNumber = (input: Result<number, never>) =>
   mapError(
     andThen(
       map(input, (n: number) => n * 2),
-      (n) => (n > 5 ? ok(n) : err('TOO_SMALL')),
+      (n) => (n > 5 ? ok(n) : err({ type: 'TOO_SMALL' })),
     ),
-    (e) => ({ code: e }),
+    (e) => ({ type: 'MAPPED', code: e.type }),
   );
 
 const out = processNumber(ok(5));

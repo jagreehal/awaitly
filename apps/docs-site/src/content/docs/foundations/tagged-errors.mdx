@@ -3,7 +3,7 @@ title: Tagged Errors
 description: Rich error types with exhaustive pattern matching
 ---
 
-String literal errors like `'NOT_FOUND'` work for simple cases. When you need errors with contextual data, use `TaggedError`.
+Errors you create in awaitly (with `err()`, error mappers, `step.try`, or `catchUnexpected`) must be tagged objects with a `type` field. Bare string errors like `'NOT_FOUND'` were removed in this major. A `Result` from code you don't control can still carry other error types, such as the `unknown` from `tryAsync` without a mapper. A plain object like `{ type: 'NOT_FOUND' }` works for simple cases. When you need errors with contextual data, use `TaggedError`.
 
 This guide progresses through: **deciding when to use TaggedError** → **creating them** → **pattern matching** → **advanced usage**.
 
@@ -11,7 +11,7 @@ This guide progresses through: **deciding when to use TaggedError** → **creati
 
 ```
 Do you need data attached to the error?
-├── No → Use string literals: 'NOT_FOUND' | 'UNAUTHORIZED'
+├── No → Plain tagged objects: { type: 'NOT_FOUND' } | { type: 'UNAUTHORIZED' }
 └── Yes → Do you have 3+ error variants to handle?
     ├── No → Object literal: { type: 'NOT_FOUND', id: string }
     └── Yes → TaggedError with match()
@@ -19,18 +19,18 @@ Do you need data attached to the error?
 
 | Use case | Recommendation |
 |----------|---------------|
-| Simple distinct states | String literals: `'NOT_FOUND' \| 'UNAUTHORIZED'` |
+| Simple distinct states | Plain tagged objects: `{ type: 'NOT_FOUND' } \| { type: 'UNAUTHORIZED' }` |
 | Errors with context | TaggedError: `NotFoundError { id, resource }` |
 | Multiple variants to handle | TaggedError with `match()` |
 | API responses | TaggedError for structured data |
 
-## When to migrate from string literals
+## When to migrate from plain tagged objects
 
-**Start with string literals.** They're simpler and often sufficient:
+**Start with plain `{ type }` objects.** They're simpler and often sufficient:
 
 ```typescript
 // Good for simple cases
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND' | 'FORBIDDEN'> => {
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' } | { type: 'FORBIDDEN' }> => {
   // ...
 };
 ```
@@ -41,7 +41,7 @@ const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND' | 'FORBIDDEN
 
 ```typescript
 // ❌ Before: No context, hard to debug
-return err('NOT_FOUND');
+return err({ type: 'NOT_FOUND' });
 
 // ✅ After: Rich context
 return err(new NotFoundError({ resource: 'User', id, searchedAt: 'users_table' }));
@@ -51,10 +51,10 @@ return err(new NotFoundError({ resource: 'User', id, searchedAt: 'users_table' }
 
 ```typescript
 // ❌ Before: Verbose switch/case
-if (error === 'NOT_FOUND') { ... }
-else if (error === 'FORBIDDEN') { ... }
-else if (error === 'RATE_LIMITED') { ... }
-else if (error === 'VALIDATION_FAILED') { ... }
+if (error.type === 'NOT_FOUND') { ... }
+else if (error.type === 'FORBIDDEN') { ... }
+else if (error.type === 'RATE_LIMITED') { ... }
+else if (error.type === 'VALIDATION_FAILED') { ... }
 
 // ✅ After: Exhaustive, type-safe match
 TaggedError.match(error, {
@@ -77,21 +77,21 @@ TaggedError.match(error, {
 
 ## Migration example
 
-**Before: String literals**
+**Before: Plain tagged objects**
 
 ```typescript
-type UserError = 'NOT_FOUND' | 'FORBIDDEN' | 'VALIDATION_FAILED';
+type UserError = { type: 'NOT_FOUND' } | { type: 'FORBIDDEN' } | { type: 'VALIDATION_FAILED' };
 
 const fetchUser = async (id: string): AsyncResult<User, UserError> => {
-  if (!session.valid) return err('FORBIDDEN');
+  if (!session.valid) return err({ type: 'FORBIDDEN' });
   const user = await db.users.find(id);
-  if (!user) return err('NOT_FOUND');
+  if (!user) return err({ type: 'NOT_FOUND' });
   return ok(user);
 };
 
 // Handling
 if (!result.ok) {
-  if (result.error === 'NOT_FOUND') {
+  if (result.error.type === 'NOT_FOUND') {
     return res.status(404).json({ error: 'User not found' });
   }
   // No context about WHICH user wasn't found
@@ -196,7 +196,7 @@ const fetchUser = async (id: string): AsyncResult<User, NotFoundError | Unauthor
 
 **WHAT**: Use `match` (from `awaitly`) or `TaggedError.match` to handle each error variant with exhaustive type checking.
 
-**WHY**: TypeScript ensures you handle every error type, forget one and you get a compile error. Both forms dispatch on `.type` (string literals match themselves; class names match `TaggedError` instances).
+**WHY**: TypeScript ensures you handle every error type, forget one and you get a compile error. Both forms dispatch on `.type` (plain `{ type }` objects match on their `type`; class names match `TaggedError` instances).
 
 The root `match(result, { ok, NotFoundError, ... })` works on full Results. `TaggedError.match(error, { ... })` works on a single error value.
 

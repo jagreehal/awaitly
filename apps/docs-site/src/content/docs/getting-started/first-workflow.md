@@ -21,10 +21,10 @@ import { ok, err, type AsyncResult } from 'awaitly';
 type User = { id: string; name: string };
 type Post = { id: number; title: string };
 
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
-  id === '1' ? ok({ id: '1', name: 'Alice' }) : err('NOT_FOUND');
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> =>
+  id === '1' ? ok({ id: '1', name: 'Alice' }) : err({ type: 'NOT_FOUND' });
 
-const fetchPosts = async (userId: string): AsyncResult<Post[], 'FETCH_ERROR'> =>
+const fetchPosts = async (userId: string): AsyncResult<Post[], { type: 'FETCH_ERROR' }> =>
   ok([{ id: 1, title: 'Hello World' }]);
 ```
 
@@ -51,8 +51,8 @@ const result = await loadUserData.run(async ({ steps }) => {
 });
 ```
 
-If `fetchUser` returns `err('NOT_FOUND')`, the callback stops there and `result.error`
-is `'NOT_FOUND'`. Identical to `run()`.
+If `fetchUser` returns `err({ type: 'NOT_FOUND' })`, the callback stops there and `result.error`
+is `{ type: 'NOT_FOUND' }`. Identical to `run()`.
 
 ## Handle the result
 
@@ -60,7 +60,7 @@ is `'NOT_FOUND'`. Identical to `run()`.
 if (result.ok) {
   console.log(result.value.user.name, result.value.posts.length);
 } else {
-  switch (result.error) {
+  switch (result.error.type) {
     case 'NOT_FOUND':   console.log('User not found'); break;
     case 'FETCH_ERROR': console.log('Failed to fetch posts'); break;
     default:            console.log('Threw:', result.error.cause);
@@ -68,7 +68,7 @@ if (result.ok) {
 }
 ```
 
-`result.error` is `'NOT_FOUND' | 'FETCH_ERROR' | UnexpectedError`, inferred from the
+`result.error` is `{ type: 'NOT_FOUND' } | { type: 'FETCH_ERROR' } | UnexpectedError`, inferred from the
 deps. See [What TypeScript gives you back](getting-started/types/).
 
 ## What you unlocked
@@ -122,10 +122,10 @@ import { ok, err, type AsyncResult, createWorkflow } from 'awaitly';
 type User = { id: string; name: string };
 type Post = { id: number; title: string };
 
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
-  id === '1' ? ok({ id: '1', name: 'Alice' }) : err('NOT_FOUND');
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> =>
+  id === '1' ? ok({ id: '1', name: 'Alice' }) : err({ type: 'NOT_FOUND' });
 
-const fetchPosts = async (userId: string): AsyncResult<Post[], 'FETCH_ERROR'> =>
+const fetchPosts = async (userId: string): AsyncResult<Post[], { type: 'FETCH_ERROR' }> =>
   ok([{ id: 1, title: 'Hello World' }]);
 
 const loadUserData = createWorkflow('loadUserData', { fetchUser, fetchPosts });

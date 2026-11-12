@@ -54,7 +54,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 
 // Handle errors at the boundary
 if (!result.ok) {
-  switch (result.error.type ?? result.error) {
+  switch (result.error.type) {
     case 'PAYMENT_FAILED':
       await handleFailedPayment(result.error);
       break;
@@ -76,19 +76,19 @@ Handle errors at workflow boundaries (HTTP handlers, CLI entry points) where you
 When you create a workflow, TypeScript computes the error union from your dependencies:
 
 ```typescript
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
-const fetchPosts = async (id: string): AsyncResult<Post[], 'FETCH_ERROR'> => { /* ... */ };
-const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> => { /* ... */ };
+const fetchPosts = async (id: string): AsyncResult<Post[], { type: 'FETCH_ERROR' }> => { /* ... */ };
+const sendEmail = async (to: string): AsyncResult<void, { type: 'EMAIL_FAILED' }> => { /* ... */ };
 
 const workflow = createWorkflow('workflow', { fetchUser, fetchPosts, sendEmail });
 
 const result = await workflow.run(async ({ step, deps }) => { /* ... */ });
-// result.error is: 'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | UnexpectedError
+// result.error is: { type: 'NOT_FOUND' } | { type: 'FETCH_ERROR' } | { type: 'EMAIL_FAILED' } | UnexpectedError
 ```
 
 Add a new dependency? The error union updates automatically.
 
-That comment is exactly what you see on hover: `result.error` resolves to the concrete literal union (`'NOT_FOUND' | 'FETCH_ERROR' | 'EMAIL_FAILED' | UnexpectedError`), not an opaque internal alias, so a typo like `result.error === 'NOT_FUOND'` is a compile error, and `switch`/`matchError` stay exhaustive. The deps-first `run(deps, fn)` form infers and displays the same way.
+That comment is exactly what you see on hover: `result.error` resolves to the concrete union (`{ type: 'NOT_FOUND' } | { type: 'FETCH_ERROR' } | { type: 'EMAIL_FAILED' } | UnexpectedError`), not an opaque internal alias, so a typo like `result.error.type === 'NOT_FUOND'` is a compile error, and `switch`/`matchError` stay exhaustive. The deps-first `run(deps, fn)` form infers and displays the same way.
 
 ## `UnexpectedError`
 
@@ -97,7 +97,7 @@ If code throws an exception (not a returned error), it becomes an `UnexpectedErr
 ```typescript
 import { isUnexpectedError } from 'awaitly';
 
-const badOperation = async (): AsyncResult<string, 'KNOWN_ERROR'> => {
+const badOperation = async (): AsyncResult<string, { type: 'KNOWN_ERROR' }> => {
   throw new Error('Something broke'); // Throws instead of returning err()
 };
 
@@ -115,13 +115,13 @@ if (!result.ok && isUnexpectedError(result.error)) {
 `UnexpectedError` is a `TaggedError` in the error union. Use `isUnexpectedError(result.error)` to narrow it, and access the original thrown error via `result.error.cause`. Use `step.try()` to convert thrown exceptions into typed errors instead.
 </Aside>
 
-## String Literals vs TaggedError
+## Plain Tagged Objects vs TaggedError
 
-Choose your error type based on complexity:
+Errors you create with `err()`, error mappers, `step.try`, or `catchUnexpected` must be tagged objects with a `type` field; bare string errors were removed in this major. A `Result` from code you don't control can still carry other error types, such as the `unknown` from `tryAsync` without a mapper. Choose your error type based on complexity:
 
 ```text
 Do you need data attached to the error?
-├── No → Use string literals: 'NOT_FOUND' | 'UNAUTHORIZED'
+├── No → Plain tagged objects: { type: 'NOT_FOUND' } | { type: 'UNAUTHORIZED' }
 └── Yes → Do you have 3+ error variants to handle?
     ├── No → Object literal: { type: 'NOT_FOUND', id: string }
     └── Yes → TaggedError with match()
@@ -129,19 +129,19 @@ Do you need data attached to the error?
 
 | Use Case | Recommendation |
 |----------|---------------|
-| Simple distinct states | String literals: `'NOT_FOUND' \| 'UNAUTHORIZED'` |
+| Simple distinct states | Plain tagged objects: `{ type: 'NOT_FOUND' } \| { type: 'UNAUTHORIZED' }` |
 | Errors with context | TaggedError: `NotFoundError { id, resource }` |
 | Multiple variants to handle | TaggedError with `match()` |
 
-### String Literals
+### Plain Tagged Objects
 
 Simple and sufficient for most cases:
 
 ```typescript
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND' | 'FORBIDDEN'> => {
-  if (!session.valid) return err('FORBIDDEN');
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' } | { type: 'FORBIDDEN' }> => {
+  if (!session.valid) return err({ type: 'FORBIDDEN' });
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? ok(user) : err({ type: 'NOT_FOUND' });
 };
 ```
 
@@ -244,7 +244,7 @@ const workflow = createWorkflow({ apiCall }, { errors: ['API_TIMEOUT'] });
 const result = await workflow.run(async ({ step, deps }) =>
   step.withTimeout('apiCall', () => deps.apiCall(), {
     ms: 5000,
-    onTimeout: () => 'API_TIMEOUT',
+    onTimeout: () => ({ type: 'API_TIMEOUT' }),
   })
 );
 ```
@@ -360,8 +360,8 @@ const user = await step.retry(
     backoff: 'exponential',
     shouldRetry: (error) => {
       // Don't retry permanent failures
-      if (error === 'NOT_FOUND') return false;
-      if (error === 'INVALID_ID') return false;
+      if (error.type === 'NOT_FOUND') return false;
+      if (error.type === 'INVALID_ID') return false;
       // Retry transient failures
       return true;
     },
@@ -429,7 +429,7 @@ const result = await run<User, RunErrors>(async ({ step }) => {
   await step('sendEmail', () => sendEmail(user.email));
   return user;
 });
-// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
+// result.error is: { type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' } | UnexpectedError
 ```
 
 To replace `UnexpectedError` with a custom type, pass `catchUnexpected`:
@@ -444,14 +444,14 @@ const workflow = createWorkflow('workflow', { fetchUser, fetchPosts },
     }),
   }
 );
-// result.error is now: 'NOT_FOUND' | 'EMAIL_FAILED' | { type: 'UNEXPECTED', message: string }
+// result.error is now: { type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' } | { type: 'UNEXPECTED', message: string }
 
 // run() — same option available
-const result = await run<User, 'NOT_FOUND'>(
+const result = await run<User, { type: 'NOT_FOUND' }>(
   async ({ step }) => { /* ... */ },
   { catchUnexpected: (thrown) => ({ type: 'UNEXPECTED', message: String(thrown) }) }
 );
-// result.error is: 'NOT_FOUND' | { type: 'UNEXPECTED', message: string }
+// result.error is: { type: 'NOT_FOUND' } | { type: 'UNEXPECTED', message: string }
 ```
 
 ## Summary Table

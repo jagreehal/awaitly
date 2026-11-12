@@ -6,7 +6,7 @@
  * These tests define REALISTIC expected behavior based on TypeScript's capabilities.
  */
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { expectType } from "tsd";
+import { expectError, expectType } from "tsd";
 import {
   ok,
   err,
@@ -17,6 +17,7 @@ import {
   recover,
   recoverAsync,
   mapError,
+  bimap,
   match,
   map,
   tapError,
@@ -57,6 +58,9 @@ import { matchError as matchErrorCore, type MatchErrorHandlers as MatchErrorHand
 import { createWebhookHandler } from "./webhook-entry";
 import { tryAsyncBoundary } from "./result/retry";
 import type { RetryOptions } from "./core";
+
+/** Shape `err({ type })` infers: `const E` makes object literals readonly. */
+type Tag<K extends string> = { readonly type: K };
 
 // =============================================================================
 // TEST HELPERS
@@ -218,8 +222,7 @@ function _test1eMatchErrorMixedUnion() {
 async function _test2() {
   // When using catchUnexpected, error type includes step errors + catchUnexpected return
   // The step errors flow through; catchUnexpected only handles unexpected exceptions
-  type AppError = ErrorOf<typeof fetchUser> | "UNEXPECTED";
-  // AppError = "NOT_FOUND" | "UNEXPECTED"
+  type AppError = ErrorOf<typeof fetchUser> | Tag<"UNEXPECTED">;
 
   const result = await run<User, AppError>(
     async ({ step }) => {
@@ -227,7 +230,7 @@ async function _test2() {
       return user;
     },
     {
-      catchUnexpected: () => "UNEXPECTED" as const,
+      catchUnexpected: () => ({ type: "UNEXPECTED" }),
     }
   );
 
@@ -335,26 +338,26 @@ function _testRetryOptionsTypes() {
 async function _testTryAsyncBoundaryTypes() {
   const result = await tryAsyncBoundary({
     try: async () => 42,
-    catch: () => "EDGE_ERROR" as const,
+    catch: () => ({ type: "EDGE_ERROR" }),
   });
 
   if (result.ok) {
     expectType<number>(result.value);
   } else {
-    expectType<"EDGE_ERROR">(result.error);
+    expectType<Tag<"EDGE_ERROR">>(result.error);
   }
 
   const withRetry = await tryAsyncBoundary({
     try: async () => 42,
-    catch: () => "EDGE_ERROR" as const,
+    catch: () => ({ type: "EDGE_ERROR" }),
     retry: {
       attempts: 3,
       initialDelay: 10,
       backoff: "fixed",
-      shouldRetry: (e) => e === "EDGE_ERROR",
+      shouldRetry: (e) => e.type === "EDGE_ERROR",
     },
   });
-  if (!withRetry.ok) expectType<"EDGE_ERROR">(withRetry.error);
+  if (!withRetry.ok) expectType<Tag<"EDGE_ERROR">>(withRetry.error);
 }
 
 // =============================================================================
@@ -390,12 +393,12 @@ async function _test4() {
 
  
 async function _test5() {
-  type AppError = "NETWORK" | "PARSE";
+  type AppError = Tag<"NETWORK"> | Tag<"PARSE">;
 
   const result = await run<Response, AppError>(
     async ({ step }) => {
       const response = await step.try("fetch", () => fetch("/api"), {
-        error: "NETWORK" as const,
+        error: { type: "NETWORK" },
       });
       // response should be Response, not wrapped
       expectType<Response>(response);
@@ -422,18 +425,18 @@ function _test6() {
     expectType<number>(success.value);
   }
 
-  // Clean type display! err() returns Err<E>, not Result<never, "NOT_FOUND">
-  const failure = err("NOT_FOUND" as const);
-  expectType<Err<"NOT_FOUND">>(failure);
+  // Clean type display! err() returns Err<E>, not Result<never, Tag<"NOT_FOUND">>
+  const failure = err({ type: "NOT_FOUND" });
+  expectType<Err<Tag<"NOT_FOUND">>>(failure);
   if (!failure.ok) {
-    expectType<"NOT_FOUND">(failure.error);
+    expectType<Tag<"NOT_FOUND">>(failure.error);
   }
 
   // err() with cause - cause type is inferred!
-  const withCause = err("ERROR" as const, { cause: new Error("original") });
-  expectType<Err<"ERROR", Error>>(withCause);
+  const withCause = err({ type: "ERROR" }, { cause: new Error("original") });
+  expectType<Err<Tag<"ERROR">, Error>>(withCause);
   if (!withCause.ok) {
-    expectType<"ERROR">(withCause.error);
+    expectType<Tag<"ERROR">>(withCause.error);
     // Cause is typed and accessible
     expectType<Error | undefined>(withCause.cause);
   }
@@ -564,7 +567,7 @@ function _test6b() {
 // =============================================================================
 
 function _test6c() {
-  const mayFail: Result<number, "NOT_FOUND"> = err("NOT_FOUND");
+  const mayFail: Result<number, Tag<"NOT_FOUND">> = err({ type: "NOT_FOUND" });
 
   // recover() always returns Ok<T> - clean type, not Result<number, never>
   const recovered = recover(mayFail, () => 0);
@@ -573,7 +576,7 @@ function _test6c() {
 }
 
 async function _test6cAsync() {
-  const mayFail: Result<number, "NOT_FOUND"> = err("NOT_FOUND");
+  const mayFail: Result<number, Tag<"NOT_FOUND">> = err({ type: "NOT_FOUND" });
 
   // recoverAsync() returns Promise<Ok<T>> - clean type
   const recovered = await recoverAsync(mayFail, async () => 0);
@@ -704,8 +707,7 @@ async function _test7e() {
 
 async function _test8() {
   // Derive error type from functions being used, plus your unexpected error type
-  type AppError = Errors<[typeof fetchUser, typeof fetchPosts]> | "UNEXPECTED";
-  // AppError = 'NOT_FOUND' | 'FETCH_ERROR' | 'UNEXPECTED'
+  type AppError = Errors<[typeof fetchUser, typeof fetchPosts]> | Tag<"UNEXPECTED">;
 
   const result = await run.strict<{ user: User; posts: Post[] }, AppError>(
     async ({ step }) => {
@@ -714,7 +716,7 @@ async function _test8() {
       return { user, posts };
     },
     {
-      catchUnexpected: () => "UNEXPECTED" as const,
+      catchUnexpected: () => ({ type: "UNEXPECTED" }),
     }
   );
 
@@ -725,8 +727,6 @@ async function _test8() {
       case "NOT_FOUND":
         break;
       case "FETCH_ERROR":
-        break;
-      case "UNEXPECTED":
         break;
     }
   }
@@ -784,7 +784,7 @@ async function _test11() {
     "getPosts",
     { fetchUser, fetchPosts },
     {
-      catchUnexpected: () => "UNEXPECTED" as const,
+      catchUnexpected: () => ({ type: "UNEXPECTED" }),
     }
   );
 
@@ -796,15 +796,13 @@ async function _test11() {
 
   if (!result.ok) {
     // Error type is exactly E | U (no UnexpectedError)
-    expectType<"NOT_FOUND" | "FETCH_ERROR" | "UNEXPECTED">(result.error);
+    expectType<"NOT_FOUND" | "FETCH_ERROR" | Tag<"UNEXPECTED">>(result.error);
 
     // Can exhaustively match
     switch (result.error) {
       case "NOT_FOUND":
         break;
       case "FETCH_ERROR":
-        break;
-      case "UNEXPECTED":
         break;
     }
   }
@@ -826,7 +824,7 @@ function _test12() {
 // =============================================================================
 
 async function _test12b() {
-  type BeneficiaryServiceError = { code: string; message: string };
+  type BeneficiaryServiceError = { type: "BENEFICIARY"; code: string; message: string };
   type MaybeAsync<T> = Result<T, BeneficiaryServiceError> | AsyncResult<T, BeneficiaryServiceError>;
 
   const beneficiaryDeps: {
@@ -835,7 +833,7 @@ async function _test12b() {
   } = {
     validatePayload: (input) => {
       if (!input.id) {
-        return err({ code: "INVALID", message: "Missing id" } satisfies BeneficiaryServiceError);
+        return err({ type: "BENEFICIARY", code: "INVALID", message: "Missing id" } satisfies BeneficiaryServiceError);
       }
       return ok(input) as Result<{ id: string }, BeneficiaryServiceError>;
     },
@@ -895,12 +893,12 @@ import type { ExtractCause, CauseOf } from "./index";
 function _test14TypedCause() {
   // err() returns clean Err<E> type - no cause in the type signature
   // This provides better DX with cleaner IDE tooltips
-  const noCause = err("ERROR" as const);
-  expectType<Err<"ERROR">>(noCause);
+  const noCause = err({ type: "ERROR" });
+  expectType<Err<Tag<"ERROR">>>(noCause);
 
   // err() with cause - cause type is inferred!
-  const withError = err("FAILED" as const, { cause: new Error("details") });
-  expectType<Err<"FAILED", Error>>(withError);
+  const withError = err({ type: "FAILED" }, { cause: new Error("details") });
+  expectType<Err<Tag<"FAILED">, Error>>(withError);
 
   // Custom error objects can include their own cause if needed
   type ServerError = { type: "SERVER_ERROR"; code: number; details: string };
@@ -920,12 +918,12 @@ function _test14TypedCause() {
 // =============================================================================
 
 function _test15MapErrorPreservesCause() {
-  const original = err("A", { cause: new Error() }) as Result<number, "A">;
+  const original = err({ type: "A" }, { cause: new Error() }) as Result<number, Tag<"A">>;
 
-  const mapped = mapError(original, () => "B" as const);
+  const mapped = mapError(original, () => ({ type: "B" }));
 
   // Error type is transformed
-  expectType<Result<number, "B">>(mapped);
+  expectType<Result<number, Tag<"B">>>(mapped);
 
   if (!mapped.ok) {
     // The cause value still travels at runtime; `Result` just does not carry
@@ -939,15 +937,15 @@ function _test15MapErrorPreservesCause() {
 // =============================================================================
 
 function _test16MatchTypedCause() {
-  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR">;
+  const result = err({ type: "ERROR" }, { cause: new Error() }) as Result<number, Tag<"ERROR">>;
 
   const matched = match(result, {
     ok: (v) => String(v),
     err: (error, cause) => {
-      expectType<"ERROR">(error);
+      expectType<Tag<"ERROR">>(error);
       // `Result` carries no cause type, so handlers receive unknown
       expectType<unknown>(cause);
-      return error;
+      return error.type;
     }
   });
   expectType<string>(matched);
@@ -958,10 +956,10 @@ function _test16MatchTypedCause() {
 // =============================================================================
 
 function _test17TapErrorTypedCause() {
-  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR">;
+  const result = err({ type: "ERROR" }, { cause: new Error() }) as Result<number, Tag<"ERROR">>;
 
   tapError(result, (error, cause) => {
-    expectType<"ERROR">(error);
+    expectType<Tag<"ERROR">>(error);
     expectType<unknown>(cause);
   });
 }
@@ -971,10 +969,10 @@ function _test17TapErrorTypedCause() {
 // =============================================================================
 
 function _test18MapPreservesCause() {
-  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR">;
+  const result = err({ type: "ERROR" }, { cause: new Error() }) as Result<number, Tag<"ERROR">>;
   const mapped = map(result, (n) => n.toString());
 
-  expectType<Result<string, "ERROR">>(mapped);
+  expectType<Result<string, Tag<"ERROR">>>(mapped);
 
   if (!mapped.ok) {
     expectType<unknown>(mapped.cause);
@@ -990,15 +988,15 @@ function _test19AndThenCauseUnion() {
   type CauseB = { typeB: number };
 
   // Use type assertions to get properly typed Results
-  const resultA = ok(42) as Result<number, "A">;
-  const resultB = ok("hello") as Result<string, "B">;
+  const resultA = ok(42) as Result<number, Tag<"A">>;
+  const resultB = ok("hello") as Result<string, Tag<"B">>;
 
   const chained = andThen(resultA, (n) =>
-    n > 0 ? resultB : (err("B" as const, { cause: { typeB: 0 } }) as Result<string, "B">)
+    n > 0 ? resultB : (err({ type: "B" }, { cause: { typeB: 0 } }) as Result<string, Tag<"B">>)
   );
 
   // Both error and cause types are unioned
-  expectType<Result<string, "A" | "B">>(chained);
+  expectType<Result<string, Tag<"A"> | Tag<"B">>>(chained);
 
   if (!chained.ok) {
     expectType<unknown>(chained.cause);
@@ -1120,7 +1118,7 @@ async function _test25WorkflowStrictWithArgs() {
     "workflowStrictWithArgs",
     { fetchUser, fetchPosts },
     {
-      catchUnexpected: () => "UNEXPECTED" as const,
+      catchUnexpected: () => ({ type: "UNEXPECTED" }),
     }
   );
 
@@ -1133,7 +1131,7 @@ async function _test25WorkflowStrictWithArgs() {
 
   if (!result.ok) {
     // Strict mode - closed error union
-    expectType<"NOT_FOUND" | "FETCH_ERROR" | "UNEXPECTED">(result.error);
+    expectType<"NOT_FOUND" | "FETCH_ERROR" | Tag<"UNEXPECTED">>(result.error);
   }
 }
 
@@ -1161,12 +1159,12 @@ async function _test26WorkflowPrimitiveArgs() {
 
 async function _test27WorkflowCauseIsUnknown() {
   // Function that returns a typed cause
-  const fetchWithTypedCause = async (id: string): AsyncResult<User, "NOT_FOUND"> => {
+  const fetchWithTypedCause = async (id: string): AsyncResult<User, Tag<"NOT_FOUND">> => {
     try {
       if (id === "1") return ok({ id, name: "Alice" });
       throw new Error("Not found");
     } catch (e) {
-      return err("NOT_FOUND" as const, { cause: e as Error });
+      return err({ type: "NOT_FOUND" }, { cause: e as Error });
     }
   };
 
@@ -1243,14 +1241,14 @@ async function _test29RunCauseIsUnknown() {
 // =============================================================================
 
 async function _test30RunStrictCauseIsUnknown() {
-  type AppError = "NOT_FOUND" | "UNEXPECTED";
+  type AppError = "NOT_FOUND" | Tag<"UNEXPECTED">;
 
   const result = await run.strict<User, AppError>(
     async ({ step }) => {
       const user = await step("fetchUser", () => fetchUser("123"));
       return user;
     },
-    { catchUnexpected: () => "UNEXPECTED" as const }
+    { catchUnexpected: () => ({ type: "UNEXPECTED" }) }
   );
 
   if (!result.ok) {
@@ -1482,7 +1480,7 @@ async function _testRunContextTypeSafety() {
 
 async function _testRunStrictContextTypeSafety() {
   type RequestContext = { requestId: string };
-  type AppError = "NOT_FOUND" | "UNEXPECTED";
+  type AppError = "NOT_FOUND" | Tag<"UNEXPECTED">;
 
   await run.strict<User, AppError, RequestContext>(
     async ({ step }) => {
@@ -1490,7 +1488,7 @@ async function _testRunStrictContextTypeSafety() {
     },
     {
       context: { requestId: "req-123" },
-      catchUnexpected: () => "UNEXPECTED" as const,
+      catchUnexpected: () => ({ type: "UNEXPECTED" }),
       onEvent: (event, ctx) => {
         expectType<RequestContext | undefined>(event.context);
         expectType<RequestContext>(ctx);
@@ -1754,7 +1752,7 @@ function _test45MapOkOverload() {
 }
 
 function _test45MapErrOverload() {
-  const errResult = err("ERROR", { cause: new Error() });
+  const errResult = err({ type: "ERROR" }, { cause: new Error() });
   // When input is Err, the Err overload is selected. Typed callbacks work
   // because (value: T) => U is assignable to (value: never) => unknown
   // via contravariance (never is assignable to T).
@@ -1763,26 +1761,26 @@ function _test45MapErrOverload() {
   // When input is Err<E, C>, output is Err<E, C>. The error stays the literal
   // "ERROR" rather than widening to string — err() takes a `const` type param
   // so discriminants survive without the caller writing `as const`.
-  expectType<Err<"ERROR", Error>>(mapped);
-  expectType<"ERROR">(mapped.error);
+  expectType<Err<Tag<"ERROR">, Error>>(mapped);
+  expectType<Tag<"ERROR">>(mapped.error);
   expectType<Error | undefined>(mapped.cause);
 }
 
 function _test45bMapErrCallbackType() {
-  const errResult = err("ERROR", { cause: new Error() }) as Err<"ERROR", Error>;
+  const errResult = err({ type: "ERROR" }, { cause: new Error() }) as Err<Tag<"ERROR">, Error>;
 
   // Pre-typed handlers work - T is inferred from the handler type.
   // This allows reusing handlers across Ok and Err branches.
   const handler = (n: number) => n.toString();
   const mapped = map(errResult, handler);
-  expectType<Err<"ERROR", Error>>(mapped);
+  expectType<Err<Tag<"ERROR">, Error>>(mapped);
 
   // Explicitly typed inline callbacks also work
   map(errResult, (n: number) => n.toString());
 }
 
 function _test45cMapErrAfterNarrowKeepsValueType() {
-  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR">;
+  const result = err({ type: "ERROR" }, { cause: new Error() }) as Result<number, Tag<"ERROR">>;
 
   if (!result.ok) {
     map(result, (value) => {
@@ -1795,7 +1793,7 @@ function _test45cMapErrAfterNarrowKeepsValueType() {
 }
 
 function _test45dMapErrAfterNarrowStillLosesValue() {
-  const result = err("ERROR", { cause: new Error() }) as Result<number, "ERROR">;
+  const result = err({ type: "ERROR" }, { cause: new Error() }) as Result<number, Tag<"ERROR">>;
 
   if (!result.ok) {
     map(result, (value) => {
@@ -1821,10 +1819,10 @@ function _test46AndThenOkToOk() {
 
 function _test46AndThenOkToErr() {
   const okResult = ok(42);
-  const chained = andThen(okResult, (_n) => err("FAILED" as const, { cause: new Error() }));
+  const chained = andThen(okResult, (_n) => err({ type: "FAILED" }, { cause: new Error() }));
 
   // Ok -> Err returns Err
-  expectType<Err<"FAILED", Error>>(chained);
+  expectType<Err<Tag<"FAILED">, Error>>(chained);
 }
 
 function _test46AndThenOkToResult() {
@@ -1837,30 +1835,30 @@ function _test46AndThenOkToResult() {
 }
 
 function _test46AndThenErrOverload() {
-  const errResult = err("NOT_FOUND" as const, { cause: new Error() });
+  const errResult = err({ type: "NOT_FOUND" }, { cause: new Error() });
   // When input is Err, the Err overload is selected. Typed callbacks work
   // via contravariance (never is assignable to number).
   const chained = andThen(errResult, (n: number) => ok(n.toString()));
 
   // Err input short-circuits, returns Err
-  expectType<Err<"NOT_FOUND", Error>>(chained);
+  expectType<Err<Tag<"NOT_FOUND">, Error>>(chained);
 }
 
 function _test46bAndThenErrCallbackType() {
-  const errResult = err("NOT_FOUND" as const, { cause: new Error() }) as Err<"NOT_FOUND", Error>;
+  const errResult = err({ type: "NOT_FOUND" }, { cause: new Error() }) as Err<Tag<"NOT_FOUND">, Error>;
 
   // Pre-typed handlers work - T is inferred from the handler type.
   // This allows reusing handlers across Ok and Err branches.
   const handler = (n: number) => ok(n.toString());
   const chained = andThen(errResult, handler);
-  expectType<Err<"NOT_FOUND", Error>>(chained);
+  expectType<Err<Tag<"NOT_FOUND">, Error>>(chained);
 
   // Explicitly typed inline callbacks also work
   andThen(errResult, (n: number) => ok(n.toString()));
 }
 
 function _test46cAndThenErrAfterNarrowKeepsValueType() {
-  const result = err("NOT_FOUND" as const, { cause: new Error() }) as Result<number, "NOT_FOUND">;
+  const result = err({ type: "NOT_FOUND" }, { cause: new Error() }) as Result<number, Tag<"NOT_FOUND">>;
 
   if (!result.ok) {
     andThen(result, (value) => {
@@ -1873,7 +1871,7 @@ function _test46cAndThenErrAfterNarrowKeepsValueType() {
 }
 
 function _test46dAndThenErrAfterNarrowStillLosesValue() {
-  const result = err("NOT_FOUND" as const, { cause: new Error() }) as Result<number, "NOT_FOUND">;
+  const result = err({ type: "NOT_FOUND" }, { cause: new Error() }) as Result<number, Tag<"NOT_FOUND">>;
 
   if (!result.ok) {
     andThen(result, (value) => {
@@ -1900,7 +1898,7 @@ function _test47MatchOkOverload() {
 }
 
 function _test47MatchErrOverload() {
-  const errResult = err("NOT_FOUND" as const, { cause: new Error() });
+  const errResult = err({ type: "NOT_FOUND" }, { cause: new Error() });
   const result = match(errResult, {
     ok: (_n: number) => "Success",
     err: (e, cause) => `Error: ${e}, cause: ${cause}`,
@@ -1995,7 +1993,7 @@ async function _test52WorkflowRunInference() {
 
 async function _test55ExecutionOptionsType() {
   type RequestContext = { requestId: string };
-  const fetchUser = async (id: string): AsyncResult<User, "NOT_FOUND"> =>
+  const fetchUser = async (id: string): AsyncResult<User, Tag<"NOT_FOUND">> =>
     ok({ id, name: "Alice" });
 
   // Create workflow with context type
@@ -2009,8 +2007,8 @@ async function _test55ExecutionOptionsType() {
 
   // All exec options should be accepted
   const execOptions = {
-    onEvent: (event: WorkflowEvent<"NOT_FOUND" | UnexpectedError, RequestContext>) => {},
-    onError: (error: "NOT_FOUND" | UnexpectedError) => {},
+    onEvent: (event: WorkflowEvent<Tag<"NOT_FOUND"> | UnexpectedError, RequestContext>) => {},
+    onError: (error: Tag<"NOT_FOUND"> | UnexpectedError) => {},
     signal: new AbortController().signal,
     createContext: (): RequestContext => ({ requestId: "123" }),
     resumeState: () => ({ steps: new Map() }),
@@ -2033,9 +2031,9 @@ async function _test55ExecutionOptionsType() {
   type DocUser = { id: string; name: string };
   type DocPost = { id: number };
 
-  const getUser = async (id: string): AsyncResult<DocUser, "NOT_FOUND"> =>
-    id === "1" ? ok({ id: "1", name: "A" }) : err("NOT_FOUND");
-  const getPosts = async (_id: string): AsyncResult<DocPost[], "FETCH_ERROR"> => ok([]);
+  const getUser = async (id: string): AsyncResult<DocUser, Tag<"NOT_FOUND">> =>
+    id === "1" ? ok({ id: "1", name: "A" }) : err({ type: "NOT_FOUND" });
+  const getPosts = async (_id: string): AsyncResult<DocPost[], Tag<"FETCH_ERROR">> => ok([]);
   const slugify = (s: string) => s.toLowerCase();
 
   // Rule 1 & 3: union inferred from deps, UnexpectedError always added.
@@ -2046,7 +2044,7 @@ async function _test55ExecutionOptionsType() {
     return s.getPosts(user.id);
   });
   if (!inferred.ok) {
-    expectType<"NOT_FOUND" | "FETCH_ERROR" | UnexpectedError>(inferred.error);
+    expectType<Tag<"NOT_FOUND"> | Tag<"FETCH_ERROR"> | UnexpectedError>(inferred.error);
   }
 
   // Rule 4: a plain (non-Result) dep passes its value through and contributes
@@ -2058,14 +2056,14 @@ async function _test55ExecutionOptionsType() {
   if (mixed.ok) {
     expectType<string>(mixed.value);
   } else {
-    expectType<"NOT_FOUND" | UnexpectedError>(mixed.error);
+    expectType<Tag<"NOT_FOUND"> | UnexpectedError>(mixed.error);
   }
 
   // Naming the union: ErrorsOf gives DECLARED errors only (no UnexpectedError).
-  expectType<"NOT_FOUND" | "FETCH_ERROR">(
+  expectType<Tag<"NOT_FOUND"> | Tag<"FETCH_ERROR">>(
     null as unknown as ErrorsOf<{ getUser: typeof getUser; getPosts: typeof getPosts }>
   );
-  expectType<"NOT_FOUND">(null as unknown as ErrorOf<typeof getUser>);
+  expectType<Tag<"NOT_FOUND">>(null as unknown as ErrorOf<typeof getUser>);
 
   // The docs state catchUnexpected is NOT on the deps-first form. Guard it, so
   // the day it is added the docs get corrected instead of silently going stale.
@@ -2082,8 +2080,8 @@ async function _test55ExecutionOptionsType() {
 // =============================================================================
 
 async function _test40ErrorsWidensUnion() {
-  const fetchRow = async (id: string): AsyncResult<{ body: string }, "ROW_NOT_FOUND"> =>
-    id ? ok({ body: "{}" }) : err("ROW_NOT_FOUND");
+  const fetchRow = async (id: string): AsyncResult<{ body: string }, Tag<"ROW_NOT_FOUND">> =>
+    id ? ok({ body: "{}" }) : err({ type: "ROW_NOT_FOUND" });
 
   // No `as const` on the array, and no type parameters on createWorkflow.
   const wf = createWorkflow("ingest", { fetchRow }, {
@@ -2094,12 +2092,12 @@ async function _test40ErrorsWidensUnion() {
     const row = await step("fetchRow", () => deps.fetchRow("1"));
     // Type-checks only because "PARSE_FAILED" is declared above.
     return await step.try("parse", () => JSON.parse(row.body) as { n: number }, {
-      error: "PARSE_FAILED",
+      error: { type: "PARSE_FAILED" },
     });
   });
 
   if (!result.ok) {
-    expectType<"ROW_NOT_FOUND" | "PARSE_FAILED" | UnexpectedError>(result.error);
+    expectType<Tag<"ROW_NOT_FOUND"> | { type: "PARSE_FAILED" } | UnexpectedError>(result.error);
   }
 
   // Omitting `errors` leaves the union exactly as inferred from the deps.
@@ -2108,7 +2106,7 @@ async function _test40ErrorsWidensUnion() {
     step("fetchRow", () => deps.fetchRow("1"))
   );
   if (!plainResult.ok) {
-    expectType<"ROW_NOT_FOUND" | UnexpectedError>(plainResult.error);
+    expectType<Tag<"ROW_NOT_FOUND"> | UnexpectedError>(plainResult.error);
   }
 }
 
@@ -2139,8 +2137,8 @@ async function _test41CatchUnexpectedLiteral() {
 // =============================================================================
 
 async function _test42RunCatchUnexpectedLiteral() {
-  const getUser = async (id: string): AsyncResult<{ id: string }, "NOT_FOUND"> =>
-    id ? ok({ id }) : err("NOT_FOUND");
+  const getUser = async (id: string): AsyncResult<{ id: string }, Tag<"NOT_FOUND">> =>
+    id ? ok({ id }) : err({ type: "NOT_FOUND" });
 
   // deps-first, no `as const`
   const viaDeps = await run(
@@ -2149,7 +2147,7 @@ async function _test42RunCatchUnexpectedLiteral() {
     { catchUnexpected: (cause) => ({ type: "UNEXPECTED", cause }) }
   );
   if (!viaDeps.ok) {
-    expectType<"NOT_FOUND" | { readonly type: "UNEXPECTED"; readonly cause: unknown }>(
+    expectType<Tag<"NOT_FOUND"> | { readonly type: "UNEXPECTED"; readonly cause: unknown }>(
       viaDeps.error
     );
   }
@@ -2157,12 +2155,12 @@ async function _test42RunCatchUnexpectedLiteral() {
   // The callback-only form still needs its type parameters: E is inferred from
   // the callback as well as from catchUnexpected, so the literal does not
   // survive on its own. This is the documented `run<T, E>(fn, options)` path.
-  const viaCallback = await run<{ id: string }, "NOT_FOUND" | "UNEXPECTED">(
+  const viaCallback = await run<{ id: string }, Tag<"NOT_FOUND"> | Tag<"UNEXPECTED">>(
     async ({ step }) => step("getUser", () => getUser("1")),
-    { catchUnexpected: () => "UNEXPECTED" as const }
+    { catchUnexpected: () => ({ type: "UNEXPECTED" }) }
   );
   if (!viaCallback.ok) {
-    expectType<"NOT_FOUND" | "UNEXPECTED">(viaCallback.error);
+    expectType<Tag<"NOT_FOUND"> | Tag<"UNEXPECTED">>(viaCallback.error);
   }
 }
 
@@ -2175,8 +2173,8 @@ async function _test42RunCatchUnexpectedLiteral() {
 // =============================================================================
 
 async function _test43DurableDeclaredErrors() {
-  const fetchRow = async (id: string): AsyncResult<{ body: string }, "ROW_NOT_FOUND"> =>
-    id ? ok({ body: "{}" }) : err("ROW_NOT_FOUND");
+  const fetchRow = async (id: string): AsyncResult<{ body: string }, Tag<"ROW_NOT_FOUND">> =>
+    id ? ok({ body: "{}" }) : err({ type: "ROW_NOT_FOUND" });
 
   const result = await durable.run(
     { fetchRow },
@@ -2184,7 +2182,7 @@ async function _test43DurableDeclaredErrors() {
       const row = await step("fetchRow", () => deps.fetchRow("1"));
       // Type-checks only because "PARSE_FAILED" is declared below.
       return await step.try("parse", () => JSON.parse(row.body) as { n: number }, {
-        error: "PARSE_FAILED",
+        error: { type: "PARSE_FAILED" },
       });
     },
     { id: "ingest-1", errors: ["PARSE_FAILED"] } // no `as const`
@@ -2192,8 +2190,8 @@ async function _test43DurableDeclaredErrors() {
 
   if (!result.ok) {
     expectType<
-      | "ROW_NOT_FOUND"
-      | "PARSE_FAILED"
+      | Tag<"ROW_NOT_FOUND">
+      | { type: "PARSE_FAILED" }
       | UnexpectedError
       | WorkflowCancelledError
       | VersionMismatchError
@@ -2212,7 +2210,7 @@ async function _test43DurableDeclaredErrors() {
   );
   if (!plain.ok) {
     expectType<
-      | "ROW_NOT_FOUND"
+      | Tag<"ROW_NOT_FOUND">
       | UnexpectedError
       | WorkflowCancelledError
       | VersionMismatchError
@@ -2229,11 +2227,11 @@ async function _test43DurableDeclaredErrors() {
 // =============================================================================
 
 async function _test44ResultReturningCompensation() {
-  const charge = async (): AsyncResult<{ id: string }, "DECLINED"> =>
+  const charge = async (): AsyncResult<{ id: string }, Tag<"DECLINED">> =>
     ok({ id: "payment-1" });
-  const refund = async (_id: string): AsyncResult<void, "REFUND_FAILED"> =>
+  const refund = async (_id: string): AsyncResult<void, Tag<"REFUND_FAILED">> =>
     ok(undefined);
-  const ship = async (): AsyncResult<void, "SHIP_FAILED"> => err("SHIP_FAILED");
+  const ship = async (): AsyncResult<void, Tag<"SHIP_FAILED">> => err({ type: "SHIP_FAILED" });
   const checkout = createWorkflow("checkout-compensation-types", {
     charge,
     refund,
@@ -2246,4 +2244,35 @@ async function _test44ResultReturningCompensation() {
     });
     return step("ship", () => deps.ship());
   });
+}
+
+// =============================================================================
+// TEST: bare string errors are rejected — errors must be tagged ({ type })
+// =============================================================================
+
+function _testStringErrorsRejected() {
+  expectError(err("NOT_FOUND"));
+  expectError(err({ code: "NO_TYPE" }));
+  expectError(mapError(err({ type: "A" }), () => "B"));
+  expectType<Err<Tag<"NOT_FOUND">>>(err({ type: "NOT_FOUND" }));
+}
+
+async function _testStringErrorsRejectedAtWorkflowEdges() {
+  expectError(bimap(err({ type: "A" }) as Result<number, Tag<"A">>, (n) => n, () => "B"));
+
+  // catchUnexpected must return a tagged error
+  expectError(run(async () => 1, { catchUnexpected: () => "UNEXPECTED" }));
+  expectError(run.strict(async () => 1, { catchUnexpected: () => "UNEXPECTED" }));
+
+  await run<number, Tag<"NETWORK">>(
+    async ({ step }) => {
+      // step.try / onTimeout errors must be tagged
+      expectError(await step.try("fetch", () => 1, { error: "NETWORK" }));
+      expectError(
+        await step.withTimeout("slow", () => ok(1), { ms: 1, onTimeout: () => "NETWORK" })
+      );
+      return 1;
+    },
+    { catchUnexpected: () => ({ type: "NETWORK" }) }
+  );
 }

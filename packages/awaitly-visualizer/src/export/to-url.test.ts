@@ -47,7 +47,7 @@ describe("toExportUrl", () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe("UNSUPPORTED_FORMAT");
+        expect(result.error).toEqual({ type: "UNSUPPORTED_FORMAT" });
       }
     });
 
@@ -56,7 +56,7 @@ describe("toExportUrl", () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe("UNSUPPORTED_FORMAT");
+        expect(result.error).toEqual({ type: "UNSUPPORTED_FORMAT" });
       }
     });
   });
@@ -128,7 +128,7 @@ describe("toExportUrl", () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe("UNSUPPORTED_DIAGRAM_KIND");
+        expect(result.error).toEqual({ type: "UNSUPPORTED_DIAGRAM_KIND" });
       }
     });
 
@@ -142,7 +142,7 @@ describe("toExportUrl", () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toBe("UNSUPPORTED_DIAGRAM_KIND");
+        expect(result.error).toEqual({ type: "UNSUPPORTED_DIAGRAM_KIND" });
       }
     });
   });

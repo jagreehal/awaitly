@@ -270,6 +270,7 @@ npx awaitly-analyze ./workflow.ts --no-output-adjacent  # Print only
 
 # Output formats
 npx awaitly-analyze ./workflow.ts --format=json
+npx awaitly-analyze ./workflow.ts --format=xstate     # XState v6 MachineJSON for machineFromJSON and statechart tools
 npx awaitly-analyze ./workflow.ts --format=markdown
 
 # Control outputs

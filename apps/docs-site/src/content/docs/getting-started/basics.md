@@ -15,15 +15,15 @@ An operation that can fail returns `AsyncResult<T, E>`, either `ok(value)` or `e
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
 
-const divide = async (a: number, b: number): AsyncResult<number, 'DIVIDE_BY_ZERO'> =>
-  b === 0 ? err('DIVIDE_BY_ZERO') : ok(a / b);
+const divide = async (a: number, b: number): AsyncResult<number, { type: 'DIVIDE_BY_ZERO' }> =>
+  b === 0 ? err({ type: 'DIVIDE_BY_ZERO' }) : ok(a / b);
 
 const result = await divide(10, 2);
 
 if (result.ok) {
   result.value; // number
 } else {
-  result.error; // 'DIVIDE_BY_ZERO' — and TypeScript knows that's the only option
+  result.error; // { type: 'DIVIDE_BY_ZERO' } — and TypeScript knows that's the only option
 }
 ```
 
@@ -43,10 +43,10 @@ import { run, ok, err, type AsyncResult } from 'awaitly';
 type User = { id: string; name: string };
 type Order = { id: number; total: number };
 
-const getUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
-  id === '1' ? ok({ id: '1', name: 'Alice' }) : err('NOT_FOUND');
+const getUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> =>
+  id === '1' ? ok({ id: '1', name: 'Alice' }) : err({ type: 'NOT_FOUND' });
 
-const getOrders = async (userId: string): AsyncResult<Order[], 'FETCH_ERROR'> =>
+const getOrders = async (userId: string): AsyncResult<Order[], { type: 'FETCH_ERROR' }> =>
   ok([{ id: 1, total: 99.99 }]);
 
 const result = await run({ getUser, getOrders }, async (s) => {
@@ -66,13 +66,13 @@ If any operation returns `err`, the callback stops there and `run()` returns tha
 
 ```typescript
 const result = await run({ getUser, getOrders }, async (s) => {
-  const user = await s.getUser('999');       // returns err('NOT_FOUND') — stops here
+  const user = await s.getUser('999');       // returns err({ type: 'NOT_FOUND' }) — stops here
   const orders = await s.getOrders(user.id); // never runs
   return { user, orders };
 });
 
 result.ok;    // false
-result.error; // 'NOT_FOUND'
+result.error; // { type: 'NOT_FOUND' }
 ```
 
 No try/catch, no early-return ladder, no `if (!x.ok) return x`.
@@ -83,7 +83,7 @@ This is the part worth internalising, because it is what you are buying:
 
 ```typescript
 const result = await run({ getUser, getOrders }, async (s) => { /* ... */ });
-//    ^? Result<{ user: User; orders: Order[] }, 'NOT_FOUND' | 'FETCH_ERROR' | UnexpectedError>
+//    ^? Result<{ user: User; orders: Order[] }, { type: 'NOT_FOUND' } | { type: 'FETCH_ERROR' } | UnexpectedError>
 ```
 
 The error union was **computed from the deps you passed**. You never declared it.
@@ -134,7 +134,7 @@ if (isUnexpectedError(result.error)) {
   return { status: 500 };
 }
 
-switch (result.error) {
+switch (result.error.type) {
   case 'NOT_FOUND':   return { status: 404 };
   case 'FETCH_ERROR': return { status: 502 };
 }

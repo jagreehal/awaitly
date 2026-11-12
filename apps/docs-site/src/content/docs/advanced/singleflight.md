@@ -25,9 +25,9 @@ With singleflight, concurrent calls with the same key share one in-flight reques
 ```typescript
 import { singleflight, ok, err, type AsyncResult } from 'awaitly';
 
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> => {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? ok(user) : err({ type: 'NOT_FOUND' });
 };
 
 // Wrap with singleflight
@@ -131,7 +131,7 @@ For more control, use `createSingleflightGroup`:
 ```typescript
 import { createSingleflightGroup } from 'awaitly';
 
-const group = createSingleflightGroup<User, 'NOT_FOUND'>();
+const group = createSingleflightGroup<User, { type: 'NOT_FOUND' }>();
 
 // Execute with manual key
 const user = await group.execute('user:1', () => fetchUser('1'));
@@ -199,7 +199,7 @@ Request C: ───────────────────────
 const fetchUser = singleflight(
   async (id: string) => {
     const user = await db.find(id);
-    return user ? ok(user) : err('NOT_FOUND');
+    return user ? ok(user) : err({ type: 'NOT_FOUND' });
   },
   { key: (id) => `user:${id}`, ttl: 5000 }
 );
@@ -209,7 +209,7 @@ await fetchUser('123'); // Fetches from DB
 await fetchUser('123'); // Returns cached ok(user)
 
 // ❌ Errors are NOT cached
-await fetchUser('999'); // Returns err('NOT_FOUND')
+await fetchUser('999'); // Returns err({ type: 'NOT_FOUND' })
 await fetchUser('999'); // Fetches again (error wasn't cached)
 ```
 
@@ -261,7 +261,7 @@ invalidate. Its `clear()` takes no key and drops in-flight tracking:
 ```typescript
 import { createSingleflightGroup } from 'awaitly';
 
-const userGroup = createSingleflightGroup<User, 'NOT_FOUND'>();
+const userGroup = createSingleflightGroup<User, { type: 'NOT_FOUND' }>();
 
 // Concurrent callers for the same key share one request
 const getUser = (id: string) =>
@@ -302,7 +302,7 @@ const updateUser = async (id: string, data: UpdateData) => {
 
 ```typescript
 const userService = {
-  cache: createSingleflightGroup<User, 'NOT_FOUND'>(),
+  cache: createSingleflightGroup<User, { type: 'NOT_FOUND' }>(),
 
   get: async (id: string) => {
     return this.cache.execute(`user:${id}`, () => fetchUser(id));
@@ -330,7 +330,7 @@ const userService = {
 ### Pattern: Prefix-based invalidation
 
 ```typescript
-const cache = createSingleflightGroup<unknown, string>();
+const cache = createSingleflightGroup<unknown, { type: string }>();
 
 // Fetch with prefixed keys
 const getUser = (id: string) =>
@@ -381,7 +381,7 @@ const withTtl = singleflight(fetchUser, {
 ### Monitor cache size
 
 ```typescript
-const userCache = createSingleflightGroup<User, string>();
+const userCache = createSingleflightGroup<User, { type: string }>();
 
 // Periodic monitoring
 setInterval(() => {
@@ -436,7 +436,7 @@ const fetchLargeReportSafe = singleflight(
 
 ```typescript
 const cache = new Map<string, { value: User; timestamp: number }>();
-const group = createSingleflightGroup<User, 'NOT_FOUND'>();
+const group = createSingleflightGroup<User, { type: 'NOT_FOUND' }>();
 
 const getUserSWR = async (id: string) => {
   const cached = cache.get(id);

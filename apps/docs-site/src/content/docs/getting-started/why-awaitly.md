@@ -24,16 +24,16 @@ With awaitly, the same function advertises the failure:
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
 
-async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
+async function getUser(id: string): AsyncResult<User, { type: 'NOT_FOUND' }> {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? ok(user) : err({ type: 'NOT_FOUND' });
 }
 ```
 
 The signature tells you:
 
 - What you get on success (`User`)
-- What can fail (`'NOT_FOUND'`)
+- What can fail (`{ type: 'NOT_FOUND' }`)
 
 No throw. No `unknown` at the boundary.
 

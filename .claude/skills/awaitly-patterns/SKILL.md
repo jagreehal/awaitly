@@ -43,8 +43,8 @@ Use this as a checklist when generating or editing awaitly code. Satisfy every i
 - **MUST NOT** use a computed, concatenated, templated, or variable-derived value (e.g. `` step(`user-${i}`, ...) `` or `const id = 'getUser'; step(id, ...)`). Use a literal ID + optional `{ key }` for per-item identity.
 
 ### Error handling at boundaries
-- **MUST** use `match(result, { ok, ...arms, UnexpectedError })` at the boundary. One key per error: a string error is its own key, an object or `TaggedError` is keyed by its `type`. Arms are exhaustive; `{ ok, err }` is the two-arm catch-all.
-- **MUST NOT** hand-normalise: `typeof result.error === 'string' ? result.error : result.error.type` followed by a `switch`, or `switch (true) { case result.error instanceof X: }`. That is `match` without the exhaustiveness check (lint: `awaitly/error-prefer-match`).
+- **MUST** use `match(result, { ok, ...arms, UnexpectedError })` at the boundary. One key per tagged error: a plain `{ type }` object or `TaggedError` is keyed by its `type`. Arms are exhaustive; `{ ok, err }` is the two-arm catch-all.
+- **MUST NOT** hand-normalise: `switch (true) { case result.error instanceof X: }`. That is `match` without the exhaustiveness check (lint: `awaitly/error-prefer-match`).
 - **MUST** access the original thrown value via `e.cause` inside the `UnexpectedError` arm.
 
 ### Concurrency inside workflows
@@ -173,7 +173,7 @@ const order = await step('createOrder', () => deps.createOrder(userResult.value)
 
 ### R3: Map the result at the boundary with `match`
 
-Errors can be strings (`'NOT_FOUND'`), objects (`{ type: 'NOT_FOUND', id }`), `TaggedError` classes, or an `UnexpectedError` instance for uncaught exceptions. `match` keys every one of them the same way, so a mixed union needs no normalisation:
+Errors you construct (`err()`, mappers, `step.try`, `catchUnexpected`) are tagged objects: plain objects (`{ type: 'NOT_FOUND', id }`) or `TaggedError` classes; uncaught exceptions become an `UnexpectedError` instance. (Bare string errors were removed in this major.) A `Result` typed elsewhere can still carry untagged errors, e.g. `unknown` from `tryAsync` without a mapper. `match` keys every one of them the same way, so a mixed union needs no normalisation:
 
 ```typescript
 import { match, type Result, type UnexpectedError } from 'awaitly';
@@ -181,7 +181,7 @@ import { match, type Result, type UnexpectedError } from 'awaitly';
 // A mixed union, as run()/createWorkflow infer it from the deps:
 declare const result: Result<
   Order,
-  'ORDER_FAILED' | { type: 'NOT_FOUND'; id: string } | { type: 'STEP_TIMEOUT' } | UnexpectedError
+  { type: 'ORDER_FAILED' } | { type: 'NOT_FOUND'; id: string } | { type: 'STEP_TIMEOUT' } | UnexpectedError
 >;
 
 return match(result, {
@@ -196,20 +196,16 @@ return match(result, {
 });
 ```
 
-A string error is its own key; an object or class is keyed by its `type`. TypeScript enforces the arms from the inferred union: add a failing step and this `match` stops compiling until the boundary handles it.
+Each object or class is keyed by its `type`. TypeScript enforces the arms from the inferred union: add a failing step and this `match` stops compiling until the boundary handles it.
 
 ```typescript
-// MUST NOT - hand-normalising is match without the exhaustiveness check
-const code = typeof result.error === 'string' ? result.error : result.error.type;
-switch (code) { case 'NOT_FOUND': return { status: 404 }; }
-
-// MUST NOT - switch (true) fan-out
+// MUST NOT - switch (true) fan-out is match without the exhaustiveness check
 switch (true) {
   case result.error instanceof ValidationError: return { status: 422 };
 }
 ```
 
-A plain `switch (result.error)` is fine when the union is all strings; `if (isUnexpectedError(result.error))` is fine for a one-off guard. `match` is the same thing with the arms checked.
+A plain `switch (result.error.type)` is fine for a quick fan-out; `if (isUnexpectedError(result.error))` is fine for a one-off guard. `match` is the same thing with the arms checked.
 
 ### R4: `UnexpectedError` is a TaggedError class in the error union
 
@@ -230,7 +226,7 @@ matchError(result.error, {
 });
 ```
 
-Handlers are keyed by **tag**: a string error is its own tag, a `TaggedError` class is keyed by its `type`. A union may mix the two — `AsyncResult<Order, 'NOT_FOUND' | ValidationError>` matches with `NOT_FOUND` and `ValidationError` keys, and the matched member arrives narrowed, so a class's props are reachable without a guard. **MUST NOT** use a `switch` for class errors: `case ValidationError:` compares an instance to the constructor and never matches.
+Handlers are keyed by **tag**: a plain `{ type }` object or a `TaggedError` class is keyed by its `type`. A union may mix the two — `AsyncResult<Order, { type: 'NOT_FOUND' } | ValidationError>` matches with `NOT_FOUND` and `ValidationError` keys, and the matched member arrives narrowed, so a class's props are reachable without a guard. **MUST NOT** use a `switch` for class errors: `case ValidationError:` compares an instance to the constructor and never matches.
 
 ### R5: All async work inside workflows must go through step()
 
@@ -238,7 +234,7 @@ Handlers are keyed by **tag**: a string error is its own tag, a `TaggedError` cl
 
 ```typescript
 const user = await step('getUser', () => deps.getUser(id));
-const data = await step.try('fetch', () => deps.fetchExternal(url), { error: 'FETCH_ERROR' });
+const data = await step.try('fetch', () => deps.fetchExternal(url), { error: { type: 'FETCH_ERROR' } });
 ```
 
 ```typescript
@@ -298,7 +294,7 @@ If you need per-item error handling in a loop, use `step.forEach()` with error c
 | Bare `await deps.fn()` (or any async without step) | `await step('id', () => deps.fn())`. |
 | Manual `if (!result.ok)` after calling deps directly | Call through step; step() short-circuits on Err. |
 | `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows | `step.all`, `step.map`, or `step.race`. See Concurrency section. |
-| `throw` in deps | Return `err()` instead, or wrap with `step.try(id, fn, { error: 'TYPED_ERROR' })`. |
+| `throw` in deps | Return `err()` instead, or wrap with `step.try(id, fn, { error: { type: 'TYPED_ERROR' } })`. |
 | `try/catch` around step() | Remove try/catch; errors propagate to workflow result. Use `step.try()` only for converting throws to typed errors. |
 
 Synchronous computation and pure logic are allowed inside workflows. Only async operations require `step()`.
@@ -313,7 +309,7 @@ When you see these patterns, apply the rewrite:
 |-----|------------|
 | `workflow(async ...)` or `workflow(args, async ...)` | `workflow.run(async ...)`. Use closures for args. |
 | `Promise.all([...])` inside a workflow callback | `step.all('name', { a: () => opA(), b: () => opB() })` or array form `step.all('name', () => allAsync([...]))`. |
-| `try { await step(...) } catch (e) { ... }` | Remove try/catch; handle errors at boundary. If converting throws: `step.try('id', fn, { error: 'ERR' })`. |
+| `try { await step(...) } catch (e) { ... }` | Remove try/catch; handle errors at boundary. If converting throws: `step.try('id', fn, { error: { type: 'ERR' } })`. |
 | `const x = await deps.fn()` (no step) | `const x = await step('id', () => deps.fn())`. |
 | Options object as first argument to `workflow.run(...)` | Move options to second argument: `workflow.run(fn, options)`. |
 | `return result` from a boundary handler (e.g. HTTP) | **MUST NOT** let Result objects escape. Convert to HTTP/status mapping with `match(result, { ok, ...arms, UnexpectedError })` (see boundary handling canonical). |
@@ -416,7 +412,7 @@ import { match, type Result, type UnexpectedError } from 'awaitly';
 
 declare const result: Result<
   Order,
-  'ORDER_FAILED' | { type: 'NOT_FOUND'; id: string } | { type: 'STEP_TIMEOUT' } | UnexpectedError
+  { type: 'ORDER_FAILED' } | { type: 'NOT_FOUND'; id: string } | { type: 'STEP_TIMEOUT' } | UnexpectedError
 >;
 
 return match(result, {
@@ -448,9 +444,9 @@ async function getUser(id: string): Promise<User | null> {
 // AFTER
 import { ok, err, type AsyncResult } from 'awaitly';
 
-async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
+async function getUser(id: string): AsyncResult<User, { type: 'NOT_FOUND' }> {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? ok(user) : err({ type: 'NOT_FOUND' });
 }
 ```
 
@@ -460,21 +456,21 @@ For single-use workflows where deps are available via closures.
 
 **Recommended pattern for `run()`:** Derive the error type with `ErrorOf<typeof dep>` (single dep), `Errors<[...]>` (tuple deps), or `ErrorsOf<typeof deps>` (deps object), and pass it as the second type parameter to `run<T, RunErrors>()`. This gives typed `result.error` (your errors plus `UnexpectedError`) without manual unions.
 
-**Zero-annotation alternative — `run(deps, fn)`:** pass deps as the first argument and skip the type parameters. The error union is inferred *and* rendered as its concrete literal union on hover — e.g. `'NOT_FOUND' | 'FETCH_ERROR' | UnexpectedError`, not an opaque `ErrorsOf<{…}>` alias:
+**Zero-annotation alternative — `run(deps, fn)`:** pass deps as the first argument and skip the type parameters. The error union is inferred *and* rendered as its concrete literal union on hover — e.g. `{ type: 'NOT_FOUND' } | { type: 'FETCH_ERROR' } | UnexpectedError`, not an opaque `ErrorsOf<{…}>` alias:
 
 ```typescript
 import { run, ok, type AsyncResult } from 'awaitly';
 
-const fetchUser = (id: string): AsyncResult<User, 'NOT_FOUND'> =>
+const fetchUser = (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> =>
   Promise.resolve(ok({ id, name: 'Alice' }));
-const fetchPosts = (userId: string): AsyncResult<Post[], 'FETCH_ERROR'> =>
+const fetchPosts = (userId: string): AsyncResult<Post[], { type: 'FETCH_ERROR' }> =>
   Promise.resolve(ok([]));
 
 const result = await run({ fetchUser, fetchPosts }, async (s) => {
   const user = await s.fetchUser('1');
   return { user, posts: await s.fetchPosts(user.id) };
 });
-// hover result.error → 'NOT_FOUND' | 'FETCH_ERROR' | UnexpectedError
+// hover result.error → { type: 'NOT_FOUND' } | { type: 'FETCH_ERROR' } | UnexpectedError
 ```
 
 ```typescript
@@ -482,7 +478,7 @@ import { run, ok, type AsyncResult, type ErrorOf } from 'awaitly';
 
 type User = { id: string; name: string };
 
-const fetchUser = async (): AsyncResult<User, 'NOT_FOUND'> =>
+const fetchUser = async (): AsyncResult<User, { type: 'NOT_FOUND' }> =>
   ok({ id: '1', name: 'Alice' });
 
 type RunErrors = ErrorOf<typeof fetchUser>;
@@ -491,7 +487,7 @@ const result = await run<User, RunErrors>(async ({ step }) => {
   const user = await step('fetchUser', () => fetchUser());
   return user;
 });
-// result.error is: 'NOT_FOUND' | UnexpectedError
+// result.error is: { type: 'NOT_FOUND' } | UnexpectedError
 ```
 
 **Multiple deps:** Use `Errors<[typeof dep1, typeof dep2, ...]>` for tuple-style deps, or `ErrorsOf<typeof deps>` when deps are already in an object:
@@ -505,7 +501,7 @@ const result = await run<Order, RunErrors>(async ({ step }) => {
   const user = await step('getUser', () => getUser(userId));
   return user;
 });
-// result.error is: 'NOT_FOUND' | UnexpectedError
+// result.error is: { type: 'NOT_FOUND' } | UnexpectedError
 
 // Multiple deps: Errors<[...]> (union of all dep errors)
 type AllErrors = Errors<[typeof getUser, typeof createOrder]>;
@@ -514,7 +510,7 @@ const result2 = await run<Order, AllErrors>(async ({ step }) => {
   const order = await step('createOrder', () => createOrder(user));
   return order;
 });
-// result2.error is: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
+// result2.error is: { type: 'NOT_FOUND' } | { type: 'ORDER_FAILED' } | UnexpectedError
 
 // Object deps: ErrorsOf<typeof deps> (union of all dep errors in an object)
 const deps = { getUser, createOrder };
@@ -524,24 +520,24 @@ const result3 = await run<Order, ObjectErrors>(async ({ step }) => {
   const order = await step('createOrder', () => deps.createOrder(user));
   return order;
 });
-// result3.error is: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
+// result3.error is: { type: 'NOT_FOUND' } | { type: 'ORDER_FAILED' } | UnexpectedError
 ```
 
 **With explicit E** (manual type params):
 ```typescript
-const result = await run<Order, 'NOT_FOUND' | 'ORDER_FAILED'>(
+const result = await run<Order, { type: 'NOT_FOUND' } | { type: 'ORDER_FAILED' }>(
   async ({ step }) => {
     const user = await step('getUser', () => getUser(userId));
     const order = await step('createOrder', () => createOrder(user));
     return order;
   }
 );
-// result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
+// result.error is: { type: 'NOT_FOUND' } | { type: 'ORDER_FAILED' } | UnexpectedError
 ```
 
 **With `catchUnexpected`** (custom unexpected type — replaces `UnexpectedError` with your type):
 ```typescript
-type MyErrors = 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED';
+type MyErrors = { type: 'NOT_FOUND' } | { type: 'ORDER_FAILED' } | { type: 'UNEXPECTED' };
 
 const result = await run<Order, MyErrors>(
   async ({ step }) => {
@@ -549,9 +545,9 @@ const result = await run<Order, MyErrors>(
     const order = await step('createOrder', () => createOrder(user));
     return order;
   },
-  { catchUnexpected: () => 'UNEXPECTED' }
+  { catchUnexpected: () => ({ type: 'UNEXPECTED' }) }
 );
-// result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED' (custom unexpected)
+// result.error is: { type: 'NOT_FOUND' } | { type: 'ORDER_FAILED' } | { type: 'UNEXPECTED' } (custom unexpected)
 ```
 
 **Without type params** (error is `UnexpectedError` only):
@@ -597,7 +593,7 @@ const result = await processOrder.run(async ({ step, deps }) => {
 | Need | Use (first arg = string ID) | Example |
 |------|------------------------------|---------|
 | Result-returning fn | `step(id, fn, opts?)` | `step('getUser', () => deps.getUser(id))` |
-| Throwing fn → typed error | `step.try(id, fn, opts)` | `step.try('parse', () => JSON.parse(s), { error: 'PARSE_ERROR' })` — also accepts `retry`, `timeout`, `compensate` |
+| Throwing fn → typed error | `step.try(id, fn, opts)` | `step.try('parse', () => JSON.parse(s), { error: { type: 'PARSE_ERROR' } })` — also accepts `retry`, `timeout`, `compensate` |
 | Parallel (named results) | `step.all(name, shape, opts?)` | `step.all('fetchAll', { user: () => deps.getUser(id), posts: () => deps.getPosts(id) })` |
 | Parallel over array | `step.map(id, items, mapper, opts?)` | `step.map('fetchUsers', ids, (id) => deps.getUser(id))` |
 | First-to-succeed | `step.race(name, callback)` | `step.race('fastest', () => anyAsync([primary(), fallback()]))` |
@@ -608,7 +604,7 @@ const result = await processOrder.run(async ({ step, deps }) => {
 | Need | Use | Example |
 |------|-----|---------|
 | Result error remapping | `step.fromResult(id, fn, opts)` | `step.fromResult('callApi', () => callApi(), { onError: (e) => ... })` |
-| Null/undefined → typed error | `step.fromNullable(id, fn, onNull)` | `step.fromNullable('lookup', () => map.get(id), () => 'NOT_FOUND')` |
+| Null/undefined → typed error | `step.fromNullable(id, fn, onNull)` | `step.fromNullable('lookup', () => map.get(id), () => ({ type: 'NOT_FOUND' }))` |
 | Retries (as primary verb) | `step.retry(id, fn, opts)` | `step.retry('fetch', () => deps.fn(), { attempts: 3 })` |
 | Timeout (as primary verb) | `step.withTimeout(id, fn, opts)` | `step.withTimeout('slowOp', () => deps.fn(), { ms: 5000 })` |
 | Fallback on primary error | `step.withFallback(id, primaryGetter, opts?)` | `step.withFallback('getUser', () => deps.getUser(id), { fallback: () => deps.getUserFromCache(id) })` |
@@ -787,7 +783,7 @@ const result = orElse(primaryResult, () => fallbackResult);
 import { fromNullable } from 'awaitly';
 
 // null/undefined → Err, value → Ok
-const result = fromNullable(maybeUser, () => 'NOT_FOUND');
+const result = fromNullable(maybeUser, () => ({ type: 'NOT_FOUND' }));
 ```
 
 ### Wrap throwing code (outside workflows)
@@ -796,10 +792,10 @@ const result = fromNullable(maybeUser, () => 'NOT_FOUND');
 import { from, fromPromise } from 'awaitly';
 
 // Sync throwing code → Result
-const parsed = from(() => JSON.parse(data), () => 'PARSE_ERROR');
+const parsed = from(() => JSON.parse(data), () => ({ type: 'PARSE_ERROR' }));
 
 // Async throwing code → AsyncResult
-const response = await fromPromise(fetch(url), () => 'FETCH_ERROR');
+const response = await fromPromise(fetch(url), () => ({ type: 'FETCH_ERROR' }));
 
 // With error context from the cause
 const detailed = from(
@@ -852,13 +848,13 @@ const result = await testWorkflow.run(async ({ step, deps }) => {
 
 | Need | Use |
 |------|-----|
-| Simple states | String: `'NOT_FOUND'` |
+| Simple states | Object: `{ type: 'NOT_FOUND' }` |
 | Error with context | Object: `{ type: 'NOT_FOUND', userId: string }` |
 | Needs stack / cause / `instanceof` | `TaggedError` class |
 
-All three match on one key in `match()`: a string is its own key, an object or class is keyed by its `type`.
+All three match on one key in `match()`: each is keyed by its `type`.
 
-Start with strings. Migrate to objects when you need context.
+Start with plain `{ type }` objects. Add payload fields or move to `TaggedError` when you need more. (Bare string errors were removed in this major; `err()` only accepts `{ type: string }` values.)
 
 ---
 
@@ -872,12 +868,12 @@ Start with strings. Migrate to objects when you need context.
 import { run, ok, err, isUnexpectedError, type AsyncResult, type ErrorsOf } from 'awaitly';
 
 // deps return Results, never throw
-async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
+async function getUser(id: string): AsyncResult<User, { type: 'NOT_FOUND' }> {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? ok(user) : err({ type: 'NOT_FOUND' });
 }
 
-async function createOrder(user: User): AsyncResult<Order, 'ORDER_FAILED'> {
+async function createOrder(user: User): AsyncResult<Order, { type: 'ORDER_FAILED' }> {
   // ...
 }
 
@@ -894,7 +890,7 @@ export async function handleRequest(userId: string) {
       return order;
     }
   );
-  // result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
+  // result.error is: { type: 'NOT_FOUND' } | { type: 'ORDER_FAILED' } | UnexpectedError
 
   if (result.ok) {
     return { status: 200, body: result.value };
@@ -905,7 +901,7 @@ export async function handleRequest(userId: string) {
     return { status: 500 };
   }
 
-  switch (result.error) {
+  switch (result.error.type) {
     case 'NOT_FOUND': return { status: 404 };
     case 'ORDER_FAILED': return { status: 400 };
   }
@@ -914,7 +910,7 @@ export async function handleRequest(userId: string) {
 
 **With `catchUnexpected`** (custom unexpected type):
 ```typescript
-type MyErrors = 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED';
+type MyErrors = { type: 'NOT_FOUND' } | { type: 'ORDER_FAILED' } | { type: 'UNEXPECTED' };
 
 const result = await run<Order, MyErrors>(
   async ({ step }) => {
@@ -922,9 +918,9 @@ const result = await run<Order, MyErrors>(
     const order = await step('createOrder', () => createOrder(user));
     return order;
   },
-  { catchUnexpected: () => 'UNEXPECTED' }
+  { catchUnexpected: () => ({ type: 'UNEXPECTED' }) }
 );
-// result.error is: 'NOT_FOUND' | 'ORDER_FAILED' | 'UNEXPECTED' (custom unexpected)
+// result.error is: { type: 'NOT_FOUND' } | { type: 'ORDER_FAILED' } | { type: 'UNEXPECTED' } (custom unexpected)
 ```
 
 **Without type params** (only `UnexpectedError` in the type):
@@ -952,11 +948,11 @@ import { createWorkflow } from 'awaitly';
 
 // 1. deps return Results, never throw (see "Deps and throwing" above)
 const deps = {
-  getUser: async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
+  getUser: async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> => {
     const user = await db.find(id);
-    return user ? ok(user) : err('NOT_FOUND');
+    return user ? ok(user) : err({ type: 'NOT_FOUND' });
   },
-  createOrder: async (user: User): AsyncResult<Order, 'ORDER_FAILED'> => {
+  createOrder: async (user: User): AsyncResult<Order, { type: 'ORDER_FAILED' }> => {
     // ...
   },
 };
@@ -982,9 +978,8 @@ export async function handleRequest(userId: string) {
     return { status: 500 };
   }
 
-  // These errors are string literals, so switch on them directly. Reach for
-  // narrow with `typeof` when the union mixes strings and objects (R3).
-  switch (result.error) {
+  // Every error in this workflow's union is tagged, so switch on `type` (or use `match`, R3).
+  switch (result.error.type) {
     case 'NOT_FOUND': return { status: 404 };
     case 'ORDER_FAILED': return { status: 400 };
     case 'STEP_TIMEOUT': return { status: 504 };
@@ -1011,7 +1006,7 @@ expect(user.name).toBe('Alice');
 
 // unwrapErr returns the error, throws if Ok
 const error = unwrapErr(await deps.fetchUser('unknown'));
-expect(error).toBe('NOT_FOUND');
+expect(error).toEqual({ type: 'NOT_FOUND' });
 ```
 
 ### Testing workflows (always use workflow.run())
@@ -1025,9 +1020,9 @@ import { unwrapOk, unwrapErr } from 'awaitly/testing';
 
 it('completes order flow', async () => {
   const deps = {
-    getUser: async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
-      id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND'),
-    createOrder: async (user: User): AsyncResult<Order, 'ORDER_FAILED'> =>
+    getUser: async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> =>
+      id === '1' ? ok({ id, name: 'Alice' }) : err({ type: 'NOT_FOUND' }),
+    createOrder: async (user: User): AsyncResult<Order, { type: 'ORDER_FAILED' }> =>
       ok({ orderId: '123' }),
   };
 
@@ -1043,8 +1038,8 @@ it('completes order flow', async () => {
 
 it('returns NOT_FOUND for unknown user', async () => {
   const deps = {
-    getUser: async (id: string): AsyncResult<User, 'NOT_FOUND'> => err('NOT_FOUND'),
-    createOrder: async (user: User): AsyncResult<Order, 'ORDER_FAILED'> => ok({ orderId: '123' }),
+    getUser: async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> => err({ type: 'NOT_FOUND' }),
+    createOrder: async (user: User): AsyncResult<Order, { type: 'ORDER_FAILED' }> => ok({ orderId: '123' }),
   };
 
   const workflow = createWorkflow('orderFlow', deps);
@@ -1054,7 +1049,7 @@ it('returns NOT_FOUND for unknown user', async () => {
     return await step('createOrder', () => deps.createOrder(user));
   });
 
-  expect(unwrapErr(result)).toBe('NOT_FOUND');
+  expect(unwrapErr(result)).toEqual({ type: 'NOT_FOUND' });
 });
 ```
 
@@ -1122,9 +1117,9 @@ it('retries on failure', async () => {
   let attempts = 0;
 
   const deps = {
-    fetchData: async (): AsyncResult<{ data: string }, 'NETWORK_ERROR'> => {
+    fetchData: async (): AsyncResult<{ data: string }, { type: 'NETWORK_ERROR' }> => {
       attempts++;
-      if (attempts < 3) return err('NETWORK_ERROR');
+      if (attempts < 3) return err({ type: 'NETWORK_ERROR' });
       return ok({ data: 'success' });
     },
   };

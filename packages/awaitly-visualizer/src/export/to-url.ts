@@ -20,9 +20,9 @@ import type {
  * Error types for export URL generation.
  */
 export type ExportUrlError =
-  | "UNSUPPORTED_DIAGRAM_KIND"
-  | "UNSUPPORTED_FORMAT"
-  | "UNKNOWN_PROVIDER";
+  | { type: "UNSUPPORTED_DIAGRAM_KIND" }
+  | { type: "UNSUPPORTED_FORMAT" }
+  | { type: "UNKNOWN_PROVIDER" };
 
 /**
  * Internal context for export operations.
@@ -47,13 +47,13 @@ function validateFormatSupported(
   // Kroki supports svg/png for mermaid diagrams (not PDF)
   if (provider === "kroki" && diagramKind === "mermaid") {
     if (format === "pdf") {
-      return err("UNSUPPORTED_FORMAT");
+      return err({ type: "UNSUPPORTED_FORMAT" });
     }
     return ok(undefined); // svg/png are supported
   }
 
   // Future-proof default: reject unsupported combinations
-  return err("UNSUPPORTED_FORMAT");
+  return err({ type: "UNSUPPORTED_FORMAT" });
 }
 
 /**
@@ -122,10 +122,10 @@ export function toExportUrl(
       break;
     case "graphviz":
     case "plantuml":
-      return err("UNSUPPORTED_DIAGRAM_KIND");
+      return err({ type: "UNSUPPORTED_DIAGRAM_KIND" });
     default: {
       const _exhaustive: never = diagram;
-      return err("UNSUPPORTED_DIAGRAM_KIND");
+      return err({ type: "UNSUPPORTED_DIAGRAM_KIND" });
     }
   }
 
@@ -152,7 +152,7 @@ export function toExportUrl(
       ));
     default: {
       const _exhaustive: never = options;
-      return err("UNKNOWN_PROVIDER");
+      return err({ type: "UNKNOWN_PROVIDER" });
     }
   }
 }

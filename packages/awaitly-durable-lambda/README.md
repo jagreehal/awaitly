@@ -25,8 +25,8 @@ pnpm add -D @aws/durable-execution-sdk-js-testing   # for awaitly-durable-lambda
 import { withDurableExecution } from "awaitly-durable-lambda"; // was "@aws/durable-execution-sdk-js"
 import { err, ok, type AsyncResult } from "awaitly";
 
-const getUser = async (id: string): AsyncResult<User, "NOT_FOUND"> => { /* ... */ };
-const charge = async (user: User): AsyncResult<Receipt, "DECLINED"> => { /* ... */ };
+const getUser = async (id: string): AsyncResult<User, { type: "NOT_FOUND" }> => { /* ... */ };
+const charge = async (user: User): AsyncResult<Receipt, { type: "DECLINED" }> => { /* ... */ };
 
 export const checkout = withDurableExecution(async (event: { userId: string }, context) => {
   const user = await context.step("getUser", () => getUser(event.userId));
@@ -38,17 +38,17 @@ export const checkout = withDurableExecution(async (event: { userId: string }, c
 });
 
 // HandlerResult<typeof checkout> is inferred from the returns:
-//   Err<"NOT_FOUND"> | Ok<Receipt> | Err<"DECLINED">
+//   Err<{ type: "NOT_FOUND" }> | Ok<Receipt> | Err<{ type: "DECLINED" }>
 ```
 
-The native `context.step` types its value from the function, so a step returning `AsyncResult<Receipt, "DECLINED">` resolves to that `Result`. TypeScript unions the handler's returns, so its result type lists each failure a caller handles.
+The native `context.step` types its value from the function, so a step returning `AsyncResult<Receipt, { type: "DECLINED" }>` resolves to that `Result`. TypeScript unions the handler's returns, so its result type lists each failure a caller handles.
 
 ## How failures behave
 
 | In the step | What Lambda does | What your code sees |
 |---|---|---|
 | `return ok(value)` | Checkpoints the Result | `{ ok: true, value }`, on the first run and on every replay |
-| `return err("DECLINED")` | Checkpoints the Result, with **no retry** | `{ ok: false, error: "DECLINED" }`, recorded once |
+| `return err({ type: "DECLINED" })` | Checkpoints the Result, with **no retry** | `{ ok: false, error: { type: "DECLINED" } }`, recorded once |
 | `throw new Error(...)` | Retries with the step's `retryStrategy`; fails the execution when retries run out | the native `StepError` |
 
 Return `err(...)` for outcomes you expect, such as a declined card or a missing user, and throw for faults you want Lambda to retry.
@@ -130,7 +130,7 @@ it("declines without retrying", async () => {
   const runner = new LocalDurableTestRunner({ handlerFunction: checkout });
   const execution = await runner.run({ payload: { userId: "broke" } }); // payload type-checked
 
-  expect(execution.getResult()).toEqual({ ok: false, error: "DECLINED" }); // result typed
+  expect(execution.getResult()).toEqual({ ok: false, error: { type: "DECLINED" } }); // result typed
 });
 ```
 

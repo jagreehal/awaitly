@@ -81,7 +81,7 @@ export function createNotifier<TMessageId = string>(
       const messageId = await adapter.sendNew(message);
       return ok(messageId?.toString());
     } catch {
-      return err("SEND_FAILED");
+      return err({ type: "SEND_FAILED" });
     }
   }
 

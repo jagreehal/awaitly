@@ -134,8 +134,8 @@ switch (true) {
   case result.error instanceof ValidationError: return 422;
 }
 
-// GOOD - one key per error: strings match themselves, objects and
-// TaggedError classes match on `type`; arms are exhaustive
+// GOOD - one key per error: plain { type } objects and TaggedError
+// classes match on `type`; arms are exhaustive
 return match(result, {
   ok: (v) => 200,
   NOT_FOUND: () => 404,

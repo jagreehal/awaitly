@@ -40,7 +40,7 @@ Every awaitly utility follows the same pattern:
 import type { AsyncResult } from 'awaitly';
 import { ok, err } from 'awaitly';
 
-function myUtility<T>(input: string): AsyncResult<T, 'ERROR_A' | 'ERROR_B'> {
+function myUtility<T>(input: string): AsyncResult<T, { type: 'ERROR_A' } | { type: 'ERROR_B' }> {
   // Success: return ok(value)
   // Failure: return err(errorType, { cause: details })
 }
@@ -60,24 +60,25 @@ Let's walk through building a `fetchJson` helper that wraps `fetch` and returns 
 
 ### Step 1: Define Your Error Types
 
-First, define the errors your utility can return. Use string literals (like `"NOT_FOUND"`) instead of classes or enums - they're simpler and TypeScript handles them better.
+First, define the errors your utility can return. Errors you construct are tagged objects: a plain `{ type: "NOT_FOUND" }` for simple cases, or `TaggedError` classes when you need richer payloads. (Bare string errors were removed in this major.)
 
 ```typescript
 // Default errors that cover common HTTP scenarios
 type DefaultFetchError =
-  | "NOT_FOUND"
-  | "BAD_REQUEST"
-  | "UNAUTHORIZED"
-  | "FORBIDDEN"
-  | "SERVER_ERROR"
-  | "NETWORK_ERROR";
+  | { type: "NOT_FOUND" }
+  | { type: "BAD_REQUEST" }
+  | { type: "UNAUTHORIZED" }
+  | { type: "FORBIDDEN" }
+  | { type: "SERVER_ERROR" }
+  | { type: "NETWORK_ERROR" };
 ```
 
-**Why string literals?**
+**Why tagged objects?**
 
-- TypeScript can narrow them in `if` statements
+- TypeScript can narrow them on `error.type` in `if` and `switch` statements
 - They're easy to read in error messages
 - No need for imports or class definitions
+- Room to add payload fields later (`{ type: "NOT_FOUND", url }`)
 - They work with discriminated unions (more on this later)
 
 ### Step 2: Define Options
@@ -107,7 +108,7 @@ Here's the core pattern - handle both success and error paths, never throw:
 import type { AsyncResult, Result } from 'awaitly';
 import { ok, err } from 'awaitly';
 
-async function fetchWithErrorHandling<T, TError>(
+async function fetchWithErrorHandling<T, TError extends { type: string }>(
   url: string | URL | Request,
   options: FetchOptions<TError> | undefined,
   parseResponse: (response: Response) => Promise<T>
@@ -123,7 +124,7 @@ async function fetchWithErrorHandling<T, TError>(
         return ok(data);
       } catch (parseError) {
         // JSON parsing failed
-        return err("NETWORK_ERROR" as TError, { cause: parseError });
+        return err({ type: "NETWORK_ERROR" } as TError, { cause: parseError });
       }
     }
 
@@ -151,7 +152,7 @@ async function fetchWithErrorHandling<T, TError>(
 
   } catch (fetchError) {
     // Network error (no connection, CORS, timeout)
-    return err("NETWORK_ERROR" as TError, { cause: fetchError });
+    return err({ type: "NETWORK_ERROR" } as TError, { cause: fetchError });
   }
 }
 ```
@@ -160,7 +161,7 @@ async function fetchWithErrorHandling<T, TError>(
 
 - Successful responses (`response.ok`) return `ok(data)`
 - HTTP errors (404, 500, etc.) return `err(errorType)` with status in `cause`
-- Network errors (fetch throws) return `err("NETWORK_ERROR")` with the original error in `cause`
+- Network errors (fetch throws) return `err({ type: "NETWORK_ERROR" })` with the original error in `cause`
 - The `cause` field preserves debugging info without cluttering the error type
 
 ### Step 4: Provide Sensible Defaults
@@ -169,12 +170,12 @@ Create a default mapper for common cases:
 
 ```typescript
 function defaultErrorMapper(status: number): DefaultFetchError {
-  if (status === 404) return "NOT_FOUND";
-  if (status === 400) return "BAD_REQUEST";
-  if (status === 401) return "UNAUTHORIZED";
-  if (status === 403) return "FORBIDDEN";
-  if (status >= 500) return "SERVER_ERROR";
-  return "SERVER_ERROR"; // Fallback
+  if (status === 404) return { type: "NOT_FOUND" };
+  if (status === 400) return { type: "BAD_REQUEST" };
+  if (status === 401) return { type: "UNAUTHORIZED" };
+  if (status === 403) return { type: "FORBIDDEN" };
+  if (status >= 500) return { type: "SERVER_ERROR" };
+  return { type: "SERVER_ERROR" }; // Fallback
 }
 ```
 
@@ -186,7 +187,7 @@ If you have multiple similar functions (like `fetchJson`, `fetchText`, `fetchBlo
 
 ```typescript
 // Each variant just specifies how to parse the response
-export function fetchJson<T, TError = DefaultFetchError>(
+export function fetchJson<T, TError extends { type: string } = DefaultFetchError>(
   url: string | URL | Request,
   options?: FetchOptions<TError>
 ): AsyncResult<T, TError> {
@@ -200,7 +201,7 @@ export function fetchJson<T, TError = DefaultFetchError>(
   );
 }
 
-export function fetchText<TError = DefaultFetchError>(
+export function fetchText<TError extends { type: string } = DefaultFetchError>(
   url: string | URL | Request,
   options?: FetchOptions<TError>
 ): AsyncResult<string, TError> {
@@ -304,7 +305,7 @@ describe('fetchJson', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toBe('NOT_FOUND');
+      expect(result.error).toEqual({ type: 'NOT_FOUND' });
       expect(result.cause).toEqual({
         status: 404,
         statusText: 'Not Found',
@@ -320,7 +321,7 @@ describe('fetchJson', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toBe('NETWORK_ERROR');
+      expect(result.error).toEqual({ type: 'NETWORK_ERROR' });
       expect(result.cause).toBe(networkError);
     }
   });
@@ -336,7 +337,7 @@ For more testing patterns, see the [Testing guide](guides/testing/).
 When building a custom utility:
 
 - [ ] Return `AsyncResult<T, E>` from your function
-- [ ] Define clear error types as string literals
+- [ ] Define clear error types as tagged objects (`{ type: "..." }`)
 - [ ] Use `ok(value)` for success, `err(type, { cause })` for failure
 - [ ] Never throw - always return `err()`
 - [ ] Include debugging info in the `cause` field

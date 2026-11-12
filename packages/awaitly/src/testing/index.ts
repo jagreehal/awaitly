@@ -6,7 +6,7 @@
  */
 
 import type { Result, AsyncResult, StepOptions, WorkflowEvent, Ok, Err } from "../core";
-import { ok, err, isOk, UnexpectedError } from "../core";
+import { ok, err, errAny, isOk, UnexpectedError } from "../core";
 import type { AnyResultFn, ErrorsOfDeps } from "../workflow/types";
 import { isDepResultShaped } from "../core/bound-steps";
 import type { Clock } from "../clock";
@@ -323,7 +323,7 @@ export function createWorkflowHarness<
             return outcome.value as T;
 
           case "err":
-            invocation.result = err(outcome.error);
+            invocation.result = errAny(outcome.error);
             throw { __earlyExit: true, error: outcome.error };
 
           case "throw":
@@ -398,7 +398,7 @@ export function createWorkflowHarness<
             return outcome.value as T;
 
           case "err":
-            invocation.result = err(outcome.error);
+            invocation.result = errAny(outcome.error);
             throw { __earlyExit: true, error: outcome.error };
 
           case "throw":
@@ -415,7 +415,7 @@ export function createWorkflowHarness<
       } catch (error) {
         invocation.durationMs = clock() - startTime;
         const mappedError = "error" in opts ? opts.error : opts.onError(error);
-        invocation.result = err(mappedError);
+        invocation.result = errAny(mappedError);
         throw { __earlyExit: true, error: mappedError };
       }
     };
@@ -433,7 +433,7 @@ export function createWorkflowHarness<
       return ok(value);
     } catch (error) {
       if (isTestEarlyExit(error)) {
-        return err(error.error);
+        return errAny(error.error);
       }
       return err(new UnexpectedError({ cause: error }));
     }
@@ -450,7 +450,7 @@ export function createWorkflowHarness<
       return ok(value);
     } catch (error) {
       if (isTestEarlyExit(error)) {
-        return err(error.error);
+        return errAny(error.error);
       }
       return err(new UnexpectedError({ cause: error }));
     }
@@ -557,12 +557,12 @@ export function createWorkflowHarness<
  *
  * @example
  * ```typescript
- * const fetchUser = createMockFn<User, 'NOT_FOUND'>();
+ * const fetchUser = createMockFn<User, { type: 'NOT_FOUND' }>();
  *
  * fetchUser.returns(ok({ id: '1', name: 'Alice' }));
  * // or
  * fetchUser.returnsOnce(ok({ id: '1', name: 'Alice' }));
- * fetchUser.returnsOnce(err('NOT_FOUND'));
+ * fetchUser.returnsOnce(err({ type: 'NOT_FOUND' }));
  * ```
  */
 export function createMockFn<T, E>(): MockFunction<T, E> {
@@ -927,7 +927,7 @@ export interface SagaStepOptions<T> {
  *
  * harness.script([
  *   okOutcome({ id: 'pay_1', amount: 100 }),        // chargePayment succeeds
- *   errOutcome('OUT_OF_STOCK'),                      // reserveInventory fails
+ *   errOutcome({ type: 'OUT_OF_STOCK' }),            // reserveInventory fails
  * ]);
  *
  * const result = await harness.runSaga(async ({ saga, deps }) => {
@@ -1045,7 +1045,7 @@ export function createSagaHarness<
       return ok(value);
     } catch (error) {
       if (isTestEarlyExit(error)) {
-        return err(error.error);
+        return errAny(error.error);
       }
       // Run compensations for unexpected errors
       await runCompensations();
@@ -1306,7 +1306,7 @@ export function unwrapOk<T, E = unknown>(result: Result<T, E>): T {
  * @example
  * ```typescript
  * const error = unwrapErr(await fetchUser('unknown'));
- * expect(error).toBe('NOT_FOUND');
+ * expect(error).toEqual({ type: 'NOT_FOUND' });
  * ```
  */
 export function unwrapErr<T, E = unknown>(result: Result<T, E>): E {
@@ -1335,7 +1335,7 @@ export async function unwrapOkAsync<T, E = unknown>(
  * @example
  * ```typescript
  * const error = await unwrapErrAsync(fetchUser('unknown'));
- * expect(error).toBe('NOT_FOUND');
+ * expect(error).toEqual({ type: 'NOT_FOUND' });
  * ```
  */
 export async function unwrapErrAsync<T, E = unknown>(
@@ -1354,7 +1354,7 @@ export async function unwrapErrAsync<T, E = unknown>(
  * @example
  * ```typescript
  * console.log(formatResult(ok(42)));           // "Ok(42)"
- * console.log(formatResult(err('NOT_FOUND'))); // "Err('NOT_FOUND')"
+ * console.log(formatResult(err({ type: 'NOT_FOUND' }))); // "Err({ type: 'NOT_FOUND' })"
  * console.log(formatResult(err({ type: 'VALIDATION_ERROR', field: 'email' })));
  * // "Err({ type: 'VALIDATION_ERROR', field: 'email' })"
  * ```

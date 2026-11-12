@@ -130,15 +130,15 @@ const store = postgres(process.env.DATABASE_URL!);
 
 const validateCard = async (
   cardToken: string
-): AsyncResult<Card, 'INVALID_CARD'> => {
+): AsyncResult<Card, { type: 'INVALID_CARD' }> => {
   const card = await stripe.tokens.retrieve(cardToken);
-  return card ? ok(card) : err('INVALID_CARD');
+  return card ? ok(card) : err({ type: 'INVALID_CARD' });
 };
 
 const chargeProvider = async (
   card: Card,
   amount: number
-): AsyncResult<Charge, 'DECLINED' | 'PROVIDER_ERROR'> => {
+): AsyncResult<Charge, { type: 'DECLINED' } | { type: 'PROVIDER_ERROR' }> => {
   try {
     const charge = await stripe.charges.create({
       amount,
@@ -146,14 +146,14 @@ const chargeProvider = async (
     });
     return ok(charge);
   } catch (e) {
-    if (e.code === 'card_declined') return err('DECLINED');
-    return err('PROVIDER_ERROR');
+    if (e.code === 'card_declined') return err({ type: 'DECLINED' });
+    return err({ type: 'PROVIDER_ERROR' });
   }
 };
 
 const persistResult = async (
   charge: Charge
-): AsyncResult<void, 'DB_ERROR'> => {
+): AsyncResult<void, { type: 'DB_ERROR' }> => {
   try {
     await db.payments.create({
       chargeId: charge.id,
@@ -162,7 +162,7 @@ const persistResult = async (
     });
     return ok(undefined);
   } catch {
-    return err('DB_ERROR');
+    return err({ type: 'DB_ERROR' });
   }
 };
 

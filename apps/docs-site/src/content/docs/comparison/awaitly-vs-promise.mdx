@@ -55,23 +55,26 @@ Promise + try/catch               AsyncResult
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
 
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND' | 'DB_ERROR'> => {
+type NotFound = { type: 'NOT_FOUND' };
+type DbError = { type: 'DB_ERROR' };
+
+const fetchUser = async (id: string): AsyncResult<User, NotFound | DbError> => {
   try {
     const user = await db.find(id);
-    return user ? ok(user) : err('NOT_FOUND');
+    return user ? ok(user) : err({ type: 'NOT_FOUND' });
   } catch {
-    return err('DB_ERROR');
+    return err({ type: 'DB_ERROR' });
   }
 };
 
 // Caller sees all possible errors in the type
 const result = await fetchUser('123');
-//    ^? AsyncResult<User, 'NOT_FOUND' | 'DB_ERROR'>
+//    ^? AsyncResult<User, NotFound | DbError>
 
 if (result.ok) {
   console.log(result.value.name);
 } else {
-  // TypeScript knows: result.error is 'NOT_FOUND' | 'DB_ERROR'
+  // TypeScript knows: result.error is NotFound | DbError
   console.log(result.error);
 }
 ```
@@ -114,7 +117,7 @@ With Promises, nothing in the function signature tells you it can fail or what i
 const result = await fetchUser('123');
 
 if (!result.ok) {
-  switch (result.error) {
+  switch (result.error.type) {
     case 'NOT_FOUND':
       return { status: 404, message: 'User not found' };
     case 'DB_ERROR':
@@ -163,7 +166,7 @@ const result = await run<{ user: User; order: Order; receipt: Receipt }, OrderEr
 );
 
 // Error type is automatically:
-// 'NOT_FOUND' | 'INVALID_ORDER' | 'PAYMENT_FAILED' | UnexpectedError
+// { type: 'NOT_FOUND' } | { type: 'INVALID_ORDER' } | { type: 'PAYMENT_FAILED' } | UnexpectedError
 ```
   </TabItem>
   <TabItem label="awaitly (workflow)">
@@ -271,8 +274,8 @@ const result = await fetchUser('123');
 
 // Transform error to API response format
 const apiResult = mapError(result, (e) => ({
-  code: e,
-  message: e === 'NOT_FOUND' ? 'User not found' : 'Database error',
+  type: e.type,
+  message: e.type === 'NOT_FOUND' ? 'User not found' : 'Database error',
   timestamp: Date.now(),
 }));
 ```
@@ -372,29 +375,29 @@ You can adopt awaitly incrementally. Wrap existing Promise-based code like this:
 import { ok, err, from, fromPromise, type AsyncResult } from 'awaitly';
 
 // Wrap an existing async function manually
-const safeFetchUser = async (id: string): AsyncResult<User, 'FETCH_ERROR'> => {
+const safeFetchUser = async (id: string): AsyncResult<User, { type: 'FETCH_ERROR' }> => {
   try {
     const user = await legacyFetchUser(id); // existing Promise function
     return ok(user);
   } catch {
-    return err('FETCH_ERROR');
+    return err({ type: 'FETCH_ERROR' });
   }
 };
 
 // Or use fromPromise to wrap a Promise directly
 const safeResult = await fromPromise(
   legacyFetchUser('123'),
-  () => 'FETCH_ERROR'
+  () => ({ type: 'FETCH_ERROR' })
 );
 
 // Sync: from(fn, onError) for throwing functions
 const safeJsonParse = (s: string) =>
   from(
     () => JSON.parse(s),
-    () => 'PARSE_ERROR'
+    () => ({ type: 'PARSE_ERROR' })
   );
 
-// Inside workflows: step.try('id', () => …, { error: 'MY_ERROR' })
+// Inside workflows: step.try('id', () => …, { error: { type: 'MY_ERROR' } })
 ```
 
 ## When to Use Each

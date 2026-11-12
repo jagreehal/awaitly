@@ -138,7 +138,7 @@
   },
   {
     "title": "step.try & step.fromResult",
-    "code": "/**\n * Showcase: step.try() and step.fromResult()\n * Renders as steps with \"(Try)\" and \"(FromResult)\" in the diagram.\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\nconst riskyOp = async (): AsyncResult<number, \"RISKY_ERROR\"> => ok(1);\nconst fetchResult = async (): AsyncResult<string, \"FETCH_ERROR\"> => ok(\"data\");\n\nexport const tryWorkflow = createWorkflow(\"tryWorkflow\", { riskyOp, fetchResult });\n\nexport async function runTry() {\n  return await tryWorkflow.run(async ({ step, deps }) => {\n    await step.try(\"attempt\", () => deps.riskyOp(), { error: \"RISKY_ERROR\" as const });\n    const data = await step.fromResult(\"load\", () => deps.fetchResult(), { error: \"FETCH_ERROR\" as const });\n    return data;\n  });\n}\n",
+    "code": "/**\n * Showcase: step.try() and step.fromResult()\n * Renders as steps with \"(Try)\" and \"(FromResult)\" in the diagram.\n */\nimport { createWorkflow, ok, type AsyncResult } from \"awaitly\";\n\nconst riskyOp = async (): AsyncResult<number, { type: \"RISKY_ERROR\" }> => ok(1);\nconst fetchResult = async (): AsyncResult<string, { type: \"FETCH_ERROR\" }> => ok(\"data\");\n\nexport const tryWorkflow = createWorkflow(\"tryWorkflow\", { riskyOp, fetchResult });\n\nexport async function runTry() {\n  return await tryWorkflow.run(async ({ step, deps }) => {\n    await step.try(\"attempt\", () => deps.riskyOp(), { error: { type: \"RISKY_ERROR\" } });\n    const data = await step.fromResult(\"load\", () => deps.fetchResult(), { error: { type: \"FETCH_ERROR\" } });\n    return data;\n  });\n}\n",
     "mermaid": "flowchart TD\n\n  %% Workflow: tryWorkflow\n\n  start((Start))\n  step_1[\"attempt (Try)\"]\n  step_2[\"load (FromResult)\"]\n  end_node((End))\n\n  %% Edges\n  step_1 --> step_2\n  start --> step_1\n  step_2 --> end_node\n\n  %% Styles\n  classDef stepStyle fill:#e1f5fe,stroke:#01579b\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class step_1 stepStyle\n  class step_2 stepStyle",
     "stepDetails": [
       {
@@ -146,7 +146,7 @@
         "name": "attempt",
         "callee": "step.try",
         "errors": [
-          "RISKY_ERROR"
+          "{ type: \"RISKY_ERROR\"; }"
         ],
         "depSource": "riskyOp",
         "stepKind": "try",
@@ -154,14 +154,14 @@
         "outputTypeKind": "declared",
         "outputTypeDisplay": "number",
         "outputTypeText": "number",
-        "errorTypeDisplay": "\"RISKY_ERROR\""
+        "errorTypeDisplay": "{ type: \"RISKY_ERROR\"; }"
       },
       {
         "stepId": "load",
         "name": "load",
         "callee": "step.fromResult",
         "errors": [
-          "FETCH_ERROR"
+          "{ type: \"FETCH_ERROR\"; }"
         ],
         "depSource": "fetchResult",
         "stepKind": "fromResult",
@@ -169,7 +169,7 @@
         "outputTypeKind": "declared",
         "outputTypeDisplay": "string",
         "outputTypeText": "string",
-        "errorTypeDisplay": "\"FETCH_ERROR\""
+        "errorTypeDisplay": "{ type: \"FETCH_ERROR\"; }"
       }
     ],
     "resultType": "Promise<string>",
@@ -532,7 +532,9 @@
     ],
     "resultType": "Promise<{ user: User; enriched: Enriched; }>",
     "incErrors": [
-      "NOT_FOUND"
+      "NOT_FOUND",
+      "ENRICH_ERROR",
+      "UnexpectedError"
     ]
   },
   {
@@ -607,7 +609,7 @@
   },
   {
     "title": "Saga workflow",
-    "code": "/**\n * Showcase: Saga workflow — createSagaWorkflow with compensating steps.\n * Renders as saga-step nodes with \"(compensable)\" and \"(try)\" in the diagram.\n */\nimport { ok, type AsyncResult } from \"awaitly\";\nimport { createSagaWorkflow } from \"awaitly/durable\";\n\nconst reserve = async (id: string): AsyncResult<{ reservationId: string }, \"UNAVAILABLE\"> =>\n  ok({ reservationId: \"res_1\" });\nconst release = async (reservationId: string): AsyncResult<void, \"RELEASE_FAILED\"> =>\n  ok(undefined);\nconst charge = async (id: string, amount: number): AsyncResult<{ chargeId: string }, \"CHARGE_FAILED\"> =>\n  ok({ chargeId: \"ch_1\" });\nconst notify = async (id: string): AsyncResult<void, \"NOTIFY_FAILED\"> => ok(undefined);\n\nexport const orderSaga = createSagaWorkflow(\"orderSaga\", {\n  reserve,\n  release,\n  charge,\n  notify,\n});\n\nexport async function runOrderSaga(orderId: string, amount: number) {\n  return await orderSaga.run(async ({ step, deps }) => {\n    const reservation = await step(\"Reserve\", () => deps.reserve(orderId), {\n      compensate: async (val) => {\n        await deps.release(val.reservationId);\n      },\n    });\n\n    const payment = await step(\n      \"Charge\",\n      () => deps.charge(orderId, amount),\n      {\n        compensate: async (_val) => {\n          /* refund in real impl */\n        },\n      }\n    );\n\n    await step.try(\"Notify\", () => deps.notify(orderId), {\n      error: \"NOTIFY_FAILED\" as const,\n    });\n\n    return { reservation, payment };\n  });\n}\n",
+    "code": "/**\n * Showcase: Saga workflow — createSagaWorkflow with compensating steps.\n * Renders as saga-step nodes with \"(compensable)\" and \"(try)\" in the diagram.\n */\nimport { ok, type AsyncResult } from \"awaitly\";\nimport { createSagaWorkflow } from \"awaitly/durable\";\n\nconst reserve = async (id: string): AsyncResult<{ reservationId: string }, \"UNAVAILABLE\"> =>\n  ok({ reservationId: \"res_1\" });\nconst release = async (reservationId: string): AsyncResult<void, \"RELEASE_FAILED\"> =>\n  ok(undefined);\nconst charge = async (id: string, amount: number): AsyncResult<{ chargeId: string }, \"CHARGE_FAILED\"> =>\n  ok({ chargeId: \"ch_1\" });\nconst notify = async (id: string): AsyncResult<void, { type: \"NOTIFY_FAILED\" }> => ok(undefined);\n\nexport const orderSaga = createSagaWorkflow(\"orderSaga\", {\n  reserve,\n  release,\n  charge,\n  notify,\n});\n\nexport async function runOrderSaga(orderId: string, amount: number) {\n  return await orderSaga.run(async ({ step, deps }) => {\n    const reservation = await step(\"Reserve\", () => deps.reserve(orderId), {\n      compensate: async (val) => {\n        await deps.release(val.reservationId);\n      },\n    });\n\n    const payment = await step(\n      \"Charge\",\n      () => deps.charge(orderId, amount),\n      {\n        compensate: async (_val) => {\n          /* refund in real impl */\n        },\n      }\n    );\n\n    await step.try(\"Notify\", () => deps.notify(orderId), {\n      error: { type: \"NOTIFY_FAILED\" },\n    });\n\n    return { reservation, payment };\n  });\n}\n",
     "mermaid": "flowchart TD\n\n  %% Workflow: orderSaga\n\n  start((Start))\n  saga_step_1[\"Reserve (compensable)\"]\n  saga_step_2[\"Charge (compensable)\"]\n  saga_step_3[\"Notify (try)\"]\n  end_node((End))\n\n  %% Edges\n  saga_step_1 --> saga_step_2\n  saga_step_2 --> saga_step_3\n  start --> saga_step_1\n  saga_step_3 --> end_node\n\n  %% Styles\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  class start startStyle\n  class end_node endStyle\n  class saga_step_1 sagaStepStyle\n  class saga_step_2 sagaStepStyle\n  class saga_step_3 sagaStepStyle",
     "stepDetails": [
       {
@@ -669,7 +671,8 @@
         "name": "getOrders",
         "callee": "getOrders",
         "errors": [
-          "ORDERS_UNAVAILABLE"
+          "ORDERS_UNAVAILABLE",
+          "TimeoutError"
         ],
         "depSource": "getOrders",
         "inputType": "Parameters<Deps[K]>",
@@ -751,7 +754,8 @@
     ],
     "resultType": "Promise<Payment>",
     "incErrors": [
-      "PaymentError"
+      "CARD_DECLINED",
+      "GATEWAY_TIMEOUT"
     ]
   },
   {
@@ -861,7 +865,7 @@
   },
   {
     "title": "Saga rollback and compensation failure",
-    "code": "/**\n * Showcase: each failure point enters a LIFO rollback path, and an undo can fail.\n */\nimport { err, ok, type AsyncResult } from \"awaitly\";\nimport { createSagaWorkflow } from \"awaitly/durable\";\n\nconst charge = async (): AsyncResult<{ id: string }, \"DECLINED\"> =>\n  ok({ id: \"pay_1\" });\nconst refund = async (_id: string): AsyncResult<void, \"REFUND_FAILED\"> =>\n  err(\"REFUND_FAILED\");\nconst reserve = async (): AsyncResult<{ id: string }, \"OUT_OF_STOCK\"> =>\n  ok({ id: \"res_1\" });\nconst release = async (_id: string): AsyncResult<void, \"RELEASE_FAILED\"> =>\n  ok(undefined);\nconst ship = async (): AsyncResult<never, \"SHIPMENT_FAILED\"> =>\n  err(\"SHIPMENT_FAILED\");\n\nconst checkout = createSagaWorkflow(\"rollbackCheckout\", {\n  charge,\n  refund,\n  reserve,\n  release,\n  ship,\n});\n\nexport function runCheckout() {\n  return checkout.run(async ({ step, deps }) => {\n    const payment = await step(\"charge\", () => deps.charge(), {\n      compensate: async (value) => {\n        const result = await deps.refund(value.id);\n        if (!result.ok) throw new Error(result.error);\n      },\n    });\n    const stock = await step(\"reserve\", () => deps.reserve(), {\n      compensate: async (value) => {\n        await deps.release(value.id);\n      },\n    });\n    await step(\"ship\", () => deps.ship());\n    return { payment, stock };\n  });\n}\n",
+    "code": "/**\n * Showcase: each failure point enters a LIFO rollback path, and an undo can fail.\n */\nimport { err, ok, type AsyncResult } from \"awaitly\";\nimport { createSagaWorkflow } from \"awaitly/durable\";\n\nconst charge = async (): AsyncResult<{ id: string }, { type: \"DECLINED\" }> =>\n  ok({ id: \"pay_1\" });\nconst refund = async (_id: string): AsyncResult<void, { type: \"REFUND_FAILED\" }> =>\n  err({ type: \"REFUND_FAILED\" });\nconst reserve = async (): AsyncResult<{ id: string }, { type: \"OUT_OF_STOCK\" }> =>\n  ok({ id: \"res_1\" });\nconst release = async (_id: string): AsyncResult<void, { type: \"RELEASE_FAILED\" }> =>\n  ok(undefined);\nconst ship = async (): AsyncResult<never, { type: \"SHIPMENT_FAILED\" }> =>\n  err({ type: \"SHIPMENT_FAILED\" });\n\nconst checkout = createSagaWorkflow(\"rollbackCheckout\", {\n  charge,\n  refund,\n  reserve,\n  release,\n  ship,\n});\n\nexport function runCheckout() {\n  return checkout.run(async ({ step, deps }) => {\n    const payment = await step(\"charge\", () => deps.charge(), {\n      compensate: async (value) => {\n        const result = await deps.refund(value.id);\n        if (!result.ok) throw new Error(result.error.type);\n      },\n    });\n    const stock = await step(\"reserve\", () => deps.reserve(), {\n      compensate: async (value) => {\n        await deps.release(value.id);\n      },\n    });\n    await step(\"ship\", () => deps.ship());\n    return { payment, stock };\n  });\n}\n",
     "mermaid": "flowchart TD\n\n  %% Workflow: rollbackCheckout\n\n  start((Start))\n  saga_step_1[\"charge (compensable)\"]\n  compensation_1[\"undo: refund\"]\n  saga_step_2[\"reserve (compensable)\"]\n  compensation_2[\"undo: release\"]\n  saga_step_3[\"ship\"]\n  saga_original_failure[\"Original failure\"]\n  saga_compensation_failure[\"SagaCompensationError\"]\n  end_node((End))\n\n  %% Edges\n  saga_step_1 --> saga_step_2\n  saga_step_2 --> saga_step_3\n  saga_step_1 -.->|error| saga_original_failure\n  saga_step_2 -.->|error · rollback| compensation_1\n  saga_step_3 -.->|error · rollback| compensation_2\n  compensation_2 -.->|then| compensation_1\n  compensation_2 -.->|failure| saga_compensation_failure\n  compensation_1 -.->|original error| saga_original_failure\n  compensation_1 -.->|failure| saga_compensation_failure\n  start --> saga_step_1\n  saga_step_3 --> end_node\n\n  %% Styles\n  classDef sagaStepStyle fill:#e8eaf6,stroke:#1a237e\n  classDef startStyle fill:#c8e6c9,stroke:#2e7d32\n  classDef endStyle fill:#ffcdd2,stroke:#c62828\n  classDef errorExitStyle fill:#ffcdd2,stroke:#c62828,stroke-width:2px\n  classDef compensationStyle fill:#f5f3ff,stroke:#7c3aed,stroke-dasharray:4 3\n  class start startStyle\n  class end_node endStyle\n  class saga_step_1 sagaStepStyle\n  class compensation_1 compensationStyle\n  class saga_step_2 sagaStepStyle\n  class compensation_2 compensationStyle\n  class saga_step_3 sagaStepStyle\n  class saga_original_failure errorExitStyle\n  class saga_compensation_failure errorExitStyle",
     "stepDetails": [
       {

@@ -28,7 +28,7 @@ expect(user.name).toBe('Alice');
 
 // Check for expected errors
 const error = unwrapErr(await fetchUser('unknown'));
-expect(error).toBe('NOT_FOUND');
+expect(error.type).toBe('NOT_FOUND');
 
 // Async variants for cleaner code
 const user = await unwrapOkAsync(fetchUser('123'));
@@ -101,7 +101,7 @@ describe('checkout workflow', () => {
   it('fails when payment is declined', async () => {
     const harness = createWorkflowHarness({ fetchOrder, chargeCard });
     harness.scriptStep('fetchOrder', okOutcome({ id: '123', total: 100 }));
-    harness.scriptStep('chargeCard', errOutcome('DECLINED'));
+    harness.scriptStep('chargeCard', errOutcome({ type: 'DECLINED' }));
 
     const result = await harness.run(async ({ step, deps }) => {
       const order = await step('fetchOrder', () => deps.fetchOrder('123'));
@@ -110,7 +110,7 @@ describe('checkout workflow', () => {
     });
 
     const error = unwrapErr(result);
-    expect(error).toBe('DECLINED');
+    expect(error.type).toBe('DECLINED');
   });
 });
 ```
@@ -126,13 +126,13 @@ const harness = createWorkflowHarness({ fetchUser, sendEmail, badOperation });
 // In invocation order
 harness.script([
   okOutcome({ id: '1', name: 'Alice' }),
-  errOutcome('EMAIL_FAILED'),
+  errOutcome({ type: 'EMAIL_FAILED' }),
   throwOutcome(new Error('Boom')),
 ]);
 
 // Or per step
 harness.scriptStep('fetchUser', okOutcome({ id: '1', name: 'Alice' }));
-harness.scriptStep('sendEmail', errOutcome('EMAIL_FAILED'));
+harness.scriptStep('sendEmail', errOutcome({ type: 'EMAIL_FAILED' }));
 harness.scriptStep('badOperation', throwOutcome(new Error('Boom')));
 ```
 
@@ -144,7 +144,7 @@ For input-dependent behaviour, pass a plain dep function. It returns a
 ```typescript
 const harness = createWorkflowHarness({
   fetchUser: async (id: string) =>
-    id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND'),
+    id === '1' ? ok({ id, name: 'Alice' }) : err({ type: 'NOT_FOUND' }),
 });
 ```
 
@@ -190,7 +190,7 @@ const result = await testWorkflow.run(
   async ({ step, deps }) => step('chargeCard', () => deps.chargeCard(100)),
   {
     deps: {
-      chargeCard: async () => err('DECLINED'),
+      chargeCard: async () => err({ type: 'DECLINED' }),
     },
   }
 );
@@ -213,7 +213,7 @@ import { createMockFn } from 'awaitly/testing';
 import { ok } from 'awaitly';
 
 // createMockFn<Value, Error>() — mocks return Results, not scripted outcomes.
-const mockFetchUser = createMockFn<{ id: string; name: string }, 'NOT_FOUND'>();
+const mockFetchUser = createMockFn<{ id: string; name: string }, { type: 'NOT_FOUND' }>();
 
 // Set return value
 mockFetchUser.returns(ok({ id: '1', name: 'Alice' }));
@@ -239,12 +239,14 @@ expect(mockFetchUser.getCalls()[1]).toEqual(['2']);
 import { unwrapOk } from 'awaitly/testing';
 import { ok, err } from 'awaitly';
 
-const mockFetch = createMockFn<{ data: string }, 'NETWORK_ERROR'>();
+type NetworkError = { type: 'NETWORK_ERROR' };
+
+const mockFetch = createMockFn<{ data: string }, NetworkError>();
 
 // `returnsOnce` queues per-call results; `returns` is the fallback.
 mockFetch
-  .returnsOnce(err('NETWORK_ERROR'))
-  .returnsOnce(err('NETWORK_ERROR'))
+  .returnsOnce(err({ type: 'NETWORK_ERROR' }))
+  .returnsOnce(err({ type: 'NETWORK_ERROR' }))
   .returns(ok({ data: 'success' }));
 
 const harness = createWorkflowHarness({ fetchData: mockFetch });
@@ -346,13 +348,15 @@ import {
 } from 'awaitly/testing';
 import { ok, err } from 'awaitly';
 
+type OrderNotFound = { type: 'ORDER_NOT_FOUND' };
+
 describe('refund workflow', () => {
-  let mockCalculateRefund: ReturnType<typeof createMockFn<{ amount: number }, 'ORDER_NOT_FOUND'>>;
+  let mockCalculateRefund: ReturnType<typeof createMockFn<{ amount: number }, OrderNotFound>>;
   let mockProcessRefund: ReturnType<typeof createMockFn<{ refundId: string }, never>>;
   let harness: ReturnType<typeof createWorkflowHarness>;
 
   beforeEach(() => {
-    mockCalculateRefund = createMockFn<{ amount: number }, 'ORDER_NOT_FOUND'>();
+    mockCalculateRefund = createMockFn<{ amount: number }, OrderNotFound>();
     mockProcessRefund = createMockFn<{ refundId: string }, never>();
 
     mockCalculateRefund.returns(ok({ amount: 50 }));
@@ -377,7 +381,7 @@ describe('refund workflow', () => {
   });
 
   it('stops if calculation fails', async () => {
-    mockCalculateRefund.returns(err('ORDER_NOT_FOUND'));
+    mockCalculateRefund.returns(err({ type: 'ORDER_NOT_FOUND' }));
 
     const result = await harness.run(async ({ step, deps }) => {
       const refund = await step('calculateRefund', () => deps.calculateRefund('order-1'));
@@ -385,7 +389,7 @@ describe('refund workflow', () => {
     });
 
     const error = unwrapErr(result);
-    expect(error).toBe('ORDER_NOT_FOUND');
+    expect(error.type).toBe('ORDER_NOT_FOUND');
     expect(mockProcessRefund.getCallCount()).toBe(0); // Never called
   });
 });
@@ -404,7 +408,7 @@ describe('payment saga', () => {
     // Deps are functions returning Results.
     const harness = createSagaHarness({
       chargePayment: async () => ok({ id: 'pay_1', amount: 100 }),
-      reserveInventory: async () => err('OUT_OF_STOCK'),
+      reserveInventory: async () => err({ type: 'OUT_OF_STOCK' }),
       refundPayment: async () => ok(undefined),
     });
 
@@ -428,7 +432,7 @@ describe('payment saga', () => {
 
     // Assert the workflow failed
     const error = unwrapErr(result);
-    expect(error).toBe('OUT_OF_STOCK');
+    expect(error.type).toBe('OUT_OF_STOCK');
 
     // Assert compensation ran (LIFO order)
     harness.assertCompensationOrder(['charge-payment']);
@@ -563,8 +567,8 @@ console.log(formatResult(ok(42)));
 console.log(formatResult(ok({ id: '1', name: 'Alice' })));
 // "Ok({ id: '1', name: 'Alice' })"
 
-console.log(formatResult(err('NOT_FOUND')));
-// "Err('NOT_FOUND')"
+console.log(formatResult(err({ type: 'NOT_FOUND' })));
+// "Err({ type: 'NOT_FOUND' })"
 
 console.log(formatResult(err({ type: 'VALIDATION_ERROR', field: 'email' })));
 // "Err({ type: 'VALIDATION_ERROR', field: 'email' })"

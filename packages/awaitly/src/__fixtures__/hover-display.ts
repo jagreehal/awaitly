@@ -27,24 +27,21 @@ export const runResult = await run({ getUser }, async (s) => s.getUser("pok"));
 
 export const workflow = createWorkflow({ getUser });
 
-// Not one `as const` below. A bare `const E` is NOT enough for these: literal
-// inference does not reach through a callback's return position without the
-// `extends ErrorValue` constraint, and whether it does differs between
-// TypeScript versions — 6.x infers the literal from `const E` alone while 5.9
-// widens to `string`. These pin the behaviour on whichever compiler the
-// package actually depends on.
+// Not one `as const` below: `const E extends ErrorValue` must keep the `type`
+// literal through a callback's return position, so hovers show
+// `{ type: "PARSE_ERROR" }` rather than `{ type: string }`.
 export const stringMapper = from(
   () => JSON.parse("{}") as unknown,
-  () => "PARSE_ERROR"
+  () => ({ type: "PARSE_ERROR" })
 );
 export const asyncStringMapper = await tryAsync(
   async () => 1,
-  () => "FETCH_ERROR"
+  () => ({ type: "FETCH_ERROR" })
 );
 export const twoStringMappers = mapErrorTry(
-  err("A"),
-  () => "FORMAT_ERROR",
-  () => "TRANSFORM_ERROR"
+  err({ type: "A" }),
+  () => ({ type: "FORMAT_ERROR" }),
+  () => ({ type: "TRANSFORM_ERROR" })
 );
 export const objectMapper = err({ type: "NOT_FOUND", id: "1" });
 
@@ -54,6 +51,6 @@ const timeoutWorkflow = createWorkflow({ getUser }, { errors: ["API_TIMEOUT"] })
 export const timeoutResult = await timeoutWorkflow.run(async ({ step, deps }) =>
   step.withTimeout("slow", () => deps.getUser("1"), {
     ms: 5000,
-    onTimeout: () => "API_TIMEOUT",
+    onTimeout: () => ({ type: "API_TIMEOUT" }),
   })
 );

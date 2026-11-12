@@ -116,7 +116,7 @@ import { fromPromise } from 'awaitly';
 
 // A promise a framework created and passed across a boundary
 export async function loadData(dataPromise: PromiseLike<Data>) {
-  const result = await fromPromise(dataPromise, () => 'LOAD_FAILED' as const);
+  const result = await fromPromise(dataPromise, () => ({ type: 'LOAD_FAILED' }));
   return result;
 }
 ```

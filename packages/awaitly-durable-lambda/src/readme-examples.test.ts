@@ -28,13 +28,13 @@ type User = { id: string; name: string };
 type Receipt = { receipt: string };
 
 const calls = { getUser: 0, charge: 0 };
-const getUser = async (id: string): AsyncResult<User, "NOT_FOUND"> => {
+const getUser = async (id: string): AsyncResult<User, { type: "NOT_FOUND" }> => {
   calls.getUser += 1;
-  return id === "missing" ? err("NOT_FOUND") : ok({ id, name: "Ada" });
+  return id === "missing" ? err({ type: "NOT_FOUND" }) : ok({ id, name: "Ada" });
 };
-const charge = async (user: User): AsyncResult<Receipt, "DECLINED"> => {
+const charge = async (user: User): AsyncResult<Receipt, { type: "DECLINED" }> => {
   calls.charge += 1;
-  return user.id === "broke" ? err("DECLINED") : ok({ receipt: `r-${user.id}` });
+  return user.id === "broke" ? err({ type: "DECLINED" }) : ok({ receipt: `r-${user.id}` });
 };
 
 // ## Quick start
@@ -57,20 +57,20 @@ describe("README: Quick start", () => {
     mirrors('const user = await context.step("getUser", () => getUser(event.userId));');
     mirrors("if (!user.ok) return user;");
 
-    expectTypeOf<Extract<HandlerResult<typeof checkout>, { ok: false }>["error"]>().toEqualTypeOf<"NOT_FOUND" | "DECLINED">();
+    expectTypeOf<Extract<HandlerResult<typeof checkout>, { ok: false }>["error"]>().toEqualTypeOf<{ type: "NOT_FOUND" } | { type: "DECLINED" }>();
     expect((await runCheckout("u1")).getResult()).toEqual({ ok: true, value: { receipt: "r-u1" } });
   });
 });
 
 describe("README: How failures behave", () => {
   it("records an expected failure once: an err is a value, not retried", async () => {
-    mirrors('| `return err("DECLINED")` | Checkpoints the Result, with **no retry** |');
+    mirrors('| `return err({ type: "DECLINED" })` | Checkpoints the Result, with **no retry** |');
     calls.charge = 0;
 
     const execution = await runCheckout("broke");
 
     expect(execution.getStatus()).toBe("SUCCEEDED");
-    expect(execution.getResult()).toEqual({ ok: false, error: "DECLINED" });
+    expect(execution.getResult()).toEqual({ ok: false, error: { type: "DECLINED" } });
     expect(calls.charge).toBe(1);
   });
 
@@ -149,7 +149,7 @@ describe("README: Typed invoke", () => {
   it("types the result by the invoked handler", async () => {
     mirrors('const receipt = await context.invoke("pay", payments, event);');
     const paymentHandler = withDurableExecution(async (event: { orderId: string; amount: number }) =>
-      event.amount > 100 ? err("DECLINED" as const) : ok({ receipt: `r-${event.orderId}` })
+      event.amount > 100 ? err({ type: "DECLINED" }) : ok({ receipt: `r-${event.orderId}` })
     );
     const payments = durableFunction<typeof paymentHandler>("payments:live");
     const order = withDurableExecution(async (event: { orderId: string; amount: number }, context) => {
@@ -174,7 +174,7 @@ describe("README: Testing", () => {
     const runner = new LocalDurableTestRunner({ handlerFunction: checkout });
     const execution = await runner.run({ payload: { userId: "broke" } });
 
-    expect(execution.getResult()).toEqual({ ok: false, error: "DECLINED" });
+    expect(execution.getResult()).toEqual({ ok: false, error: { type: "DECLINED" } });
   });
 });
 

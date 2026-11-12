@@ -28,46 +28,46 @@ type Order = { id: string; items: string[] };
 type Cart = { items: string[] };
 type Payment = { amount: number };
 
-async function fetchUser(id: string): AsyncResult<User, "USER_NOT_FOUND"> {
-  if (id === "404") return err("USER_NOT_FOUND");
+async function fetchUser(id: string): AsyncResult<User, { type: "USER_NOT_FOUND" }> {
+  if (id === "404") return err({ type: "USER_NOT_FOUND" });
   return ok({ id, name: "Test User", tier: "premium", region: "US" });
 }
 
-async function fetchOrders(_id: string): AsyncResult<Order[], "ORDERS_ERROR"> {
+async function fetchOrders(_id: string): AsyncResult<Order[], { type: "ORDERS_ERROR" }> {
   return ok([{ id: "order-1", items: ["item-1"] }]);
 }
 
 async function fetchRecommendations(
   _id: string
-): AsyncResult<string[], "REC_ERROR"> {
+): AsyncResult<string[], { type: "REC_ERROR" }> {
   return ok(["rec-1", "rec-2"]);
 }
 
 async function fetchSettings(
   _id: string
-): AsyncResult<{ theme: string }, "SETTINGS_ERROR"> {
+): AsyncResult<{ theme: string }, { type: "SETTINGS_ERROR" }> {
   return ok({ theme: "dark" });
 }
 
-async function validateCart(_cart: Cart): AsyncResult<boolean, "INVALID_CART"> {
+async function validateCart(_cart: Cart): AsyncResult<boolean, { type: "INVALID_CART" }> {
   return ok(true);
 }
 
 async function processPayment(
   _payment: Payment
-): AsyncResult<string, "PAYMENT_FAILED"> {
+): AsyncResult<string, { type: "PAYMENT_FAILED" }> {
   return ok("payment-123");
 }
 
 async function applyDiscount(
   percent: number
-): AsyncResult<number, "DISCOUNT_ERROR"> {
+): AsyncResult<number, { type: "DISCOUNT_ERROR" }> {
   return ok(percent);
 }
 
 async function calculateTax(
   _region: string
-): AsyncResult<number, "TAX_ERROR"> {
+): AsyncResult<number, { type: "TAX_ERROR" }> {
   return ok(0.08);
 }
 

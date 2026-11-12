@@ -34,7 +34,7 @@ export type LiveSessionEvent =
 /**
  * Error types for notifier operations.
  */
-export type NotifyError = "SEND_FAILED" | "INVALID_CONFIG";
+export type NotifyError = { type: "SEND_FAILED" } | { type: "INVALID_CONFIG" };
 
 /**
  * Diagram rendering provider.

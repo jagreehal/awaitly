@@ -5,6 +5,7 @@
  * Supports sequential flows, parallel (subgraph), and race patterns.
  */
 
+import { errorLabel } from "../utils/error-label";
 import { ok, err, type Result } from "awaitly";
 import type {
   FlowNode,
@@ -29,7 +30,7 @@ import { getHeatLevel } from "../performance-analyzer";
 /**
  * Error types for stringify operations.
  */
-export type StringifyError = "STRINGIFY_ERROR";
+export type StringifyError = { type: "STRINGIFY_ERROR" };
 
 // =============================================================================
 // Mermaid Style Definitions
@@ -117,7 +118,7 @@ function safeStringify(value: unknown): Result<string, StringifyError> {
     };
     return ok(JSON.stringify(value, replacer));
   } catch {
-    return err("STRINGIFY_ERROR");
+    return err({ type: "STRINGIFY_ERROR" });
   }
 }
 
@@ -499,8 +500,8 @@ function renderStepNode(
   // NEW: Add error path edge (flow to error node)
   if (showErrorEdges && node.state === "error" && node.error !== undefined) {
     const errorNodeId = `ERR_${id}`;
-    const errorLabel = escapeMermaidText(String(node.error)).slice(0, 30);
-    lines.push(`    ${errorNodeId}{{"${errorLabel}"}}`);
+    const label = escapeMermaidText(errorLabel(node.error)).slice(0, 30);
+    lines.push(`    ${errorNodeId}{{"${label}"}}`);
     lines.push(`    ${id} -->|error| ${errorNodeId}`);
     lines.push(`    style ${errorNodeId} fill:#fee2e2,stroke:#dc2626`);
   }

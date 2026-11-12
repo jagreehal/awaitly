@@ -40,21 +40,12 @@ export type Result<T, E = unknown> = Ok<T> | Err<E>;
 export type AsyncResult<T, E = unknown> = Promise<Result<T, E>>;
 
 /**
- * Constraint used on error type parameters inferred from a callback's return
- * value. `unknown` written out as a union of its constituents: it accepts
- * exactly what `unknown` accepts, but unlike `unknown` it makes a `const` type
- * parameter infer literals through a function's return position, so
- * `() => 'PARSE_ERROR'` stays `'PARSE_ERROR'` instead of widening to `string`.
+ * Shape required for errors you construct (`err()`, mappers, `step.try`,
+ * `catchUnexpected`): a `TaggedError` instance or a plain `{ type: "..." }`
+ * object. Bare strings are rejected. `Result<T, E>` itself stays unconstrained,
+ * so forwarded or unmapped errors (e.g. `unknown` causes) need not match this.
  */
-export type ErrorValue =
-  | string
-  | number
-  | bigint
-  | boolean
-  | symbol
-  | object
-  | null
-  | undefined;
+export type ErrorValue = { readonly type: string };
 
 /** Discriminant for PromiseRejectedError type - use in switch statements */
 export const PROMISE_REJECTED = "PROMISE_REJECTED" as const;
@@ -108,6 +99,7 @@ export const AWAITLY_TIMEOUT = "AWAITLY_TIMEOUT" as const;
 export const tags = <const T extends readonly string[]>(...t: T): T => t;
 
 import { UnexpectedError } from "../errors";
+import { errAny } from "./err-any";
 export { UnexpectedError };
 export type PromiseRejectedError = { type: typeof PROMISE_REJECTED; cause: unknown };
 /** Cause type for promise rejections in async batch helpers */
@@ -135,10 +127,9 @@ export function ok<T>(value?: T): Ok<T | void> {
  *
  * @remarks When to use: Return a typed failure without throwing so callers can handle it explicitly.
  */
-export function err<const E, C = unknown>(error: E, options?: { cause?: C }): Err<E, C> {
-  const cause = options?.cause;
-  return { ok: false as const, error, ...(cause !== undefined ? { cause } : {}) } as Err<E, C>;
-}
+export const err: <const E extends ErrorValue, C = unknown>(error: E, options?: { cause?: C }) => Err<E, C> =
+  errAny;
+
 
 // =============================================================================
 // Type Guards
@@ -298,7 +289,7 @@ export type Errors<T extends AnyFunction[]> = {
  * ```typescript
  * const deps = { getUser, createOrder, sendEmail };
  * type E = ErrorsOf<typeof deps>;
- * // = "NOT_FOUND" | "ORDER_FAILED" | "EMAIL_ERROR"
+ * // = { type: "NOT_FOUND" } | { type: "ORDER_FAILED" } | { type: "EMAIL_ERROR" }
  * ```
  */
 export type ErrorsOf<Deps extends Record<string, AnyFunction>> = {
@@ -445,7 +436,7 @@ export function from<T, const E extends ErrorValue>(fn: () => T, onError?: (caus
   try {
     return ok(fn());
   } catch (cause) {
-    return onError ? err(onError(cause), { cause }) : err(cause);
+    return onError ? errAny(onError(cause), { cause }) : errAny(cause);
   }
 }
 
@@ -466,7 +457,7 @@ export async function fromPromise<T, E>(
   try {
     return ok(await promise);
   } catch (cause) {
-    return onError ? err(onError(cause), { cause }) : err(cause);
+    return onError ? errAny(onError(cause), { cause }) : errAny(cause);
   }
 }
 
@@ -487,7 +478,7 @@ export async function tryAsync<T, E>(
   try {
     return ok(await fn());
   } catch (cause) {
-    return onError ? err(onError(cause), { cause }) : err(cause);
+    return onError ? errAny(onError(cause), { cause }) : errAny(cause);
   }
 }
 
@@ -688,12 +679,12 @@ export function mapErrorTry<T, E, const F extends ErrorValue, const G extends Er
 /**
  * Transform both value and error.
  */
-export function bimap<T, U, E, F>(
+export function bimap<T, U, E, const F extends ErrorValue>(
   r: Result<T, E>,
   onOk: (value: T) => U,
   onErr: (error: E, cause?: unknown) => F
 ): Result<U, F> {
-  return r.ok ? ok(onOk(r.value)) : err(onErr(r.error, r.cause), { cause: r.cause });
+  return r.ok ? ok(onOk(r.value)) : errAny(onErr(r.error, r.cause), { cause: r.cause });
 }
 
 /**
@@ -754,7 +745,7 @@ export function hydrate<T, E, C = unknown>(value: unknown): Result<T, E> | null 
     return ok(obj.value as T);
   }
   if (obj.ok === false && "error" in obj) {
-    return err(obj.error as E, { cause: obj.cause as C });
+    return errAny(obj.error as E, { cause: obj.cause as C });
   }
   return null;
 }
@@ -874,7 +865,7 @@ export function allSettled<const T extends readonly Result<unknown, unknown>[]>(
   }
 
   if (errors.length > 0) {
-    return err(errors) as unknown as AllSettledResult<T>;
+    return errAny(errors) as unknown as AllSettledResult<T>;
   }
 
   return ok(values) as unknown as AllSettledResult<T>;
@@ -923,7 +914,7 @@ export async function allSettledAsync<
 
   if (errors.length > 0) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return err(errors) as any;
+    return errAny(errors) as any;
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ok(values) as any;
@@ -1121,7 +1112,7 @@ export function deserialize<T, E, C = unknown>(
     return ok(obj.value as T);
   }
   if (obj.ok === false && "error" in obj) {
-    return err(obj.error as E, { cause: obj.cause as C });
+    return errAny(obj.error as E, { cause: obj.cause as C });
   }
   return err({ type: DESERIALIZATION_ERROR, value } as DeserializationError);
 }
@@ -1157,7 +1148,7 @@ export function serialize<T, E>(result: Result<T, E>): SerializedResult<T, E> {
  * const message = matchErrorPartial(
  *   error,
  *   { NOT_FOUND: () => 'Resource not found' },
- *   (e) => `Unexpected: ${e}`
+ *   (e) => `Unexpected: ${e.type}`
  * );
  * ```
  */

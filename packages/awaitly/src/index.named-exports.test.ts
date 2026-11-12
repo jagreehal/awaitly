@@ -20,6 +20,11 @@ import * as engineEntry from "./engine-entry";
  * shared names resolve to the same declarations across entries.
  */
 describe("canonical root exports", () => {
+  it("keeps the internal errAny out of the public entries", () => {
+    expect("errAny" in root).toBe(false);
+    expect("errAny" in resultEntry).toBe(false);
+  });
+
   it("exports the Result primitives", () => {
     expect(root.ok(1)).toEqual({ ok: true, value: 1 });
     expect(root.err("E")).toEqual({ ok: false, error: "E" });

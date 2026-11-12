@@ -14,7 +14,7 @@ import type { WorkflowStatus } from "../types";
 /**
  * Error types for Slack adapter operations.
  */
-export type SlackError = "CLIENT_LOAD_FAILED" | "POST_FAILED" | "UPDATE_FAILED";
+export type SlackError = { type: "CLIENT_LOAD_FAILED" } | { type: "POST_FAILED" } | { type: "UPDATE_FAILED" };
 
 /**
  * Options for Slack adapter.
@@ -123,7 +123,7 @@ export function createSlackAdapter(
       client = new WebClient(token) as unknown as SlackWebApi;
       return ok(client);
     } catch {
-      return err("CLIENT_LOAD_FAILED");
+      return err({ type: "CLIENT_LOAD_FAILED" });
     }
   }
 

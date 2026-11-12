@@ -10,9 +10,9 @@ Process items in batches with progress tracking and checkpoint hooks. Useful for
 ```typescript
 import { ok, err, type AsyncResult, processInBatches } from 'awaitly';
 
-const embedText = async (text: string): AsyncResult<number[], 'EMBED_ERROR'> => {
+const embedText = async (text: string): AsyncResult<number[], { type: 'EMBED_ERROR' }> => {
   const response = await fetch('/api/embed', { method: 'POST', body: text });
-  return response.ok ? ok(await response.json()) : err('EMBED_ERROR');
+  return response.ok ? ok(await response.json()) : err({ type: 'EMBED_ERROR' });
 };
 
 const result = await processInBatches(
@@ -102,7 +102,7 @@ const result = await processInBatches(
   items,
   async (item, index) => {
     if (item.invalid) {
-      return err('INVALID_ITEM');
+      return err({ type: 'INVALID_ITEM' });
     }
     return ok(await process(item));
   },
@@ -176,7 +176,7 @@ const generateEmbeddings = async (documents: Document[]) => {
       });
 
       if (!response.ok) {
-        return err('EMBED_FAILED');
+        return err({ type: 'EMBED_FAILED' });
       }
 
       return ok({
@@ -368,7 +368,7 @@ async function processWithRecovery(items: Item[]): Promise<Result<void, unknown>
         return ok(item.id);
       } catch (error) {
         progress.failedIds.push(item.id);
-        return err('ITEM_FAILED');
+        return err({ type: 'ITEM_FAILED' });
       }
     },
     batchPresets.conservative,

@@ -275,6 +275,8 @@ export type {
 
 // Workflow Diagram DSL (for xstate-style visualization; types from awaitly/workflow)
 export { renderWorkflowDSL } from "./output/dsl";
+export { renderMachineJSON } from "./output/machine-json";
+export type { MachineJSON, MachineJSONState } from "./output/machine-json";
 
 // .awaitly folder write (optional DSL cache)
 export {

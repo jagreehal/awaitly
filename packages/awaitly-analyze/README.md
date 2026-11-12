@@ -26,6 +26,9 @@ awaitly-analyze ./src/workflows/checkout.ts --no-output-adjacent
 # JSON format (also writes checkout.workflow.json unless you pass --no-output-adjacent)
 awaitly-analyze ./src/workflows/checkout.ts --format=json
 
+# XState v6 MachineJSON
+awaitly-analyze ./src/workflows/checkout.ts --format=xstate --no-output-adjacent > checkout.machine.json
+
 # Show step keys and change diagram direction
 awaitly-analyze ./src/workflows/checkout.ts --keys --direction=LR
 
@@ -69,7 +72,7 @@ The same review runs on pull requests as a GitHub Action (`uses: jagreehal/await
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--format=<format>` | `mermaid` | Output format: `mermaid` or `json` |
+| `--format=<format>` | `mermaid` | Output format: `mermaid`, `json`, or `xstate` (XState v6 MachineJSON) |
 | `--html` | - | Generate interactive HTML file (Mermaid CDN + click-to-inspect) |
 | `--html-output=<path>` | `<basename>.html` | Output path for the HTML file |
 | `--keys` | - | Show step cache keys in diagram |
@@ -443,6 +446,32 @@ await writeDSLToAwaitlyDir(dsl, { rootDir: process.cwd() });
 ```
 
 **Identity contract:** DSL state ids normally use the semantic ids authored in the code (step()'s literal first argument, step.if()'s decision id). If a collision requires a suffixed diagram id, `state.semanticId` preserves the authored identity used by runtime graph validation, so the DSL remains directly usable as the `graph` option. Literal cache keys are carried on `state.key`. For current-node highlighting, `WorkflowSnapshot.execution.currentStepId` holds the step key — match it against `state.key ?? state.semanticId ?? state.id`. See `awaitly` diagram-dsl types for details.
+
+### XState MachineJSON
+
+#### `renderMachineJSON(ir)`
+
+Produce an XState v6 MachineJSON definition: plain JSON that `machineFromJSON` revives. Statechart tools draw and step it without running workflow code.
+
+```typescript
+import { analyze, renderMachineJSON } from 'awaitly-analyze';
+
+const machine = renderMachineJSON(analyze('./checkout.ts').single());
+fs.writeFileSync('checkout.machine.json', JSON.stringify(machine, null, 2));
+```
+
+How a workflow maps onto a statechart:
+
+| Workflow | Statechart |
+| --- | --- |
+| step, saga step, child workflow | A state invoking the dep as an actor: `onDone` goes on, `onError` goes to `failed` |
+| parallel, `all` mode (`allAsync`, `step.parallel`) | A `parallel` state, one region per branch, left once every region finishes; a branch error goes straight to `failed` |
+| parallel, `allSettled` mode (`allSettledAsync`) | The same, but a branch error only ends its own region; once every region finishes, the built-in `@xstate.stateIn` guard sends the machine to `failed` if any region failed, otherwise on |
+| race | A state with one `race:<n>` event per racer, so you pick the winner |
+| `if` / `step.if` / `switch` | A state with one event per branch, named like the DSL's edges |
+| loop | `iterate` into the body, back to the loop state after each pass, `done` to leave |
+
+Errors lead to one `failed` final state, and its `meta.errors` lists the error tags. State ids are the DSL's semantic ids with `.` and `#` replaced by `_`, since XState reads both as target syntax. `meta.stepId` keeps the authored id when it changed.
 
 ### JSON Output
 

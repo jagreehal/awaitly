@@ -6,7 +6,7 @@ import {
 } from "../../../lib/workflows/signup";
 
 const errorMap: Record<
-  SignupError,
+  SignupError["type"],
   { status: number; message: string }
 > = {
   INVALID_EMAIL: { status: 400, message: signupErrorMessages.INVALID_EMAIL },
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   }
 
   const errorInfo =
-    errorMap[result.error as SignupError] ?? {
+    errorMap[result.error.type as SignupError["type"]] ?? {
       status: 500,
       message: "Unknown error",
     };

@@ -227,7 +227,7 @@ describe("kitchen-sink: raw event capture", () => {
       const stepError = workflowEvents.find((e) => e.type === "step_error");
       expect(stepError).toBeDefined();
       if (stepError?.type === "step_error") {
-        expect(stepError.error).toBe("CART_NOT_FOUND");
+        expect(stepError.error).toEqual({ type: "CART_NOT_FOUND" });
       }
     });
 

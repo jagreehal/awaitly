@@ -178,19 +178,19 @@ const workflow = createWorkflow('workflow', deps, { cache: redisCache });
 Errors are cached by default. If a step fails, subsequent runs return the same error:
 
 ```typescript
-// First run - fetchUser returns err('NOT_FOUND')
+// First run - fetchUser returns err({ type: 'NOT_FOUND' })
 await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('999'), { key: 'user:999' });
   return user;
 });
-// result.error === 'NOT_FOUND'
+// result.error.type === 'NOT_FOUND'
 
 // Second run - returns cached error, no fetch
 await workflow.run(async ({ step, deps }) => {
   const user = await step('fetchUser', () => deps.fetchUser('999'), { key: 'user:999' });
   return user;
 });
-// result.error === 'NOT_FOUND' (from cache)
+// result.error.type === 'NOT_FOUND' (from cache)
 ```
 
 To retry on error, clear the cache key first.

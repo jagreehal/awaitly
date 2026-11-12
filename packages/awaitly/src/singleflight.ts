@@ -83,8 +83,8 @@ interface CacheEntry<T, E> {
  * import { singleflight } from 'awaitly';
  * import { ok, err, type AsyncResult } from 'awaitly';
  *
- * const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
- *   id !== '0' ? ok({ id, name: `User ${id}` }) : err('NOT_FOUND');
+ * const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> =>
+ *   id !== '0' ? ok({ id, name: `User ${id}` }) : err({ type: 'NOT_FOUND' });
  *
  * const fetchUserOnce = singleflight(fetchUser, {
  *   key: (id) => `user:${id}`,
@@ -176,7 +176,7 @@ export function singleflight<Args extends unknown[], T, E>(
  * ```typescript
  * import { createSingleflightGroup } from 'awaitly';
  *
- * const group = createSingleflightGroup<User, 'NOT_FOUND'>();
+ * const group = createSingleflightGroup<User, { type: 'NOT_FOUND' }>();
  *
  * // Execute with manual key
  * const user1 = await group.execute('user:1', () => fetchUser('1'));

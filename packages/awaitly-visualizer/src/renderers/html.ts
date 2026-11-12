@@ -9,6 +9,7 @@
  * - Performance heatmap overlay
  */
 
+import { errorLabel } from "../utils/error-label";
 import type {
   FlowNode,
   HTMLRenderOptions,
@@ -724,7 +725,7 @@ function safeJsonStringify(obj: unknown): string {
       return value.toString();
     }
     if (key === "error" && value !== undefined && value !== null) {
-      return String(value);
+      return errorLabel(value);
     }
     if (typeof value === "object" && value !== null) {
       if (seen.has(value)) {

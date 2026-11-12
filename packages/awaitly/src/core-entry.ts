@@ -7,8 +7,8 @@
  * ```typescript
  * import { ok, err, map, andThen, type AsyncResult } from 'awaitly';
  *
- * const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
- *   id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND');
+ * const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> =>
+ *   id === '1' ? ok({ id, name: 'Alice' }) : err({ type: 'NOT_FOUND' });
  *
  * const result = await fetchUser('1');
  * const name = map(result, user => user.name);

@@ -17,18 +17,18 @@ import {
 
 const fetchUser = async (
   id: string
-): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> => {
-  if (id === "missing") return err("NOT_FOUND");
+): AsyncResult<{ id: string; name: string }, { type: "NOT_FOUND" }> => {
+  if (id === "missing") return err({ type: "NOT_FOUND" });
   return ok({ id, name: `User ${id}` });
 };
 
 const fetchPosts = async (
   userId: string
-): AsyncResult<{ id: string; title: string }[], "FETCH_ERROR"> => {
+): AsyncResult<{ id: string; title: string }[], { type: "FETCH_ERROR" }> => {
   return ok([{ id: "1", title: `Post by ${userId}` }]);
 };
 
-const slowOperation = async (): AsyncResult<string, "TIMEOUT"> => {
+const slowOperation = async (): AsyncResult<string, { type: "TIMEOUT" }> => {
   await new Promise((resolve) => setTimeout(resolve, 10));
   return ok("done");
 };

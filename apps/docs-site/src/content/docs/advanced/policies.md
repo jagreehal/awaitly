@@ -303,10 +303,10 @@ describe('workflow with policies', () => {
   it('retries on transient failure', async () => {
     // `returns`/`returnsOnce` take Results — `okOutcome`/`errOutcome` are for
     // `harness.script()` / `harness.scriptStep()`.
-    const mockFetch = createMockFn<{ id: string }, 'NETWORK_ERROR'>();
+    const mockFetch = createMockFn<{ id: string }, { type: 'NETWORK_ERROR' }>();
     mockFetch
-      .returnsOnce(err('NETWORK_ERROR'))
-      .returnsOnce(err('NETWORK_ERROR'))
+      .returnsOnce(err({ type: 'NETWORK_ERROR' }))
+      .returnsOnce(err({ type: 'NETWORK_ERROR' }))
       .returns(ok({ id: '1' }));
 
     const harness = createWorkflowHarness({ fetchData: mockFetch });

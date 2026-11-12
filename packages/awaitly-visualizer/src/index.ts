@@ -381,7 +381,7 @@ export function createVisualizer(
       { caller: "toSvgUrl" }
     );
     if (!result.ok) {
-      throw new Error(`toSvgUrl: Export failed - ${result.error}`);
+      throw new Error(`toSvgUrl: Export failed - ${result.error.type}`);
     }
     return result.value;
   }
@@ -394,7 +394,7 @@ export function createVisualizer(
       { caller: "toPngUrl" }
     );
     if (!result.ok) {
-      throw new Error(`toPngUrl: Export failed - ${result.error}`);
+      throw new Error(`toPngUrl: Export failed - ${result.error.type}`);
     }
     return result.value;
   }
@@ -407,7 +407,7 @@ export function createVisualizer(
       { caller: "toPdfUrl" }
     );
     if (!result.ok) {
-      throw new Error(`toPdfUrl: Export failed - ${result.error}`);
+      throw new Error(`toPdfUrl: Export failed - ${result.error.type}`);
     }
     return result.value;
   }

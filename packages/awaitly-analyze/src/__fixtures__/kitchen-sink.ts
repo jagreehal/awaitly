@@ -42,7 +42,7 @@ const fetchFriends = async (
   return ok(["bob", "carol"]);
 };
 
-const riskyOp = async (): AsyncResult<number, "RISKY_ERROR"> => {
+const riskyOp = async (): AsyncResult<number, { type: "RISKY_ERROR" }> => {
   return ok(42);
 };
 
@@ -133,13 +133,13 @@ export async function runKitchenSink(userId: string) {
     await step.try("try-risky", () => {
       if (Math.random() > 0.5) throw new Error("boom");
       return 1;
-    }, { error: "RISKY_ERROR" as const });
+    }, { error: { type: "RISKY_ERROR" } });
 
     // -----------------------------------------------------------------------
     // 4. step.fromResult
     // -----------------------------------------------------------------------
     await step.fromResult("from-result", () => deps.riskyOp(), {
-      error: "RISKY_ERROR" as const,
+      error: { type: "RISKY_ERROR" },
     });
 
     // -----------------------------------------------------------------------

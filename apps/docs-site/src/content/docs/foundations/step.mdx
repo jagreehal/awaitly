@@ -204,20 +204,20 @@ const data = await step.try(
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   },
-  { error: 'FETCH_FAILED' }
+  { error: { type: 'FETCH_FAILED' } }
 );
 /*
 Output (success):
 data contains the parsed JSON
 
 Output (failure):
-Workflow returns { ok: false, error: 'FETCH_FAILED' }
+Workflow returns { ok: false, error: { type: 'FETCH_FAILED' } }
 */
 ```
 
 <Aside type="tip" title="Error type safety">
 No `as const` needed, `error` is a `const` type parameter, so TypeScript keeps
-the literal string `'FETCH_FAILED'` rather than widening it to `string`.
+the literal `type: 'FETCH_FAILED'` rather than widening it to `string`.
 </Aside>
 
 The error type is added to the workflow's error union automatically.
@@ -227,10 +227,10 @@ The error type is added to the workflow's error union automatically.
 When your operation returns a Result with rich error objects:
 
 ```typescript
-type ApiError = { code: number; message: string };
+type ApiError = { type: 'HTTP_ERROR'; code: number; message: string };
 
 const callApi = async (): AsyncResult<Data, ApiError> => {
-  // Returns err({ code: 429, message: 'Rate limited' })
+  // Returns err({ type: 'HTTP_ERROR', code: 429, message: 'Rate limited' })
 };
 
 const data = await step.fromResult(
@@ -238,8 +238,8 @@ const data = await step.fromResult(
   () => callApi(),
   {
     onError: (apiError) => ({
-      type: 'API_ERROR',
       ...apiError,
+      type: 'API_ERROR',
     }),
   }
 );
@@ -263,7 +263,7 @@ const user = await step.retry(
     initialDelay: 100,            // Base delay
     maxDelay: 5000,        // Cap for exponential
     jitter: true,            // Add randomness
-    shouldRetry: (error) => error !== 'NOT_FOUND', // Don't retry NOT_FOUND
+    shouldRetry: (error) => error.type !== 'NOT_FOUND', // Don't retry NOT_FOUND
   }
 );
 ```
@@ -593,7 +593,7 @@ Run a primary operation; if it fails, run a fallback. Same early-exit semantics 
 ```typescript
 const user = await step.withFallback('getUser', () => deps.fetchUser(id), {
   fallback: () => deps.getUserFromCache(id),
-  on: (err) => err === 'NOT_FOUND',
+  on: (err) => err.type === 'NOT_FOUND',
 });
 ```
 

@@ -3,3 +3,4 @@
  */
 
 export * from "./timing";
+export * from "./error-label";

@@ -11,12 +11,12 @@
  * import { processInBatches, ok, err, type AsyncResult } from 'awaitly';
  *
  * // Generate embeddings in batches with progress tracking
- * const embedText = async (text: string): AsyncResult<number[], 'EMBED_ERROR'> => {
+ * const embedText = async (text: string): AsyncResult<number[], { type: 'EMBED_ERROR' }> => {
  *   const response = await fetch('/api/embed', { body: text });
- *   return response.ok ? ok(await response.json()) : err('EMBED_ERROR');
+ *   return response.ok ? ok(await response.json()) : err({ type: 'EMBED_ERROR' });
  * };
  *
- * const checkpoint = async (): AsyncResult<void, 'DB_ERROR'> => {
+ * const checkpoint = async (): AsyncResult<void, { type: 'DB_ERROR' }> => {
  *   await db.checkpoint();
  *   return ok(undefined);
  * };

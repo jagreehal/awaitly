@@ -153,7 +153,7 @@ export function generateClientScript(options: {
           key: node.key,
           durationMs: node.durationMs,
           startTs: node.startTs,
-          error: node.error !== undefined && node.error !== null ? String(node.error) : undefined,
+          error: node.error !== undefined && node.error !== null ? (node.error.type || String(node.error)) : undefined,
           retryCount: node.retryCount,
           input: node.input,
           output: node.output,

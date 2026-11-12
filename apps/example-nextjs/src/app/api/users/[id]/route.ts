@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../../../../lib/db";
 import { users, type User } from "../../../../lib/db/schema";
 
-type UserError = "NOT_FOUND" | "UNAUTHORIZED";
+type UserError = { type: "NOT_FOUND" } | { type: "UNAUTHORIZED" };
 
 async function getUser(
   id: string
@@ -15,7 +15,7 @@ async function getUser(
     .from(users)
     .where(eq(users.id, Number(id)))
     .limit(1);
-  if (!user) return err("NOT_FOUND");
+  if (!user) return err({ type: "NOT_FOUND" });
   return ok(user);
 }
 
@@ -27,7 +27,7 @@ export async function GET(
   const numId = Number(id);
   if (Number.isNaN(numId) || numId < 1) {
     return NextResponse.json(
-      { ok: false, error: "NOT_FOUND" },
+      { ok: false, error: { type: "NOT_FOUND" } },
       { status: 404 }
     );
   }
@@ -38,6 +38,6 @@ export async function GET(
   }
   return NextResponse.json(
     { ok: false, error: result.error },
-    { status: result.error === "NOT_FOUND" ? 404 : 401 }
+    { status: result.error.type === "NOT_FOUND" ? 404 : 401 }
   );
 }

@@ -40,6 +40,7 @@
 import {
   ok,
   err,
+  errAny,
   type Result,
   type AsyncResult,
   type ErrorOf,
@@ -407,7 +408,7 @@ export async function runSaga<T, E>(
       if (!isEarlyExit(thrown)) {
         return err(new UnexpectedError({ cause: thrown }));
       }
-      return err(originalError as E);
+      return errAny(originalError as E);
     }
   };
 
