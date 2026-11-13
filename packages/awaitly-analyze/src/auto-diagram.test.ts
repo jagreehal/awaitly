@@ -74,10 +74,18 @@ describe("inferBestDiagramType", () => {
 
   // Saga detection
 
-  it("selects railway for saga workflows", () => {
+  it("selects mermaid for saga workflows with compensation so undo edges can render", () => {
     const ir = makeIR([
       { type: "saga-step", id: "ss1", name: "reserve", hasCompensation: true },
       { type: "saga-step", id: "ss2", name: "charge", hasCompensation: true },
+    ]);
+    expect(inferBestDiagramType(ir)).toBe("mermaid");
+  });
+
+  it("selects railway for saga workflows without compensation", () => {
+    const ir = makeIR([
+      { type: "saga-step", id: "ss1", name: "reserve", hasCompensation: false },
+      { type: "saga-step", id: "ss2", name: "charge", hasCompensation: false },
     ]);
     expect(inferBestDiagramType(ir)).toBe("railway");
   });

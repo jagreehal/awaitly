@@ -270,15 +270,15 @@ npx awaitly-analyze ./workflow.ts --no-output-adjacent  # Print only
 
 # Output formats
 npx awaitly-analyze ./workflow.ts --format=json
-npx awaitly-analyze ./workflow.ts --format=xstate     # XState v6 MachineJSON for machineFromJSON and statechart tools
+npx awaitly-analyze ./workflow.ts --format=xstate     # XState v6 MachineJSON for machineFromJSON and statechart tools (includes saga compensation states)
 npx awaitly-analyze ./workflow.ts --format=markdown
 
 # Control outputs
 npx awaitly-analyze ./workflow.ts --types              # Generate <workflowName>.types.ts (default: off)
 npx awaitly-analyze ./workflow.ts --test               # Generate test stubs (default: off)
 npx awaitly-analyze ./workflow.ts --test --test-runner=jest  # Test runner: vitest (default), jest, mocha
-npx awaitly-analyze ./workflow.ts --errors             # Show error nodes in diagrams (default: on)
-npx awaitly-analyze ./workflow.ts --no-errors          # Hide error nodes
+npx awaitly-analyze ./workflow.ts --errors             # Show error nodes and saga rollback paths (default: on)
+npx awaitly-analyze ./workflow.ts --no-errors          # Hide error nodes and saga rollback paths
 
 # Diagram options
 npx awaitly-analyze ./workflow.ts --direction LR

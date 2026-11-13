@@ -327,6 +327,29 @@ describe("renderStaticMermaidWithTrace", () => {
 });
 
 describe("saga compensation rendering", () => {
+  const copyInPartsSource = `
+    import { createSagaWorkflow } from "awaitly/durable";
+    import { ok, type AsyncResult } from "awaitly";
+    type CopyFailed = { type: "COPY_FAILED" };
+    const createUpload = async (): AsyncResult<string, CopyFailed> => ok("upload-1");
+    const copyParts = async (): AsyncResult<string[], CopyFailed> => ok(["etag"]);
+    const completeUpload = async (): AsyncResult<void, CopyFailed> => ok(undefined);
+    const abortUpload = async (): AsyncResult<void, CopyFailed> => ok(undefined);
+    const copyInParts = createSagaWorkflow("copyInParts", {
+      createUpload, copyParts, completeUpload, abortUpload,
+    });
+    export async function copy() {
+      return copyInParts.run(async ({ step, deps }) => {
+        const uploadId = await step("createUpload", () => deps.createUpload(), {
+          compensate: (id) => deps.abortUpload(id),
+        });
+        const parts = await step("copyParts", () => deps.copyParts());
+        await step("completeUpload", () => deps.completeUpload());
+        return { uploadId, parts };
+      });
+    }
+  `;
+
   it("shows each failure entry point, LIFO rollback, and compensation failure", () => {
     const source = `
       import { createSagaWorkflow } from "awaitly/durable";
@@ -358,5 +381,23 @@ describe("saga compensation rendering", () => {
     expect(mermaid).toContain("compensation_2 -.->|then| compensation_1");
     expect(mermaid).toContain('saga_compensation_failure["SagaCompensationError"]');
     expect(mermaid).toContain("compensation_1 -.->|failure| saga_compensation_failure");
+  });
+
+  it("draws abort edges by default when a step declares compensate", () => {
+    const [ir] = analyzeWorkflowSource(copyInPartsSource);
+    const mermaid = renderStaticMermaid(ir);
+
+    expect(mermaid).toContain('compensation_1["undo: abortUpload"]');
+    expect(mermaid).toMatch(/saga_step_\d+ -\.->\|error · rollback\| compensation_1/);
+    expect(mermaid).toContain('saga_compensation_failure["SagaCompensationError"]');
+  });
+
+  it("hides compensation paths when showSagaCompensations is false", () => {
+    const [ir] = analyzeWorkflowSource(copyInPartsSource);
+    const mermaid = renderStaticMermaid(ir, { showSagaCompensations: false });
+
+    expect(mermaid).not.toContain("compensation_1");
+    expect(mermaid).not.toContain("abortUpload");
+    expect(mermaid).not.toContain("SagaCompensationError");
   });
 });

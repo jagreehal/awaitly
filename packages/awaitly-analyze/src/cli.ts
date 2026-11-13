@@ -762,6 +762,7 @@ function runAnalysis(options: CliOptions, filePath: string): void {
               direction,
               showKeys: options.showKeys,
               showInlineErrors: options.errors,
+              showSagaCompensations: options.errors,
             });
         const metadata = useRailway
           ? extractRailwayNodeMetadata(ir)
@@ -824,6 +825,7 @@ function runAnalysis(options: CliOptions, filePath: string): void {
             direction,
             showKeys: options.showKeys,
             showInlineErrors: options.errors,
+            showSagaCompensations: options.errors,
           });
           if (unmatched.length > 0) {
             console.error(
@@ -837,6 +839,7 @@ function runAnalysis(options: CliOptions, filePath: string): void {
               direction,
               showKeys: options.showKeys,
               showInlineErrors: options.errors,
+              showSagaCompensations: options.errors,
             })
           );
         }
