@@ -464,14 +464,17 @@ How a workflow maps onto a statechart:
 
 | Workflow | Statechart |
 | --- | --- |
-| step, saga step, child workflow | A state invoking the dep as an actor: `onDone` goes on, `onError` goes to `failed` |
-| parallel, `all` mode (`allAsync`, `step.parallel`) | A `parallel` state, one region per branch, left once every region finishes; a branch error goes straight to `failed` |
-| parallel, `allSettled` mode (`allSettledAsync`) | The same, but a branch error only ends its own region; once every region finishes, the built-in `@xstate.stateIn` guard sends the machine to `failed` if any region failed, otherwise on |
+| step, saga step, child workflow | A state invoking the dep as an actor: `onDone` goes on, `onError` rolls back the compensated steps that completed, or goes to `failed` when there is nothing to undo |
+| saga step with `compensate` | Also a compensating state. A later failure runs the compensations newest first and ends on `failed`. If a compensation fails, the rest still run and the machine ends on `compensation_failed` (`SagaCompensationError`) |
+| parallel, `all` mode (`allAsync`, `step.parallel`) | A `parallel` state, one region per branch, left once every region finishes; a branch error leaves at once and rolls back |
+| parallel, `allSettled` mode (`allSettledAsync`) | The same, but a branch error only ends its own region; once every region finishes, the built-in `@xstate.stateIn` guard sends the machine to rollback if any region failed, otherwise on |
 | race | A state with one `race:<n>` event per racer, so you pick the winner |
 | `if` / `step.if` / `switch` | A state with one event per branch, named like the DSL's edges |
 | loop | `iterate` into the body, back to the loop state after each pass, `done` to leave |
 
-Errors lead to one `failed` final state, and its `meta.errors` lists the error tags. State ids are the DSL's semantic ids with `.` and `#` replaced by `_`, since XState reads both as target syntax. `meta.stepId` keeps the authored id when it changed.
+Rollback follows the path that ran. After an `if` or `switch`, each branch gets its own copy of the steps that follow, so a failure undoes that branch's work and nothing from the other. Loop iterations and parallel steps finish in an order you learn at runtime, so their rollback runs through an `<id>_undo` state: send `undo:<compensation>` for each completed iteration or parallel step, newest first, then `done`.
+
+Errors lead to the `failed` final state, and its `meta.errors` lists the error tags. A failed compensation ends on `compensation_failed` instead. State ids are the DSL's semantic ids with `.` and `#` replaced by `_`, since XState reads both as target syntax. `meta.stepId` keeps the authored id when it changed.
 
 ### JSON Output
 

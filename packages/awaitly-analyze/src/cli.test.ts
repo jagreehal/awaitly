@@ -17,7 +17,9 @@ const testFilePath = join(FIXTURES_DIR, "cli-test-workflow.ts");
 const multiWorkflowFilePath = join(FIXTURES_DIR, "cli-test-multi-workflow.ts");
 const conditionalWorkflowFilePath = join(FIXTURES_DIR, "cli-test-conditional-workflow.ts");
 const anonymousRunFilePath = join(FIXTURES_DIR, "cli-test-anonymous-run.ts");
+const sagaWorkflowFilePath = join(FIXTURES_DIR, "cli-test-saga-workflow.ts");
 const outputMdPath = join(FIXTURES_DIR, "cli-test-workflow.workflow.md");
+const sagaOutputMdPath = join(FIXTURES_DIR, "cli-test-saga-workflow.workflow.md");
 const outputJsonPath = join(FIXTURES_DIR, "cli-test-workflow.analysis.json");
 const customSuffixPath = join(FIXTURES_DIR, "cli-test-workflow.diagram.md");
 const htmlOutputPath = join(FIXTURES_DIR, "cli-test-workflow.html");
@@ -128,6 +130,32 @@ export const result = await run(
 );
 `;
 
+const SAGA_WORKFLOW = `
+import { createSagaWorkflow } from 'awaitly/durable';
+import { ok, type AsyncResult } from 'awaitly';
+
+type CopyFailed = { type: 'COPY_FAILED' };
+const createUpload = async (): AsyncResult<string, CopyFailed> => ok('upload-1');
+const copyParts = async (): AsyncResult<string[], CopyFailed> => ok(['etag']);
+const completeUpload = async (): AsyncResult<void, CopyFailed> => ok(undefined);
+const abortUpload = async (): AsyncResult<void, CopyFailed> => ok(undefined);
+
+export const copyInParts = createSagaWorkflow('copyInParts', {
+  createUpload, copyParts, completeUpload, abortUpload,
+});
+
+export async function copy() {
+  return copyInParts.run(async ({ step, deps }) => {
+    const uploadId = await step('createUpload', () => deps.createUpload(), {
+      compensate: (id) => deps.abortUpload(id),
+    });
+    const parts = await step('copyParts', () => deps.copyParts());
+    await step('completeUpload', () => deps.completeUpload());
+    return { uploadId, parts };
+  });
+}
+`;
+
 describe("CLI", () => {
   beforeEach(() => {
     // Create test workflow file
@@ -136,6 +164,7 @@ describe("CLI", () => {
     writeFileSync(conditionalWorkflowFilePath, CONDITIONAL_WORKFLOW);
     writeFileSync(noWorkflowFilePath, NO_WORKFLOW);
     writeFileSync(anonymousRunFilePath, ANONYMOUS_RUN);
+    writeFileSync(sagaWorkflowFilePath, SAGA_WORKFLOW);
   });
 
   afterEach(() => {
@@ -146,7 +175,9 @@ describe("CLI", () => {
       conditionalWorkflowFilePath,
       noWorkflowFilePath,
       anonymousRunFilePath,
+      sagaWorkflowFilePath,
       outputMdPath,
+      sagaOutputMdPath,
       outputJsonPath,
       customSuffixPath,
       htmlOutputPath,
@@ -443,6 +474,60 @@ describe("CLI", () => {
 
       expect(exitCode).toBe(1);
       expect(stderr).toContain("--railway cannot be used with --format=xstate");
+    });
+
+    it("draws compensating states for saga abort paths", () => {
+      const { stdout, exitCode } = runCli([
+        sagaWorkflowFilePath,
+        "--format=xstate",
+        "--no-test",
+        "--no-types",
+        "--no-output-adjacent",
+      ]);
+
+      expect(exitCode).toBe(0);
+      const machine = JSON.parse(stdout) as {
+        states: Record<string, { invoke?: { onError?: { target: string }; onDone?: { target: string } } }>;
+      };
+      expect(machine.states.abortUpload?.invoke).toEqual({
+        id: "abortUpload",
+        src: "abortUpload",
+        onDone: { target: "#failed" },
+        onError: { target: "#compensation_failed" },
+      });
+      expect(machine.states.copyParts?.invoke?.onError).toEqual({ target: "#abortUpload" });
+      expect(machine.states.completeUpload?.invoke?.onError).toEqual({ target: "#abortUpload" });
+      expect(machine.states.createUpload?.invoke?.onError).toEqual({ target: "#failed" });
+    });
+  });
+
+  describe("saga compensation in default diagrams", () => {
+    it("includes the abort path in the default diagram output", () => {
+      const { stdout, exitCode } = runCli([
+        sagaWorkflowFilePath,
+        "--no-test",
+        "--no-types",
+        "--no-output-adjacent",
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain('undo: abortUpload');
+      expect(stdout).toContain("SagaCompensationError");
+      expect(stdout).toMatch(/error · rollback/);
+    });
+
+    it("hides compensation paths with --no-errors", () => {
+      const { stdout, exitCode } = runCli([
+        sagaWorkflowFilePath,
+        "--no-errors",
+        "--no-test",
+        "--no-types",
+        "--no-output-adjacent",
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).not.toContain("abortUpload");
+      expect(stdout).not.toContain("SagaCompensationError");
     });
   });
 

@@ -46,7 +46,10 @@ export interface MermaidOptions {
   sameLevelConditionals?: boolean;
   /** Group steps by domain into Mermaid subgraphs */
   groupByDomain?: boolean;
-  /** Show saga error entry points, LIFO compensation order, and rollback failure */
+  /**
+   * Show saga error entry points, LIFO compensation order, and rollback failure.
+   * When omitted, enabled automatically if the IR has any compensated saga step.
+   */
   showSagaCompensations?: boolean;
   /** Custom node styles */
   styles?: MermaidStyles;
@@ -341,7 +344,7 @@ export function renderStaticMermaidWithTrace(
   trace: WorkflowTrace,
   options: MermaidOptions = {}
 ): { mermaid: string; matched: string[]; unmatched: string[] } {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const opts = resolveMermaidOptions(ir, options);
   const overlayIr = unrollLoopsForTrace(ir, trace);
   const { lines, context } = renderStaticMermaidInternal(overlayIr, opts);
 
@@ -390,6 +393,30 @@ export function renderStaticMermaidWithTrace(
   return { mermaid: lines.join("\n"), matched, unmatched };
 }
 
+/** True when any saga step in the IR declared a `compensate` callback. */
+export function hasCompensatedSagaSteps(nodes: StaticFlowNode[]): boolean {
+  for (const node of nodes) {
+    if (node.type === "saga-step" && node.hasCompensation) return true;
+    if (node.type === "workflow-ref" && node.inlinedIR) {
+      if (hasCompensatedSagaSteps(node.inlinedIR.root.children)) return true;
+    }
+    const children = getStaticChildren(node);
+    if (children.length > 0 && hasCompensatedSagaSteps(children)) return true;
+  }
+  return false;
+}
+
+function resolveMermaidOptions(
+  ir: StaticWorkflowIR,
+  options: MermaidOptions = {}
+): Required<MermaidOptions> {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  if (options.showSagaCompensations === undefined) {
+    opts.showSagaCompensations = hasCompensatedSagaSteps(ir.root.children);
+  }
+  return opts;
+}
+
 /**
  * Generate a Mermaid flowchart from static workflow IR.
  */
@@ -397,7 +424,7 @@ export function renderStaticMermaid(
   ir: StaticWorkflowIR,
   options: MermaidOptions = {}
 ): string {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const opts = resolveMermaidOptions(ir, options);
   const { lines } = renderStaticMermaidInternal(ir, opts);
   return lines.join("\n");
 }
@@ -1398,8 +1425,7 @@ export function renderEnhancedMermaid(
 
   // Use static renderer with inline errors enabled as the base
   const baseOpts: Required<MermaidOptions> = {
-    ...DEFAULT_OPTIONS,
-    ...opts,
+    ...resolveMermaidOptions(ir, opts),
     showInlineErrors: opts.showInlineErrors ?? false,
     expandRetry: opts.expandRetry ?? false,
   };

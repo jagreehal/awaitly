@@ -94,6 +94,215 @@ describe("renderMachineJSON", () => {
     expect(machine.states.failed!.meta!.errors).toEqual(["NOT_FOUND", "DECLINED"]);
   });
 
+  it("routes later-step errors through compensating states before failed", () => {
+    const machine = machineOf(`
+      import { createSagaWorkflow } from "awaitly/durable";
+      import { ok, type AsyncResult } from "awaitly";
+      type CopyFailed = { type: "COPY_FAILED" };
+      const createUpload = async (): AsyncResult<string, CopyFailed> => ok("upload-1");
+      const copyParts = async (): AsyncResult<string[], CopyFailed> => ok(["etag"]);
+      const completeUpload = async (): AsyncResult<void, CopyFailed> => ok(undefined);
+      const abortUpload = async (): AsyncResult<void, CopyFailed> => ok(undefined);
+      const copyInParts = createSagaWorkflow("copyInParts", {
+        createUpload, copyParts, completeUpload, abortUpload,
+      });
+      export async function copy() {
+        return copyInParts.run(async ({ step, deps }) => {
+          const uploadId = await step("createUpload", () => deps.createUpload(), {
+            compensate: (id) => deps.abortUpload(id),
+          });
+          const parts = await step("copyParts", () => deps.copyParts());
+          await step("completeUpload", () => deps.completeUpload());
+          return { uploadId, parts };
+        });
+      }
+    `);
+
+    // Compensation is a real state, not only meta on createUpload.
+    expect(machine.states.abortUpload!.invoke).toEqual({
+      id: "abortUpload",
+      src: "abortUpload",
+      onDone: { target: "#failed" },
+      onError: { target: "#compensation_failed" },
+    });
+    expect(machine.states.compensation_failed).toEqual({
+      id: "compensation_failed",
+      type: "final",
+      description: "Fails with: SagaCompensationError",
+      meta: { errors: ["SagaCompensationError"] },
+    });
+
+    // createUpload itself failed before anything succeeded → straight to failed.
+    expect(machine.states.createUpload!.invoke!.onError).toEqual({ target: "#failed" });
+    // Failures after createUpload succeeded roll back through abortUpload.
+    expect(machine.states.copyParts!.invoke!.onError).toEqual({ target: "#abortUpload" });
+    expect(machine.states.completeUpload!.invoke!.onError).toEqual({ target: "#abortUpload" });
+    expect(reachable(machine).has("abortUpload")).toBe(true);
+  });
+
+  it("rolls back only the compensations on the path that ran", () => {
+    const machine = machineOf(`
+      import { createSagaWorkflow } from "awaitly/durable";
+      import { ok } from "awaitly";
+      const a = async () => ok(1);
+      const b = async () => ok(2);
+      const c = async () => ok(3);
+      const undoA = async () => ok(undefined);
+      const undoB = async () => ok(undefined);
+      const saga = createSagaWorkflow("saga", { a, b, c, undoA, undoB });
+      export async function run(flag: boolean) {
+        return saga.run(async ({ step, deps }) => {
+          if (flag) {
+            await step("a", () => deps.a(), { compensate: () => deps.undoA() });
+          } else {
+            await step("b", () => deps.b(), { compensate: () => deps.undoB() });
+          }
+          await step("c", () => deps.c());
+        });
+      }
+    `);
+
+    // B is the alternative to A: its failure has nothing to undo.
+    expect(machine.states.b!.invoke!.onError).toEqual({ target: "#failed" });
+    expect(machine.states.undoA!.invoke!.onDone).toEqual({ target: "#failed" });
+    expect(machine.states.undoB!.invoke!.onDone).toEqual({ target: "#failed" });
+    // c is compiled once per path, each undoing only its own branch.
+    const cs = Object.values(machine.states).filter((s) => s.invoke?.src === "c");
+    expect(cs.map((s) => s.invoke!.onError.target).sort()).toEqual(["#undoA", "#undoB"]);
+    expect(machine.states.a!.invoke!.onDone.target).not.toBe(machine.states.b!.invoke!.onDone.target);
+  });
+
+  it("keeps unwinding after a compensation fails, then ends in compensation_failed", () => {
+    const machine = machineOf(`
+      import { createSagaWorkflow } from "awaitly/durable";
+      import { ok } from "awaitly";
+      const reserve = async () => ok(1);
+      const charge = async () => ok(2);
+      const ship = async () => ok(3);
+      const release = async () => ok(undefined);
+      const refund = async () => ok(undefined);
+      const saga = createSagaWorkflow("order", { reserve, charge, ship, release, refund });
+      export async function run() {
+        return saga.run(async ({ step, deps }) => {
+          await step("reserve", () => deps.reserve(), { compensate: () => deps.release() });
+          await step("charge", () => deps.charge(), { compensate: () => deps.refund() });
+          await step("ship", () => deps.ship());
+        });
+      }
+    `);
+
+    expect(machine.states.ship!.invoke!.onError).toEqual({ target: "#refund" });
+    expect(machine.states.refund!.invoke!.onDone).toEqual({ target: "#release" });
+    // A failed refund still releases the reservation.
+    expect(machine.states.refund!.invoke!.onError).toEqual({ target: "#release_after_failure" });
+    expect(machine.states.release_after_failure!.invoke).toEqual({
+      id: "release_after_failure",
+      src: "release",
+      onDone: { target: "#compensation_failed" },
+      onError: { target: "#compensation_failed" },
+    });
+    expect(machine.states.release!.invoke!.onError).toEqual({ target: "#compensation_failed" });
+  });
+
+  const sagaOf = (body: string) =>
+    machineOf(`
+      import { createSagaWorkflow } from "awaitly/durable";
+      import { ok, allAsync, allSettledAsync } from "awaitly";
+      const a = async () => ok(1);
+      const b = async () => ok(2);
+      const c = async () => ok(3);
+      const undoA = async () => ok(undefined);
+      const undoB = async () => ok(undefined);
+      const saga = createSagaWorkflow("saga", { a, b, c, undoA, undoB });
+      export async function run(items: string[]) {
+        return saga.run(async ({ step, deps }) => { ${body} });
+      }
+    `);
+  const stepA = `step("a", () => deps.a(), { compensate: () => deps.undoA() })`;
+  const stepB = `step("b", () => deps.b(), { compensate: () => deps.undoB() })`;
+
+  it("undoes loop iterations from a hub, so zero or many iterations both roll back right", () => {
+    const machine = sagaOf(`for (const i of items) { await ${stepA}; } await step("c", () => deps.c());`);
+
+    // Nothing undone yet in this iteration: go straight to the hub of earlier iterations.
+    expect(machine.states.a!.invoke!.onError).toEqual({ target: "#loop_items_undo" });
+    expect(machine.states.c!.invoke!.onError).toEqual({ target: "#loop_items_undo" });
+    // Each undone iteration returns to the hub; `done` (zero or no more iterations) continues down.
+    expect(machine.states.loop_items_undo!.on).toEqual({
+      "undo:undoA": { target: "#undoA" },
+      done: { target: "#failed" },
+    });
+    expect(machine.states.undoA!.invoke!.onDone).toEqual({ target: "#loop_items_undo" });
+    expect(machine.states.undoA!.invoke!.onError).toEqual({ target: "#loop_items_undo_after_failure" });
+  });
+
+  it("undoes parallel steps one pick at a time, since completion order is only known at runtime", () => {
+    const machine = sagaOf(`await allAsync([${stepA}, ${stepB}]); await step("c", () => deps.c());`);
+    const byId = statesById(machine);
+
+    // A region failing mid-flight can't know how far the other got: pick from the hub.
+    expect(byId.get("a")!.invoke!.onError).toEqual({ target: "#parallel_1_undo" });
+    expect(byId.get("b")!.invoke!.onError).toEqual({ target: "#parallel_1_undo" });
+    expect(machine.states.parallel_1_undo!.on).toEqual({
+      "undo:undoA": { target: "#undoA" },
+      "undo:undoB": { target: "#undoB" },
+      done: { target: "#failed" },
+    });
+    // Compensations are top-level, so entering one leaves the parallel state; each returns to the hub.
+    expect(machine.states.undoA!.invoke!.onDone).toEqual({ target: "#parallel_1_undo" });
+    expect(machine.states.undoB!.invoke!.onDone).toEqual({ target: "#parallel_1_undo" });
+    // After the join, the order is still a runtime fact: pick it.
+    expect(machine.states.c!.invoke!.onError).toEqual({ target: "#parallel_1_undo" });
+  });
+
+  it("rolls back when a plain step or child workflow fails after a compensated step", () => {
+    const irs = analyzeWorkflowSource(`
+      import { createSagaWorkflow } from "awaitly/durable";
+      import { createWorkflow, ok } from "awaitly";
+      const reserve = async () => ok(1);
+      const notify = async () => ok(2);
+      const release = async () => ok(undefined);
+      const child = createWorkflow("child", { notify });
+      const saga = createSagaWorkflow("saga", { reserve, notify, release });
+      export async function run() {
+        return saga.run(async ({ step, deps }) => {
+          await step("reserve", () => deps.reserve(), { compensate: () => deps.release() });
+          await step("notify", () => deps.notify());
+          await step.workflow("runChild", () => child.run(async ({ step }) => step("n", () => deps.notify())));
+        });
+      }
+    `);
+    const machine = renderMachineJSON(irs.find((ir) => ir.root.workflowName === "saga")!);
+    const failing = Object.values(machine.states).filter((st) => st.invoke && !st.meta?.compensationFor && st.id !== "reserve");
+    expect(failing.length).toBeGreaterThan(0);
+    for (const st of failing) expect(st.invoke!.onError).toEqual({ target: "#release" });
+  });
+
+  it("leaves out compensations that no later failure can reach", () => {
+    const machine = sagaOf(`await step("c", () => deps.c()); await ${stepA};`);
+    expect(machine.states.undoA).toBeUndefined();
+    expect(machine.states.compensation_failed).toBeUndefined();
+    expect(machine.states.a!.invoke!.onError).toEqual({ target: "#failed" });
+  });
+
+  it("keeps a nested allSettled failure inside its enclosing allSettled region", () => {
+    const machine = sagaOf(`await allSettledAsync([allSettledAsync([${stepA}]), ${stepB}]);`);
+    const byId = statesById(machine);
+    const inner = [...byId.values()].find((st) => st.type === "parallel" && st.id !== "parallel_1");
+    const join = inner!.on!["xstate.done.state"] as MachineJSONTransition[];
+    // The inner failure ends only the outer region; the outer join decides rollback.
+    expect(join[0]!.target).toBe("#parallel_1_branch_0_failed");
+  });
+
+  it("defers allSettled rollback to the join", () => {
+    const machine = sagaOf(`await allSettledAsync([${stepA}, ${stepB}]);`);
+    const byId = statesById(machine);
+
+    expect(byId.get("a")!.invoke!.onError).toEqual({ target: "#parallel_1_branch_0_failed" });
+    const join = machine.states.parallel_1!.on!["xstate.done.state"] as MachineJSONTransition[];
+    expect(join[0]!.target).toBe("#parallel_1_undo");
+  });
+
   it("maps parallel branches to regions joined by xstate.done.state", () => {
     const machine = machineOf(`
       import { createWorkflow, ok, allAsync } from "awaitly";

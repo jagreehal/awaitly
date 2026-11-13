@@ -63,7 +63,7 @@ The npm package is `awaitly-analyze` (not `awaitly-analyzer`). Point it at any T
 
 The default command writes `<basename>.workflow.md` next to the source and prints the diagram. Bound steps such as `s.getUser()` show the dep's Result errors (`NOT_FOUND`, `FETCH_ERROR`) as `-->|err|` branches. `--types` is opt-in and writes `<workflowName>.types.ts`. `--html` writes `<basename>.html` and still prints the diagram.
 
-When you omit `--format` and `--railway`, the CLI picks the diagram: railway (`flowchart LR`) for linear happy paths, Mermaid flowchart for branches, loops, parallel, and race. Pass `--format=mermaid` or `--railway` to lock the choice.
+When you omit `--format` and `--railway`, the CLI picks the diagram: railway (`flowchart LR`) for linear happy paths, Mermaid flowchart for branches, loops, parallel, race, and sagas with `compensate` (so the diagram shows each rollback path). Pass `--format=mermaid` or `--railway` to lock the choice.
 
 ```bash
 # Writes checkout.workflow.md and prints the diagram
@@ -78,7 +78,8 @@ npx awaitly-analyze ./src/workflows/checkout.ts --format=mermaid
 # JSON (also writes checkout.workflow.json)
 npx awaitly-analyze ./src/workflows/checkout.ts --format=json
 
-# XState v6 MachineJSON: draw and step the workflow in statechart tools
+# XState v6 MachineJSON: draw and step the workflow in statechart tools,
+# including each saga step's compensation and the rollback order
 npx awaitly-analyze ./src/workflows/checkout.ts --format=xstate --no-output-adjacent
 
 # Interactive HTML next to the source
@@ -216,7 +217,7 @@ Browse [Analyzer Showcase](guides/analyzer-showcase/) for source and generated d
 | `--direction=<dir>` | `TB` (`LR` when auto-railway) | `TB`, `TD`, `LR`, `BT`, `RL` |
 | `--railway` | off | Linear happy-path + ok/err branching |
 | `--keys` | off | Show step cache keys |
-| `--errors` / `--no-errors` | on | Show/hide error nodes |
+| `--errors` / `--no-errors` | on | Show/hide error nodes and saga rollback paths |
 | `--html` | off | Generate interactive HTML artifact |
 | `--html-output=<path>` | auto | Write HTML to custom path |
 

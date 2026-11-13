@@ -7,6 +7,7 @@
  */
 
 import { calculateComplexity } from "./complexity";
+import { hasCompensatedSagaSteps } from "./output/mermaid";
 import type { StaticWorkflowIR, StaticFlowNode } from "./types";
 import { getStaticChildren } from "./types";
 
@@ -31,7 +32,8 @@ export function inferBestDiagramType(ir: StaticWorkflowIR): DiagramType {
   if (hasNodeType(nodes, "conditional")) return "mermaid";
   if (hasNodeType(nodes, "decision")) return "mermaid";
 
-  // Saga workflows are inherently linear with compensation — railway's sweet spot
+  // Compensated sagas need Mermaid's LIFO undo edges; plain saga steps stay on railway.
+  if (hasCompensatedSagaSteps(nodes)) return "mermaid";
   if (hasNodeType(nodes, "saga-step")) return "railway";
 
   // Soft heuristics based on complexity metrics
