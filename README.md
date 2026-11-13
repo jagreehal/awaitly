@@ -991,7 +991,12 @@ failures fail the tests. Only unconfigured local database suites are skipped.
 `pnpm smoke` installs each published tarball into its own clean consumer,
 checks all public ESM and CommonJS types and runtime exports, and starts any
 published CLI. CI runs these checks on Node 22 and 24. Publishing waits for
-the same commit's complete validation, including mutation and recovery tests.
+the same commit's complete validation, including recovery tests.
+
+Mutation tests run on pull requests that change `packages/awaitly/src`. Stryker
+reuses the latest results from `main` and re-tests only the mutants whose code
+or covering tests changed. A nightly run on `main` re-tests every mutant. Run
+`pnpm --filter awaitly mutation:incremental` for the same incremental run locally.
 
 The recovery suite starts real worker processes and interrupts only services
 in this Compose project. It verifies heartbeat renewal, competing workers,

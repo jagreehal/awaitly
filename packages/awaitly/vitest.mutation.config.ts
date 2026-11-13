@@ -22,6 +22,8 @@ export default defineConfig({
       '**/skill-snippets.test.ts',
       // Assert on the shape of dist, not on behaviour.
       '**/public-surface.test.ts',
+      // Compares slugs across packages and imports the built package.
+      '**/spine-cross-surface-parity.test.ts',
       '**/index.named-exports.test.ts',
       '**/entrypoints.test.ts',
       '**/docs-import-paths.test.ts',

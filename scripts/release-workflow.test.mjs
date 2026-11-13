@@ -6,6 +6,7 @@ import { parse } from 'yaml';
 const read = (path) => parse(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'));
 const release = read('.github/workflows/release.yml');
 const ci = read('.github/workflows/ci.yml');
+const mutation = read('.github/workflows/mutation.yml');
 
 test('publishing depends on same-commit validation and cannot run after failure', () => {
   assert.equal(release.jobs.validate.uses, './.github/workflows/ci.yml');
@@ -24,7 +25,7 @@ test('publishing depends on same-commit validation and cannot run after failure'
   }
 });
 
-test('validation requires live adapters, both consumer runtimes, recovery, and mutation checks', () => {
+test('validation requires live adapters, both consumer runtimes, and recovery checks', () => {
   const runs = (job) => job.steps.map((step) => step.run ?? '').join('\n');
   const build = ci.jobs['build-and-test'];
   assert.ok(build.services.postgres);
@@ -37,10 +38,21 @@ test('validation requires live adapters, both consumer runtimes, recovery, and m
   assert.deepEqual(ci.jobs.consumer.strategy.matrix.node, [22, 24]);
   assert.match(runs(ci.jobs.consumer), /pnpm smoke/);
   assert.match(runs(ci.jobs.recovery), /pnpm test:recovery/);
-  assert.match(runs(ci.jobs.mutation), /pnpm --filter awaitly mutation/);
-  for (const name of ['build-and-test', 'consumer', 'recovery', 'mutation']) {
+  for (const name of ['build-and-test', 'consumer', 'recovery']) {
     assert.ok(!ci.jobs[name].if, `${name} must run for every release`);
   }
+});
+
+test('mutation tests run on source pull requests, nightly, and on demand', () => {
+  assert.ok(mutation.on.pull_request.paths.includes('packages/awaitly/src/**'));
+  assert.ok(mutation.on.schedule.length > 0);
+  assert.ok(Object.hasOwn(mutation.on, 'workflow_dispatch'));
+  const steps = mutation.jobs.mutation.steps;
+  assert.ok(!mutation.jobs.mutation['continue-on-error']);
+  for (const step of steps) assert.ok(!step['continue-on-error']);
+  const run = (when) => steps.find((step) => step.if === when)?.run ?? '';
+  assert.match(run("github.event_name == 'pull_request'"), /pnpm --filter awaitly mutation:incremental$/);
+  assert.match(run("github.event_name != 'pull_request'"), /pnpm --filter awaitly mutation:incremental --force/);
 });
 
 test('fault-test services are isolated from the developer MongoDB endpoint', () => {
