@@ -1,42 +1,51 @@
 ---
-// The atom: one function returns a Result. TypeScript knows the error.
+// First section after the fold: one function, one Result. Everything below
+// (run(), workflows) builds on this, so the reader meets it first.
 ---
 
 <section class="landing-section foundation" aria-labelledby="foundation-heading">
-  <div class="landing-inner">
+  <div class="landing-inner split">
     <header class="foundation__header">
       <h2 class="landing-h2" id="foundation-heading">
-        Return <em>ok</em> or <em>err</em>. Read the error from the type.
+        Put the failure in the return type.
       </h2>
       <p class="landing-lead">
-        Failures belong in the return type, not in a catch block.
-        Handle <code>'NOT_FOUND'</code> the same way you handle the value.
+        A function that throws looks like <code>Promise&lt;User&gt;</code> to TypeScript.
+        The <code>NOT_FOUND</code> case hides in the body, and the caller's
+        <code>catch</code> gets <code>unknown</code>. Return <code>err()</code> instead and
+        the failure sits in the signature, where the compiler checks every caller.
       </p>
     </header>
 
     <article class="foundation__panel shots">
+      <header class="lcard__head">
+        <span class="lcard__file">get-user.ts</span>
+        <span class="lcard__tag">Result</span>
+      </header>
       <pre
         class="diff__code foundation__code"
         is:raw
       ><code><span class="kw">import</span> { <span class="fn">ok</span>, <span class="fn">err</span>, <span class="kw">type</span> <span class="ty">AsyncResult</span> } <span class="kw">from</span> <span class="str">'awaitly'</span>;
 
-<span class="kw">async function</span> <span class="fn">getUser</span>(<span class="id">id</span>: <span class="ty">string</span>): <span class="ty">AsyncResult</span>&lt;<span class="ty">User</span>, <span class="str ok">'NOT_FOUND'</span>&gt; {
+<span class="kw">async function</span> <span class="fn">getUser</span>(<span class="id">id</span>: <span class="ty">string</span>): <span class="ty">AsyncResult</span>&lt;<span class="ty">User</span>, { <span class="id">type</span>: <span class="str ok">'NOT_FOUND'</span> }&gt; {
   <span class="kw">const</span> <span class="id">user</span> = <span class="kw">await</span> <span class="id">db</span>.<span class="fn">find</span>(<span class="id">id</span>);
-  <span class="kw">return</span> <span class="id">user</span> ? <span class="fn">ok</span>(<span class="id">user</span>) : <span class="fn">err</span>(<span class="str ok">'NOT_FOUND'</span>);
+  <span class="kw">return</span> <span class="id">user</span> ? <span class="fn">ok</span>(<span class="id">user</span>) : <span class="fn">err</span>({ <span class="id">type</span>: <span class="str ok">'NOT_FOUND'</span> });
 }
 
 <span class="kw">const</span> <span class="id">result</span> = <span class="kw">await</span> <span class="fn">getUser</span>(<span class="str">'123'</span>);
-<span class="kw">if</span> (<span class="id">result</span>.<span class="id">ok</span>) <span class="fn">use</span>(<span class="id">result</span>.<span class="id">value</span>);
-<span class="kw">else</span> <span class="id">result</span>.<span class="id">error</span>; <span class="cm">// 'NOT_FOUND', typed</span></code></pre>
+
+<span class="kw">if</span> (<span class="id">result</span>.<span class="id">ok</span>) <span class="id">result</span>.<span class="id">value</span>;      <span class="cm">// User</span>
+<span class="kw">else</span> <span class="id">result</span>.<span class="id">error</span>.<span class="id">type</span>;    <span class="cm">// 'NOT_FOUND', the only option</span></code></pre>
       <footer class="foundation__foot">
         <span class="diff__inferred diff__inferred--amber">
           <span class="diff__inferred-label">TypeScript sees</span>
           <span class="diff__inferred-type"
-            >{'AsyncResult<User, \'NOT_FOUND\'>'}</span
+            >{"AsyncResult<User, { type: 'NOT_FOUND' }>"}</span
           >
         </span>
         <p class="diff__note">
-          No throw. No <code>unknown</code>. The error name sits in the type.
+          Rename <code>NOT_FOUND</code> and every caller that checks for it stops compiling.
+          Add a second failure and every <code>match()</code> call stops compiling until it handles the new case.
         </p>
       </footer>
     </article>

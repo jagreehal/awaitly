@@ -712,6 +712,22 @@ await workflow.run(async ({ step, deps }) => {
 console.log(viz.renderAs('mermaid'));
 ```
 
+### 🔍 See What a Change Does to a Workflow
+
+A diff shows which lines moved. `awaitly-analyze review` reads the same change as workflow structure. Add a fraud check to checkout, and the review reports a new step and a new way for checkout to fail:
+
+```bash
+npx awaitly-analyze review --base origin/main
+```
+
+| File | Workflow | Change | Steps | Errors |
+|---|---|---|---|---|
+| `checkout.ts` | `checkout` | +1 steps, errors +FRAUD_FLAGGED | 3 → 4 | 3 → 4 |
+
+TypeScript backs it up: every `match()` on checkout's result stops compiling until someone handles `FRAUD_FLAGGED`. Run the review on each pull request with the [GitHub Action](https://jagreehal.github.io/awaitly/guides/github-action/).
+
+For an interactive chart, `awaitly-analyze checkout.ts --format=xstate` exports the workflow as XState MachineJSON. [autovisualizer](https://github.com/jagreehal/autovisualizer) draws it in the browser, and its `base` attribute marks what a change added and removed.
+
 ---
 
 ## What's next?
@@ -729,6 +745,7 @@ You have the foundation. Pick one:
 - **Save & resume** → [Persistence guide](https://jagreehal.github.io/awaitly/guides/persistence/)
 - **Human-in-the-loop approvals** → [HITL guide](https://jagreehal.github.io/awaitly/guides/human-in-loop/)
 - **Visualization via `onEvent`** → [Visualization guide](https://jagreehal.github.io/awaitly/guides/visualization/)
+- **Review workflow changes in PRs** → [GitHub Action guide](https://jagreehal.github.io/awaitly/guides/github-action/)
 
 ---
 

@@ -1,0 +1,44 @@
+---
+// The checkout workflow from the RunShowcase snippet, drawn as the graph
+// awaitly-analyze reads from it: three steps, one error type each, success at
+// the end. One step lights up at a time; the status bar under the hero
+// follows the same 8s cycle (see .hero-status in landing.css).
+const steps = [
+  { id: 'reserve', err: 'OUT_OF_STOCK' },
+  { id: 'charge', err: 'CARD_DECLINED', badge: 'retry ×3' },
+  { id: 'ship', err: 'SHIP_FAILED', badge: 'key' },
+];
+---
+
+<figure
+  class="flow lcard"
+  aria-label="checkout workflow: reserve, then charge with three retries, then ship with an idempotency key. Each step can fail with its own error type."
+>
+  <header class="lcard__head">
+    <span class="lcard__file">checkout.ts</span>
+    <span class="lcard__tag">workflow graph</span>
+  </header>
+  <ol class="flow__track" aria-hidden="true">
+    <li class="flow__start"><span class="flow__dot"></span>run</li>
+    {
+      steps.map((s, i) => (
+        <li class="flow__row" style={`--i:${i}`}>
+          <span class="flow__ok">ok</span>
+          <div class="flow__node">
+            <code class="flow__name">{s.id}</code>
+            {s.badge && <span class="flow__badge">{s.badge}</span>}
+          </div>
+          <span class="flow__edge">err</span>
+          <code class="flow__err">{s.err}</code>
+        </li>
+      ))
+    }
+    <li class="flow__row flow__row--done" style={`--i:${steps.length}`}>
+      <span class="flow__ok">ok</span>
+      <div class="flow__node flow__node--done">
+        <span class="flow__check">✓</span>
+        <code class="flow__name">Result&lt;Shipment&gt;</code>
+      </div>
+    </li>
+  </ol>
+</figure>

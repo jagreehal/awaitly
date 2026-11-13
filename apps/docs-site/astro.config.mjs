@@ -54,25 +54,6 @@ export default defineConfig({
             href: BASE_PATH,
           },
         },
-        {
-          tag: 'link',
-          attrs: { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
-        },
-        {
-          tag: 'link',
-          attrs: {
-            rel: 'preconnect',
-            href: 'https://fonts.gstatic.com',
-            crossorigin: '',
-          },
-        },
-        {
-          tag: 'link',
-          attrs: {
-            rel: 'stylesheet',
-            href: 'https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:ital,wght@0,400..900;1,400..900&display=swap',
-          },
-        },
       ],
       favicon: '/favicon.svg',
       logo: {
