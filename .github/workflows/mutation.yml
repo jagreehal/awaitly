@@ -1,0 +1,92 @@
+name: Mutation
+
+# Mutation testing for the paths where a behaviour change moves money: durable
+# resume and lease handling, saga compensation, snapshot validation, state
+# migration, caching and the circuit breaker (see packages/awaitly/stryker.config.json).
+#
+# Pull requests run incrementally against the latest main results, so Stryker
+# re-tests only the mutants whose code or covering tests changed. A nightly run
+# on main rebuilds those results from scratch.
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - packages/awaitly/src/**
+      - packages/awaitly/stryker.config.json
+      - packages/awaitly/vitest.mutation.config.ts
+      - packages/awaitly/package.json
+      - pnpm-lock.yaml
+      - .github/workflows/mutation.yml
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install pnpm
+        run: corepack prepare pnpm@10.28.1 --activate
+
+      - name: Cache pnpm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # A pull request falls back to main's results, which GitHub lets it read.
+      - name: Restore incremental results
+        uses: actions/cache/restore@v4
+        with:
+          path: packages/awaitly/reports/stryker-incremental.json
+          key: mutation-${{ github.head_ref || github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            mutation-${{ github.head_ref || github.ref_name }}-
+            mutation-main-
+
+      - name: Mutation test (changed mutants)
+        if: github.event_name == 'pull_request'
+        run: pnpm --filter awaitly mutation:incremental
+
+      - name: Mutation test (every mutant)
+        if: github.event_name != 'pull_request'
+        run: pnpm --filter awaitly mutation:incremental --force
+
+      - name: Save incremental results
+        if: always() && hashFiles('packages/awaitly/reports/stryker-incremental.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: packages/awaitly/reports/stryker-incremental.json
+          key: mutation-${{ github.head_ref || github.ref_name }}-${{ github.run_id }}
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: packages/awaitly/reports/mutation/
+          retention-days: 14
