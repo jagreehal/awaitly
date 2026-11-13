@@ -67,7 +67,7 @@ const result = await withScope(async (scope) => {
 
   const user = await db.query('SELECT * FROM users WHERE id = ?', ['123']);
   if (!user) {
-    return err('NOT_FOUND');
+    return err({ type: 'NOT_FOUND' });
   }
 
   return ok(user);
@@ -218,7 +218,7 @@ const transferFunds = async (from: string, to: string, amount: number) => {
     );
 
     if (fromAccount.balance < 0) {
-      return err('INSUFFICIENT_FUNDS');
+      return err({ type: 'INSUFFICIENT_FUNDS' });
       // Transaction rolled back automatically
     }
 
@@ -312,7 +312,7 @@ const result = await withScope(async (scope) => {
   );
 
   if (!dbResource.ok) {
-    return err('DB_CONNECTION_FAILED');
+    return err({ type: 'DB_CONNECTION_FAILED' });
   }
 
   const db = scope.add(dbResource.value);
@@ -437,7 +437,7 @@ const processOrder = async (orderId: string) => {
       const tx = txScope.add(await createTransaction(db));
 
       const order = await tx.query('SELECT * FROM orders WHERE id = ?', [orderId]);
-      if (!order) return err('ORDER_NOT_FOUND');
+      if (!order) return err({ type: 'ORDER_NOT_FOUND' });
 
       // Processing scope for each line item
       for (const item of order.items) {

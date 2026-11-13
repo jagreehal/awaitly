@@ -279,7 +279,7 @@ export function defaultUnexpectedErrorMapper(
  *       if (result.ok) {
  *         return { status: 200, body: result.value };
  *       }
- *       if (result.error === 'CARD_DECLINED') {
+ *       if (result.error.type === 'CARD_DECLINED') {
  *         return { status: 402, body: { error: { type: 'CARD_DECLINED' } } };
  *       }
  *       return { status: 500, body: { error: { type: 'UNKNOWN' } } };
@@ -435,7 +435,7 @@ export interface SimpleHandlerConfig<TInput, TOutput, TError, TBody = unknown> {
  *   },
  *   handler: async ({ id }) => {
  *     const user = await db.findUser(id);
- *     return user ? ok(user) : err('NOT_FOUND');
+ *     return user ? ok(user) : err({ type: 'NOT_FOUND' });
  *   },
  *   mapResult: (result) => {
  *     if (result.ok) return { status: 200, body: result.value };

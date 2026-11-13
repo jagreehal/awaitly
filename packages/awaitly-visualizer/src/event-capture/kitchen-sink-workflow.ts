@@ -34,8 +34,8 @@ export function resetChargeCardAttempt(): void {
 
 const fetchCart = async (
   cartId: string
-): AsyncResult<Cart, "CART_NOT_FOUND"> => {
-  if (cartId === "missing") return err("CART_NOT_FOUND");
+): AsyncResult<Cart, { type: "CART_NOT_FOUND" }> => {
+  if (cartId === "missing") return err({ type: "CART_NOT_FOUND" });
   return ok({
     id: cartId,
     items: [
@@ -48,41 +48,41 @@ const fetchCart = async (
 
 const checkInventory = async (
   _items: CartItem[]
-): AsyncResult<boolean, "OUT_OF_STOCK"> => {
+): AsyncResult<boolean, { type: "OUT_OF_STOCK" }> => {
   return ok(true);
 };
 
 const checkFraud = async (
   _cartId: string
-): AsyncResult<boolean, "FRAUD_DETECTED"> => {
+): AsyncResult<boolean, { type: "FRAUD_DETECTED" }> => {
   return ok(false);
 };
 
 const chargeCard = async (
   _amount: number
-): AsyncResult<{ transactionId: string }, "CARD_DECLINED"> => {
+): AsyncResult<{ transactionId: string }, { type: "CARD_DECLINED" }> => {
   chargeCardAttempt++;
   if (chargeCardAttempt === 1) {
-    return err("CARD_DECLINED");
+    return err({ type: "CARD_DECLINED" });
   }
   return ok({ transactionId: "txn-123" });
 };
 
 const chargeWallet = async (
   _amount: number
-): AsyncResult<{ transactionId: string }, "WALLET_ERROR"> => {
+): AsyncResult<{ transactionId: string }, { type: "WALLET_ERROR" }> => {
   return ok({ transactionId: "wallet-456" });
 };
 
 const chargeCrypto = async (
   _amount: number
-): AsyncResult<{ transactionId: string }, "CRYPTO_ERROR"> => {
+): AsyncResult<{ transactionId: string }, { type: "CRYPTO_ERROR" }> => {
   return ok({ transactionId: "crypto-789" });
 };
 
 const getPrimaryShipping = async (): AsyncResult<
   { estimate: string; days: number },
-  "SHIPPING_ERROR"
+  { type: "SHIPPING_ERROR" }
 > => {
   await new Promise((r) => setTimeout(r, 5));
   return ok({ estimate: "3-5 days", days: 4 });
@@ -90,7 +90,7 @@ const getPrimaryShipping = async (): AsyncResult<
 
 const getFallbackShipping = async (): AsyncResult<
   { estimate: string; days: number },
-  "SHIPPING_ERROR"
+  { type: "SHIPPING_ERROR" }
 > => {
   await new Promise((r) => setTimeout(r, 20));
   return ok({ estimate: "7-10 days", days: 8 });
@@ -98,31 +98,31 @@ const getFallbackShipping = async (): AsyncResult<
 
 const applyBundleDiscount = async (
   _cart: Cart
-): AsyncResult<{ discount: number }, "DISCOUNT_ERROR"> => {
+): AsyncResult<{ discount: number }, { type: "DISCOUNT_ERROR" }> => {
   return ok({ discount: 10 });
 };
 
 const reserveShipping = async (
   _cartId: string
-): AsyncResult<{ reservationId: string }, "RESERVATION_ERROR"> => {
+): AsyncResult<{ reservationId: string }, { type: "RESERVATION_ERROR" }> => {
   return ok({ reservationId: "res-001" });
 };
 
 const sendEmail = async (
   _to: string
-): AsyncResult<boolean, "EMAIL_ERROR"> => {
+): AsyncResult<boolean, { type: "EMAIL_ERROR" }> => {
   return ok(true);
 };
 
 const sendPush = async (
   _userId: string
-): AsyncResult<boolean, "PUSH_ERROR"> => {
+): AsyncResult<boolean, { type: "PUSH_ERROR" }> => {
   return ok(true);
 };
 
 const finalizeOrder = async (
   _cartId: string
-): AsyncResult<OrderResult, "FINALIZE_ERROR"> => {
+): AsyncResult<OrderResult, { type: "FINALIZE_ERROR" }> => {
   return ok({ orderId: "order-001", status: "completed" });
 };
 

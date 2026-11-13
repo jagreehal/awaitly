@@ -22,8 +22,8 @@ type Cart = { id: string; itemCount: number; totalCents: number };
 
 const fetchCart = async (
   cartId: string
-): AsyncResult<Cart, "CART_NOT_FOUND"> => {
-  if (cartId === "missing") return err("CART_NOT_FOUND");
+): AsyncResult<Cart, { type: "CART_NOT_FOUND" }> => {
+  if (cartId === "missing") return err({ type: "CART_NOT_FOUND" });
   return ok({
     id: cartId,
     itemCount: 2,
@@ -33,20 +33,20 @@ const fetchCart = async (
 
 const validateCart = async (
   cart: Cart
-): AsyncResult<boolean, "INVALID_CART"> => {
-  if (cart.itemCount < 1) return err("INVALID_CART");
+): AsyncResult<boolean, { type: "INVALID_CART" }> => {
+  if (cart.itemCount < 1) return err({ type: "INVALID_CART" });
   return ok(true);
 };
 
 const processPayment = async (
   cart: Cart
-): AsyncResult<{ transactionId: string }, "PAYMENT_FAILED"> => {
+): AsyncResult<{ transactionId: string }, { type: "PAYMENT_FAILED" }> => {
   return ok({ transactionId: "txn-123" });
 };
 
 const completeOrder = async (
   cartId: string
-): AsyncResult<{ orderId: string }, "COMPLETE_ERROR"> => {
+): AsyncResult<{ orderId: string }, { type: "COMPLETE_ERROR" }> => {
   return ok({ orderId: `order-${cartId}` });
 };
 

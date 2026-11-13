@@ -419,6 +419,33 @@ describe("CLI", () => {
     });
   });
 
+  describe("--format=xstate", () => {
+    it("prints the workflow as XState MachineJSON", () => {
+      const { stdout, exitCode } = runCli([testFilePath, "--format=xstate", "--no-test", "--no-types"]);
+
+      expect(exitCode).toBe(0);
+      const machine = JSON.parse(stdout) as { id: string; initial: string; states: Record<string, { type?: string }> };
+      expect(machine.id).toBe("testWorkflow");
+      expect(machine.states[machine.initial]).toBeDefined();
+      expect(machine.states.done?.type).toBe("final");
+      expect(machine.states.failed?.type).toBe("final");
+    });
+
+    it("prints an array when the file has several workflows", () => {
+      const { stdout, exitCode } = runCli([multiWorkflowFilePath, "--format=xstate", "--no-test", "--no-types"]);
+
+      expect(exitCode).toBe(0);
+      expect(JSON.parse(stdout)).toHaveLength(2);
+    });
+
+    it("cannot be combined with --railway", () => {
+      const { stderr, exitCode } = runCli([testFilePath, "--format=xstate", "--railway"]);
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("--railway cannot be used with --format=xstate");
+    });
+  });
+
   describe("--html-output validation", () => {
     it("should reject empty html-output value", () => {
       const { stderr, exitCode } = runCli([testFilePath, "--html", "--html-output="]);

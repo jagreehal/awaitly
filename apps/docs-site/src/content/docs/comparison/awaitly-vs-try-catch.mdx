@@ -21,13 +21,13 @@ It promises a `User`. It says nothing about what happens when the user isn't fou
 awaitly moves the failures into the return type:
 
 ```typescript
-async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND' | 'NETWORK_ERROR'>
+async function fetchUser(id: string): AsyncResult<User, { type: 'NOT_FOUND' } | { type: 'NETWORK_ERROR' }>
 ```
 
-Now the signature tells you both outcomes: a `User` if it works, or `'NOT_FOUND'` or `'NETWORK_ERROR'` if it doesn't. TypeScript then makes you handle the failure before you can touch the value.
+Now the signature tells you both outcomes: a `User` if it works, or `{ type: 'NOT_FOUND' }` or `{ type: 'NETWORK_ERROR' }` if it doesn't. TypeScript then makes you handle the failure before you can touch the value.
 
 <Aside type="note" title="New to this type syntax?">
-In TypeScript, a specific string like `'NOT_FOUND'` can be a type of its own, and `|` means "one of these". So `'NOT_FOUND' | 'NETWORK_ERROR'` describes a value that is one of those two exact strings. The [Result Types](foundations/result-types/) page walks through this from the start.
+In TypeScript, a specific string like `'NOT_FOUND'` can be a type of its own, and `|` means "one of these". So `{ type: 'NOT_FOUND' } | { type: 'NETWORK_ERROR' }` describes an error object whose `type` is one of those two exact strings. The [Result Types](foundations/result-types/) page walks through this from the start.
 </Aside>
 
 The two approaches side by side:
@@ -104,25 +104,25 @@ With try/catch, nothing in the type system tells you `parseJson` can fail. With 
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
 
-type FetchError = 'NETWORK_ERROR' | 'NOT_FOUND' | 'SERVER_ERROR';
+type FetchError = { type: 'NETWORK_ERROR' } | { type: 'NOT_FOUND' } | { type: 'SERVER_ERROR' };
 
 const fetchUser = async (id: string): AsyncResult<User, FetchError> => {
   try {
     const res = await fetch(`/api/users/${id}`);
     if (!res.ok) {
-      if (res.status === 404) return err('NOT_FOUND');
-      return err('SERVER_ERROR');
+      if (res.status === 404) return err({ type: 'NOT_FOUND' });
+      return err({ type: 'SERVER_ERROR' });
     }
     return ok(await res.json());
   } catch {
-    return err('NETWORK_ERROR');
+    return err({ type: 'NETWORK_ERROR' });
   }
 };
 
 // Caller MUST handle the error - TypeScript enforces it
 const result = await fetchUser('123');
 if (!result.ok) {
-  switch (result.error) {
+  switch (result.error.type) {
     case 'NOT_FOUND':
       console.log('User not found');
       break;
@@ -139,7 +139,7 @@ Output (on success):
 { ok: true, value: { id: '123', name: 'Alice' } }
 
 Output (on 404):
-{ ok: false, error: 'NOT_FOUND' }
+{ ok: false, error: { type: 'NOT_FOUND' } }
 */
 ```
   </TabItem>
@@ -180,14 +180,14 @@ try {
 // The function signature tells you exactly what can fail
 const processPayment = async (
   amount: number
-): AsyncResult<Receipt, 'INSUFFICIENT_FUNDS' | 'CARD_DECLINED' | 'NETWORK_ERROR'> => {
+): AsyncResult<Receipt, { type: 'INSUFFICIENT_FUNDS' } | { type: 'CARD_DECLINED' } | { type: 'NETWORK_ERROR' }> => {
   // ...
 };
 
 // TypeScript knows all possible errors
 const result = await processPayment(100);
 if (!result.ok) {
-  // Autocomplete shows: 'INSUFFICIENT_FUNDS' | 'CARD_DECLINED' | 'NETWORK_ERROR'
+  // Autocomplete shows: { type: 'INSUFFICIENT_FUNDS' } | { type: 'CARD_DECLINED' } | { type: 'NETWORK_ERROR' }
   console.log(result.error);
 }
 ```
@@ -243,7 +243,7 @@ const result = await run<Account, Errors>(async ({ step }) => {
   return account;
 });
 
-// Error is: 'NOT_FOUND' | 'UNDERAGE' | 'DUPLICATE_EMAIL' | UnexpectedError
+// Error is: { type: 'NOT_FOUND' } | { type: 'UNDERAGE' } | { type: 'DUPLICATE_EMAIL' } | UnexpectedError
 ```
   </TabItem>
   <TabItem label="awaitly (workflow)">
@@ -352,7 +352,7 @@ const doubled = map(result, n => n * 2);
 
 // Chain operations that might fail
 const validated = andThen(result, n =>
-  n > 0 ? ok(n) : err('NEGATIVE')
+  n > 0 ? ok(n) : err({ type: 'NEGATIVE' })
 );
 ```
   </TabItem>
@@ -399,12 +399,12 @@ You don't have to rewrite everything. Wrap existing code:
 import { from, fromPromise } from 'awaitly';
 
 // Sync: from(fn, onError)
-const result1 = from(() => JSON.parse(jsonString), () => 'PARSE_ERROR');
+const result1 = from(() => JSON.parse(jsonString), () => ({ type: 'PARSE_ERROR' }));
 
 // Async (outside workflows): fromPromise(promise, onError)
 const result2 = await fromPromise(
   fetch('/api/data').then(r => r.json()),
-  () => 'FETCH_ERROR'
+  () => ({ type: 'FETCH_ERROR' })
 );
 
 // With error context from the cause
@@ -413,7 +413,7 @@ const result3 = from(
   (cause) => ({ type: 'PARSE_ERROR', message: String(cause) })
 );
 
-// Inside workflows: step.try('id', () => …, { error: 'MY_ERROR' })
+// Inside workflows: step.try('id', () => …, { error: { type: 'MY_ERROR' } })
 ```
 
 <Aside type="tip" title="Gradual adoption">

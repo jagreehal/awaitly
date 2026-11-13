@@ -8,7 +8,7 @@ import { createWorkflow } from "awaitly";
 import { createVisualizer } from "./index";
 import type { DecisionNode, FlowNode } from "./types";
 
-const fetchUser = async (id: string): AsyncResult<{ id: string; premium: boolean }, "NOT_FOUND"> =>
+const fetchUser = async (id: string): AsyncResult<{ id: string; premium: boolean }, { type: "NOT_FOUND" }> =>
   ok({ id, premium: true });
 
 function findDecisions(nodes: FlowNode[]): DecisionNode[] {

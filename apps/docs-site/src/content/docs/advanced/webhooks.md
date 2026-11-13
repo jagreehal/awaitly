@@ -134,7 +134,7 @@ const handler = createEventHandler(
     mapResult: (result) => ({
       success: result.ok,
       ack: result.ok || !isRetryableError(result.error),
-      error: result.ok ? undefined : { type: String(result.error) },
+      error: result.ok ? undefined : { type: result.error.type },
     }),
   }
 );
@@ -169,7 +169,7 @@ const handler = createSimpleHandler({
   },
   handler: async (input: { userId: string }) => {
     const user = await db.users.find(input.userId);
-    if (!user) return err('NOT_FOUND');
+    if (!user) return err({ type: 'NOT_FOUND' });
     return ok(user);
   },
   // `mapResult` is required — it turns the Result into an HTTP response.
@@ -230,9 +230,9 @@ interface EventResponse {
 
 ```typescript
 // Determine if error is retryable
-const isRetryableError = (error: unknown): boolean => {
+const isRetryableError = (error: { type: string }): boolean => {
   const retryable = ['TIMEOUT', 'SERVICE_UNAVAILABLE', 'RATE_LIMITED'];
-  return typeof error === 'string' && retryable.includes(error);
+  return retryable.includes(error.type);
 };
 
 // Custom result mapper with retry logic
@@ -240,7 +240,7 @@ const mapResult = (result) => ({
   success: result.ok,
   ack: result.ok || !isRetryableError(result.error),
   error: result.ok ? undefined : {
-    type: String(result.error),
+    type: result.error.type,
     retryable: isRetryableError(result.error),
   },
 });
@@ -743,7 +743,7 @@ describe('checkout webhook', () => {
   it('returns 402 for declined card', async () => {
     // Mock the workflow to return CARD_DECLINED
     const mockHandler = createWebhookHandler(
-      mockWorkflow, // returns err('CARD_DECLINED')
+      mockWorkflow, // returns err({ type: 'CARD_DECLINED' })
       async () => { /* ... */ },
       {
         validateInput: (req) => ok(req.body),

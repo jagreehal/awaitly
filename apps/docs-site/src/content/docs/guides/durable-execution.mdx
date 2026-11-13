@@ -236,7 +236,7 @@ const result = await durable.run(
     const row = await step('fetchRow', () => deps.fetchRow(id));
     // type-checks because 'PARSE_FAILED' is declared below
     return await step.try('parse', () => JSON.parse(row.body), {
-      error: 'PARSE_FAILED',
+      error: { type: 'PARSE_FAILED' },
     });
   },
   { id: `ingest-${jobId}`, errors: ['PARSE_FAILED'] }
@@ -552,22 +552,22 @@ import { ok, err, type AsyncResult } from 'awaitly';
 import { durable, isWorkflowCancelled } from 'awaitly/durable';
 
 // Define Result-returning functions
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> => {
   const user = await db.users.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? ok(user) : err({ type: 'NOT_FOUND' });
 };
 
-const createOrder = async (user: User, items: Item[]): AsyncResult<Order, 'EMPTY_CART'> => {
-  if (items.length === 0) return err('EMPTY_CART');
+const createOrder = async (user: User, items: Item[]): AsyncResult<Order, { type: 'EMPTY_CART' }> => {
+  if (items.length === 0) return err({ type: 'EMPTY_CART' });
   return ok(await db.orders.create({ userId: user.id, items }));
 };
 
-const sendConfirmation = async (order: Order): AsyncResult<void, 'EMAIL_FAILED'> => {
+const sendConfirmation = async (order: Order): AsyncResult<void, { type: 'EMAIL_FAILED' }> => {
   try {
     await mailer.send(order.user.email, { orderId: order.id });
     return ok(undefined);
   } catch {
-    return err('EMAIL_FAILED');
+    return err({ type: 'EMAIL_FAILED' });
   }
 };
 

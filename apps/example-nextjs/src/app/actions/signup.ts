@@ -31,6 +31,6 @@ export async function signup(
   }
 
   const message =
-    signupErrorMessages[result.error as SignupError] ?? "Something went wrong";
+    signupErrorMessages[result.error.type as SignupError["type"]] ?? "Something went wrong";
   return { success: false, error: message };
 }

@@ -75,7 +75,7 @@ describe("edge-cases: Robustness", () => {
         detectParallel: false,
       });
 
-      const fetchUser = async (): AsyncResult<{ id: string }, "NOT_FOUND"> =>
+      const fetchUser = async (): AsyncResult<{ id: string }, { type: "NOT_FOUND" }> =>
         ok({ id: "1" });
 
       const workflow = createWorkflow("test", { fetchUser }, {
@@ -107,7 +107,7 @@ describe("edge-cases: Robustness", () => {
         detectParallel: false,
       });
 
-      const fetchUser = async (): AsyncResult<{ id: string }, "NOT_FOUND"> =>
+      const fetchUser = async (): AsyncResult<{ id: string }, { type: "NOT_FOUND" }> =>
         ok({ id: "1" });
 
       const workflow = createWorkflow("test", { fetchUser }, {
@@ -190,7 +190,7 @@ describe("edge-cases: Robustness", () => {
         detectParallel: false,
       });
 
-      const noop = async (): AsyncResult<string, "ERROR"> => ok("done");
+      const noop = async (): AsyncResult<string, { type: "ERROR" }> => ok("done");
 
       const workflow = createWorkflow("big", { noop }, {
         onEvent: viz.handleEvent,
@@ -277,7 +277,7 @@ describe("edge-cases: Robustness", () => {
         detectParallel: false,
       });
 
-      const fetchUser = async (): AsyncResult<{ id: string }, "NOT_FOUND"> =>
+      const fetchUser = async (): AsyncResult<{ id: string }, { type: "NOT_FOUND" }> =>
         ok({ id: "1" });
 
       const w1 = createWorkflow("w1", { fetchUser }, { onEvent: viz1.handleEvent });
@@ -322,7 +322,7 @@ describe("edge-cases: Robustness", () => {
         detectParallel: false,
       });
 
-      const fetchUser = async (): AsyncResult<{ id: string }, "NOT_FOUND"> =>
+      const fetchUser = async (): AsyncResult<{ id: string }, { type: "NOT_FOUND" }> =>
         ok({ id: "1" });
 
       const workflow = createWorkflow("test", { fetchUser }, {
@@ -372,7 +372,7 @@ describe("edge-cases: Robustness", () => {
 
       const controller = new AbortController();
 
-      const slowOp = async (): AsyncResult<string, "ERROR"> => {
+      const slowOp = async (): AsyncResult<string, { type: "ERROR" }> => {
         await new Promise((r) => setTimeout(r, 100));
         return ok("done");
       };
@@ -534,7 +534,7 @@ describe("edge-cases: Robustness", () => {
 
     it("failed workflow records error state in final snapshot", async () => {
       const tt = createTimeTravelController();
-      const failOp = async (): AsyncResult<string, "BOOM"> => err("BOOM");
+      const failOp = async (): AsyncResult<string, { type: "BOOM" }> => err({ type: "BOOM" });
       const workflow = createWorkflow("tt-fail", { failOp }, {
         onEvent: tt.handleEvent,
       });
@@ -556,7 +556,7 @@ describe("edge-cases: Robustness", () => {
     it("can seek through a failed workflow and observe step states at each point", async () => {
       const tt = createTimeTravelController();
       const succeedOp = async (): AsyncResult<string, never> => ok("ok");
-      const failOp = async (): AsyncResult<string, "BOOM"> => err("BOOM");
+      const failOp = async (): AsyncResult<string, { type: "BOOM" }> => err({ type: "BOOM" });
       const workflow = createWorkflow("tt-fail-seek", { succeedOp, failOp }, {
         onEvent: tt.handleEvent,
       });
@@ -1232,7 +1232,7 @@ describe("edge-cases: Robustness", () => {
       const tt = createTimeTravelController();
       const abortController = new AbortController();
 
-      const slowOp = async (): AsyncResult<string, "ERROR"> => {
+      const slowOp = async (): AsyncResult<string, { type: "ERROR" }> => {
         await new Promise((r) => setTimeout(r, 100));
         return ok("done");
       };

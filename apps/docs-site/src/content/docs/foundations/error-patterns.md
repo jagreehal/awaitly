@@ -29,7 +29,7 @@ const result = await workflow.run(async ({ step, deps }) => {
   try {
     return await step('fetchUser', () => deps.fetchUser('123'));
   } catch (e) {
-    return err('UNEXPECTED');
+    return err({ type: 'UNEXPECTED' });
   }
 });
 
@@ -50,9 +50,9 @@ If your app can't continue without a config file or database connection, don't r
 
 ```typescript
 // ❌ Returning a Result for something that should halt the process
-const loadConfig = (): AsyncResult<Config, 'CONFIG_MISSING'> => {
+const loadConfig = (): AsyncResult<Config, { type: 'CONFIG_MISSING' }> => {
   const raw = process.env.DATABASE_URL;
-  if (!raw) return err('CONFIG_MISSING');
+  if (!raw) return err({ type: 'CONFIG_MISSING' });
   return ok({ databaseUrl: deps });
 };
 
@@ -78,23 +78,23 @@ Only model the errors your domain logic branches on. Trying to represent every p
 ```typescript
 // ❌ Modeling every possible file-system error
 type FileError =
-  | 'FILE_NOT_FOUND'
-  | 'DIRECTORY_NOT_FOUND'
-  | 'FILE_NOT_ACCESSIBLE'
-  | 'PATH_TOO_LONG'
-  | 'DISK_FULL'
-  | 'OTHER_IO_ERROR';
+  | { type: 'FILE_NOT_FOUND' }
+  | { type: 'DIRECTORY_NOT_FOUND' }
+  | { type: 'FILE_NOT_ACCESSIBLE' }
+  | { type: 'PATH_TOO_LONG' }
+  | { type: 'DISK_FULL' }
+  | { type: 'OTHER_IO_ERROR' };
 
 const readTemplate = async (path: string): AsyncResult<string, FileError> => {
   // ...
 };
 
 // ✅ Model only what the domain cares about
-const readTemplate = async (path: string): AsyncResult<string, 'TEMPLATE_NOT_FOUND'> => {
+const readTemplate = async (path: string): AsyncResult<string, { type: 'TEMPLATE_NOT_FOUND' }> => {
   try {
     return ok(await fs.readFile(path, 'utf-8'));
   } catch {
-    return err('TEMPLATE_NOT_FOUND');
+    return err({ type: 'TEMPLATE_NOT_FOUND' });
   }
 };
 // If the disk is full or the path is invalid, that's a panic —
@@ -109,7 +109,10 @@ If every consumer checks `result.ok` and never branches on specific error types,
 // ❌ Rich error type that no consumer ever inspects
 const enrichProfile = async (
   id: string
-): AsyncResult<Profile, 'API_TIMEOUT' | 'RATE_LIMITED' | 'MALFORMED_RESPONSE' | 'SERVICE_DOWN'> => {
+): AsyncResult<
+  Profile,
+  { type: 'API_TIMEOUT' } | { type: 'RATE_LIMITED' } | { type: 'MALFORMED_RESPONSE' } | { type: 'SERVICE_DOWN' }
+> => {
   // ...
 };
 
@@ -120,7 +123,7 @@ if (!result.ok) {
 }
 
 // ✅ Simple error type — callers don't distinguish between failure reasons
-const enrichProfile = async (id: string): AsyncResult<Profile, 'ENRICHMENT_FAILED'> => {
+const enrichProfile = async (id: string): AsyncResult<Profile, { type: 'ENRICHMENT_FAILED' }> => {
   // ...
 };
 ```
@@ -135,9 +138,9 @@ Validation failures, business rule violations, and not-found are expected outcom
 // ✅ Domain errors that callers handle differently
 const checkout = async (
   cart: Cart, payment: PaymentMethod
-): AsyncResult<Order, 'CART_EMPTY' | 'INSUFFICIENT_FUNDS' | 'ITEM_OUT_OF_STOCK'> => {
-  if (cart.items.length === 0) return err('CART_EMPTY');
-  if (payment.balance < cart.total) return err('INSUFFICIENT_FUNDS');
+): AsyncResult<Order, { type: 'CART_EMPTY' } | { type: 'INSUFFICIENT_FUNDS' } | { type: 'ITEM_OUT_OF_STOCK' }> => {
+  if (cart.items.length === 0) return err({ type: 'CART_EMPTY' });
+  if (payment.balance < cart.total) return err({ type: 'INSUFFICIENT_FUNDS' });
   // ...
   return ok(order);
 };
@@ -148,7 +151,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 });
 
 if (!result.ok) {
-  switch (result.error) {
+  switch (result.error.type) {
     case 'CART_EMPTY':
       return res.status(400).json({ error: 'Cart is empty' });
     case 'INSUFFICIENT_FUNDS':
@@ -169,18 +172,18 @@ const result = await workflow.run(async ({ step }) => {
   const data = await step.try(
     'parseInput',
     () => JSON.parse(rawInput),
-    { error: 'INVALID_JSON' }
+    { error: { type: 'INVALID_JSON' } }
   );
 
   const token = await step.try(
     'verify',
     () => jwt.verify(data.token, secret),
-    { error: 'INVALID_TOKEN' }
+    { error: { type: 'INVALID_TOKEN' } }
   );
 
   return token;
 });
-// result.error is: 'INVALID_JSON' | 'INVALID_TOKEN' | UnexpectedError
+// result.error is: { type: 'INVALID_JSON' } | { type: 'INVALID_TOKEN' } | UnexpectedError
 ```
 
 ### Let `UnexpectedError` preserve diagnostics for you
@@ -205,7 +208,7 @@ if (!result.ok) {
   }
 
   // Domain error — handle normally
-  switch (result.error) {
+  switch (result.error.type) {
     case 'NOT_FOUND':
       return res.status(404).json({ error: 'User not found' });
     case 'EMAIL_FAILED':

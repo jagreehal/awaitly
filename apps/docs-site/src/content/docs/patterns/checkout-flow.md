@@ -16,48 +16,48 @@ type Payment = { transactionId: string; amount: number };
 
 const validateCart = async (
   items: CartItem[]
-): AsyncResult<CartItem[], 'EMPTY_CART' | 'INVALID_QUANTITY'> => {
-  if (items.length === 0) return err('EMPTY_CART');
-  if (items.some((i) => i.quantity <= 0)) return err('INVALID_QUANTITY');
+): AsyncResult<CartItem[], { type: 'EMPTY_CART' } | { type: 'INVALID_QUANTITY' }> => {
+  if (items.length === 0) return err({ type: 'EMPTY_CART' });
+  if (items.some((i) => i.quantity <= 0)) return err({ type: 'INVALID_QUANTITY' });
   return ok(items);
 };
 
 const checkInventory = async (
   items: CartItem[]
-): AsyncResult<CartItem[], 'OUT_OF_STOCK'> => {
+): AsyncResult<CartItem[], { type: 'OUT_OF_STOCK' }> => {
   // Check each item against inventory
   const available = await Promise.all(
     items.map((item) => inventory.check(item.productId, item.quantity))
   );
-  if (available.some((a) => !a)) return err('OUT_OF_STOCK');
+  if (available.some((a) => !a)) return err({ type: 'OUT_OF_STOCK' });
   return ok(items);
 };
 
 const calculateTotal = async (
   items: CartItem[]
-): AsyncResult<number, 'PRICING_ERROR'> => {
+): AsyncResult<number, { type: 'PRICING_ERROR' }> => {
   try {
     const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
     return ok(total);
   } catch {
-    return err('PRICING_ERROR');
+    return err({ type: 'PRICING_ERROR' });
   }
 };
 
 const processPayment = async (
   amount: number,
   paymentMethod: string
-): AsyncResult<Payment, 'PAYMENT_DECLINED' | 'PAYMENT_ERROR'> => {
+): AsyncResult<Payment, { type: 'PAYMENT_DECLINED' } | { type: 'PAYMENT_ERROR' }> => {
   const result = await paymentProvider.charge(amount, paymentMethod);
-  if (result.declined) return err('PAYMENT_DECLINED');
-  if (result.error) return err('PAYMENT_ERROR');
+  if (result.declined) return err({ type: 'PAYMENT_DECLINED' });
+  if (result.error) return err({ type: 'PAYMENT_ERROR' });
   return ok({ transactionId: result.id, amount });
 };
 
 const createOrder = async (
   items: CartItem[],
   payment: Payment
-): AsyncResult<Order, 'ORDER_CREATION_FAILED'> => {
+): AsyncResult<Order, { type: 'ORDER_CREATION_FAILED' }> => {
   try {
     const order = await db.orders.create({
       items,
@@ -66,7 +66,7 @@ const createOrder = async (
     });
     return ok(order);
   } catch {
-    return err('ORDER_CREATION_FAILED');
+    return err({ type: 'ORDER_CREATION_FAILED' });
   }
 };
 ```
@@ -110,7 +110,7 @@ if (result.ok) {
   return res.json({ orderId: result.value.id });
 }
 
-switch (result.error) {
+switch (result.error.type) {
   case 'EMPTY_CART':
     return res.status(400).json({ error: 'Cart is empty' });
   case 'INVALID_QUANTITY':
@@ -158,7 +158,7 @@ const result = await checkout.run(async ({ step, deps }) => {
       attempts: 3,
       backoff: 'exponential',
       initialDelay: 500,
-      shouldRetry: (error) => error === 'PAYMENT_ERROR', // Don't retry declined
+      shouldRetry: (error) => error.type === 'PAYMENT_ERROR', // Don't retry declined
     }
   );
 

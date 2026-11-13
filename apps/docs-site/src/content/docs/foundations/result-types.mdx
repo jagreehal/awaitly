@@ -14,18 +14,18 @@ A Result is a plain object with one of two shapes:
 { ok: true, value: 5 }
 
 // failure
-{ ok: false, error: 'DIVIDE_BY_ZERO' }
+{ ok: false, error: { type: 'DIVIDE_BY_ZERO' } }
 ```
 
 You check `result.ok` to see which one you got. There's nothing magic here. You could write these objects by hand. awaitly gives you `ok()` and `err()` to build them, plus helpers to work with them safely.
 
 ## New to the type syntax?
 
-You'll see types like `Result<number, 'DIVIDE_BY_ZERO'>` throughout this page. If TypeScript's notation is new to you, three pieces are worth knowing first:
+You'll see types like `Result<number, { type: 'DIVIDE_BY_ZERO' }>` throughout this page. If TypeScript's notation is new to you, three pieces are worth knowing first:
 
-- **A specific string can be a type.** A value typed as `'DIVIDE_BY_ZERO'` can only ever be that exact string. The string is both a value and its own type.
+- **A specific string can be a type.** A field typed as `'DIVIDE_BY_ZERO'` can only ever hold that exact string. So `{ type: 'DIVIDE_BY_ZERO' }` describes an object whose `type` is always `'DIVIDE_BY_ZERO'`. Errors you create in awaitly are tagged objects like this: the `type` field says which error it is.
 - **`|` means "one of".** `'A' | 'B'` describes a value that is either `'A'` or `'B'`, and nothing else. TypeScript calls this a union.
-- **The angle brackets fill in blanks.** `Result` needs two types to be complete: the success value, then the error. You pass them in that order, so `Result<number, 'DIVIDE_BY_ZERO'>` reads as "a number if it worked, or `'DIVIDE_BY_ZERO'` if it didn't."
+- **The angle brackets fill in blanks.** `Result` needs two types to be complete: the success value, then the error. You pass them in that order, so `Result<number, { type: 'DIVIDE_BY_ZERO' }>` reads as "a number if it worked, or a `{ type: 'DIVIDE_BY_ZERO' }` error if it didn't."
 
 Take your time with these. The rest of the page builds on them.
 
@@ -34,14 +34,14 @@ Take your time with these. The rest of the page builds on them.
 <Tabs>
   <TabItem label="With Results">
 ```typescript
-// fetchUser returns AsyncResult<User, 'NOT_FOUND'>
+// fetchUser returns AsyncResult<User, { type: 'NOT_FOUND' }>
 const result = await fetchUser('123');
 
 if (result.ok) {
   console.log(result.value.name);
 } else {
-  // TypeScript knows result.error is 'NOT_FOUND'
-  console.log(`User ${result.error}`);
+  // TypeScript knows result.error is { type: 'NOT_FOUND' }
+  console.log(`User ${result.error.type}`);
 }
 ```
   </TabItem>
@@ -72,9 +72,9 @@ Results give you:
 Result<Value, Error>
 
 Examples:
-Result<number, 'DIVIDE_BY_ZERO'>      → number on success, 'DIVIDE_BY_ZERO' on failure
-Result<User, 'NOT_FOUND'>             → User on success, 'NOT_FOUND' on failure
-Result<Order, 'INVALID' | 'EXPIRED'>  → Order on success, one of two errors on failure
+Result<number, { type: 'DIVIDE_BY_ZERO' }>                → number on success, { type: 'DIVIDE_BY_ZERO' } on failure
+Result<User, { type: 'NOT_FOUND' }>                       → User on success, { type: 'NOT_FOUND' } on failure
+Result<Order, { type: 'INVALID' } | { type: 'EXPIRED' }>  → Order on success, one of two errors on failure
 ```
 
 ## Creating Results
@@ -83,13 +83,13 @@ Result<Order, 'INVALID' | 'EXPIRED'>  → Order on success, one of two errors on
 import { ok, err, type AsyncResult } from 'awaitly';
 
 // Synchronous
-const divide = (a: number, b: number): Result<number, 'DIVIDE_BY_ZERO'> =>
-  b === 0 ? err('DIVIDE_BY_ZERO') : ok(a / b);
+const divide = (a: number, b: number): Result<number, { type: 'DIVIDE_BY_ZERO' }> =>
+  b === 0 ? err({ type: 'DIVIDE_BY_ZERO' }) : ok(a / b);
 
 // Asynchronous
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> => {
   const user = await db.users.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? ok(user) : err({ type: 'NOT_FOUND' });
 };
 ```
 
@@ -107,7 +107,7 @@ const result = divide(10, 2);
 if (result.ok) {
   console.log(result.value); // 5
 } else {
-  console.log(result.error); // TypeScript knows this is 'DIVIDE_BY_ZERO'
+  console.log(result.error); // TypeScript knows this is { type: 'DIVIDE_BY_ZERO' }
 }
 ```
 
@@ -129,7 +129,7 @@ if (isOk(result)) {
 }
 
 if (isErr(result)) {
-  console.log(result.error); // 'DIVIDE_BY_ZERO'
+  console.log(result.error); // { type: 'DIVIDE_BY_ZERO' }
 }
 ```
 
@@ -158,8 +158,8 @@ Transform the error, leaving success values unchanged:
 ```typescript
 import { mapError } from 'awaitly';
 
-const result = err('NOT_FOUND');
-const mapped = mapError(result, (e) => ({ type: e, status: 404 }));
+const result = err({ type: 'NOT_FOUND' });
+const mapped = mapError(result, (e) => ({ ...e, status: 404 }));
 // { ok: false, error: { type: 'NOT_FOUND', status: 404 } }
 ```
 
@@ -172,20 +172,20 @@ import { andThen } from 'awaitly';
 
 const result = ok(10);
 const chained = andThen(result, (n) =>
-  n > 0 ? ok(n * 2) : err('NEGATIVE')
+  n > 0 ? ok(n * 2) : err({ type: 'NEGATIVE' })
 );
 // { ok: true, value: 20 }
 
 const negative = ok(-5);
 const failed = andThen(negative, (n) =>
-  n > 0 ? ok(n * 2) : err('NEGATIVE')
+  n > 0 ? ok(n * 2) : err({ type: 'NEGATIVE' })
 );
-// { ok: false, error: 'NEGATIVE' }
+// { ok: false, error: { type: 'NEGATIVE' } }
 ```
 
 ### match - Pattern Match
 
-Handle both cases in one expression. The discriminant is `type` everywhere, string errors match themselves, tagged objects match on `type`, and `TaggedError` instances expose `.type` as the canonical field (`._tag` remains as a deprecated alias).
+Handle both cases in one expression. The discriminant is `type` everywhere: tagged objects match on `type`, and `TaggedError` instances expose `.type` as the canonical field (`._tag` remains as a deprecated alias).
 
 **Two-arm catch-all:**
 
@@ -195,17 +195,17 @@ import { match } from 'awaitly';
 const result = divide(10, 2);
 const message = match(result, {
   ok: (value) => `Success: ${value}`,
-  err: (error) => `Error: ${error}`,
+  err: (error) => `Error: ${error.type}`,
 });
 // "Success: 5"
 ```
 
-**Exhaustive per-type arms**: dispatch across string literals, tagged objects, and `TaggedError` classes in one call:
+**Exhaustive per-type arms**: dispatch across plain tagged objects and `TaggedError` classes in one call:
 
 ```typescript
 import { match, ok, err, type Result } from 'awaitly';
 
-type FetchUserError = 'USER_NOT_FOUND' | TimeoutError | UnexpectedError;
+type FetchUserError = { type: 'USER_NOT_FOUND' } | TimeoutError | UnexpectedError;
 
 // `await` unwraps the AsyncResult, so the value here is a `Result`.
 const result: Result<User, FetchUserError> = await fetchUser('123');
@@ -258,7 +258,7 @@ import { unwrapOrElse } from 'awaitly';
 
 const result = divide(10, 0);
 const value = unwrapOrElse(result, (error) => {
-  console.log('Failed with:', error);
+  console.log('Failed with:', error.type);
   return 0;
 });
 // Logs: Failed with: DIVIDE_BY_ZERO
@@ -325,9 +325,9 @@ const results = [ok(1), ok(2), ok(3)];
 const combined = all(results);
 // { ok: true, value: [1, 2, 3] }
 
-const withError = [ok(1), err('FAILED'), ok(3)];
+const withError = [ok(1), err({ type: 'FAILED' }), ok(3)];
 const failed = all(withError);
-// { ok: false, error: 'FAILED' }
+// { ok: false, error: { type: 'FAILED' } }
 ```
 
 Combining operations typed as `Result<void, E>` produces `Result<void[], E>`. The ts-eslint `strict` preset rejects `void[]` through `@typescript-eslint/no-invalid-void-type`. Use `undefined` for functions that return no value when you plan to combine their Results:
@@ -349,13 +349,13 @@ const allOk = [ok(1), ok(2), ok(3)];
 const settled = allSettled(allOk);
 // { ok: true, value: [1, 2, 3] }
 
-const mixed = [ok(1), err('A'), ok(3), err('B')];
+const mixed = [ok(1), err({ type: 'A' }), ok(3), err({ type: 'B' })];
 const failed = allSettled(mixed);
 // {
 //   ok: false,
 //   error: [
-//     { error: 'A' },
-//     { error: 'B' },
+//     { error: { type: 'A' } },
+//     { error: { type: 'B' } },
 //   ]
 // }
 ```
@@ -367,10 +367,10 @@ Returns a `{ values, errors }` object, never fails:
 ```typescript
 import { partition } from 'awaitly';
 
-const results = [ok(1), err('A'), ok(3)];
+const results = [ok(1), err({ type: 'A' }), ok(3)];
 const { values, errors } = partition(results);
 // values: [1, 3]
-// errors: ['A']
+// errors: [{ type: 'A' }]
 ```
 
 <Aside type="tip" title="When to use each">
@@ -392,7 +392,7 @@ const results = await allAsync([
   fetchComments('1'),
 ]);
 // All succeed: { ok: true, value: [User, Post[], Comment[]] }
-// One fails: { ok: false, error: 'NOT_FOUND' }
+// One fails: { ok: false, error: { type: 'NOT_FOUND' } }
 ```
 
 ## Flatten
@@ -406,9 +406,9 @@ const nested = ok(ok(42));
 const flat = flatten(nested);
 // { ok: true, value: 42 }
 
-const nestedErr = ok(err('INNER'));
+const nestedErr = ok(err({ type: 'INNER' }));
 const flat2 = flatten(nestedErr);
-// { ok: false, error: 'INNER' }
+// { ok: false, error: { type: 'INNER' } }
 ```
 
 ## Deserialization
@@ -519,7 +519,7 @@ const fetchData = () =>
   );
 
 const result = await timeout(fetchData, 5000)();
-// result.error may be 'FETCH_FAILED' | TimeoutError
+// result.error may be { type: 'FETCH_FAILED', cause: unknown } | TimeoutError
 ```
 
 Accepts milliseconds or duration strings (`'5s'`, `'500ms'`). Optional third argument `{ clock }` uses that clock for the deadline instead of wall time.

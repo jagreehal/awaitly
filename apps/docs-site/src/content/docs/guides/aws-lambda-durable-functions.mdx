@@ -20,8 +20,8 @@ pnpm add -D @aws/durable-execution-sdk-js-testing
 import { withDurableExecution } from 'awaitly-durable-lambda'; // was '@aws/durable-execution-sdk-js'
 import type { AsyncResult } from 'awaitly';
 
-declare function getUser(id: string): AsyncResult<User, 'NOT_FOUND'>;
-declare function charge(user: User): AsyncResult<Receipt, 'DECLINED'>;
+declare function getUser(id: string): AsyncResult<User, { type: 'NOT_FOUND' }>;
+declare function charge(user: User): AsyncResult<Receipt, { type: 'DECLINED' }>;
 
 export const checkout = withDurableExecution(async (event: { userId: string }, context) => {
   const user = await context.step('getUser', () => getUser(event.userId));
@@ -33,14 +33,14 @@ export const checkout = withDurableExecution(async (event: { userId: string }, c
 });
 ```
 
-TypeScript unions the handler's returns, so `HandlerResult<typeof checkout>` lists both failures a caller handles: `'NOT_FOUND' | 'DECLINED'`.
+TypeScript unions the handler's returns, so `HandlerResult<typeof checkout>` lists both failures a caller handles: `{ type: 'NOT_FOUND' } | { type: 'DECLINED' }`.
 
 ## Expected and thrown failures
 
 | In the step | Lambda | Your code sees |
 |---|---|---|
 | `return ok(value)` | checkpoints the Result | `{ ok: true, value }` on the first run and every replay |
-| `return err('DECLINED')` | checkpoints the Result, with no retry | `{ ok: false, error: 'DECLINED' }`, recorded once |
+| `return err({ type: 'DECLINED' })` | checkpoints the Result, with no retry | `{ ok: false, error: { type: 'DECLINED' } }`, recorded once |
 | `throw new Error(...)` | retries with the step's `retryStrategy`, then fails the execution | the native `StepError` |
 
 Return `err(...)` for outcomes you expect, such as a declined card, and throw for faults you want Lambda to retry.
@@ -98,7 +98,7 @@ it('declines without retrying', async () => {
   const runner = new LocalDurableTestRunner({ handlerFunction: checkout });
   const execution = await runner.run({ payload: { userId: 'broke' } });
 
-  expect(execution.getResult()).toEqual({ ok: false, error: 'DECLINED' });
+  expect(execution.getResult()).toEqual({ ok: false, error: { type: 'DECLINED' } });
 });
 ```
 

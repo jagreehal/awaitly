@@ -14,6 +14,7 @@ import type {
   AsyncResult,
   BoundSteps,
   DeclaredGraph,
+  ErrorValue,
 } from "../core";
 import type { JSONValue, WorkflowSnapshot } from "../persistence";
 import type { StreamStore } from "../streaming/types";
@@ -119,7 +120,7 @@ export type AnyResultFn = (...args: any[]) => Result<any, any> | Promise<Result<
 /**
  * Extract union of error types from a deps object
  * Example: ErrorsOfDeps<{ fetchUser: typeof fetchUser, fetchPosts: typeof fetchPosts }>
- * yields: 'NOT_FOUND' | 'FETCH_ERROR'
+ * yields: { type: 'NOT_FOUND' } | { type: 'FETCH_ERROR' }
  */
 export type ErrorsOfDeps<Deps extends Record<string, AnyResultFn>> = {
   [K in keyof Deps]: ErrorOf<Deps[K]>;
@@ -127,7 +128,7 @@ export type ErrorsOfDeps<Deps extends Record<string, AnyResultFn>> = {
 
 /**
  * Extract union of cause types from a deps object.
- * Example: CausesOfDeps<{ fetchUser: typeof fetchUser }> where fetchUser returns Result<User, "NOT_FOUND">
+ * Example: CausesOfDeps<{ fetchUser: typeof fetchUser }> where fetchUser returns Result<User, { type: "NOT_FOUND" }>
  * yields: Error
  *
  * Note: This represents the domain cause types from declared functions.
@@ -279,13 +280,13 @@ export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends reado
    * Map uncaught exceptions (and cancellation) to your error type U.
    * When omitted, U = UnexpectedError and the default mapper returns an UnexpectedError instance.
    */
-  catchUnexpected?: ((cause: unknown) => U) | undefined;
+  catchUnexpected?: ((cause: unknown) => U & ErrorValue) | undefined;
   /**
    * Errors this workflow can produce beyond the ones inferred from its deps.
    *
    * Two effects, both from one list:
    * 1. **Types** — each entry joins the workflow's error union, so a
-   *    `step.try(id, fn, { error: "X" })` whose error no dep declares
+   *    `step.try(id, fn, { error: { type: "X" } })` whose error no dep declares
    *    type-checks once `"X"` is listed here. Without it there is no way to
    *    introduce such an error short of routing it through a dep.
    * 2. **Static analysis** — the analyzer validates that the computed errors
@@ -304,10 +305,10 @@ export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends reado
    *   const row = await step("fetchRow", () => deps.fetchRow(id));
    *   // Allowed because "PARSE_FAILED" is declared above
    *   return await step.try("parse", () => JSON.parse(row.body), {
-   *     error: "PARSE_FAILED",
+   *     error: { type: "PARSE_FAILED" },
    *   });
    * });
-   * // result.error: "ROW_NOT_FOUND" | "PARSE_FAILED" | UnexpectedError
+   * // result.error: { type: "ROW_NOT_FOUND" } | { type: "PARSE_FAILED" } | UnexpectedError
    * ```
    */
   errors?: Errs | undefined;

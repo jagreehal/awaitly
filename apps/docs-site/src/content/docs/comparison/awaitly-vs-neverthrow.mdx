@@ -55,7 +55,7 @@ neverthrow is the smallest step from plain async/await if you only want Result t
 import { ok, err } from 'awaitly';
 
 const divide = (a: number, b: number) =>
-  b === 0 ? err('DIVIDE_BY_ZERO') : ok(a / b);
+  b === 0 ? err({ type: 'DIVIDE_BY_ZERO' }) : ok(a / b);
 
 const result = divide(10, 2);
 /*
@@ -158,11 +158,11 @@ Result { _value: 10 }
 ```typescript
 import { err, mapError } from 'awaitly';
 
-const result = err('NOT_FOUND');
-const mapped = mapError(result, e => ({ code: e, status: 404 }));
+const result = err({ type: 'NOT_FOUND' });
+const mapped = mapError(result, e => ({ type: e.type, status: 404 }));
 /*
 Output:
-{ ok: false, error: { code: 'NOT_FOUND', status: 404 } }
+{ ok: false, error: { type: 'NOT_FOUND', status: 404 } }
 */
 ```
   </TabItem>
@@ -188,7 +188,7 @@ awaitly deliberately ships no `pipe`. Short chains are plain function calls with
 import { ok, map, mapError } from 'awaitly';
 
 const doubled = map(ok(5), (n) => n * 2);
-const result = mapError(doubled, (e) => e.toUpperCase());
+const result = mapError(doubled, (e) => ({ type: e.type.toUpperCase() }));
 // { ok: true, value: 10 }
 ```
 
@@ -205,7 +205,7 @@ import { ok, err, andThen } from 'awaitly';
 
 const parseNumber = (s: string) => {
   const n = parseInt(s, 10);
-  return isNaN(n) ? err('PARSE_ERROR') : ok(n);
+  return isNaN(n) ? err({ type: 'PARSE_ERROR' }) : ok(n);
 };
 
 const result = ok('42');
@@ -277,9 +277,9 @@ Output:
 ```typescript
 import { ok, err, type AsyncResult } from 'awaitly';
 
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> => {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? ok(user) : err({ type: 'NOT_FOUND' });
 };
 
 // Use with regular async/await
@@ -325,11 +325,11 @@ Output:
 { ok: true, value: [1, 2, 3] }
 */
 
-const withError = [ok(1), err('FAILED'), ok(3)];
+const withError = [ok(1), err({ type: 'FAILED' }), ok(3)];
 const failed = all(withError);
 /*
 Output:
-{ ok: false, error: 'FAILED' }
+{ ok: false, error: { type: 'FAILED' } }
 */
 ```
   </TabItem>
@@ -412,12 +412,12 @@ import { ok, err, run, type AsyncResult } from 'awaitly';
 
 const parseId = (s: string) => {
   const n = parseInt(s, 10);
-  return isNaN(n) ? err('PARSE_ERROR') : ok(n);
+  return isNaN(n) ? err({ type: 'PARSE_ERROR' }) : ok(n);
 };
 
-const fetchUser = async (id: number): AsyncResult<User, 'NOT_FOUND'> => {
+const fetchUser = async (id: number): AsyncResult<User, { type: 'NOT_FOUND' }> => {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? ok(user) : err({ type: 'NOT_FOUND' });
 };
 
 // Sync and async deps mix freely — await handles both
@@ -428,7 +428,7 @@ const result = await run({ parseId, fetchUser }, async (s) => {
 /*
 Output:
 { ok: true, value: { id: 42, name: 'Alice' } }
-result.error: 'PARSE_ERROR' | 'NOT_FOUND' | UnexpectedError — inferred
+result.error: { type: 'PARSE_ERROR' } | { type: 'NOT_FOUND' } | UnexpectedError — inferred
 */
 ```
   </TabItem>
@@ -509,18 +509,18 @@ Provide a fallback Result on failure.
 ```typescript
 import { ok, err, orElse } from 'awaitly';
 
-const result = err('NOT_FOUND');
-const recovered = orElse(result, (e) => ok({ fallback: true, reason: e }));
+const result = err({ type: 'NOT_FOUND' });
+const recovered = orElse(result, (e) => ok({ fallback: true, reason: e.type }));
 /*
 Output:
 { ok: true, value: { fallback: true, reason: 'NOT_FOUND' } }
 */
 
 // Can also return a different error
-const retyped = orElse(result, () => err('FALLBACK_FAILED'));
+const retyped = orElse(result, () => err({ type: 'FALLBACK_FAILED' }));
 /*
 Output:
-{ ok: false, error: 'FALLBACK_FAILED' }
+{ ok: false, error: { type: 'FALLBACK_FAILED' } }
 */
 ```
   </TabItem>
@@ -556,18 +556,18 @@ Collect ALL errors instead of failing on the first one.
 ```typescript
 import { ok, err, all, allSettled } from 'awaitly';
 
-const results = [ok(1), err('ERROR_A'), ok(3), err('ERROR_B')];
+const results = [ok(1), err({ type: 'ERROR_A' }), ok(3), err({ type: 'ERROR_B' })];
 const settled = allSettled(results);
 /*
 Output:
-{ ok: false, error: [{ error: 'ERROR_A' }, { error: 'ERROR_B' }] }
+{ ok: false, error: [{ error: { type: 'ERROR_A' } }, { error: { type: 'ERROR_B' } }] }
 */
 
 // For fail-fast behavior, use all() instead
 const failFast = all(results);
 /*
 Output:
-{ ok: false, error: 'ERROR_A' }
+{ ok: false, error: { type: 'ERROR_A' } }
 */
 ```
   </TabItem>
@@ -616,9 +616,9 @@ const parseJson = (s: string) =>
 
 // Async (outside workflows): fromPromise(promise, onError)
 const fetchSafe = (url: string) =>
-  fromPromise(fetch(url).then(r => r.json()), () => 'FETCH_ERROR' as const);
+  fromPromise(fetch(url).then(r => r.json()), () => ({ type: 'FETCH_ERROR' as const }));
 
-// Inside workflows: step.try('id', () => …, { error: 'MY_ERROR' })
+// Inside workflows: step.try('id', () => …, { error: { type: 'MY_ERROR' } })
 
 const valid = parseJson('{"name": "Alice"}');
 const invalid = parseJson('not json');
@@ -722,9 +722,9 @@ With `run()`, pass your deps as the first argument. The error union is inferred,
 ```typescript
 import { run, type AsyncResult } from 'awaitly';
 
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
-const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
-const chargeCard = async (amount: number): AsyncResult<Receipt, 'PAYMENT_DECLINED'> => { /* ... */ };
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> => { /* ... */ };
+const sendEmail = async (to: string): AsyncResult<void, { type: 'EMAIL_FAILED' }> => { /* ... */ };
+const chargeCard = async (amount: number): AsyncResult<Receipt, { type: 'PAYMENT_DECLINED' }> => { /* ... */ };
 
 const result = await run({ fetchUser, sendEmail, chargeCard }, async (s) => {
   const user = await s.fetchUser('123');
@@ -733,7 +733,7 @@ const result = await run({ fetchUser, sendEmail, chargeCard }, async (s) => {
   return user;
 });
 
-// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | 'PAYMENT_DECLINED' | UnexpectedError
+// result.error is: { type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' } | { type: 'PAYMENT_DECLINED' } | UnexpectedError
 ```
 
 With `createWorkflow`, error inference is automatic, no `ErrorsOf` needed:
@@ -845,7 +845,7 @@ import { ok, map, mapError } from 'awaitly';
 
 const base = ok(5);
 const doubled = map(base, (n) => n * 2);
-const result = mapError(doubled, (e) => e.toUpperCase());
+const result = mapError(doubled, (e) => ({ type: e.type.toUpperCase() }));
 ```
 
 There is no pipeline operator to learn: intermediate values are ordinary `const` bindings, and multi-step async flows use `run()` (see [No pipeline operator (awaitly)](#no-pipeline-operator-awaitly) above).

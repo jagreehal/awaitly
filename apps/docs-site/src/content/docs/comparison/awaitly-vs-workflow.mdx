@@ -290,7 +290,7 @@ export async function runWorkflow() {
 
     // Check for cancellation
     if (ctx.signal?.aborted) {
-      return err("CANCELLED");
+      return err({ type: "CANCELLED" });
     }
 
     const result = await step('myStep', () => deps.myStep(), { key: "my-step" });

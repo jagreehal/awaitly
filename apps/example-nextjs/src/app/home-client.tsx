@@ -216,13 +216,13 @@ export function HomeClient() {
               <p className="text-zinc-600 dark:text-zinc-400">
                 {((): string => {
                   const e = userQuery.error.error as UserError;
-                  switch (e) {
+                  switch (e.type) {
                     case "NOT_FOUND":
                       return "User not found";
                     case "UNAUTHORIZED":
                       return "Unauthorized";
                     default:
-                      return String(e);
+                      return JSON.stringify(e);
                   }
                 })()}
               </p>

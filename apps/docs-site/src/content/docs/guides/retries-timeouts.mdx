@@ -131,10 +131,10 @@ const workflow = createWorkflow({ apiCall }, { errors: ['API_TIMEOUT'] });
 const result = await workflow.run(async ({ step, deps }) => {
   return step.withTimeout('apiCall', () => deps.apiCall(), {
     ms: 5000,
-    onTimeout: () => 'API_TIMEOUT',
+    onTimeout: () => ({ type: 'API_TIMEOUT' }),
   });
 });
-// result.error: 'API_TIMEOUT' | UnexpectedError | <apiCall's own errors>
+// result.error: { type: 'API_TIMEOUT' } | UnexpectedError | <apiCall's own errors>
 ```
 
 The timeout error is checked against the workflow's error union, so a tag you
@@ -359,9 +359,9 @@ const user = await step.retry(
     backoff: 'exponential',
     shouldRetry: (error) => {
       // Don't retry NOT_FOUND - the user doesn't exist
-      if (error === 'NOT_FOUND') return false;
+      if (error.type === 'NOT_FOUND') return false;
       // Don't retry INVALID_ID - it will never work
-      if (error === 'INVALID_ID') return false;
+      if (error.type === 'INVALID_ID') return false;
       // Retry everything else (network errors, timeouts, etc.)
       return true;
     },
@@ -379,11 +379,11 @@ By default, retry skips `UnexpectedError` and untagged throws (bugs). Typed erro
 // Retry only network/server errors
 shouldRetry: (error) => {
   const noRetry = ['NOT_FOUND', 'UNAUTHORIZED', 'INVALID_INPUT', 'DUPLICATE'];
-  return !noRetry.includes(error);
+  return !noRetry.includes(error.type);
 }
 
 // Retry only rate limits
-shouldRetry: (error) => error === 'RATE_LIMITED'
+shouldRetry: (error) => error.type === 'RATE_LIMITED'
 
 // Retry HTTP 5xx only
 shouldRetry: (error) => error.status >= 500
@@ -455,7 +455,7 @@ const user = await step.retry(
     jitter: true,
     shouldRetry: (error) => {
       // Don't retry NOT_FOUND or validation errors
-      if (error === 'NOT_FOUND' || error === 'INVALID_ID') return false;
+      if (error.type === 'NOT_FOUND' || error.type === 'INVALID_ID') return false;
       return true;
     },
   }
@@ -507,7 +507,7 @@ const result = await workflow.run(async ({ step, deps }) => {
       initialDelay: 200,
       maxDelay: 2000,
       jitter: true,
-      shouldRetry: (error) => error !== 'NOT_FOUND',
+      shouldRetry: (error) => error.type !== 'NOT_FOUND',
     }
   );
 
@@ -525,10 +525,10 @@ Output (success):
 { ok: true, value: User }
 
 Output (failure after 3 attempts):
-{ ok: false, error: 'NETWORK_ERROR' }
+{ ok: false, error: { type: 'NETWORK_ERROR' } }
 
 Output (immediate failure, no retries):
-{ ok: false, error: 'NOT_FOUND' }
+{ ok: false, error: { type: 'NOT_FOUND' } }
 */
 ```
 

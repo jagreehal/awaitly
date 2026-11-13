@@ -7,7 +7,8 @@
  */
 
 import type { AsyncResult, ErrorValue } from "./index";
-import { ok, err, tryAsync } from "./index";
+import { ok, tryAsync } from "./index";
+import { errAny } from "./err-any";
 import type { RetryOptions } from "../core";
 import {
   UnexpectedError,
@@ -85,7 +86,7 @@ export async function tryAsyncRetry<T, E>(
     try {
       return ok(await fn());
     } catch (cause) {
-      return onError ? err(onError(cause), { cause }) : err(cause);
+      return onError ? errAny(onError(cause), { cause }) : errAny(cause);
     }
   };
 

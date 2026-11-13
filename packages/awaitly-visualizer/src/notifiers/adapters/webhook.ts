@@ -14,7 +14,7 @@ import { mermaidRenderer, defaultColorScheme } from "../../renderers";
 /**
  * Error types for webhook adapter operations.
  */
-export type WebhookError = "SEND_FAILED" | "TIMEOUT";
+export type WebhookError = { type: "SEND_FAILED" } | { type: "TIMEOUT" };
 
 /**
  * Options for Webhook adapter.
@@ -120,7 +120,7 @@ export function createWebhookAdapter(
       });
 
       if (!response.ok) {
-        return err("SEND_FAILED");
+        return err({ type: "SEND_FAILED" });
       }
 
       // Try to extract message ID from response
@@ -135,9 +135,9 @@ export function createWebhookAdapter(
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        return err("TIMEOUT");
+        return err({ type: "TIMEOUT" });
       }
-      return err("SEND_FAILED");
+      return err({ type: "SEND_FAILED" });
     } finally {
       clearTimeout(timeoutId);
     }
@@ -199,7 +199,7 @@ export function createWebhookAdapter(
       // Preserve event from buildMessage (workflow.complete for one-shot, workflow.update for live)
       const result = await sendWebhook(payload);
       if (!result.ok) {
-        throw new Error(`Webhook send failed: ${result.error}`);
+        throw new Error(`Webhook send failed: ${result.error.type}`);
       }
       return messageId;
     },
@@ -210,7 +210,7 @@ export function createWebhookAdapter(
       // Preserve event from buildMessage (workflow.complete for final, workflow.update for live)
       const result = await sendWebhook(payload);
       if (!result.ok) {
-        throw new Error(`Webhook update failed: ${result.error}`);
+        throw new Error(`Webhook update failed: ${result.error.type}`);
       }
     },
   };

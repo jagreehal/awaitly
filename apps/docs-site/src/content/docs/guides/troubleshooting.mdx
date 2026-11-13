@@ -17,7 +17,7 @@ This usually happens when error types don't match what the workflow expects.
 <Tabs>
   <TabItem label="Problem">
 ```typescript
-// Error: Type '"UNKNOWN"' is not assignable to type '"NOT_FOUND" | "EMAIL_FAILED"'
+// Error: Type '{ type: "UNKNOWN"; }' is not assignable to type '{ type: "NOT_FOUND"; } | { type: "EMAIL_FAILED"; }'
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
 
 const result = await workflow.run(async ({ step, deps }) => {
@@ -25,7 +25,7 @@ const result = await workflow.run(async ({ step, deps }) => {
   await step.try(
     'riskyOp',
     () => riskyOperation(),
-    { error: 'UNKNOWN' }  // Not in dependencies!
+    { error: { type: 'UNKNOWN' } }  // Not in dependencies!
   );
   return user;
 });
@@ -33,12 +33,14 @@ const result = await workflow.run(async ({ step, deps }) => {
   </TabItem>
   <TabItem label="Solution">
 ```typescript
+type UnknownError = { type: 'UNKNOWN' };
+
 // Option 1: Add the error type to a dependency
-async function riskyOp(): AsyncResult<void, 'UNKNOWN'> { ... }
+async function riskyOp(): AsyncResult<void, UnknownError> { ... }
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail, riskyOp });
 
 // Option 2: Use run() with explicit error types
-const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED' | 'UNKNOWN'>(
+const result = await run<User, { type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' } | UnknownError>(
   async ({ step }) => { ... }
 );
 ```
@@ -97,18 +99,18 @@ const result = await workflow.run(async ({ step, deps }) => {
   const response = await step.try(
     'fetchApi',
     () => fetch('/api').then(r => r.json()),
-    { error: 'FETCH_FAILED' }
+    { error: { type: 'FETCH_FAILED' } }
   );
   return response;
 });
 
 // Option 2: Wrap in a Result-returning function
-async function fetchApi(): AsyncResult<Data, 'FETCH_FAILED'> {
+async function fetchApi(): AsyncResult<Data, { type: 'FETCH_FAILED' }> {
   try {
     const res = await fetch('/api');
     return ok(await res.json());
   } catch {
-    return err('FETCH_FAILED');
+    return err({ type: 'FETCH_FAILED' });
   }
 }
 ```
@@ -123,18 +125,18 @@ type on their own, no `as const` required:
 ```typescript
 const fetchUser = async (id: string) => {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? ok(user) : err({ type: 'NOT_FOUND' });
 };
-// error type is 'NOT_FOUND', not string
+// error type is { readonly type: 'NOT_FOUND' }, not { type: string }
 ```
 
 Annotating the return type is still worth doing when you want one named error
 union that the compiler checks every branch against:
 
 ```typescript
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> => {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? ok(user) : err({ type: 'NOT_FOUND' });
 };
 ```
 
@@ -159,10 +161,10 @@ async function fetchUser(id: string) {
   </TabItem>
   <TabItem label="Solution">
 ```typescript
-async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
+async function fetchUser(id: string): AsyncResult<User, { type: 'NOT_FOUND' }> {
   const user = await db.find(id);
   if (user) return ok(user);
-  return err('NOT_FOUND');  // Always return a Result
+  return err({ type: 'NOT_FOUND' });  // Always return a Result
 }
 ```
   </TabItem>
@@ -391,17 +393,19 @@ const result = await workflow.run(async ({ step, deps }) => {
 ### Mixing throw and Result
 
 ```typescript
+type NotFound = { type: 'NOT_FOUND' };
+
 // Bad: inconsistent error handling
-async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
+async function fetchUser(id: string): AsyncResult<User, NotFound> {
   const user = await db.find(id);
   if (!user) throw new Error('Not found');  // Don't throw!
   return ok(user);
 }
 
 // Good: always return Result
-async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
+async function fetchUser(id: string): AsyncResult<User, NotFound> {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? ok(user) : err({ type: 'NOT_FOUND' });
 }
 ```
 
@@ -412,7 +416,7 @@ async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
 const result = await workflow.run(async ({ step, deps }) => { ... });
 
 if (!result.ok) {
-  // result.error could be 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
+  // result.error could be { type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' } | UnexpectedError
   // Make sure to handle all cases!
 }
 

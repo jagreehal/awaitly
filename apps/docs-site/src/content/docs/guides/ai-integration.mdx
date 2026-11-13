@@ -214,23 +214,27 @@ Here's a complete example combining all patterns:
 ```typescript
 import { ok, err, type AsyncResult, createWorkflow } from 'awaitly';
 
+type SearchError = { type: 'SEARCH_ERROR' };
+type WeatherError = { type: 'WEATHER_ERROR' };
+type AiError = { type: 'AI_ERROR' };
+
 // Define tool implementations
 const toolImplementations = {
-  searchDocs: async (args: { query: string }): AsyncResult<string[], 'SEARCH_ERROR'> => {
+  searchDocs: async (args: { query: string }): AsyncResult<string[], SearchError> => {
     // Your search implementation
     return ok(['Result 1', 'Result 2']);
   },
-  getWeather: async (args: { location: string }): AsyncResult<{ temp: number }, 'WEATHER_ERROR'> => {
+  getWeather: async (args: { location: string }): AsyncResult<{ temp: number }, WeatherError> => {
     return ok({ temp: 72 });
   },
 };
 
 type ToolName = keyof typeof toolImplementations;
-type AppError = 'SEARCH_ERROR' | 'WEATHER_ERROR' | 'AI_ERROR';
+type AppError = SearchError | WeatherError | AiError;
 
 // Create workflow with dependencies
 const chatWorkflow = createWorkflow('workflow', { ...toolImplementations,
-  chat: async (messages: Message[]): AsyncResult<ChatResponse, 'AI_ERROR'> => {
+  chat: async (messages: Message[]): AsyncResult<ChatResponse, AiError> => {
     // Your AI SDK call
     return ok({ content: '', finishReason: 'stop', toolCalls: [] });
   },
@@ -308,7 +312,7 @@ When using the Vercel AI SDK with awaitly:
 import { streamText, tool } from 'ai';
 import { ok, err, createWorkflow } from 'awaitly';
 
-const aiWorkflow = createWorkflow('workflow', { generateText: async (prompt: string): AsyncResult<string, 'AI_ERROR'> => {
+const aiWorkflow = createWorkflow('workflow', { generateText: async (prompt: string): AsyncResult<string, { type: 'AI_ERROR' }> => {
     try {
       const { text } = await generateText({
         model: openai('gpt-4o'),
@@ -316,7 +320,7 @@ const aiWorkflow = createWorkflow('workflow', { generateText: async (prompt: str
       });
       return ok(text);
     } catch (e) {
-      return err('AI_ERROR', { cause: e });
+      return err({ type: 'AI_ERROR' }, { cause: e });
     }
   },
 });
@@ -350,7 +354,7 @@ const result = await workflow.run(async ({ step, deps }) => {
       model: 'gpt-4o',
       messages: [{ role: 'user', content: prompt }],
     }),
-    { error: 'AI_ERROR' }
+    { error: { type: 'AI_ERROR' } }
   );
 
   return response.choices[0].message.content;
@@ -360,7 +364,7 @@ const result = await workflow.run(async ({ step, deps }) => {
 Or wrap SDK calls in Result-returning functions for consistent error handling:
 
 ```typescript
-async function chat(messages: Message[]): AsyncResult<ChatResponse, 'AI_ERROR' | 'RATE_LIMITED'> {
+async function chat(messages: Message[]): AsyncResult<ChatResponse, { type: 'AI_ERROR' } | { type: 'RATE_LIMITED' }> {
   try {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
@@ -369,9 +373,9 @@ async function chat(messages: Message[]): AsyncResult<ChatResponse, 'AI_ERROR' |
     return ok(response);
   } catch (e) {
     if (e instanceof RateLimitError) {
-      return err('RATE_LIMITED', { cause: e });
+      return err({ type: 'RATE_LIMITED' }, { cause: e });
     }
-    return err('AI_ERROR', { cause: e });
+    return err({ type: 'AI_ERROR' }, { cause: e });
   }
 }
 ```

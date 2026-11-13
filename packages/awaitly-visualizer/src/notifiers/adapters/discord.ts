@@ -13,7 +13,7 @@ import type { WorkflowStatus } from "../types";
 /**
  * Error types for Discord adapter operations.
  */
-export type DiscordError = "INVALID_WEBHOOK_URL" | "SEND_FAILED" | "TIMEOUT";
+export type DiscordError = { type: "INVALID_WEBHOOK_URL" } | { type: "SEND_FAILED" } | { type: "TIMEOUT" };
 
 /**
  * Options for Discord adapter.
@@ -103,7 +103,7 @@ export function createDiscordAdapter(
       });
 
       if (!response.ok) {
-        return err("SEND_FAILED");
+        return err({ type: "SEND_FAILED" });
       }
 
       // Extract message ID from response
@@ -111,9 +111,9 @@ export function createDiscordAdapter(
       return ok(data.id);
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        return err("TIMEOUT");
+        return err({ type: "TIMEOUT" });
       }
-      return err("SEND_FAILED");
+      return err({ type: "SEND_FAILED" });
     } finally {
       clearTimeout(timeoutId);
     }
@@ -156,7 +156,7 @@ export function createDiscordAdapter(
     async sendNew(message: unknown): Promise<string | undefined> {
       const result = await sendMessage(message as DiscordMessage);
       if (!result.ok) {
-        throw new Error(`Discord send failed: ${result.error}`);
+        throw new Error(`Discord send failed: ${result.error.type}`);
       }
       return result.value;
     },
@@ -164,7 +164,7 @@ export function createDiscordAdapter(
     async sendUpdate(messageId: string, message: unknown): Promise<void> {
       const result = await sendMessage(message as DiscordMessage, messageId);
       if (!result.ok) {
-        throw new Error(`Discord update failed: ${result.error}`);
+        throw new Error(`Discord update failed: ${result.error.type}`);
       }
     },
   };

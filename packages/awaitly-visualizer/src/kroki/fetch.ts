@@ -12,7 +12,7 @@ import { toKrokiSvgUrl, toKrokiPngUrl, type UrlGeneratorOptions, type UrlGenerat
 /**
  * Error types for Kroki fetch operations.
  */
-export type KrokiError = "FETCH_ERROR" | "TIMEOUT" | "INVALID_RESPONSE";
+export type KrokiError = { type: "FETCH_ERROR" } | { type: "TIMEOUT" } | { type: "INVALID_RESPONSE" };
 
 /**
  * Options for fetching from Kroki.
@@ -66,16 +66,16 @@ export async function fetchKrokiSvg(
     });
 
     if (!response.ok) {
-      return err("INVALID_RESPONSE");
+      return err({ type: "INVALID_RESPONSE" });
     }
 
     const text = await response.text();
     return ok(text);
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      return err("TIMEOUT");
+      return err({ type: "TIMEOUT" });
     }
-    return err("FETCH_ERROR");
+    return err({ type: "FETCH_ERROR" });
   } finally {
     clearTimeout(timeoutId);
   }
@@ -121,16 +121,16 @@ export async function fetchKrokiPng(
     });
 
     if (!response.ok) {
-      return err("INVALID_RESPONSE");
+      return err({ type: "INVALID_RESPONSE" });
     }
 
     const arrayBuffer = await response.arrayBuffer();
     return ok(Buffer.from(arrayBuffer));
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      return err("TIMEOUT");
+      return err({ type: "TIMEOUT" });
     }
-    return err("FETCH_ERROR");
+    return err({ type: "FETCH_ERROR" });
   } finally {
     clearTimeout(timeoutId);
   }
@@ -178,16 +178,16 @@ export async function fetchKrokiPdf(
     });
 
     if (!response.ok) {
-      return err("INVALID_RESPONSE");
+      return err({ type: "INVALID_RESPONSE" });
     }
 
     const arrayBuffer = await response.arrayBuffer();
     return ok(Buffer.from(arrayBuffer));
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      return err("TIMEOUT");
+      return err({ type: "TIMEOUT" });
     }
-    return err("FETCH_ERROR");
+    return err({ type: "FETCH_ERROR" });
   } finally {
     clearTimeout(timeoutId);
   }

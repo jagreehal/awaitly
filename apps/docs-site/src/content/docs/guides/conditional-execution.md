@@ -10,11 +10,11 @@ Execute steps only when certain conditions are met, with automatic event emissio
 ```typescript
 import { ok, err, when, unless, type AsyncResult, createWorkflow } from 'awaitly';
 
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => {
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> => {
   // ...
 };
 
-const sendEmail = async (to: string): AsyncResult<void, 'SEND_FAILED'> => {
+const sendEmail = async (to: string): AsyncResult<void, { type: 'SEND_FAILED' }> => {
   // ...
 };
 

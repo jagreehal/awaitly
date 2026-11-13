@@ -23,13 +23,13 @@ function createServices() {
   const calls = { getUser: 0, charge: 0 };
   return {
     calls,
-    getUser: async (id: string): AsyncResult<User, "NOT_FOUND"> => {
+    getUser: async (id: string): AsyncResult<User, { type: "NOT_FOUND" }> => {
       calls.getUser += 1;
-      return id === "missing" ? err("NOT_FOUND") : ok({ id, name: "Ada" });
+      return id === "missing" ? err({ type: "NOT_FOUND" }) : ok({ id, name: "Ada" });
     },
-    charge: async (user: User): AsyncResult<{ receipt: string }, "DECLINED"> => {
+    charge: async (user: User): AsyncResult<{ receipt: string }, { type: "DECLINED" }> => {
       calls.charge += 1;
-      return user.id === "broke" ? err("DECLINED") : ok({ receipt: `r-${user.id}` });
+      return user.id === "broke" ? err({ type: "DECLINED" }) : ok({ receipt: `r-${user.id}` });
     },
   };
 }
@@ -97,7 +97,7 @@ describe("Result-returning steps", () => {
     });
 
     expect(execution.getStatus()).toBe("SUCCEEDED");
-    expect(execution.getResult()).toEqual({ ok: false, error: "DECLINED" });
+    expect(execution.getResult()).toEqual({ ok: false, error: { type: "DECLINED" } });
     expect(calls.charge).toBe(1);
   });
 
@@ -159,16 +159,16 @@ describe("Result-returning steps", () => {
 
     expectTypeOf<HandlerEvent<Handler>>().toEqualTypeOf<{ userId: string }>();
     type Output = HandlerResult<Handler>;
-    expectTypeOf<Output>().toExtend<Result<{ receipt: string }, "NOT_FOUND" | "DECLINED">>();
+    expectTypeOf<Output>().toExtend<Result<{ receipt: string }, { type: "NOT_FOUND" } | { type: "DECLINED" }>>();
     // TypeScript unions the handler's returns: every failure a caller must handle.
-    expectTypeOf<Extract<Output, { ok: false }>["error"]>().toEqualTypeOf<"NOT_FOUND" | "DECLINED">();
+    expectTypeOf<Extract<Output, { ok: false }>["error"]>().toEqualTypeOf<{ type: "NOT_FOUND" } | { type: "DECLINED" }>();
   });
 });
 
 describe("typed invoke", () => {
   const paymentHandler = withDurableExecution(async (event: { orderId: string; amount: number }, context) =>
     context.step("charge", async () =>
-      event.amount > 100 ? err("DECLINED" as const) : ok({ receipt: `r-${event.orderId}` })
+      event.amount > 100 ? err({ type: "DECLINED" }) : ok({ receipt: `r-${event.orderId}` })
     )
   );
   const payments = durableFunction<typeof paymentHandler>("payments:live");
@@ -196,7 +196,7 @@ describe("typed invoke", () => {
     expect(paid.getResult()).toEqual({ ok: true, value: { receipt: "r-o1" } });
 
     const declined = await runner.run({ payload: { orderId: "o2", amount: 500 } });
-    expect(declined.getResult()).toEqual({ ok: false, error: "DECLINED" });
+    expect(declined.getResult()).toEqual({ ok: false, error: { type: "DECLINED" } });
   });
 });
 

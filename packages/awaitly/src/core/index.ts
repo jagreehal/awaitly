@@ -89,25 +89,17 @@ export type Result<T, E = unknown> = Ok<T> | Err<E>;
 export type AsyncResult<T, E = unknown> = Promise<Result<T, E>>;
 
 /**
- * Constraint used on error type parameters that are inferred from a callback's
- * return value, e.g. the `onError` of {@link tryAsync} or {@link from}.
- *
- * This is `unknown` written out as a union of its constituents, so it accepts
- * exactly what `unknown` accepts and rejects nothing. The spelling is what
- * matters: a bare `const E` does not produce literal inference through a
- * function's return position, so `() => 'PARSE_ERROR'` widens to `string`,
- * while `const E extends ErrorValue` keeps the literal. Object literals keep
- * theirs either way — only primitives need the constraint.
+ * Shape required for errors you construct (`err()`, mappers, `step.try`,
+ * `catchUnexpected`): a `TaggedError` instance or a plain `{ type: "..." }`
+ * object. Bare strings are rejected. `Result<T, E>` itself stays unconstrained,
+ * so forwarded or unmapped errors (e.g. `unknown` causes) need not match this.
  */
-export type ErrorValue =
-  | string
-  | number
-  | bigint
-  | boolean
-  | symbol
-  | object
-  | null
-  | undefined;
+export type ErrorValue = { readonly type: string };
+
+/** Errors a workflow's `errors: ["X", ...]` declaration adds: `{ type: "X" }` per tag. */
+export type DeclaredErrors<Errs extends readonly string[]> = Errs[number] extends infer T
+  ? T extends string ? { type: T } : never
+  : never;
 
 /** Discriminant for PromiseRejectedError type - use in switch statements */
 export const PROMISE_REJECTED = "PROMISE_REJECTED" as const;
@@ -226,8 +218,8 @@ export type MaybeAsyncResult<T, E = unknown> = Result<T, E> | Promise<Result<T, 
  * const success = ok(42);
  * // Type: Ok<number>
  *
- * function divide(a: number, b: number): Result<number, string> {
- *   if (b === 0) return err("Division by zero");
+ * function divide(a: number, b: number): Result<number, { type: "DIVISION_BY_ZERO" }> {
+ *   if (b === 0) return err({ type: "DIVISION_BY_ZERO" });
  *   return ok(a / b);
  * }
  * ```
@@ -248,8 +240,8 @@ export function ok<T>(value: T): Ok<T> {
  * @example
  * ```typescript
  * // Simple error
- * const r1 = err("NOT_FOUND");
- * // Type: Err<"NOT_FOUND">
+ * const r1 = err({ type: "NOT_FOUND" });
+ * // Type: Err<{ readonly type: "NOT_FOUND" }>
  *
  * // Error with context (include in error object)
  * const r2 = err({ type: "PROCESSING_FAILED", cause: originalError });
@@ -269,7 +261,14 @@ export function ok<T>(value: T): Ok<T> {
 // Deliberately NOT unwrapped with a `Mutable<E>` helper: that flattens
 // `Error`/`TaggedError` instances into structural objects, which is a worse
 // and far more common regression than the readonly-array papercut it fixes.
-export function err<const E, C = unknown>(error: E, options?: { cause?: C }): Err<E, C> {
+export const err: <const E extends ErrorValue, C = unknown>(error: E, options?: { cause?: C }) => Err<E, C> =
+  errAny;
+
+/**
+ * @internal Unconstrained `err` for library code that forwards an already-typed
+ * `E` (generic plumbing, `unknown` causes). Not exported from any entry point.
+ */
+export function errAny<E, C = unknown>(error: E, options?: { cause?: C }): Err<E, C> {
   const cause = options?.cause;
   return { ok: false as const, error, ...(cause !== undefined ? { cause } : {}) } as Err<E, C>;
 }
@@ -342,7 +341,7 @@ export const isUnexpectedError = (e: unknown): e is UnexpectedError =>
  * @example
  * ```typescript
  * onError: (error): FetchError => {
- *   if (isPromiseRejectedError(error)) return 'FETCH_FAILED';
+ *   if (isPromiseRejectedError(error)) return { type: 'FETCH_FAILED' };
  *   return error; // TypeScript narrows to FetchError
  * }
  * ```
@@ -404,7 +403,7 @@ export type MatchErrorHandlers<E, R> = {
  *
  * @example
  * ```typescript
- * type FetchError = "NOT_FOUND" | "FETCH_ERROR";
+ * type FetchError = { type: "NOT_FOUND" } | { type: "FETCH_ERROR" };
  * const result: Result<User, FetchError | UnexpectedError> = await fetchUser();
  *
  * if (!result.ok) {
@@ -493,7 +492,7 @@ export type Errors<T extends AnyFunction[]> = {
  * ```typescript
  * const deps = { getUser, createOrder, sendEmail };
  * type E = ErrorsOf<typeof deps>;
- * // = "NOT_FOUND" | "ORDER_FAILED" | "EMAIL_ERROR"
+ * // = { type: "NOT_FOUND" } | { type: "ORDER_FAILED" } | { type: "EMAIL_ERROR" }
  * ```
  */
 export type ErrorsOf<Deps extends Record<string, AnyFunction>> = {
@@ -1015,7 +1014,7 @@ export type TimeoutBehavior<TErr = unknown> =
   | "error"
   | "option"
   | "disconnect"
-  | ((stepInfo: { name?: string; key?: string; ms: number }) => TErr);
+  | ((stepInfo: { name?: string; key?: string; ms: number }) => TErr & ErrorValue);
 
 /**
  * Configuration for step timeout behavior.
@@ -1074,7 +1073,7 @@ export type TimeoutOptions<TErr = unknown> = {
    * await workflow.run(async ({ step, deps }) =>
    *   step.withTimeout('apiCall', () => deps.apiCall(), {
    *     ms: 5000,
-   *     onTimeout: () => 'API_TIMEOUT',
+   *     onTimeout: () => ({ type: 'API_TIMEOUT' }),
    *   })
    * );
    * ```
@@ -1222,13 +1221,13 @@ export interface RunStep<E = unknown> {
    *
    * // With retry + timeout
    * const data = await step.try("api-call", () => callApi(), {
-   *   onError: (e) => "API_ERROR",
+   *   onError: (e) => ({ type: "API_ERROR" }),
    *   retry: { attempts: 3, initialDelay: 100 },
    *   timeout: { ms: 5000 },
    * });
    * ```
    */
-  try: <T, const Err extends E>(
+  try: <T, const Err extends E & ErrorValue>(
     id: string,
     operation: () => T | Promise<T>,
     options:
@@ -1278,7 +1277,7 @@ export interface RunStep<E = unknown> {
    * );
    * ```
    */
-  fromResult: <T, ResultE, const Err extends E>(
+  fromResult: <T, ResultE, const Err extends E & ErrorValue>(
     id: string,
     operation: () => Result<T, ResultE> | AsyncResult<T, ResultE>,
     options:
@@ -1305,7 +1304,7 @@ export interface RunStep<E = unknown> {
    * );
    * ```
    */
-  fromNullable: <T, const Err extends E>(
+  fromNullable: <T, const Err extends E & ErrorValue>(
     id: string,
     operation: () => T | null | undefined | Promise<T | null | undefined>,
     onNull: () => Err,
@@ -1517,7 +1516,7 @@ export interface RunStep<E = unknown> {
    *     attempts: 3,
    *     backoff: 'exponential',
    *     initialDelay: 200,
-   *     shouldRetry: (error) => error === 'RATE_LIMITED' || error === 'TRANSIENT',
+   *     shouldRetry: (error) => error.type === 'RATE_LIMITED' || error.type === 'TRANSIENT',
    *     onRetry: (error, attempt, delay) => {
    *       console.log(`Retry ${attempt} after ${delay}ms`);
    *     },
@@ -2428,7 +2427,7 @@ export type RunOptionsWithCatch<E, C = void> = {
    * Catch-all mapper for unexpected exceptions.
    * Converts unknown exceptions (and cancellation) into your typed error union E.
    */
-  catchUnexpected: (cause: unknown) => E;
+  catchUnexpected: (cause: unknown) => E & ErrorValue;
   /**
    * Unique ID for this workflow execution.
    * Defaults to a random UUID.
@@ -3024,7 +3023,7 @@ function runFn<
      * Maps uncaught exceptions to your own type, replacing `UnexpectedError`
      * in the result union. Deps errors are still inferred as usual.
      */
-    catchUnexpected: (cause: unknown) => U;
+    catchUnexpected: (cause: unknown) => U & ErrorValue;
     onError?: (error: NoInfer<E> | U, stepName?: string, ctx?: C) => void;
     onEvent?: (event: WorkflowEvent<NoInfer<E> | U, C>, ctx: C) => void;
     workflowId?: string;
@@ -3053,7 +3052,7 @@ function runFn<
   // `ErrorsOf<{ ...whole deps object... }>`, whereas a type parameter is shown
   // as its resolved value. So every position below (return, `step`, `onError`,
   // `onEvent`) displays the concrete literal union, e.g.
-  // `"NOT_FOUND" | "FETCH_ERROR" | UnexpectedError`. Structurally identical to
+  // `{ type: "NOT_FOUND" } | { type: "FETCH_ERROR" } | UnexpectedError`. Structurally identical to
   // `ErrorsOf<Deps>`; defined once here instead of repeated at each use site.
   // `NoInfer` pins it to the default so it can't be widened by an annotated
   // `onError`/`onEvent` callback parameter.
@@ -3637,7 +3636,7 @@ async function runFn<T, E, C = void>(
                     description: stepDescription,
                     ts: Date.now(),
                     durationMs: totalDurationMs,
-                    result: err(thrown as unknown as E, { cause: thrown }),
+                    result: errAny(thrown as unknown as E, { cause: thrown }),
                     meta: { origin: "throw", thrown },
                     ...(stepMetadata && { metadata: stepMetadata }),
                   });
@@ -3724,7 +3723,7 @@ async function runFn<T, E, C = void>(
                   description: stepDescription,
                   ts: Date.now(),
                   durationMs: totalDurationMs,
-                  result: err(mappedError, { cause: thrown }),
+                  result: errAny(mappedError, { cause: thrown }),
                   meta: { origin: "throw", thrown },
                   ...(stepMetadata && { metadata: stepMetadata }),
                 });
@@ -3804,7 +3803,7 @@ async function runFn<T, E, C = void>(
         if (typeof id !== 'string' || id.length === 0) {
           throw new Error(
             '[awaitly] step.try() requires an explicit string ID as the first argument. ' +
-            'Example: step.try("parse", () => JSON.parse(str), { error: "PARSE_ERROR" })'
+            'Example: step.try("parse", () => JSON.parse(str), { error: { type: "PARSE_ERROR" } })'
           );
         }
         assertDeclared(id, "step");
@@ -3819,7 +3818,7 @@ async function runFn<T, E, C = void>(
               try {
                 return ok(await operation());
               } catch (cause) {
-                return err(mapToError(cause), { cause });
+                return errAny(mapToError(cause), { cause });
               }
             },
             {
@@ -3899,7 +3898,7 @@ async function runFn<T, E, C = void>(
                 name: stepName,
                 ts: Date.now(),
                 durationMs,
-                result: err(mapped, { cause: error }),
+                result: errAny(mapped, { cause: error }),
                 meta: { origin: "throw", thrown: error },
               });
             }
@@ -4001,7 +4000,7 @@ async function runFn<T, E, C = void>(
                 name: stepName,
                 ts: Date.now(),
                 durationMs,
-                result: err(mapped, { cause: result.error }),
+                result: errAny(mapped, { cause: result.error }),
                 meta: { origin: "result", resultCause: result.error },
               });
             }
@@ -4032,7 +4031,7 @@ async function runFn<T, E, C = void>(
           id,
           async () => {
             const value = await operation();
-            return value != null ? ok(value) : err(onNull());
+            return value != null ? ok(value) : errAny(onNull());
           },
           options
         );
@@ -4736,7 +4735,7 @@ async function runFn<T, E, C = void>(
                   name: stepName,
                   ts: Date.now(),
                   durationMs,
-                  result: err(mappedError, { cause: thrown }),
+                  result: errAny(mappedError, { cause: thrown }),
                   meta: { origin: "throw", thrown },
                 });
               }
@@ -4786,7 +4785,7 @@ async function runFn<T, E, C = void>(
                   name: stepName,
                   ts: Date.now(),
                   durationMs,
-                  result: err(fallbackMappedError, { cause: fallbackThrown }),
+                  result: errAny(fallbackMappedError, { cause: fallbackThrown }),
                   meta: { origin: "throw", thrown: fallbackThrown },
                 });
               }
@@ -4963,7 +4962,7 @@ async function runFn<T, E, C = void>(
                 name: stepName,
                 ts: Date.now(),
                 durationMs,
-                result: err(mappedError, { cause: thrown }),
+                result: errAny(mappedError, { cause: thrown }),
                 meta: { origin: "throw", thrown },
               });
             }
@@ -5112,7 +5111,7 @@ async function runFn<T, E, C = void>(
                 name: stepName,
                 ts: Date.now(),
                 durationMs,
-                result: err(mappedError, { cause: thrown }),
+                result: errAny(mappedError, { cause: thrown }),
                 meta: { origin: "throw", thrown },
               });
             }
@@ -5218,7 +5217,7 @@ async function runFn<T, E, C = void>(
                 name: stepName,
                 ts: Date.now(),
                 durationMs,
-                result: err(mappedError, { cause: useThrown }),
+                result: errAny(mappedError, { cause: useThrown }),
                 meta: { origin: "throw", thrown: useThrown },
               });
             }
@@ -5331,7 +5330,7 @@ async function runFn<T, E, C = void>(
             ? error.meta.resultCause
             : undefined;
 
-        return err(error.error, { cause: originalCause });
+        return errAny(error.error, { cause: originalCause });
       }
 
       // A stream the workflow was reading failed. `reader.read()` models that as
@@ -5342,12 +5341,12 @@ async function runFn<T, E, C = void>(
       // boundary with `result.error.type ?? result.error`.
       if (isStreamError(error)) {
         onError?.(error as E, "stream", context);
-        return err(error as E, { cause: error });
+        return errAny(error as E, { cause: error });
       }
 
       const mapped = effectiveCatchUnexpected(error);
       onError?.(mapped as E, "unexpected", context);
-      return err(mapped, { cause: error });
+      return errAny(mapped, { cause: error });
     }
   };
 
@@ -5403,14 +5402,14 @@ const runStrict = <T, E, C = void>(
      * The `ctx` parameter is provided for convenience and backward compatibility.
      */
     onEvent?: (event: WorkflowEvent<E | UnexpectedError, C>, ctx: C) => void;
-    catchUnexpected: (cause: unknown) => E;
+    catchUnexpected: (cause: unknown) => E & ErrorValue;
     workflowId?: string;
     context?: C;
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
   }
 ): AsyncResult<T, E> => {
-  return runFn<T, E, C>(fn, options);
+  return runFn<T, E, C>(fn, options as RunOptionsWithCatch<E, C>);
 };
 
 /**
@@ -5550,8 +5549,8 @@ export const unwrapOr = <T, E>(r: Result<T, E>, defaultValue: T): T =>
  * ```typescript
  * // Compute default based on error type
  * const port = unwrapOrElse(parsePort(env.PORT), (error) => {
- *   if (error === 'INVALID_FORMAT') return 3000;
- *   if (error === 'OUT_OF_RANGE') return 8080;
+ *   if (error.type === 'INVALID_FORMAT') return 3000;
+ *   if (error.type === 'OUT_OF_RANGE') return 8080;
  *   return 4000; // default
  * });
  *
@@ -5563,7 +5562,7 @@ export const unwrapOr = <T, E>(r: Result<T, E>, defaultValue: T): T =>
  *
  * // Transform error into success value
  * const result = unwrapOrElse(operation(), (error) => {
- *   return { success: false, reason: String(error) };
+ *   return { success: false, reason: error.type };
  * });
  * ```
  */
@@ -5671,7 +5670,7 @@ export function from<T>(fn: () => T): Ok<T> | Err<unknown, unknown>;
  * // Map to simple error codes
  * const value = from(
  *   () => riskyOperation(),
- *   () => 'OPERATION_FAILED'
+ *   () => ({ type: 'OPERATION_FAILED' })
  * );
  * ```
  */
@@ -5680,7 +5679,7 @@ export function from<T, const E extends ErrorValue>(fn: () => T, onError?: (caus
   try {
     return ok(fn());
   } catch (cause) {
-    return onError ? err(onError(cause), { cause }) : err(cause);
+    return onError ? errAny(onError(cause), { cause }) : errAny(cause);
   }
 }
 
@@ -5734,9 +5733,9 @@ export function fromPromise<T>(promise: Promise<T>): Promise<Ok<T> | Err<unknown
  *     if (!r.ok) throw new Error(`HTTP ${r.status}`);
  *     return r.json();
  *   }),
- *   () => 'FETCH_FAILED'
+ *   () => ({ type: 'FETCH_FAILED' })
  * );
- * // result.error: 'FETCH_FAILED' if fetch failed
+ * // result.error: { type: 'FETCH_FAILED' } if fetch failed
  *
  * // Map with error details
  * const data = await fromPromise(
@@ -5756,7 +5755,7 @@ export async function fromPromise<T, E>(
   try {
     return ok(await promise);
   } catch (cause) {
-    return onError ? err(onError(cause), { cause }) : err(cause);
+    return onError ? errAny(onError(cause), { cause }) : errAny(cause);
   }
 }
 
@@ -5806,7 +5805,7 @@ export function tryAsync<T>(fn: () => Promise<T>): AsyncResult<T, unknown>;
  * // Map errors to typed errors
  * const result = await tryAsync(
  *   async () => await fetchData(),
- *   () => 'FETCH_ERROR'
+ *   () => ({ type: 'FETCH_ERROR' })
  * );
  *
  * // Map with error details
@@ -5827,7 +5826,7 @@ export async function tryAsync<T, E>(
   try {
     return ok(await fn());
   } catch (cause) {
-    return onError ? err(onError(cause), { cause }) : err(cause);
+    return onError ? errAny(onError(cause), { cause }) : errAny(cause);
   }
 }
 
@@ -5860,13 +5859,13 @@ export async function tryAsync<T, E>(
  * // Convert DOM element lookup
  * const element = fromNullable(
  *   document.getElementById('app'),
- *   () => 'ELEMENT_NOT_FOUND'
+ *   () => ({ type: 'ELEMENT_NOT_FOUND' })
  * );
  *
  * // Convert optional property
  * const userId = fromNullable(
  *   user.id,
- *   () => 'USER_ID_MISSING'
+ *   () => ({ type: 'USER_ID_MISSING' })
  * );
  *
  * // Convert database query result
@@ -5962,19 +5961,19 @@ export function map(r: any, fn: any): any {
  * @example
  * ```typescript
  * // Normalize error codes
- * const normalized = mapError(err('not_found'), e => e.toUpperCase());
- * // normalized: { ok: false, error: 'NOT_FOUND' }
+ * const normalized = mapError(err({ type: 'not_found' }), e => ({ type: e.type.toUpperCase() }));
+ * // normalized: { ok: false, error: { type: 'NOT_FOUND' } }
  *
  * // Convert error types
  * const typed = mapError(
- *   err('404'),
- *   code => ({ type: 'HTTP_ERROR', status: parseInt(code) })
+ *   err({ type: 'HTTP', code: '404' }),
+ *   e => ({ type: 'HTTP_ERROR', status: parseInt(e.code) })
  * );
  *
  * // Format error messages
  * const formatted = mapError(
- *   err('PARSE_ERROR'),
- *   code => `Failed to parse: ${code}`
+ *   err({ type: 'PARSE_ERROR' }),
+ *   e => ({ type: 'FORMATTED_ERROR', message: `Failed to parse: ${e.type}` })
  * );
  * ```
  */
@@ -6016,13 +6015,13 @@ export function mapError<T, E, const F extends ErrorValue>(
  * // Build user-facing messages
  * const message = match(result, {
  *   ok: (user) => `Hello ${user.name}`,
- *   err: (error) => `Error: ${error}`,
+ *   err: (error) => `Error: ${error.type}`,
  * });
  *
  * // Transform to API response
  * const response = match(operation(), {
  *   ok: (data) => ({ status: 200, body: data }),
- *   err: (error) => ({ status: 400, error: String(error) }),
+ *   err: (error) => ({ status: 400, error: error.type }),
  * });
  *
  * // Handle with cause
@@ -6097,10 +6096,10 @@ export function match(r: any, handlers?: any): any {
  *
  * // Chain with different error types
  * const data = andThen(
- *   fetchUser(id), // Returns Result<User, 'FETCH_ERROR'>
- *   user => fetchPosts(user.id) // Returns Result<Post[], 'NOT_FOUND'>
+ *   fetchUser(id), // Returns Result<User, { type: 'FETCH_ERROR' }>
+ *   user => fetchPosts(user.id) // Returns Result<Post[], { type: 'NOT_FOUND' }>
  * );
- * // data.error: 'FETCH_ERROR' | 'NOT_FOUND'
+ * // data.error: { type: 'FETCH_ERROR' } | { type: 'NOT_FOUND' }
  * ```
  */
 export function andThen<T, U>(r: Ok<T>, fn: (value: T) => Ok<U>): Ok<U>;
@@ -6203,7 +6202,7 @@ export function tap<T, E>(  r: Result<T, E>,
  * const debugged = pipe(
  *   operation(),
  *   r => tapError(r, (err, cause) => console.error('Failed:', err)),
- *   r => mapError(r, err => 'FORMATTED_ERROR')
+ *   r => mapError(r, err => ({ type: 'FORMATTED_ERROR' }))
  * );
  * ```
  */
@@ -6247,14 +6246,14 @@ export function tapError<T, E>(  r: Result<T, E>,
  * const parsed = mapTry(
  *   ok('{"key": "value"}'),
  *   JSON.parse,
- *   () => 'PARSE_ERROR'
+ *   () => ({ type: 'PARSE_ERROR' })
  * );
  *
  * // Safe date parsing
  * const date = mapTry(
  *   ok('2024-01-01'),
  *   str => new Date(str),
- *   () => 'INVALID_DATE'
+ *   () => ({ type: 'INVALID_DATE' })
  * );
  *
  * // Transform with error details
@@ -6309,16 +6308,16 @@ export function mapTry<T, U, E, const F extends ErrorValue>(
  * ```typescript
  * // Safe error formatting
  * const formatted = mapErrorTry(
- *   err('not_found'),
- *   e => e.toUpperCase(), // Might throw if e is not a string
- *   () => 'FORMAT_ERROR'
+ *   err({ type: 'not_found' }),
+ *   e => ({ type: e.type.toUpperCase() }), // Might throw if e.type is not a string
+ *   () => ({ type: 'FORMAT_ERROR' })
  * );
  *
  * // Complex error transformation
  * const normalized = mapErrorTry(
  *   result,
  *   error => ({ type: 'NORMALIZED', message: String(error) }),
- *   () => 'TRANSFORM_ERROR'
+ *   () => ({ type: 'TRANSFORM_ERROR' })
  * );
  * ```
  */
@@ -6370,7 +6369,7 @@ export function mapErrorTry<T, E, const F extends ErrorValue, const G extends Er
  * const stringified = bimap(
  *   parseNumber(input),
  *   n => `Value: ${n}`,
- *   e => `Error: ${e}`
+ *   e => `Error: ${e.type}`
  * );
  *
  * // Adapt between error types
@@ -6381,12 +6380,12 @@ export function mapErrorTry<T, E, const F extends ErrorValue, const G extends Er
  * );
  * ```
  */
-export function bimap<T, U, E, F>(
+export function bimap<T, U, E, const F extends ErrorValue>(
   r: Result<T, E>,
   onOk: (value: T) => U,
   onErr: (error: E) => F
 ): Result<U, F> {
-  return r.ok ? ok(onOk(r.value)) : err(onErr(r.error), { cause: r.cause });
+  return r.ok ? ok(onOk(r.value)) : errAny(onErr(r.error), { cause: r.cause });
 }
 
 /**
@@ -6419,7 +6418,7 @@ export function bimap<T, U, E, F>(
  * // Fallback to default user
  * const user = orElse(
  *   fetchUser(id),
- *   error => error === 'NOT_FOUND' ? ok(defaultUser) : err(error)
+ *   error => error.type === 'NOT_FOUND' ? ok(defaultUser) : err(error)
  * );
  *
  * // Try cache, then database, then fail
@@ -6428,7 +6427,7 @@ export function bimap<T, U, E, F>(
  *     fetchFromCache(key),
  *     () => fetchFromDatabase(key)
  *   ),
- *   () => err('DATA_UNAVAILABLE')
+ *   () => err({ type: 'DATA_UNAVAILABLE' })
  * );
  *
  * // Convert specific errors to success
@@ -6458,7 +6457,7 @@ export function orElse<T, E, E2>(
  * const data = await orElseAsync(
  *   await fetchFromPrimaryApi(),
  *   async (error) => {
- *     if (error === 'UNAVAILABLE') {
+ *     if (error.type === 'UNAVAILABLE') {
  *       return await fetchFromSecondaryApi();
  *     }
  *     return err(error);
@@ -6501,7 +6500,7 @@ export async function orElseAsync<T, E, E2>(
  * // Provide default user on NOT_FOUND
  * const user = recover(
  *   fetchUser(id),
- *   error => error === 'NOT_FOUND' ? defaultUser : guestUser
+ *   error => error.type === 'NOT_FOUND' ? defaultUser : guestUser
  * );
  *
  * // Convert all errors to default
@@ -6513,7 +6512,7 @@ export async function orElseAsync<T, E, E2>(
  * // Recover with error-based defaults
  * const value = recover(
  *   parseNumber(input),
- *   error => error === 'EMPTY' ? 0 : -1
+ *   error => error.type === 'EMPTY' ? 0 : -1
  * );
  * ```
  */
@@ -6683,8 +6682,8 @@ type AllResult<T extends readonly Result<unknown, unknown>[]> =
  * // combined: { ok: true, value: [1, 2, 3] }
  *
  * // Short-circuits on first error
- * const error = all([ok(1), err('ERROR'), ok(3)]);
- * // error: { ok: false, error: 'ERROR' }
+ * const error = all([ok(1), err({ type: 'ERROR' }), ok(3)]);
+ * // error: { ok: false, error: { type: 'ERROR' } }
  * // Note: ok(3) is never evaluated
  *
  * // Combine API responses
@@ -6853,8 +6852,8 @@ type AllSettledResult<T extends readonly Result<unknown, unknown>[]> =
  * ]);
  * // If email and password fail:
  * // { ok: false, error: [
- * //   { error: 'INVALID_EMAIL' },
- * //   { error: 'WEAK_PASSWORD' }
+ * //   { error: { type: 'INVALID_EMAIL' } },
+ * //   { error: { type: 'WEAK_PASSWORD' } }
  * // ]}
  *
  * // Collect partial results
@@ -6881,7 +6880,7 @@ export function allSettled<const T extends readonly Result<unknown, unknown>[]>(
   }
 
   if (errors.length > 0) {
-    return err(errors) as unknown as AllSettledResult<T>;
+    return errAny(errors) as unknown as AllSettledResult<T>;
   }
 
   return ok(values) as unknown as AllSettledResult<T>;
@@ -6922,7 +6921,7 @@ export function allSettled<const T extends readonly Result<unknown, unknown>[]>(
  * @example
  * ```typescript
  * // Split successes and errors
- * const results = [ok(1), err('ERROR_1'), ok(3), err('ERROR_2')];
+ * const results = [ok(1), err({ type: 'ERROR_1' }), ok(3), err({ type: 'ERROR_2' })];
  * const { values, errors } = partition(results);
  * // values: [1, 3]
  * // errors: ['ERROR_1', 'ERROR_2']
@@ -7006,8 +7005,8 @@ type AnyErrors<T extends readonly Result<unknown, unknown>[]> = {
  * ]);
  *
  * // All errors case
- * const allErrors = any([err('A'), err('B'), err('C')]);
- * // allErrors: { ok: false, error: 'A' } (first error)
+ * const allErrors = any([err({ type: 'A' }), err({ type: 'B' }), err({ type: 'C' })]);
+ * // allErrors: { ok: false, error: { type: 'A' } } (first error)
  * ```
  */
 export function any<
@@ -7239,7 +7238,7 @@ export async function allSettledAsync<
   }
 
   if (errors.length > 0) {
-    return err(errors) as unknown as Result<AllAsyncValues<T>, SettledError<AllAsyncErrors<T> | PromiseRejectedError>[]>;
+    return errAny(errors) as unknown as Result<AllAsyncValues<T>, SettledError<AllAsyncErrors<T> | PromiseRejectedError>[]>;
   }
   return ok(values) as unknown as Result<AllAsyncValues<T>, SettledError<AllAsyncErrors<T> | PromiseRejectedError>[]>;
 }

@@ -11,6 +11,7 @@ import {
   type WorkflowEvent,
   type RunStep,
   type ErrorOf,
+  type DeclaredErrors,
   type UnexpectedError,
 } from "../core";
 import {
@@ -353,7 +354,7 @@ export interface DurableOptions<
    * Errors this run can produce beyond the ones inferred from its deps.
    *
    * Same contract as `createWorkflow`'s `errors`: each entry joins the run's
-   * error union, so a `step.try(id, fn, { error: "X" })` whose error no dep
+   * error union, so a `step.try(id, fn, { error: { type: "X" } })` whose error no dep
    * declares type-checks once `"X"` is listed here, and the analyzer validates
    * the declared list against the computed one.
    *
@@ -726,7 +727,7 @@ export const durable = {
       // `ErrorsOfDeps<{ ...whole deps... }>`. See createWorkflow / run(deps, fn).
       context: {
         step: RunStep<
-          { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps] | Errs[number]
+          { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps] | DeclaredErrors<Errs>
         >;
         deps: Deps;
         ctx: WorkflowContext<C>;
@@ -737,7 +738,7 @@ export const durable = {
     Result<
       T,
       | { [K in keyof Deps]: ErrorOf<Deps[K]> }[keyof Deps]
-      | Errs[number]
+      | DeclaredErrors<Errs>
       | UnexpectedError
       | WorkflowCancelledError
       | VersionMismatchError
@@ -1008,7 +1009,7 @@ export const durable = {
       // Define error type for this workflow
       // Deps errors plus anything declared via `errors`, which is what steps in
     // this run are allowed to fail with.
-    type E = ErrorsOfDeps<Deps> | Errs[number];
+    type E = ErrorsOfDeps<Deps> | DeclaredErrors<Errs>;
 
       // Wrapper to emit durable-specific events
       const emitDurableEvent = (event: DurableWorkflowEvent<E, C>, ctx: C): void => {

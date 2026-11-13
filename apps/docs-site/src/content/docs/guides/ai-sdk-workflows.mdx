@@ -31,7 +31,7 @@ type Classification = z.infer<typeof ClassificationSchema>;
 async function classifyIssue(
   title: string,
   body: string
-): AsyncResult<Classification, 'AI_ERROR'> {
+): AsyncResult<Classification, { type: 'AI_ERROR' }> {
   try {
     const { output } = await generateText({
       model: ollama('llama3'),
@@ -40,13 +40,13 @@ async function classifyIssue(
     });
     return ok(output);
   } catch (e) {
-    return err('AI_ERROR', { cause: e });
+    return err({ type: 'AI_ERROR' }, { cause: e });
   }
 }
 
 async function getIssue(
   id: string
-): AsyncResult<{ title: string; body: string }, 'NOT_FOUND'> {
+): AsyncResult<{ title: string; body: string }, { type: 'NOT_FOUND' }> {
   // your implementation
   return ok({ title: 'Bug report', body: 'Something broke' });
 }
@@ -65,7 +65,7 @@ const result = await triage.run(async ({ step, deps }) => {
 
   return { issue, classification };
 });
-// Result type: Result<{issue, classification}, 'NOT_FOUND' | 'AI_ERROR' | UnexpectedError>
+// Result type: Result<{issue, classification}, { type: 'NOT_FOUND' } | { type: 'AI_ERROR' } | UnexpectedError>
 ```
 
 ## Caching Expensive LLM Calls

@@ -20,11 +20,11 @@ const result = await workflow.run(async ({ step }) => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     },
-    { error: 'FETCH_FAILED' }
+    { error: { type: 'FETCH_FAILED' } }
   );
   return data;
 });
-// result.error now includes 'FETCH_FAILED' instead of UnexpectedError
+// result.error now includes { type: 'FETCH_FAILED' } instead of UnexpectedError
 ```
 
 Without `step.try`, that throw would still be caught. It would arrive as an
@@ -36,9 +36,9 @@ When an operation already returns a rich error object, `step.fromResult` lets yo
 reshape it as it enters the workflow:
 
 ```typescript
-type ApiError = { code: string; message: string };
+type ApiError = { type: 'API_FAILURE'; code: string; message: string };
 const callApi = async (): AsyncResult<Data, ApiError> =>
-  err({ code: 'RATE_LIMITED', message: 'Too many requests' });
+  err({ type: 'API_FAILURE', code: 'RATE_LIMITED', message: 'Too many requests' });
 
 const result = await workflow.run(async ({ step }) => {
   return step.fromResult('callApi', () => callApi(), {
@@ -63,7 +63,7 @@ if (isUnexpectedError(result.error)) {
   return res.status(500).json({ error: 'Internal error' });
 }
 
-switch (result.error) {
+switch (result.error.type) {
   case 'NOT_FOUND':     return res.status(404).json({ error: 'User not found' });
   case 'UNAUTHORIZED':  return res.status(401).json({ error: 'Please log in' });
   case 'FETCH_ERROR':   return res.status(502).json({ error: 'Upstream failed' });
@@ -77,11 +77,12 @@ errors only, which is what makes an exhaustiveness check meaningful.
 
 | Situation | Shape |
 |---|---|
-| A handful of distinct states | String literals: `'NOT_FOUND' \| 'UNAUTHORIZED'` |
-| The error carries data | Object: `{ type: 'NOT_FOUND', id: string }` |
+| A handful of distinct states | Plain tagged objects: `{ type: 'NOT_FOUND' } \| { type: 'UNAUTHORIZED' }` |
+| The error carries data | Object with payload: `{ type: 'NOT_FOUND', id: string }` |
 | Shared across a codebase or API | [Tagged Errors](foundations/tagged-errors/) |
 
-Start with string literals. Move to objects when you find yourself needing the `id`
+Errors you create with `err()`, error mappers, `step.try`, or `catchUnexpected` must be tagged objects with a `type` field; bare string errors were removed in this major. A `Result` from code you don't control can still carry other error types, such as the `unknown` from `tryAsync` without a mapper.
+Start with plain `{ type }` objects. Add fields when you find yourself needing the `id`
 that failed, and to `TaggedError` when the same error crosses module boundaries.
 
 ## Need help?

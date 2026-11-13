@@ -297,7 +297,7 @@ workflow.run(async ({ step }) => {
 });
 
 // Fine — deps function returning a Result
-async function fetchUser(): AsyncResult<User, 'NOT_FOUND'> {
+async function fetchUser(): AsyncResult<User, { type: 'NOT_FOUND' }> {
   return ok({ id: 1 });
 }
 ```

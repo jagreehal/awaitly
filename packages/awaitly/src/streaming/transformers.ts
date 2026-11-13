@@ -6,7 +6,7 @@
  */
 
 import type { AsyncResult, Result } from "../core";
-import { ok, err } from "../core";
+import { ok, errAny } from "../core";
 import type { StreamReader } from "./types";
 import { isStreamEnded } from "./types";
 
@@ -258,7 +258,7 @@ export async function* flatMapAsync<T, U, E>(
   for await (const item of iterable) {
     const result = await fn(item, index++);
     if (!result.ok) {
-      yield err(result.error);
+      yield errAny(result.error);
       return;
     }
     const mapped = result.value;
@@ -290,7 +290,7 @@ export async function* flatMapAsync<T, U, E>(
  * const reader = step.getReadable<number>({ namespace: 'numbers' });
  *
  * for await (const result of mapAsync(reader, async (n) => {
- *   if (n < 0) return err('NEGATIVE_NUMBER');
+ *   if (n < 0) return err({ type: 'NEGATIVE_NUMBER' });
  *   return ok(Math.sqrt(n));
  * })) {
  *   if (result.ok) {
@@ -481,7 +481,7 @@ export async function* skipWhile<T>(
  *   return await collect(pipe(reader, (s) => chunk(s, 100)));
  * });
  *
- * if (!result.ok && (result.error.type ?? result.error) === 'STREAM_READ_ERROR') {
+ * if (!result.ok && result.error.type === 'STREAM_READ_ERROR') {
  *   // the store is down — retry later
  * }
  * ```

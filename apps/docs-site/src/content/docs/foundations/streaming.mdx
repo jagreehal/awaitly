@@ -353,7 +353,7 @@ const result = await workflow.run(async ({ step }) => {
 });
 
 if (!result.ok) {
-  switch (result.error.type ?? result.error) {
+  switch (result.error.type) {
     case 'STREAM_READ_ERROR':
       return { status: 503 }; // the store is down — retry later
     case 'STEP_TIMEOUT':

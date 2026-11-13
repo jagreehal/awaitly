@@ -63,8 +63,8 @@ import { createSagaWorkflow } from 'awaitly/durable';
 import { ok as okResult } from 'awaitly/result';
 import { createWorkflowHarness } from 'awaitly/testing';
 
-const getUser = async (id: string): AsyncResult<{ id: string }, 'NOT_FOUND'> =>
-  id ? ok({ id }) : err('NOT_FOUND');
+const getUser = async (id: string): AsyncResult<{ id: string }, { type: 'NOT_FOUND' }> =>
+  id ? ok({ id }) : err({ type: 'NOT_FOUND' });
 
 const result = await run({ getUser: retry(getUser, { attempts: 2 }) }, async (s) => s.getUser('1'));
 

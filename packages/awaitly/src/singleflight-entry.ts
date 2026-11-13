@@ -9,8 +9,8 @@
  * import { singleflight } from 'awaitly';
  * import { ok, type AsyncResult } from 'awaitly';
  *
- * const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
- *   id !== '0' ? ok({ id, name: `User ${id}` }) : err('NOT_FOUND');
+ * const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> =>
+ *   id !== '0' ? ok({ id, name: `User ${id}` }) : err({ type: 'NOT_FOUND' });
  *
  * const fetchUserOnce = singleflight(fetchUser, {
  *   key: (id) => `user:${id}`,

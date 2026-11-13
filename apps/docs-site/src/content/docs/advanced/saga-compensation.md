@@ -102,7 +102,7 @@ const result = await runSaga<OrderResult, OrderError>(async ({ step }) => {
     'charge-payment',
     () => externalPaymentApi.charge(amount), // May throw
     {
-      error: 'PAYMENT_FAILED',
+      error: { type: 'PAYMENT_FAILED' },
       compensate: (p) => externalPaymentApi.refund(p.txId),
     }
   );
@@ -119,7 +119,10 @@ For explicit error typing without deps-based inference:
 import { runSaga } from 'awaitly/durable';
 
 type CheckoutResult = { orderId: string; chargeId: string };
-type CheckoutError = 'INVENTORY_UNAVAILABLE' | 'PAYMENT_FAILED' | 'SEND_FAILED';
+type CheckoutError =
+  | { type: 'INVENTORY_UNAVAILABLE' }
+  | { type: 'PAYMENT_FAILED' }
+  | { type: 'SEND_FAILED' };
 
 const result = await runSaga<CheckoutResult, CheckoutError>(async ({ step }) => {
   const reservation = await step(

@@ -31,7 +31,7 @@ const result = await workflow.run(async ({ step, deps }) => {
       attempts: 3,
       backoff: 'exponential',
       initialDelay: 100,
-      shouldRetry: (error) => error === 'TIMEOUT' || error === 'CONNECTION_ERROR',
+      shouldRetry: (error) => error.type === 'TIMEOUT' || error.type === 'CONNECTION_ERROR',
     }
   );
   return data;
@@ -70,7 +70,7 @@ const result = await paymentBreaker.executeResult(() => paymentAPI.charge(amount
 
 if (!result.ok && isCircuitOpenError(result.error)) {
   // Fail fast - don't even try to call the API
-  return err('SERVICE_UNAVAILABLE');
+  return err({ type: 'SERVICE_UNAVAILABLE' });
 }
 ```
 
@@ -183,7 +183,7 @@ await retry(
   () => createUser({ email }),
   {
     attempts: 3,
-    retryIf: (error) => error === 'TIMEOUT' || error === 'CONNECTION_ERROR',
+    retryIf: (error) => error.type === 'TIMEOUT' || error.type === 'CONNECTION_ERROR',
   }
 )();
 ```
@@ -257,7 +257,7 @@ const result = await checkout.run(async ({ step, deps }) => {
         paymentBreaker.executeResult(() =>
           retry(() => deps.chargeCard(amount), {
             attempts: 3,
-            retryIf: (e) => e === 'TIMEOUT',
+            retryIf: (e) => e.type === 'TIMEOUT',
           })()
         )
       );

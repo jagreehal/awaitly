@@ -78,6 +78,9 @@ npx awaitly-analyze ./src/workflows/checkout.ts --format=mermaid
 # JSON (also writes checkout.workflow.json)
 npx awaitly-analyze ./src/workflows/checkout.ts --format=json
 
+# XState v6 MachineJSON: draw and step the workflow in statechart tools
+npx awaitly-analyze ./src/workflows/checkout.ts --format=xstate --no-output-adjacent
+
 # Interactive HTML next to the source
 npx awaitly-analyze ./src/workflows/checkout.ts --html
 

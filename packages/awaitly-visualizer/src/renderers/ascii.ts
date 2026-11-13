@@ -5,6 +5,7 @@
  * and ANSI colors for terminal display.
  */
 
+import { errorLabel } from "../utils/error-label";
 import { ok, err, type Result } from "awaitly";
 import type {
   FlowNode,
@@ -36,7 +37,7 @@ import {
 /**
  * Error types for stringify operations.
  */
-export type StringifyError = "STRINGIFY_ERROR";
+export type StringifyError = { type: "STRINGIFY_ERROR" };
 
 // =============================================================================
 // Box Drawing Characters
@@ -108,7 +109,7 @@ function safeStringify(value: unknown): Result<string, StringifyError> {
     };
     return ok(JSON.stringify(value, replacer));
   } catch {
-    return err("STRINGIFY_ERROR");
+    return err({ type: "STRINGIFY_ERROR" });
   }
 }
 
@@ -220,7 +221,7 @@ function renderHookExecution(
   }
 
   const error = hook.state === "error" && hook.error
-    ? dim(` error: ${String(hook.error)}`)
+    ? dim(` error: ${errorLabel(hook.error)}`)
     : "";
 
   return `${symbol} ${dim(label)}${context}${timing}${error}`;

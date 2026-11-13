@@ -75,7 +75,7 @@ function CheckoutButton({ cartId }: { cartId: string }) {
       <button onClick={run} disabled={status === 'loading'}>
         {status === 'loading' ? 'Processing...' : 'Checkout'}
       </button>
-      {status === 'error' && <p>Error: {String(error)}</p>}
+      {status === 'error' && <p>Error: {error.type}</p>}
       {status === 'success' && <p>Order confirmed: {data.orderId}</p>}
     </div>
   );
@@ -146,7 +146,7 @@ import { type AsyncResult, createWorkflow } from 'awaitly';
 import { validateCart, processPayment, sendEmail } from '@/lib/services';
 
 type CheckoutResult = { orderId: string };
-type CheckoutError = 'INVALID_CART' | 'PAYMENT_FAILED' | 'EMAIL_FAILED';
+type CheckoutError = { type: 'INVALID_CART' } | { type: 'PAYMENT_FAILED' } | { type: 'EMAIL_FAILED' };
 
 export async function checkout(
   cartId: string
@@ -184,7 +184,7 @@ export function CheckoutForm({ cartId }: { cartId: string }) {
       redirect(`/order/${result.value.orderId}`);
     } else {
       // Handle typed errors
-      switch (result.error) {
+      switch (result.error.type) {
         case 'INVALID_CART':
           toast.error('Your cart is invalid');
           break;
@@ -251,13 +251,13 @@ export async function POST(request: Request) {
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { ok, err, type AsyncResult, createWorkflow } from 'awaitly';
 
-const fetchOrder = async (id: string): AsyncResult<Order, 'NOT_FOUND'> => {
+const fetchOrder = async (id: string): AsyncResult<Order, { type: 'NOT_FOUND' }> => {
   const order = await db.orders.findUnique({ where: { id } });
-  return order ? ok(order) : err('NOT_FOUND');
+  return order ? ok(order) : err({ type: 'NOT_FOUND' });
 };
 
-const checkOwnership = async (order: Order, userId: string): AsyncResult<void, 'FORBIDDEN'> => {
-  return order.userId === userId ? ok(undefined) : err('FORBIDDEN');
+const checkOwnership = async (order: Order, userId: string): AsyncResult<void, { type: 'FORBIDDEN' }> => {
+  return order.userId === userId ? ok(undefined) : err({ type: 'FORBIDDEN' });
 };
 
 const orderWorkflow = createWorkflow('workflow', { fetchOrder, checkOwnership });
@@ -276,7 +276,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json(result.value);
   }
 
-  switch (result.error) {
+  switch (result.error.type) {
     case 'NOT_FOUND':
       return res.status(404).json({ error: 'Order not found' });
     case 'FORBIDDEN':
@@ -360,12 +360,12 @@ router.post('/users', async (req, res) => {
 
   // Type-safe error handling
   const error = result.error;
-  switch (error) {
+  switch (error.type) {
     case 'INVALID_EMAIL':
     case 'WEAK_PASSWORD':
-      return res.status(400).json({ error, message: 'Validation failed' });
+      return res.status(400).json({ error: error.type, message: 'Validation failed' });
     case 'USER_EXISTS':
-      return res.status(409).json({ error, message: 'User already exists' });
+      return res.status(409).json({ error: error.type, message: 'User already exists' });
     case 'EMAIL_FAILED':
       // The user was created but the welcome email failed, so the run ended in
       // `err` — there is no `result.value` to spread on this branch.
@@ -469,15 +469,15 @@ import { router, protectedProcedure } from '../trpc';
 import { ok, err, type AsyncResult, createWorkflow } from 'awaitly';
 
 // Operations
-const fetchOrder = async (id: string, userId: string): AsyncResult<Order, 'NOT_FOUND' | 'FORBIDDEN'> => {
+const fetchOrder = async (id: string, userId: string): AsyncResult<Order, { type: 'NOT_FOUND' } | { type: 'FORBIDDEN' }> => {
   const order = await db.orders.findUnique({ where: { id } });
-  if (!order) return err('NOT_FOUND');
-  if (order.userId !== userId) return err('FORBIDDEN');
+  if (!order) return err({ type: 'NOT_FOUND' });
+  if (order.userId !== userId) return err({ type: 'FORBIDDEN' });
   return ok(order);
 };
 
-const cancelOrder = async (order: Order): AsyncResult<Order, 'CANNOT_CANCEL'> => {
-  if (order.status !== 'pending') return err('CANNOT_CANCEL');
+const cancelOrder = async (order: Order): AsyncResult<Order, { type: 'CANNOT_CANCEL' }> => {
+  if (order.status !== 'pending') return err({ type: 'CANNOT_CANCEL' });
   const updated = await db.orders.update({
     where: { id: order.id },
     data: { status: 'cancelled' }
@@ -485,16 +485,16 @@ const cancelOrder = async (order: Order): AsyncResult<Order, 'CANNOT_CANCEL'> =>
   return ok(updated);
 };
 
-const refundPayment = async (paymentId: string): AsyncResult<void, 'REFUND_FAILED'> => {
+const refundPayment = async (paymentId: string): AsyncResult<void, { type: 'REFUND_FAILED' }> => {
   const refund = await stripe.refunds.create({ payment_intent: paymentId });
-  return refund.status === 'succeeded' ? ok(undefined) : err('REFUND_FAILED');
+  return refund.status === 'succeeded' ? ok(undefined) : err({ type: 'REFUND_FAILED' });
 };
 
 const orderWorkflow = createWorkflow('workflow', { fetchOrder, cancelOrder, refundPayment });
 
 // Helper to convert Result errors to TRPCError
-function toTRPCError(error: string | { type: string }): TRPCError {
-  const code = typeof error === 'string' ? error : error.type;
+function toTRPCError(error: { type: string }): TRPCError {
+  const code = error.type;
 
   const mapping: Record<string, { code: 'NOT_FOUND' | 'FORBIDDEN' | 'BAD_REQUEST' | 'INTERNAL_SERVER_ERROR'; message: string }> = {
     NOT_FOUND: { code: 'NOT_FOUND', message: 'Order not found' },
@@ -584,9 +584,7 @@ export function handleWorkflowResult<T>(
     return c.json(result.value);
   }
 
-  const errorKey = typeof result.error === 'string'
-    ? result.error
-    : (result.error as { type?: string })?.type ?? 'UNKNOWN';
+  const errorKey = (result.error as { type?: string })?.type ?? 'UNKNOWN';
 
   const errorInfo = errorMap[errorKey] ?? { status: 500, message: 'Internal error' };
   return c.json({ error: errorInfo.message }, errorInfo.status);
@@ -603,13 +601,13 @@ import { handleWorkflowResult } from '../middleware/workflow';
 
 const app = new Hono();
 
-const validateEmail = async (email: string): AsyncResult<string, 'INVALID_EMAIL'> => {
-  return email.includes('@') ? ok(email) : err('INVALID_EMAIL');
+const validateEmail = async (email: string): AsyncResult<string, { type: 'INVALID_EMAIL' }> => {
+  return email.includes('@') ? ok(email) : err({ type: 'INVALID_EMAIL' });
 };
 
-const createUser = async (email: string): AsyncResult<User, 'USER_EXISTS'> => {
+const createUser = async (email: string): AsyncResult<User, { type: 'USER_EXISTS' }> => {
   const existing = await db.users.findUnique({ where: { email } });
-  if (existing) return err('USER_EXISTS');
+  if (existing) return err({ type: 'USER_EXISTS' });
   const user = await db.users.create({ data: { email } });
   return ok(user);
 };
@@ -665,8 +663,8 @@ export const httpErrorMap = new Map<string, { status: number; message: string }>
   ['RATE_LIMITED', { status: 429, message: 'Too many requests' }],
 ]);
 
-export function mapErrorToResponse(error: unknown) {
-  const mapped = httpErrorMap.get(String(error));
+export function mapErrorToResponse(error: { type: string }) {
+  const mapped = httpErrorMap.get(error.type);
   return mapped ?? { status: 500, message: 'Internal server error' };
 }
 ```

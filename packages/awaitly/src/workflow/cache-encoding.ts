@@ -3,7 +3,7 @@
  * Preserves StepFailureMeta for proper replay. Internal use only.
  */
 
-import { err, type StepFailureMeta, type Err } from "../core";
+import { errAny, type StepFailureMeta, type Err } from "../core";
 
 /**
  * Marker for cached error entries that include step failure metadata.
@@ -36,7 +36,7 @@ export function encodeCachedError<E, C>(
   meta: StepFailureMeta,
   originalCause: C
 ): Err<E, CachedErrorCause<C>> {
-  return err(error, {
+  return errAny(error, {
     cause: { __cachedMeta: true, originalCause, meta } as CachedErrorCause<C>,
   });
 }

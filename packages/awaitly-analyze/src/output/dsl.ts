@@ -58,7 +58,7 @@ function mapLocation(loc?: SourceLocation): WorkflowDiagramSourceLocation | unde
  * Keys are per-instance cache identity (often dynamic) — not graph identity.
  * Falls back to key, then internal id, when the semantic id is unusable.
  */
-function stepStateId(step: StaticStepNode | StaticSagaStepNode): string {
+export function stepStateId(step: StaticStepNode | StaticSagaStepNode): string {
   if (step.type === "step" && step.stepId && step.stepId !== "<missing>" && step.stepId !== "<dynamic>") {
     return step.stepId;
   }

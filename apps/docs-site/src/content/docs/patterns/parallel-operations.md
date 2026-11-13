@@ -51,12 +51,12 @@ const users = await step.map('fetchUsers', ['1', '2', '3'], (id) => fetchUser(id
 ```typescript
 const result = await allAsync([
   fetchUser('1'),        // Takes 100ms, succeeds
-  fetchPosts('999'),     // Takes 50ms, fails with 'NOT_FOUND'
+  fetchPosts('999'),     // Takes 50ms, fails with { type: 'NOT_FOUND' }
   fetchComments('1'),    // Takes 200ms, never completes
 ]);
 
 // result.ok === false
-// result.error === 'NOT_FOUND'
+// result.error.type === 'NOT_FOUND'
 ```
 
 ## Collect all errors
@@ -101,7 +101,7 @@ const results = await Promise.all([
 
 const [successes, failures] = partition(results);
 // successes: [User, User]
-// failures: ['NOT_FOUND']
+// failures: [{ type: 'NOT_FOUND' }]
 ```
 
 ## Named parallel operations
@@ -190,11 +190,11 @@ const result = await workflow.run(async ({ step }) => {
 Errors from parallel operations are typed:
 
 ```typescript
-const fetchUser = async (id: string): AsyncResult<User, 'USER_NOT_FOUND'> => { ... };
-const fetchPosts = async (id: string): AsyncResult<Post[], 'POSTS_FETCH_ERROR'> => { ... };
+const fetchUser = async (id: string): AsyncResult<User, { type: 'USER_NOT_FOUND' }> => { ... };
+const fetchPosts = async (id: string): AsyncResult<Post[], { type: 'POSTS_FETCH_ERROR' }> => { ... };
 
 const result = await allAsync([fetchUser('1'), fetchPosts('1')]);
-// result.error is: 'USER_NOT_FOUND' | 'POSTS_FETCH_ERROR'
+// result.error is: { type: 'USER_NOT_FOUND' } | { type: 'POSTS_FETCH_ERROR' }
 ```
 
 ## Mapping over arrays
@@ -245,20 +245,20 @@ import { createWorkflow } from 'awaitly';
 type User = { id: string; name: string };
 type Notification = { id: string; message: string };
 
-const fetchUser = async (id: string): AsyncResult<User, 'USER_NOT_FOUND'> => {
+const fetchUser = async (id: string): AsyncResult<User, { type: 'USER_NOT_FOUND' }> => {
   const user = await db.users.find(id);
-  return user ? ok(user) : err('USER_NOT_FOUND');
+  return user ? ok(user) : err({ type: 'USER_NOT_FOUND' });
 };
 
 const sendNotification = async (
   userId: string,
   message: string
-): AsyncResult<Notification, 'SEND_FAILED'> => {
+): AsyncResult<Notification, { type: 'SEND_FAILED' }> => {
   try {
     const notification = await notificationService.send(userId, message);
     return ok(notification);
   } catch {
-    return err('SEND_FAILED');
+    return err({ type: 'SEND_FAILED' });
   }
 };
 

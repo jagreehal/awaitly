@@ -22,7 +22,7 @@ createWorkflow returns a function that produces:
          ┌─── Your success return type
          │        ┌─── Union of all dependency error types + UnexpectedError
          ▼        ▼
-Result<Value, 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError>
+Result<Value, { type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' } | UnexpectedError>
            ▲
            └─── Automatically inferred from dependencies!
 ```
@@ -39,8 +39,8 @@ Creates a reusable workflow with automatic error type inference from dependencie
 ```typescript
 import { ok, err, type AsyncResult, createWorkflow } from 'awaitly';
 
-const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> => { /* ... */ };
-const sendEmail = async (to: string): AsyncResult<void, 'EMAIL_FAILED'> => { /* ... */ };
+const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> => { /* ... */ };
+const sendEmail = async (to: string): AsyncResult<void, { type: 'EMAIL_FAILED' }> => { /* ... */ };
 
 // Named — explicit label for traces and diagrams
 const workflow = createWorkflow('workflow', { fetchUser, sendEmail });
@@ -55,7 +55,7 @@ const result = await workflow.run(async ({ steps }) => {
 });
 /*
 result.error is automatically typed as:
-'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
+{ type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' } | UnexpectedError
 */
 ```
   </TabItem>
@@ -63,15 +63,15 @@ result.error is automatically typed as:
 ```typescript
 // awaitly extracts error types from your dependencies:
 
-fetchUser: AsyncResult<User, 'NOT_FOUND'>
+fetchUser: AsyncResult<User, { type: 'NOT_FOUND' }>
                               ▲
                               │ extracted
                               ▼
-sendEmail: AsyncResult<void, 'EMAIL_FAILED'>
+sendEmail: AsyncResult<void, { type: 'EMAIL_FAILED' }>
                              ▲
                              │ extracted
                              ▼
-workflow error = 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
+workflow error = { type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' } | UnexpectedError
 ```
   </TabItem>
 </Tabs>
@@ -112,7 +112,7 @@ const result = await run({ fetchUser, sendEmail }, async (s) => {
   await s.sendEmail(user.email);
   return user;
 });
-// result.error is: 'NOT_FOUND' | 'EMAIL_FAILED' | UnexpectedError
+// result.error is: { type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' } | UnexpectedError
 ```
 
 <Aside type="caution" title="No catchUnexpected on the deps-first form">
@@ -125,7 +125,7 @@ or `run.strict`, where you supply `E` yourself:
 const wf = createWorkflow('loadUser', { fetchUser, sendEmail }, {
   catchUnexpected: (thrown) => ({ type: 'UNEXPECTED', message: String(thrown) }),
 });
-// result.error: 'NOT_FOUND' | 'EMAIL_FAILED' | { type: 'UNEXPECTED', message: string }
+// result.error: { type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' } | { type: 'UNEXPECTED', message: string }
 ```
 </Aside>
 
@@ -287,7 +287,7 @@ By default, thrown exceptions become an `UnexpectedError`. To replace it with yo
 const workflow = createWorkflow('workflow', deps);
 
 const result = await workflow.run(async ({ step, deps }) => { /* ... */ });
-// result.error: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
+// result.error: { type: 'NOT_FOUND' } | { type: 'ORDER_FAILED' } | UnexpectedError
 ```
   </TabItem>
   <TabItem label="Custom unexpected type">
@@ -301,13 +301,13 @@ const workflow = createWorkflow('workflow', deps, {
 });
 
 const result = await workflow.run(async ({ step, deps }) => { /* ... */ });
-// result.error: 'NOT_FOUND' | 'ORDER_FAILED' | { type: 'UNEXPECTED', cause: unknown }
+// result.error: { type: 'NOT_FOUND' } | { type: 'ORDER_FAILED' } | { type: 'UNEXPECTED', cause: unknown }
 ```
   </TabItem>
   <TabItem label="run() with catchUnexpected">
 ```typescript
 // Works with run() too
-const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED'>(
+const result = await run<User, { type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' }>(
   async ({ step }) => {
     const user = await step('fetchUser', () => fetchUser('1'));
     await step('sendEmail', () => sendEmail(user.email));
@@ -315,7 +315,7 @@ const result = await run<User, 'NOT_FOUND' | 'EMAIL_FAILED'>(
   },
   { catchUnexpected: (cause) => ({ type: 'UNEXPECTED', cause }) }
 );
-// result.error: 'NOT_FOUND' | 'EMAIL_FAILED' | { type: 'UNEXPECTED', cause: unknown }
+// result.error: { type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' } | { type: 'UNEXPECTED', cause: unknown }
 ```
   </TabItem>
 </Tabs>
@@ -366,7 +366,7 @@ Cancelled: timeout
 - A step throws `AbortError` (e.g., from `fetch` respecting the signal)
 - Abort fires during the last step but the step completes successfully
 
-**Typed errors are preserved:** If a step returns `err("KNOWN_ERROR")` even while abort is signaled, that typed error is returned, not masked as cancellation. With the default error mapper, check `result.cause` (not `result.error`) for `WorkflowCancelledError` when handling cancellation.
+**Typed errors are preserved:** If a step returns `err({ type: "KNOWN_ERROR" })` even while abort is signaled, that typed error is returned, not masked as cancellation. With the default error mapper, check `result.cause` (not `result.error`) for `WorkflowCancelledError` when handling cancellation.
 </Aside>
 
 **Passing signal to operations:**
@@ -394,7 +394,7 @@ const result = await workflow.run(async ({ step, deps, ctx }) => {
 
   // Check if cancelled
   if (ctx.signal?.aborted) {
-    return err('CANCELLED');
+    return err({ type: 'CANCELLED' });
   }
   return ok(response);
 });

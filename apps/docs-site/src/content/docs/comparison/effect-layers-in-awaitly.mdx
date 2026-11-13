@@ -111,8 +111,8 @@ You want the **same workflow logic** to run with different implementations (prod
 
 ```typescript
 type CheckoutDeps = {
-  chargeCard: (amount: number) => AsyncResult<Receipt, 'DECLINED'>;
-  sendReceipt: (email: string, r: Receipt) => AsyncResult<void, 'SEND_FAILED'>;
+  chargeCard: (amount: number) => AsyncResult<Receipt, { type: 'DECLINED' }>;
+  sendReceipt: (email: string, r: Receipt) => AsyncResult<void, { type: 'SEND_FAILED' }>;
 };
 
 async function checkoutHandler({ step, deps }) {
@@ -142,8 +142,8 @@ When you have runtime inputs (e.g. amount, userId), pass them into a function th
 
 ```typescript
 type PaymentDeps = {
-  chargeCard: (amount: number) => AsyncResult<Receipt, 'DECLINED'>;
-  savePayment: (r: Receipt) => AsyncResult<void, 'DB_ERROR'>;
+  chargeCard: (amount: number) => AsyncResult<Receipt, { type: 'DECLINED' }>;
+  savePayment: (r: Receipt) => AsyncResult<void, { type: 'DB_ERROR' }>;
 };
 
 function makePaymentWorkflow(deps: PaymentDeps) {
@@ -201,7 +201,7 @@ Effect's Layers can depend on other layers; the runtime builds context in order.
 
 ```typescript
 async function sendEmail(to: string, body: string) { return ok(undefined); }
-function createEmailService(fetchUser: (id: string) => AsyncResult<User, 'NOT_FOUND'>) {
+function createEmailService(fetchUser: (id: string) => AsyncResult<User, { type: 'NOT_FOUND' }>) {
   return {
     sendWelcome: async (userId: string) => {
       const user = await fetchUser(userId);
@@ -228,9 +228,9 @@ You want the compiler to ensure you've provided everything the workflow needs, a
 
 ```typescript
 type CheckoutDeps = {
-  fetchUser: (id: string) => AsyncResult<User, 'NOT_FOUND'>;
-  chargeCard: (amount: number) => AsyncResult<Receipt, 'DECLINED'>;
-  sendReceipt: (email: string, r: Receipt) => AsyncResult<void, 'SEND_FAILED'>;
+  fetchUser: (id: string) => AsyncResult<User, { type: 'NOT_FOUND' }>;
+  chargeCard: (amount: number) => AsyncResult<Receipt, { type: 'DECLINED' }>;
+  sendReceipt: (email: string, r: Receipt) => AsyncResult<void, { type: 'SEND_FAILED' }>;
 };
 
 function makeCheckoutRun(deps: CheckoutDeps) {
@@ -257,7 +257,7 @@ makeCheckoutRun({
   chargeCard: async (n) => ok({ id: 'r1' }),
 });
 
-// Result type includes all errors from deps: 'NOT_FOUND' | 'DECLINED' | 'SEND_FAILED' | UnexpectedError
+// Result type includes all errors from deps: { type: 'NOT_FOUND' } | { type: 'DECLINED' } | { type: 'SEND_FAILED' } | UnexpectedError
 const result = await makeCheckoutRun(liveDeps)();
 ```
 

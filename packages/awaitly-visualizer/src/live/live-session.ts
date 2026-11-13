@@ -34,7 +34,7 @@ type ExtendedEvent =
 /**
  * Error types for live session flush operations.
  */
-export type FlushError = "CALLBACK_ERROR";
+export type FlushError = { type: "CALLBACK_ERROR" };
 
 /**
  * Default debounce interval (ms).
@@ -137,7 +137,7 @@ export function createLiveSession(
       return lastFlushResult;
     } catch {
       // Capture errors instead of silently swallowing
-      lastFlushResult = err("CALLBACK_ERROR");
+      lastFlushResult = err({ type: "CALLBACK_ERROR" });
       return lastFlushResult;
     }
   }

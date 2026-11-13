@@ -11,6 +11,7 @@
  * ```
  */
 
+import { errorLabel } from "../utils/error-label";
 import type {
   Renderer,
   RenderOptions,
@@ -180,7 +181,7 @@ function stepToLog(step: StepNode): StepLog {
     if (step.timeoutMs !== undefined) log.timeoutMs = step.timeoutMs;
   }
   if (step.error !== undefined) {
-    log.error = typeof step.error === "string" ? step.error : String(step.error);
+    log.error = errorLabel(step.error);
   }
 
   // Add metadata fields
@@ -285,7 +286,7 @@ function hooksToLog(hooks: WorkflowHooks): HookLog {
       durationMs: hooks.shouldRun.durationMs,
     };
     if (hooks.shouldRun.error !== undefined && hooks.shouldRun.error !== null) {
-      log.shouldRun.error = String(hooks.shouldRun.error);
+      log.shouldRun.error = errorLabel(hooks.shouldRun.error);
     }
   }
 
@@ -294,7 +295,7 @@ function hooksToLog(hooks: WorkflowHooks): HookLog {
       durationMs: hooks.onBeforeStart.durationMs,
     };
     if (hooks.onBeforeStart.error !== undefined && hooks.onBeforeStart.error !== null) {
-      log.onBeforeStart.error = String(hooks.onBeforeStart.error);
+      log.onBeforeStart.error = errorLabel(hooks.onBeforeStart.error);
     }
   }
 
@@ -303,7 +304,7 @@ function hooksToLog(hooks: WorkflowHooks): HookLog {
     for (const [stepKey, hook] of hooks.onAfterStep) {
       const entry: { stepKey: string; durationMs?: number; error?: string } = { stepKey };
       if (hook.durationMs !== undefined) entry.durationMs = hook.durationMs;
-      if (hook.error !== undefined && hook.error !== null) entry.error = String(hook.error);
+      if (hook.error !== undefined && hook.error !== null) entry.error = errorLabel(hook.error);
       log.onAfterStep.push(entry);
     }
   }

@@ -6,6 +6,9 @@ import {
   run,
   ok,
   err,
+  errAny,
+  type DeclaredErrors,
+  type ErrorValue,
   createEarlyExit,
   isEarlyExit,
   isUnexpectedError,
@@ -175,10 +178,10 @@ import {
  * @example
  * ```typescript
  * // Basic usage - automatic error inference
- * const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
- *   id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND');
+ * const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> =>
+ *   id === '1' ? ok({ id, name: 'Alice' }) : err({ type: 'NOT_FOUND' });
  *
- * const fetchPosts = async (userId: string): AsyncResult<Post[], 'FETCH_ERROR'> =>
+ * const fetchPosts = async (userId: string): AsyncResult<Post[], { type: 'FETCH_ERROR' }> =>
  *   ok([{ id: 1, title: 'Hello' }]);
  *
  * const getPosts = createWorkflow({ fetchUser, fetchPosts });
@@ -188,7 +191,7 @@ import {
  *   const posts = await step(fetchPosts(user.id));
  *   return { user, posts };
  * });
- * // result.error: 'NOT_FOUND' | 'FETCH_ERROR' | UnexpectedError
+ * // result.error: { type: 'NOT_FOUND' } | { type: 'FETCH_ERROR' } | UnexpectedError
  * ```
  *
  * @example
@@ -207,10 +210,10 @@ import {
  * const getPosts = createWorkflow(
  *   { fetchUser, fetchPosts },
  *   {
- *     catchUnexpected: () => 'UNEXPECTED'
+ *     catchUnexpected: () => ({ type: 'UNEXPECTED' })
  *   }
  * );
- * // result.error: 'NOT_FOUND' | 'FETCH_ERROR' | 'UNEXPECTED'
+ * // result.error: { type: 'NOT_FOUND' } | { type: 'FETCH_ERROR' } | { type: 'UNEXPECTED' }
  * ```
  *
  * @example
@@ -295,7 +298,7 @@ export function createWorkflow<
 >(
   deps: Deps,
   options?: WorkflowOptions<NoInfer<E>, U, C, Errs>
-): Workflow<E | Errs[number], U, Deps, C>;
+): Workflow<E | DeclaredErrors<Errs>, U, Deps, C>;
 
 // Overload: no deps (single argument); callback receives deps: unknown
 export function createWorkflow<
@@ -314,7 +317,7 @@ export function createWorkflow<
   C = void,
   // Error union inferred from deps. Written INLINE (same body as
   // `ErrorsOfDeps<Deps>`) and hoisted to a defaulted type param so it renders
-  // as the concrete literal union — e.g. `"NOT_FOUND" | "FETCH_ERROR"` — in
+  // as the concrete literal union — e.g. `{ type: "NOT_FOUND" } | { type: "FETCH_ERROR" }` — in
   // hovers/errors, instead of the opaque `ErrorsOfDeps<{ ...whole deps... }>`
   // a named alias over a generic produces. `NoInfer` pins it to the default.
   // See the run(deps, fn) overload in core for the same rationale.
@@ -327,7 +330,7 @@ export function createWorkflow<
   workflowName: string,
   deps: Deps,
   options?: WorkflowOptions<NoInfer<E>, U, C, Errs>
-): Workflow<E | Errs[number], U, Deps, C>;
+): Workflow<E | DeclaredErrors<Errs>, U, Deps, C>;
 
 // Implementation (deps optional for 1-arg overload compatibility)
 export function createWorkflow<
@@ -984,7 +987,7 @@ export function createWorkflow<
       };
 
       // Wrap step.try
-      cachedStepFn.try = async <StepT, Err extends E>(
+      cachedStepFn.try = async <StepT, Err extends E & ErrorValue>(
         id: string,
         operation: () => StepT | Promise<StepT>,
         opts:
@@ -1058,7 +1061,7 @@ export function createWorkflow<
       };
 
       // Wrap step.fromResult - delegate to real step (caching handled by key in opts)
-      cachedStepFn.fromResult = async <StepT, ResultE, Err extends E>(
+      cachedStepFn.fromResult = async <StepT, ResultE, Err extends E & ErrorValue>(
         id: string,
         operation: () => Result<StepT, ResultE> | AsyncResult<StepT, ResultE>,
         opts:
@@ -2021,7 +2024,7 @@ export function createWorkflow<
       result = await run<T, E | ExtraE | U, C>(wrappedFn as (context: { step: RunStep<E | ExtraE | U> }) => Promise<T> | T, {
         onError: onErrorHandler as ((error: E | ExtraE | U, stepName?: string, ctx?: C) => void) | undefined,
         onEvent: onEventHandler as ((event: WorkflowEvent<E | ExtraE | U | UnexpectedError, C>, ctx: C) => void) | undefined,
-        catchUnexpected: catchUnexpected as (cause: unknown) => U,
+        catchUnexpected: catchUnexpected as (cause: unknown) => U & ErrorValue,
         workflowId,
         workflowName,
         telemetry,
@@ -2066,7 +2069,7 @@ export function createWorkflow<
           originalError: result.error,
           compensationErrors,
         };
-        result = err(sagaError as unknown as E | ExtraE | U, { cause: result.cause }) as typeof result;
+        result = errAny(sagaError as unknown as E | ExtraE | U, { cause: result.cause }) as typeof result;
       }
     }
 
@@ -2124,7 +2127,7 @@ export function createWorkflow<
         });
         // Path 2: We synthesized cancelledError from AbortError - ensure result.cause is WorkflowCancelledError
         if (cancelledError && !isWorkflowCancelled(result.cause)) {
-          return err(result.error, { cause: cancelledError }) as Result<T, E | ExtraE | U>;
+          return errAny(result.error, { cause: cancelledError }) as Result<T, E | ExtraE | U>;
         }
         return result as Result<T, E | ExtraE | U>;
       }

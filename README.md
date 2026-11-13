@@ -81,7 +81,7 @@ No exceptions. TypeScript tracks every possible error.
 > error value. Always narrow on `result.ok` first, then read `result.error`. Switching on the
 > `Result` itself (`switch (result)`) gets you
 > `Type 'string' is not comparable to type 'Result<...>'` (TS2678); you want
-> `switch (result.error)`.
+> `switch (result.error.type)`.
 
 ---
 
@@ -122,7 +122,7 @@ const result = await run({ getOrder, getUser, charge }, async (s) => {
   const payment = await s.charge(order.total); // same
   return payment;
 });
-// result.error: 'ORDER_NOT_FOUND' | 'USER_NOT_FOUND' | 'CHARGE_DECLINED' | UnexpectedError
+// result.error: { type: 'ORDER_NOT_FOUND' } | { type: 'USER_NOT_FOUND' } | { type: 'CHARGE_DECLINED' } | UnexpectedError
 ```
 
 **The happy path reads linearly**, and TypeScript infers every possible error from the functions you passed. No type parameters, no string IDs, no wrappers. It looks like the code you already write.
@@ -142,7 +142,7 @@ import { run, type ErrorOf, type Errors } from 'awaitly';
 
 // Derive the union from your functions instead of writing it by hand
 type AllErrors = Errors<[typeof getOrder, typeof getUser, typeof charge]>;
-// e.g. 'ORDER_NOT_FOUND' | 'USER_NOT_FOUND' | 'CHARGE_DECLINED'
+// e.g. { type: 'ORDER_NOT_FOUND' } | { type: 'USER_NOT_FOUND' } | { type: 'CHARGE_DECLINED' }
 
 const result = await run<Payment, AllErrors>(async ({ step }) => {
   const order = await step('getOrder', () => getOrder(orderId));
@@ -161,7 +161,7 @@ const result = await run<Payment, AllErrors>(async ({ step }) => {
 | `run(deps, fn)` | Default, errors inferred automatically, steps auto-bound |
 | `createWorkflow(deps)` | Production handlers: caching, resume, retries, events |
 | `run<T, Errors<[...]>>(fn)` | Dynamic deps with a derived error union |
-| `run<T, 'ERR_A' \| 'ERR_B'>(fn)` | You want to spell out the error union manually |
+| `run<T, { type: 'ERR_A' } \| { type: 'ERR_B' }>(fn)` | You want to spell out the error union manually |
 | `run(fn)` (no type params) | You don't need typed errors (quick scripts, prototyping) |
 
 > **Watch the last row.** `run(fn)` with no deps and no type parameters types `result.error` as `UnexpectedError` alone. Your step errors are still returned at runtime, but the compiler has nothing to infer them from, and the code looks identical to the form that infers everything. If you want typed errors, pass deps first (`run(deps, fn)`) or give the type parameters (`run<T, E>(fn)`).
@@ -737,7 +737,7 @@ You have the foundation. Pick one:
 ```typescript
 // Wrap throwing code — id first, then operation, then options
 const data = await step.try('fetch', () => fetch(url).then((r) => r.json()), {
-  error: 'HTTP_FAILED',
+  error: { type: 'HTTP_FAILED' },
 });
 
 // Retries with backoff — id first
@@ -795,13 +795,13 @@ By default, workflows include `UnexpectedError` in the error union. `catchUnexpe
 ```typescript
 // Default - open error union includes UnexpectedError
 const workflow = createWorkflow(deps);
-// Result error: 'NOT_FOUND' | 'ORDER_FAILED' | UnexpectedError
+// Result error: { type: 'NOT_FOUND' } | { type: 'ORDER_FAILED' } | UnexpectedError
 
 // Closed error union - UnexpectedError is mapped to your own type
 const workflow = createWorkflow(deps, {
   catchUnexpected: (cause) => ({ type: 'UNEXPECTED', cause }),
 });
-// Result error: 'NOT_FOUND' | 'ORDER_FAILED' | { type: 'UNEXPECTED', cause }
+// Result error: { type: 'NOT_FOUND' } | { type: 'ORDER_FAILED' } | { type: 'UNEXPECTED', cause }
 ```
 
 No `as const` on `'UNEXPECTED'`: the type parameter is `const`, so the literal survives.
@@ -818,10 +818,10 @@ const wf = createWorkflow('ingest', { fetchRow }, {
 await wf.run(async ({ step, deps }) => {
   const row = await step('fetchRow', () => deps.fetchRow(id));
   return await step.try('parse', () => JSON.parse(row.body), {
-    error: 'PARSE_FAILED',
+    error: { type: 'PARSE_FAILED' },
   });
 });
-// result.error: 'ROW_NOT_FOUND' | 'PARSE_FAILED' | UnexpectedError
+// result.error: { type: 'ROW_NOT_FOUND' } | { type: 'PARSE_FAILED' } | UnexpectedError
 ```
 
 The same list is what the analyzer validates against. `strict: true` is a **per-run** option, `workflow.run(fn, { strict: true })`. That turns a mismatch between declared and computed errors into an analyzer failure.
@@ -882,7 +882,7 @@ const result = await run({ fetchUser }, async (s) => {
 The explicit callback-only form exists for dynamic dependencies or when you're building abstractions and want manual control of the error union:
 
 ```typescript
-const result = await run<Output, 'NOT_FOUND' | 'FETCH_ERROR'>(
+const result = await run<Output, { type: 'NOT_FOUND' } | { type: 'FETCH_ERROR' }>(
   async ({ step }) => {
     const user = await step('fetchUser', () => fetchUser(userId)); // thunk for consistency
     return user;

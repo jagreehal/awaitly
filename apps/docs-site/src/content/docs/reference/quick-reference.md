@@ -57,9 +57,9 @@ For minimal bundle use `awaitly/result`; for the full front-door API use `awaitl
 // Minimal: from 'awaitly/result'. Or from 'awaitly' for the full front-door API.
 import { ok, err, type AsyncResult } from 'awaitly';
 
-async function fetchUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
+async function fetchUser(id: string): AsyncResult<User, { type: 'NOT_FOUND' }> {
   const user = await db.find(id);
-  return user ? ok(user) : err('NOT_FOUND');
+  return user ? ok(user) : err({ type: 'NOT_FOUND' });
 }
 ```
 
@@ -75,7 +75,7 @@ const result = await run({ fetchUser, chargeCard }, async (s) => {
   const charge = await s.chargeCard(user.id, 100);
   return { user, charge };
 });
-// result.error is: 'NOT_FOUND' | 'CARD_DECLINED' | UnexpectedError
+// result.error is: { type: 'NOT_FOUND' } | { type: 'CARD_DECLINED' } | UnexpectedError
 ```
 
 Reach for `createWorkflow` when you want caching, resume, or events on top:
@@ -121,7 +121,7 @@ match(result, {
 ```
 
 This is exhaustive. Add a dependency that fails a new way and every `match` over that
-result stops compiling until you handle it. String errors key on themselves; tagged
+result stops compiling until you handle it. Plain tagged
 errors and `TaggedError` classes key on their `type`.
 
 `match` returns whatever the arms return, so it works as an expression:
@@ -156,7 +156,7 @@ if (result.ok) {
 if (isUnexpectedError(result.error)) {
   return { status: 500, body: 'Internal error' };
 }
-switch (result.error) {
+switch (result.error.type) {
   case 'NOT_FOUND':
     return { status: 404, body: 'No such user' };
   case 'CARD_DECLINED':
@@ -166,7 +166,7 @@ switch (result.error) {
 
 Two traps live here, and `match` avoids both:
 
-- `switch (result)` instead of `switch (result.error)` gets you
+- `switch (result)` instead of `switch (result.error.type)` gets you
   `Type 'string' is not comparable to type 'Result<...>'` (TS2678).
 - `isUnexpectedError(result)` instead of `isUnexpectedError(result.error)` compiles
   and returns `false` every time. Pass the error, never the `Result`.
@@ -529,7 +529,7 @@ import { createWorkflowHarness, okOutcome, errOutcome } from 'awaitly/testing';
 const harness = createWorkflowHarness(deps);
 harness.script([
   okOutcome({ id: '1', name: 'Alice' }),
-  errOutcome('PAYMENT_DECLINED'),
+  errOutcome({ type: 'PAYMENT_DECLINED' }),
 ]);
 
 const result = await harness.run(async ({ step, deps }) => {
@@ -612,8 +612,8 @@ Use the task-shaped entry point for the capability you need. Everything is a **n
 
 ```typescript
 // Define error types per domain
-type UserError = 'NOT_FOUND' | 'SUSPENDED';
-type PaymentError = 'DECLINED' | 'EXPIRED' | 'LIMIT_EXCEEDED';
+type UserError = { type: 'NOT_FOUND' } | { type: 'SUSPENDED' };
+type PaymentError = { type: 'DECLINED' } | { type: 'EXPIRED' } | { type: 'LIMIT_EXCEEDED' };
 
 // Workflows automatically union all possible errors
 const workflow = createWorkflow('workflow', { fetchUser, chargeCard });
@@ -625,7 +625,7 @@ const workflow = createWorkflow('workflow', { fetchUser, chargeCard });
 ```typescript
 import type { ErrorOf, Errors } from 'awaitly';
 
-type FetchUserError = ErrorOf<typeof fetchUser>; // 'NOT_FOUND' | 'SUSPENDED'
+type FetchUserError = ErrorOf<typeof fetchUser>; // { type: 'NOT_FOUND' } | { type: 'SUSPENDED' }
 type AllErrors = Errors<[typeof fetchUser, typeof chargeCard]>; // Union of all
 ```
 
@@ -653,7 +653,7 @@ import { map, mapError, andThen, match } from 'awaitly';
 const name = map(userResult, user => user.name);
 
 // Transform error (if err)
-const apiError = mapError(result, error => ({ code: 'API_ERROR', cause: error }));
+const apiError = mapError(result, error => ({ type: 'API_ERROR', cause: error }));
 
 // Chain operations (flatMap)
 const posts = andThen(userResult, user => fetchPosts(user.id));
@@ -661,7 +661,7 @@ const posts = andThen(userResult, user => fetchPosts(user.id));
 // Pattern match
 const message = match(result, {
   ok: (user) => `Hello, ${user.name}!`,
-  err: (error) => `Failed: ${error}`,
+  err: (error) => `Failed: ${error.type}`,
 });
 ```
 

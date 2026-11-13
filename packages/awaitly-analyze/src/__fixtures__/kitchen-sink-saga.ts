@@ -16,7 +16,7 @@ import { createSagaWorkflow } from "awaitly/durable";
 
 const createOrder = async (
   _cartId: string
-): AsyncResult<{ orderId: string }, "ORDER_FAILED"> => {
+): AsyncResult<{ orderId: string }, { type: "ORDER_FAILED" }> => {
   return ok({ orderId: "ord_1" });
 };
 
@@ -29,7 +29,7 @@ const cancelOrder = async (
 const chargePayment = async (
   _orderId: string,
   _amount: number
-): AsyncResult<{ chargeId: string }, "CHARGE_FAILED"> => {
+): AsyncResult<{ chargeId: string }, { type: "CHARGE_FAILED" }> => {
   return ok({ chargeId: "ch_1" });
 };
 
@@ -53,7 +53,7 @@ const releaseInventory = async (
 
 const sendNotification = async (
   _orderId: string
-): AsyncResult<void, "ORDER_FAILED"> => {
+): AsyncResult<void, { type: "ORDER_FAILED" }> => {
   return ok(undefined);
 };
 
@@ -99,7 +99,7 @@ export async function placeOrder(cartId: string, amount: number) {
     // step.try (error-mapped)
     await step.try("Send Notification", () => {
       return sendNotification(order.orderId);
-    }, { error: "ORDER_FAILED" as const });
+    }, { error: { type: "ORDER_FAILED" } });
 
     return { order, charge, reservation };
   });
@@ -125,7 +125,7 @@ export async function placeOrderDestructured(cartId: string, amount: number) {
 
     await step.try("Charge Payment", () => {
       return chargePayment(order.orderId, amount);
-    }, { error: "CHARGE_FAILED" as const });
+    }, { error: { type: "CHARGE_FAILED" } });
 
     return order;
   });

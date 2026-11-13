@@ -8,11 +8,11 @@ async function assertions() {
   expectType<Ok<{ id: string }> | Err<unknown, unknown>>(
     await fromPromise(foreign)
   );
-  expectType<Ok<{ id: string }> | Err<"FETCH_FAILED", unknown>>(
-    await fromPromise(foreign, () => "FETCH_FAILED" as const)
+  expectType<Ok<{ id: string }> | Err<{ readonly type: "FETCH_FAILED" }, unknown>>(
+    await fromPromise(foreign, () => ({ type: "FETCH_FAILED" }))
   );
-  expectType<Ok<{ id: string }> | Err<"FETCH_FAILED">>(
-    await tryAsync(() => foreign, () => "FETCH_FAILED" as const)
+  expectType<Ok<{ id: string }> | Err<{ readonly type: "FETCH_FAILED" }>>(
+    await tryAsync(() => foreign, () => ({ type: "FETCH_FAILED" }))
   );
 }
 

@@ -11,7 +11,7 @@ const release = async (reservationId: string): AsyncResult<void, "RELEASE_FAILED
   ok(undefined);
 const charge = async (id: string, amount: number): AsyncResult<{ chargeId: string }, "CHARGE_FAILED"> =>
   ok({ chargeId: "ch_1" });
-const notify = async (id: string): AsyncResult<void, "NOTIFY_FAILED"> => ok(undefined);
+const notify = async (id: string): AsyncResult<void, { type: "NOTIFY_FAILED" }> => ok(undefined);
 
 export const orderSaga = createSagaWorkflow("orderSaga", {
   reserve,
@@ -39,7 +39,7 @@ export async function runOrderSaga(orderId: string, amount: number) {
     );
 
     await step.try("Notify", () => deps.notify(orderId), {
-      error: "NOTIFY_FAILED" as const,
+      error: { type: "NOTIFY_FAILED" },
     });
 
     return { reservation, payment };

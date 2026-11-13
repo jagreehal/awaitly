@@ -53,7 +53,7 @@ describe("awaitly-durable-lambda on AWS", () => {
     const execution = await run({ scenario: "checkout", userId: "broke" });
 
     expect(execution.getStatus()).toBe("SUCCEEDED");
-    expect(execution.getResult()).toEqual({ ok: false, error: "DECLINED" });
+    expect(execution.getResult()).toEqual({ ok: false, error: { type: "DECLINED" } });
     expect(attempts(execution, "charge")).toBe(1);
   });
 

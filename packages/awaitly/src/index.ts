@@ -11,9 +11,9 @@
  * import { ok, err, run, type AsyncResult } from 'awaitly';
  *
  * // Define Result-returning functions
- * async function getUser(id: string): AsyncResult<User, 'NOT_FOUND'> {
+ * async function getUser(id: string): AsyncResult<User, { type: 'NOT_FOUND' }> {
  *   const user = await db.find(id);
- *   return user ? ok(user) : err('NOT_FOUND');
+ *   return user ? ok(user) : err({ type: 'NOT_FOUND' });
  * }
  *
  * // Deps-first composition: no type params, no step IDs, no thunks

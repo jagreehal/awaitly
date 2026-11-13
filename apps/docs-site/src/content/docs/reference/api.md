@@ -44,9 +44,9 @@ import { systemClock, type Clock, isRetryableFailure } from 'awaitly';
 
 ### err
 
-```typescript
-err(error: E, options?: { cause?: C }): Err<E, C>
-```
+Creates a failed Result.
+
+When to use: Return a typed failure without throwing so callers can handle it explicitly.
 
 ### ok
 
@@ -203,7 +203,7 @@ TypeScript will error if any variant in the error union is not handled.
 When to use: You want compile-time enforcement that every tagged variant is handled.
 
 ```typescript
-match(handlers: { err: (error: E, cause?: unknown) => R; ok: (value: T) => R }): (r: Result<T, E>) => R
+match(handlers: unknown): (r: Result<T, E>) => MatchResult<H>
 ```
 
 ### orElse

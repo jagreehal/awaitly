@@ -32,4 +32,35 @@ describe("renderToHTML falsy error values", () => {
 
     expect(html).toContain("\"error\":\"0\"");
   });
+
+  it("labels a tagged error by its type and embeds no server-only helpers", () => {
+    const ir: WorkflowIR = {
+      root: {
+        type: "workflow",
+        id: "wf-1",
+        workflowId: "wf-1",
+        state: "error",
+        startTs: 0,
+        endTs: 1,
+        children: [
+          {
+            type: "step",
+            id: "step-1",
+            name: "step",
+            state: "error",
+            startTs: 0,
+            endTs: 1,
+            durationMs: 1,
+            error: { type: "NOT_FOUND", id: "1" },
+          },
+        ],
+      },
+      metadata: { createdAt: 0, lastUpdatedAt: 0 },
+    };
+
+    const html = renderToHTML(ir, { showTimings: false });
+
+    expect(html).toContain("\"error\":\"NOT_FOUND\"");
+    expect(html).not.toContain("errorLabel(");
+  });
 });

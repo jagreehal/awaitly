@@ -9,8 +9,8 @@
  * import { createWorkflow, run } from 'awaitly';
  * import { ok, err, type AsyncResult } from 'awaitly';
  *
- * const fetchUser = async (id: string): AsyncResult<User, 'NOT_FOUND'> =>
- *   id === '1' ? ok({ id, name: 'Alice' }) : err('NOT_FOUND');
+ * const fetchUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> =>
+ *   id === '1' ? ok({ id, name: 'Alice' }) : err({ type: 'NOT_FOUND' });
  *
  * const workflow = createWorkflow('fetch-user', { fetchUser });
  *

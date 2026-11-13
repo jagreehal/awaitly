@@ -36,13 +36,13 @@ async function validateMermaid(diagram: string): Promise<void> {
 // Test functions with special characters in names/keys
 const fetchUserWithSpecialChars = async (
   id: string
-): AsyncResult<{ id: string; name: string }, "NOT_FOUND"> => {
+): AsyncResult<{ id: string; name: string }, { type: "NOT_FOUND" }> => {
   return ok({ id, name: `User (${id})` });
 };
 
 const processDataWithBrackets = async (
   data: { value: string }
-): AsyncResult<string, "ERROR"> => {
+): AsyncResult<string, { type: "ERROR" }> => {
   return ok(`Processed: [${data.value}]`);
 };
 
@@ -140,8 +140,8 @@ describe("Mermaid Validation - Special Characters", () => {
   it("should handle race subgraph names with special chars", async () => {
     const collector = createEventCollector({ workflowName: "test-workflow" });
 
-    const fetch1 = async (): AsyncResult<string, "ERROR"> => ok("result1");
-    const fetch2 = async (): AsyncResult<string, "ERROR"> => ok("result2");
+    const fetch1 = async (): AsyncResult<string, { type: "ERROR" }> => ok("result1");
+    const fetch2 = async (): AsyncResult<string, { type: "ERROR" }> => ok("result2");
 
     const workflow = createWorkflow("workflow", { fetch1, fetch2 }, {
       onEvent: collector.handleEvent,
@@ -207,10 +207,10 @@ describe("Mermaid Validation - Special Characters", () => {
 describe("Mermaid Enhanced Edges", () => {
   it("should render retry loop edges for steps with retries", async () => {
     let attempts = 0;
-    const failingThenSucceed = async (): AsyncResult<string, "FAIL"> => {
+    const failingThenSucceed = async (): AsyncResult<string, { type: "FAIL" }> => {
       attempts++;
       if (attempts < 3) {
-        return err("FAIL");
+        return err({ type: "FAIL" });
       }
       return ok("success");
     };
@@ -239,8 +239,8 @@ describe("Mermaid Enhanced Edges", () => {
   });
 
   it("should render error path edges for failed steps", async () => {
-    const alwaysFails = async (): AsyncResult<string, "ALWAYS_FAILS"> => {
-      return err("ALWAYS_FAILS");
+    const alwaysFails = async (): AsyncResult<string, { type: "ALWAYS_FAILS" }> => {
+      return err({ type: "ALWAYS_FAILS" });
     };
 
     const collector = createEventCollector({ workflowName: "error-test" });
@@ -270,7 +270,7 @@ describe("Mermaid Enhanced Edges", () => {
   });
 
   it("should render timeout edges for timed out steps", async () => {
-    const slowOperation = async (): AsyncResult<string, "TIMEOUT"> => {
+    const slowOperation = async (): AsyncResult<string, { type: "TIMEOUT" }> => {
       await new Promise(resolve => setTimeout(resolve, 200));
       return ok("done");
     };
@@ -303,10 +303,10 @@ describe("Mermaid Enhanced Edges", () => {
 
   it("should allow disabling enhanced edges via options", async () => {
     let attempts = 0;
-    const failingThenSucceed = async (): AsyncResult<string, "FAIL"> => {
+    const failingThenSucceed = async (): AsyncResult<string, { type: "FAIL" }> => {
       attempts++;
       if (attempts < 2) {
-        return err("FAIL");
+        return err({ type: "FAIL" });
       }
       return ok("success");
     };

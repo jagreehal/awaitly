@@ -19,6 +19,7 @@ import { generateTestMatrix, formatTestMatrixAsCode } from "./output/test-matrix
 import { generatePaths } from "./path-generator";
 import { renderMultipleStaticJSON } from "./output/json";
 import { renderWorkflowDSL } from "./output/dsl";
+import { renderMachineJSON } from "./output/machine-json";
 import { extractNodeMetadata, extractRailwayNodeMetadata, generateInteractiveHTML } from "./output/html";
 import { writeDSLToAwaitlyDirSync, DEFAULT_DSL_OUTPUT_FOLDER } from "./awaitly-dir";
 import { diffWorkflows } from "./diff/diff-engine";
@@ -35,7 +36,7 @@ import { computeDiagrammability, formatDiagrammability } from "./diagrammability
 import { buildReview, renderReviewMarkdown } from "./review";
 
 type Direction = "TB" | "TD" | "LR" | "BT" | "RL";
-type Format = "mermaid" | "json" | "markdown";
+type Format = "mermaid" | "json" | "markdown" | "xstate";
 type TestRunner = "vitest" | "jest" | "mocha";
 
 /** "off" = don't write; ".awaitly" = write to .awaitly/dsl/; or custom path */
@@ -95,7 +96,8 @@ Arguments:
   <file>                Path to TypeScript file containing workflow(s)
 
 Options:
-  --format=<format>     Output format: mermaid (default) or json
+  --format=<format>     Output format: mermaid (default), json, or xstate
+                        (XState v6 MachineJSON)
   --dev                 Start the live inspector dev server (static graph + run traces)
   --port=<n>            Dev server port (default: 4747)
   --html                Generate interactive HTML file (Mermaid CDN + click-to-inspect)
@@ -230,11 +232,11 @@ export function parseArgs(args: string[]): CliOptions {
       }
     } else if (arg.startsWith("--format=")) {
       const format = arg.slice("--format=".length).toLowerCase();
-      if (format === "json" || format === "mermaid" || format === "markdown") {
+      if (format === "json" || format === "mermaid" || format === "markdown" || format === "xstate") {
         options.format = format;
         options.formatExplicit = true;
       } else {
-        console.error(`Unknown format: ${format}. Use 'mermaid', 'json', or 'markdown'.`);
+        console.error(`Unknown format: ${format}. Use 'mermaid', 'json', 'xstate', or 'markdown'.`);
         process.exit(1);
       }
     } else if (arg.startsWith("--direction=")) {
@@ -312,7 +314,7 @@ function getOutputFilePath(
   const dir = dirname(inputPath);
   const ext = extname(inputPath);
   const base = basename(inputPath, ext);
-  const outputExt = format === "json" ? ".json" : ".md";
+  const outputExt = format === "json" || format === "xstate" ? ".json" : ".md";
   return join(dir, `${base}.${suffix}${outputExt}`);
 }
 
@@ -584,8 +586,8 @@ function main(): void {
     process.exit(1);
   }
 
-  if (options.railway && options.format === "json") {
-    console.error("Error: --railway cannot be used with --format=json. Railway output is always Mermaid.");
+  if (options.railway && (options.format === "json" || options.format === "xstate")) {
+    console.error(`Error: --railway cannot be used with --format=${options.format}. Railway output is always Mermaid.`);
     process.exit(1);
   }
 
@@ -669,7 +671,7 @@ function loadTrace(path: string): import("./trace").WorkflowTrace {
 
 function shouldUseRailway(options: CliOptions, ir: import("./types").StaticWorkflowIR): boolean {
   if (options.railway) return true;
-  if (options.format === "json") return false;
+  if (options.format === "json" || options.format === "xstate") return false;
   if (options.auto) return inferBestDiagramType(ir) === "railway";
   return false;
 }
@@ -792,6 +794,10 @@ function runAnalysis(options: CliOptions, filePath: string): void {
       output = renderMultipleStaticJSON(workflows, filePath, {
         pretty: true,
       });
+    } else if (options.format === "xstate") {
+      // One workflow: its MachineJSON object. Several: an array of them.
+      const machines = workflows.map(renderMachineJSON);
+      output = JSON.stringify(machines.length === 1 ? machines[0] : machines, null, 2);
     } else {
       // Render each workflow with auto-detection or explicit mode
       const parts: string[] = [];
