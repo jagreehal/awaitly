@@ -1,0 +1,121 @@
+---
+// Fig 2 is real tool output. The chart is `awaitly-analyze --format=xstate` run on
+// review/checkout-after.ts, diffed against review/checkout-before.ts and drawn by
+// autovisualizer. The checks table restates `awaitly-analyze review` (v0.33.0) for the
+// same change. Change the diff in Fig 1 and regenerate both before editing Fig 2.
+import before from './review/checkout-before.json';
+import after from './review/checkout-after.json';
+
+// Pinned so the page keeps the release it was checked against.
+const AUTOVIZ = 'https://cdn.jsdelivr.net/npm/autovisualizer@0.7.0/public/embed/embed.js';
+const walkthrough = JSON.stringify([
+  { event: { type: 'xstate.done.actor.reserve' }, note: 'reserve succeeds, so checkout moves on to the new screen step' },
+  { event: { type: 'xstate.error.actor.screen' }, note: 'screen fails with FRAUD_FLAGGED, a failure checkout could not have before' },
+]);
+---
+
+<section class="landing-section review" aria-labelledby="review-heading">
+  <div class="landing-inner">
+    <header class="review__header">
+      <h2 class="landing-h2" id="review-heading">See what a change does to the workflow.</h2>
+      <p class="landing-lead">
+        Someone adds a fraud check to checkout. The diff shows three new lines.
+        <code>awaitly-analyze review</code> reads the same change and reports a new step and
+        a new way for checkout to fail.
+      </p>
+    </header>
+
+    <div class="review__grid">
+      <figure class="review__fig lcard">
+        <header class="lcard__head">
+          <span class="lcard__file">checkout.ts</span>
+          <span class="review__stat"><span class="review__plus">+3</span> <span class="review__minus">−1</span></span>
+        </header>
+        <pre class="diff__code review__diff" is:raw><code><span class="ln">  <span class="kw">const</span> <span class="id">ship</span> = <span class="kw">async</span> (<span class="id">payment</span>: <span class="ty">Payment</span>) =&gt; ...</span>
+<span class="ln add">+ <span class="kw">const</span> <span class="id">screen</span> = <span class="kw">async</span> (<span class="id">hold</span>): <span class="ty">AsyncResult</span>&lt;<span class="ty">Hold</span>, { <span class="id">type</span>: <span class="str">'FRAUD_FLAGGED'</span> }&gt; =&gt; ...</span>
+<span class="ln del">- <span class="kw">const</span> <span class="id">checkout</span> = <span class="fn">createWorkflow</span>(<span class="str">'checkout'</span>, { <span class="id">reserve</span>, <span class="id">charge</span>, <span class="id">ship</span> });</span>
+<span class="ln add">+ <span class="kw">const</span> <span class="id">checkout</span> = <span class="fn">createWorkflow</span>(<span class="str">'checkout'</span>, { <span class="id">reserve</span>, <span class="id">screen</span>, <span class="id">charge</span>, <span class="id">ship</span> });</span>
+<span class="ln">  </span>
+<span class="ln">      <span class="kw">const</span> <span class="id">hold</span> = <span class="kw">await</span> <span class="fn">step</span>(<span class="str">'reserve'</span>, () =&gt; <span class="id">deps</span>.<span class="fn">reserve</span>(<span class="id">cart</span>));</span>
+<span class="ln add">+     <span class="kw">await</span> <span class="fn">step</span>(<span class="str">'screen'</span>, () =&gt; <span class="id">deps</span>.<span class="fn">screen</span>(<span class="id">hold</span>));</span>
+<span class="ln">      <span class="kw">const</span> <span class="id">payment</span> = <span class="kw">await</span> <span class="fn">step.retry</span>(<span class="str">'charge'</span>, ...);</span></code></pre>
+        <figcaption class="review__cap">
+          <b>Fig 1.</b> The pull request diff. Nothing in it tells the reviewer that checkout
+          can now fail with <code>FRAUD_FLAGGED</code>.
+        </figcaption>
+      </figure>
+
+      <figure class="review__fig lcard">
+        <header class="lcard__head">
+          <span class="lcard__file">awaitly-analyze review</span>
+          <span class="lcard__tag card__tag--warn">1 new error type</span>
+        </header>
+        <div class="review__body not-content">
+          <table class="review__checks">
+            <tbody>
+              <tr><th>Steps</th><td>3 → 4, <code>+ screen</code></td></tr>
+              <tr><th>Structural regressions</th><td><span class="review__pass">✓</span> nothing removed</td></tr>
+              <tr><th>New error types</th><td><span class="review__warn">⚠</span> <code>FRAUD_FLAGGED</code></td></tr>
+              <tr><th>Complexity</th><td><span class="review__pass">✓</span> within thresholds</td></tr>
+            </tbody>
+          </table>
+      </div>
+        <figcaption class="review__cap">
+          <b>Fig 2.</b> The same change as <code>awaitly-analyze review</code> reports it. TypeScript backs it up: every
+          <code>match()</code> on checkout's result stops compiling until someone handles
+          <code>FRAUD_FLAGGED</code>.
+        </figcaption>
+      </figure>
+    </div>
+
+    <figure class="review__fig review__fig--wide lcard">
+      <header class="lcard__head">
+        <span class="lcard__file">awaitly-analyze --format=xstate · autovisualizer</span>
+        <span class="lcard__tag">interactive</span>
+      </header>
+      <div class="review__chart" data-src={AUTOVIZ}>
+        <auto-visualizer
+          definition={JSON.stringify(after)}
+          base={JSON.stringify(before)}
+          direction="right"
+          walkthrough={walkthrough}
+          aria-label="checkout after the change: the screen step and its edges are new; the old reserve to charge edge is gone"
+        ></auto-visualizer>
+      </div>
+      <figcaption class="review__cap">
+        <b>Fig 3.</b> The same change, drawn from the analyzer's output. <code>screen</code> and its
+        edges are new (green); the old reserve → charge edge is gone (dashed red). Press play to
+        step through it, or click an event.
+      </figcaption>
+    </figure>
+
+    <p class="review__more">
+      Run it on any pull request with the <a href="guides/github-action/">GitHub Action</a>, or
+      locally with <code>npx awaitly-analyze review</code>.
+    </p>
+  </div>
+</section>
+
+<script>
+  // The embed is large, so it loads only when Fig 2 comes near the screen.
+  const box = document.querySelector<HTMLElement>('.review__chart');
+  const chart = box?.querySelector('auto-visualizer');
+  if (box && chart) {
+    const syncTheme = () =>
+      chart.setAttribute('theme', document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+    syncTheme();
+    new MutationObserver(syncTheme).observe(document.documentElement, { attributeFilter: ['data-theme'] });
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        io.disconnect();
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = box.dataset.src!;
+        document.head.append(script);
+      },
+      { rootMargin: '600px 0px' },
+    );
+    io.observe(box);
+  }
+</script>

@@ -1,0 +1,80 @@
+{
+  "id": "checkout",
+  "initial": "reserve",
+  "states": {
+    "reserve": {
+      "id": "reserve",
+      "meta": {
+        "callee": "deps.reserve",
+        "errors": [
+          "OUT_OF_STOCK"
+        ]
+      },
+      "invoke": {
+        "id": "reserve",
+        "src": "reserve",
+        "onDone": {
+          "target": "#charge"
+        },
+        "onError": {
+          "target": "#failed"
+        }
+      }
+    },
+    "charge": {
+      "id": "charge",
+      "meta": {
+        "callee": "step.retry",
+        "errors": [
+          "CARD_DECLINED"
+        ]
+      },
+      "invoke": {
+        "id": "charge",
+        "src": "charge",
+        "onDone": {
+          "target": "#ship"
+        },
+        "onError": {
+          "target": "#failed"
+        }
+      }
+    },
+    "ship": {
+      "id": "ship",
+      "meta": {
+        "callee": "deps.ship",
+        "key": "payment.id",
+        "errors": [
+          "SHIP_FAILED"
+        ]
+      },
+      "invoke": {
+        "id": "ship",
+        "src": "ship",
+        "onDone": {
+          "target": "#done"
+        },
+        "onError": {
+          "target": "#failed"
+        }
+      }
+    },
+    "done": {
+      "id": "done",
+      "type": "final"
+    },
+    "failed": {
+      "id": "failed",
+      "type": "final",
+      "description": "Fails with: OUT_OF_STOCK | CARD_DECLINED | SHIP_FAILED",
+      "meta": {
+        "errors": [
+          "OUT_OF_STOCK",
+          "CARD_DECLINED",
+          "SHIP_FAILED"
+        ]
+      }
+    }
+  }
+}

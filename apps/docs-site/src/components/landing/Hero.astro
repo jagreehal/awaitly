@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import GridBackground from './GridBackground.astro';
 import InstallPanel from './InstallPanel.astro';
+import HeroFlow from './HeroFlow.astro';
 
 const logoPath = fileURLToPath(new URL('../../../public/logo-animated.svg', import.meta.url));
 const logoSvg = readFileSync(logoPath, 'utf-8');
@@ -43,5 +44,15 @@ const logoSvg = readFileSync(logoPath, 'utf-8');
         </a>
       </div>
     </div>
+    <div class="hero__visual">
+      <HeroFlow />
+    </div>
   </div>
+  <p class="hero-status" aria-hidden="true">
+    <span>checkout.ts</span>
+    <span>3 steps</span>
+    <span>3 error types + UnexpectedError</span>
+    <span class="hero-status__warn">retry on charge</span>
+    <span class="hero-status__step">step: <span class="hero-status__cycle"><b style="--i:0">reserve</b><b style="--i:1">charge</b><b style="--i:2">ship</b><b style="--i:3">done</b></span></span>
+  </p>
 </section>

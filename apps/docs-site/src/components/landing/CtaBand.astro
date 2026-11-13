@@ -1,0 +1,16 @@
+---
+interface Props {
+  text: string;
+}
+const { text } = Astro.props;
+---
+
+<section class="landing-section cta-band" aria-label="Get started">
+  <div class="landing-inner cta-band__inner">
+    <p class="cta-band__text">{text}</p>
+    <div class="cta-band__actions">
+      <a href="getting-started/installation/" class="landing-btn landing-btn--primary">Get started</a>
+      <a href="getting-started/basics/" class="landing-btn landing-btn--ghost">Read the basics</a>
+    </div>
+  </div>
+</section>

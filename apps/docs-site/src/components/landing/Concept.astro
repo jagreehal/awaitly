@@ -8,37 +8,40 @@ const steps = [
 // Derived, not written twice: the whole point of the section is that the union
 // is exactly what the steps can fail with, so truncating it or letting it drift
 // from the diagram undercuts the claim. UnexpectedError is always in there.
-const errorUnion = [...steps.flatMap((s) => s.errors), 'UnexpectedError'].join(' | ');
+const errorUnion = [...steps.flatMap((s) => s.errors.map((e) => `{ type: '${e}' }`)), 'UnexpectedError'].join(' | ');
 const resultType = `Result<Charge, ${errorUnion}>`;
 ---
 
 <section class="landing-section concept" aria-labelledby="concept-heading">
   <div class="landing-inner">
+    <div class="split">
     <header class="concept__header">
       <h2 class="landing-h2" id="concept-heading">
-        Call <em>step()</em>. Get the value or stop.
+        Hand your functions to run(). Get plain values back.
       </h2>
       <p class="landing-lead">
-        Each dependency returns a <code>Result</code>.
-        <code>step()</code> unwraps it inside your async function.
-        Add a step and the error union grows; remove one and it shrinks.
+        Checking <code>result.ok</code> after every call gets old by the third call.
+        <code>run()</code> does the check for you. Each call returns the unwrapped value,
+        and the first <code>err</code> stops the function and becomes the result.
       </p>
     </header>
 
-    <div class="concept__type-card mental-model" role="img" aria-label="Result type with success and error parameters">
-      <div class="concept__type-signature">
-        <span class="concept__type-name">Result</span><span class="concept__type-pun">&lt;</span><span class="concept__type-part concept__type-part--ok" data-part="ok">Charge</span><span class="concept__type-pun">, </span><span class="concept__type-part concept__type-part--err" data-part="err">{errorUnion}</span><span class="concept__type-pun">&gt;</span>
-      </div>
-      <div class="concept__type-labels panels">
-        <div class="concept__type-label" data-part="ok">
-          <span class="concept__type-label-name">Success</span>
-          <span class="concept__type-label-hint">What you return</span>
-        </div>
-        <div class="concept__type-label" data-part="err">
-          <span class="concept__type-label-name">Error</span>
-          <span class="concept__type-label-hint">What can fail</span>
-        </div>
-      </div>
+    <article class="foundation__panel shots concept__code">
+      <header class="lcard__head">
+        <span class="lcard__file">order.ts</span>
+        <span class="lcard__tag">run()</span>
+      </header>
+      <pre
+        class="diff__code foundation__code"
+        is:raw
+      ><code><span class="kw">import</span> { <span class="fn">run</span> } <span class="kw">from</span> <span class="str">'awaitly'</span>;
+
+<span class="kw">const</span> <span class="id">result</span> = <span class="kw">await</span> <span class="fn">run</span>({ <span class="id">getOrder</span>, <span class="id">getUser</span>, <span class="id">charge</span> }, <span class="kw">async</span> (<span class="id">s</span>) =&gt; {
+  <span class="kw">const</span> <span class="id">order</span> = <span class="kw">await</span> <span class="id">s</span>.<span class="fn">getOrder</span>(<span class="id">orderId</span>);    <span class="cm">// Order, not a Result</span>
+  <span class="kw">const</span> <span class="id">user</span> = <span class="kw">await</span> <span class="id">s</span>.<span class="fn">getUser</span>(<span class="id">order</span>.<span class="id">userId</span>); <span class="cm">// skipped if getOrder failed</span>
+  <span class="kw">return</span> <span class="id">s</span>.<span class="fn">charge</span>(<span class="id">user</span>, <span class="id">order</span>.<span class="id">total</span>);
+});</code></pre>
+    </article>
     </div>
 
     <div
@@ -106,8 +109,9 @@ const resultType = `Result<Charge, ${errorUnion}>`;
     </div>
 
     <p class="concept__caption">
-      <code>step.retry()</code>, <code>step.withTimeout()</code>, and idempotency keys
-      use the same shape. The union still reflects your deps.
+      You wrote three function calls and TypeScript built that error union from them.
+      When a step needs retries, a timeout, or resume after a crash, move the same
+      functions into <code>createWorkflow()</code>.
     </p>
   </div>
 </section>

@@ -3,7 +3,7 @@
 // headline and the install panel for the same glance; below the fold it can
 // do its actual job, which is to say what you get without reading further.
 const groups = [
-  { label: 'Bundled', value: 'Result · Workflow · step()' },
+  { label: 'Bundled', value: 'Result · run() · createWorkflow()' },
   { label: 'Built in', value: 'Retries · Timeouts · Resume · Idempotency' },
   { label: 'Inferred', value: 'Error unions from your deps' },
 ];
@@ -11,7 +11,7 @@ const groups = [
 
 <section class="landing-section caps" aria-label="What ships in the box">
   <div class="landing-inner">
-    <dl class="caps__grid panels">
+    <dl class="caps__grid panels not-content">
       {
         groups.map((g) => (
           <div class="caps__item">
