@@ -327,8 +327,8 @@ importers:
         specifier: 2.6.0
         version: 2.6.0
       '@aws/durable-execution-sdk-js-otel':
-        specifier: 1.1.0
-        version: 1.1.0(@aws/durable-execution-sdk-js@2.6.0)(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-node@2.10.0(@opentelemetry/api@1.9.1))
+        specifier: 2.1.0
+        version: 2.1.0(@aws/durable-execution-sdk-js@2.6.0)(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-node@2.10.0(@opentelemetry/api@1.9.1))
       '@aws/durable-execution-sdk-js-testing':
         specifier: 1.3.0
         version: 1.3.0(@aws/durable-execution-sdk-js@2.6.0)
@@ -770,11 +770,11 @@ packages:
     resolution: {integrity: sha512-ctjVSyCMegrWfXlx6VqzSBFI6UqmQ5ZlnfMhdLIiWmhoH8UAQxSCP5N3OpG7X3k4LnS7ou74C4mt20+bfTW2aQ==}
     engines: {node: '>=20.0.0'}
 
-  '@aws/durable-execution-sdk-js-otel@1.1.0':
-    resolution: {integrity: sha512-1DrulHO66S8tStX+Ofh0WwW3zgeHHekNh6Y39z0LTdbDlqTG9A8UO0Kte7sBiJiTp1pXUNIs/qGVFw7XSrjc1Q==}
+  '@aws/durable-execution-sdk-js-otel@2.1.0':
+    resolution: {integrity: sha512-Vn0KNO7nlx0oGU72C8u8ICqVnQvlv8LPINRqDNm1AX0ps+dXODS6XHdA2pZ3RaNWpyuPzD58diRz8iDkcuxkMA==}
     engines: {node: '>=22'}
     peerDependencies:
-      '@aws/durable-execution-sdk-js': '>=2.4.0'
+      '@aws/durable-execution-sdk-js': '>=3.0.0 <4.0.0'
       '@opentelemetry/api': ^1.0.0
       '@opentelemetry/core': ^2.0.0
       '@opentelemetry/sdk-trace-node': ^2.6.1
@@ -2680,12 +2680,14 @@ packages:
   '@opentelemetry/sdk-trace-base@2.10.0':
     resolution: {integrity: sha512-GuYQQT7QD2EeO8lcZLRQzcbOyhqAzL+6WWTKTU9mSUBYBazkEDl+VrQcXQhbB08OWM9anD1aHleVadzulpOaUQ==}
     engines: {node: ^18.19.0 || >=20.6.0}
+    deprecated: Use @opentelemetry/sdk-trace package
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
   '@opentelemetry/sdk-trace-node@2.10.0':
     resolution: {integrity: sha512-GZK/G6oZyBLGlH1pUgeDch7D91KoHd2uotUGIkWCPi9GI5T9X0p4L7nNAMDR1BQjkRYoDqo+ddfVx9t5Uhys+Q==}
     engines: {node: ^18.19.0 || >=20.6.0}
+    deprecated: Use @opentelemetry/sdk-trace package
     peerDependencies:
       '@opentelemetry/api': '>=1.0.0 <1.10.0'
 
@@ -3858,6 +3860,9 @@ packages:
   '@smithy/core@3.35.1':
     resolution: {integrity: sha512-i4YPS4B6ts7bjn7UwLnGjiZdprOvHvgGobFZsYK3GIY3E5hIqtj0rReU69BcTpGp+fvtraSNXeG1l+jtJvF55w==}
     engines: {node: '>=18.0.0'}
+    deprecated: |-
+      Deprecated due to a bug in custom logger data redaction. Upgrade to the latest version. If you used a custom logger with this
+        version, review your logs and rotate any credentials or other secrets. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
 
   '@smithy/credential-provider-imds@4.5.2':
     resolution: {integrity: sha512-A9uSdn72ozbRUSit0eib0TW7nXuNPlaeM0zcGkJ+nE6tFcSDbnmtwoxbTCFBukVQcszDAyvsd7+rTduPTXpygg==}
@@ -5801,6 +5806,7 @@ packages:
   eslint@9.39.4:
     resolution: {integrity: sha512-XoMjdBOwe/esVgEvLmNsD3IRHkm7fbKIUGvrleloJXUZgDHig2IPWNniv+GwjyJXzuNqVjlr5+4yVUZjycJwfQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -9478,7 +9484,7 @@ snapshots:
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
-  '@aws/durable-execution-sdk-js-otel@1.1.0(@aws/durable-execution-sdk-js@2.6.0)(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-node@2.10.0(@opentelemetry/api@1.9.1))':
+  '@aws/durable-execution-sdk-js-otel@2.1.0(@aws/durable-execution-sdk-js@2.6.0)(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-node@2.10.0(@opentelemetry/api@1.9.1))':
     dependencies:
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
