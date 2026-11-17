@@ -39,7 +39,7 @@ import {
   type ForEachRunOptions,
 } from "../core";
 import { isDepResultShaped, type StepCallable } from "../core/bound-steps";
-import { resolveTelemetry, withCompensationSpan, withRunSpan } from "../core/opentelemetry";
+import { inferRunName, recordWorkflowEvent, resolveTelemetry, withCompensationSpan, withRunSpan } from "../core/opentelemetry";
 
 import type {
   StreamStore,
@@ -539,6 +539,9 @@ export function createWorkflow<
         eventWithContext.workflowName === undefined
           ? ({ ...eventWithContext, workflowName } as WorkflowEvent<E | ExtraE | U, C>)
           : eventWithContext;
+      // Core run() sends its events straight to onEventHandler, so the two
+      // streams never overlap: each mirrors its own onto the active span.
+      recordWorkflowEvent(telemetry, eventWithName);
       onEventHandler?.(eventWithName as Parameters<NonNullable<typeof onEventHandler>>[0], context);
     };
 
@@ -2050,7 +2053,7 @@ export function createWorkflow<
         const comp = compensations[i];
         try {
           const outcome = await withCompensationSpan(
-            { enabled: telemetry, stepName: comp.stepName ?? "anonymous" },
+            { enabled: telemetry, workflowId, stepName: comp.stepName ?? "anonymous" },
             async () => comp.compensate(comp.value)
           );
           // A compensation that returns err() failed just as surely as one that
@@ -2202,7 +2205,14 @@ export function createWorkflow<
     const execute = () => internalExecute<T, ExtraE>(workflowId, userFn, config);
 
     return withRunSpan(
-      { enabled: telemetry, workflowId, workflowName, signal },
+      {
+        enabled: telemetry,
+        workflowId,
+        workflowName: workflowName ?? inferRunName(userFn),
+        signal,
+        // Per-run attributes override the workflow's.
+        attributes: { ...optionsActual?.attributes, ...config?.attributes },
+      },
       execute
     );
   }

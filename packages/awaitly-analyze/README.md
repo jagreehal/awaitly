@@ -62,6 +62,9 @@ awaitly-analyze ./src/workflows/checkout.ts --assert-diagrammable
 # Overlay a recorded run's executed path onto the static diagram
 awaitly-analyze ./src/workflows/checkout.ts --trace=./run-events.json
 
+# Production runs from OpenTelemetry (OTLP JSON or Tempo) as autovisualizer counts
+awaitly-analyze ./src/workflows/checkout.ts --format=xstate --trace=./tempo-traces.json
+
 # Review every workflow your branch changed: diff, regressions, new doctor findings, railway diagrams
 awaitly-analyze review --base origin/main src/
 ```
@@ -86,7 +89,7 @@ The same review runs on pull requests as a GitHub Action (`uses: jagreehal/await
 | `--write-dsl` | - | Shorthand for `--dsl-output=.awaitly` |
 | `--doctor` | - | Print strict diagnostics with fix suggestions (includes the diagrammability verdict) |
 | `--assert-diagrammable` | - | Exit non-zero if any workflow's diagram is not fully deterministic (CI gate) |
-| `--trace=<events.json>` | - | Overlay a recorded run's executed path onto the static diagram (JSON array of workflow events) |
+| `--trace=<file.json>` | - | Overlay recorded runs onto the diagram. Takes a JSON array of workflow events, or OpenTelemetry spans (OTLP JSON, or traces from Tempo). With `--format=xstate`, outputs `{ definition, counts }` for `<auto-visualizer>` |
 | `--help`, `-h` | - | Show help message |
 
 ### Output File Naming
@@ -327,6 +330,21 @@ const { mermaid, matched, unmatched } = renderStaticMermaidWithTrace(ir, trace);
 // `unmatched` lists trace steps with no static node; empty when the workflow
 // is diagrammable (literal step ids), which is why the two features reinforce
 // each other.
+```
+
+#### `tracesFromSpans(input)`
+
+Read awaitly runs back out of OpenTelemetry spans: an SDK exporter's spans, an OTLP JSON export (`resourceSpans`), or traces fetched from Tempo. Returns one `{ workflowId, workflowName, trace }` per run, where `trace` is the same `WorkflowTrace` `traceFromEvents` produces, plus each step's call site and any compensations.
+
+#### `countsFromTraces(machine, traces)`
+
+Turn traces into [autovisualizer](https://github.com/jagreehal/autovisualizer)'s `counts` for a `renderMachineJSON` machine: per step state `xstate.done.actor` / `xstate.error.actor`, per decision its branch events, and per compensation the rollback it ran. Every countable transition gets an entry, so autovisualizer draws paths no run took as dashed lines with a count of 0.
+
+```typescript
+const machine = renderMachineJSON(ir);
+const runs = tracesFromSpans(await (await fetch(`${tempo}/api/v2/traces/${traceId}`)).json());
+const { counts, unmatched } = countsFromTraces(machine, runs.map((r) => r.trace));
+// <auto-visualizer definition=JSON.stringify(machine) counts=JSON.stringify(counts)>
 ```
 
 ### Test Matrix

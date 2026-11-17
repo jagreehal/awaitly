@@ -1,11 +1,11 @@
 ---
 title: OpenTelemetry
-description: Automatic traces for runs, steps, retries, scopes, sagas, and durable execution
+description: Automatic traces and metrics for runs, steps, retries, scopes, sagas, and durable execution
 ---
 
 awaitly emits OpenTelemetry spans on its own. You write no adapter, no `onEvent` bridge, and no `runOtel` wrapper.
 
-Configure a provider once at startup and every `run()` and `workflow.run()` joins the active trace. Without a provider, the same code hits OpenTelemetry's no-op implementation and costs about 0.2 microseconds per step.
+Configure a provider once at startup and every `run()` and `workflow.run()` joins the active trace. Without a provider, the same code hits OpenTelemetry's no-op implementation and costs about 0.3 microseconds per step.
 
 ## What you get that an event bridge cannot give you
 
@@ -117,7 +117,7 @@ await sdk.shutdown();
 
 | Span | Created for |
 | --- | --- |
-| `run <workflow>` | `run()` and `workflow.run()` |
+| `run <workflow>` | `run()` and `workflow.run()`. The name comes from `run(fn, { workflowName: 'checkout' })`, `createWorkflow('checkout', deps)`, or else a named callback (`run(async function checkout() {...})`). An inline arrow gives plain `run`, and awaitly warns once while an SDK is recording. Minifiers rename functions, so pass `workflowName` in minified builds |
 | `step <name>` | Steps, including the error-mapping variants |
 | `attempt <name>` | Each physical attempt, once retry is configured |
 | `parallel <name>` | `step.all()` |
@@ -147,8 +147,55 @@ awaitly records identifiers and bounded semantic fields. Result values and workf
 | `awaitly.scope.type` | `parallel`, `race`, or `allSettled` |
 | `awaitly.outcome` | `success`, `error`, or `cancelled` |
 | `error.type` | Typed error discriminant or thrown error class |
+| `code.file.path`, `code.line.number`, `code.column.number`, `code.function.name` | The line of your code that started the run or step |
 
-Typed error payloads never reach span attributes, which keeps customer IDs, payment details, and validation input out of your tracing backend.
+Typed error payloads never reach span attributes, which keeps customer IDs, payment details, and validation input out of your tracing backend. A typed failure still records an `exception` event, carrying only `exception.type`, so your backend's exception views include it.
+
+## Find the line that ran
+
+Run and step spans carry the OpenTelemetry `code.*` attributes for the line of your code that called them, so a slow span in Tempo or Honeycomb takes you to `checkout.ts:29`. awaitly reads the stack only when a span is recording, so an app with no SDK skips that work.
+
+Run Node with `--enable-source-maps` to map bundled code back to your source files. In minified builds, `code.function.name` shows the minified name.
+
+## Span events
+
+awaitly records point-in-time moments as events on the span they happened in:
+
+| Event | On | Attributes |
+| --- | --- | --- |
+| `awaitly.step.retry` | step | `awaitly.step.attempt` (the attempt about to run), `awaitly.step.max_attempts`, `awaitly.retry.delay_ms`, `error.type` |
+| `awaitly.step.retries_exhausted` | step | `awaitly.step.attempt`, `error.type` |
+| `awaitly.step.timeout` | step | `awaitly.step.timeout_ms`, `awaitly.step.attempt` |
+| `awaitly.step.cache_hit` | run | `awaitly.step.name`, `awaitly.step.key` |
+| `awaitly.step.skipped` | run or step | `awaitly.step.name`, `awaitly.decision.id` |
+| `awaitly.decision` | run or step | `awaitly.decision.id`, `awaitly.decision.branch`, `awaitly.decision.label` |
+
+A decision event records the branch it took and leaves out the value it tested.
+
+## Attributes for a whole run
+
+Pass `attributes` to put the same attributes on a run's span and every span inside it, nested workflows included. Use it for request-scoped ids you want to filter traces by:
+
+```typescript
+await checkout.run(workflowFn, { attributes: { 'tenant.id': tenantId } });
+await run(work, { attributes: { 'tenant.id': tenantId } });
+createWorkflow('checkout', deps, { attributes: { 'deployment.region': 'eu' } });
+```
+
+`annotateSpan()` sets attributes on the span running right now: the step span inside a step, else the run span. It does nothing when no SDK is recording.
+
+```typescript
+import { annotateSpan } from 'awaitly';
+
+await step('charge', () => {
+  annotateSpan({ 'payment.provider': 'stripe' });
+  return deps.charge(order);
+});
+```
+
+## Incoming requests and messages
+
+`createWebhookHandler()` continues the caller's trace from the request's `traceparent` header, and `createEventHandler()` from `traceparent` in the message metadata. When HTTP instrumentation has already opened a server span for the request, that span stays the parent. Both use your registered propagator, so register one (`NodeSDK` does).
 
 ## Add your own spans inside a step
 
@@ -207,29 +254,19 @@ await checkout.run(workflowFn, { telemetry: true }); // still traced
 
 Turning awaitly's spans off leaves your other instrumentation alone. Your database and HTTP clients keep tracing.
 
-## Metrics and logs
+## Metrics
 
-Automatic tracing stays inside the small `run` path, and awaitly pulls no metric or log SDK into that bundle.
+With a `MeterProvider` registered (`NodeSDK` and Autotel both register one), awaitly records:
 
-Reach for Autotel when you want one provider covering trace export, log correlation, and application metrics. For workflow metrics, read the typed event stream:
+| Metric | Type | Attributes |
+| --- | --- | --- |
+| `awaitly.workflow.duration` | histogram, seconds | `awaitly.workflow.name`, `awaitly.outcome`, `error.type` |
+| `awaitly.step.duration` | histogram, seconds | `awaitly.workflow.name`, `awaitly.step.name`, `awaitly.outcome`, `error.type` |
+| `awaitly.step.retries` | counter | `awaitly.workflow.name`, `awaitly.step.name`, `error.type` of the failed attempt |
 
-```typescript
-import { metrics } from '@opentelemetry/api';
-import { createWorkflow } from 'awaitly';
+Workflow and step names are literal ids, so these attributes stay low-cardinality. awaitly leaves out run ids, step keys and payloads. An unnamed run has no `awaitly.workflow.name`. With no `MeterProvider`, awaitly skips metric timing.
 
-const meter = metrics.getMeter('checkout-api');
-const retries = meter.createCounter('awaitly.step.retries');
-
-const checkout = createWorkflow('checkout', deps, {
-  onEvent(event) {
-    if (event.type === 'step_retry') {
-      retries.add(1, { step: event.name ?? event.stepId });
-    }
-  },
-});
-```
-
-You keep metric names and cardinality under your own control, and the event stream stays available for structured logs and product events.
+`telemetry: false` turns metrics off along with spans.
 
 ## Testing
 
@@ -257,3 +294,39 @@ await provider.forceFlush();
 
 const names = exporter.getFinishedSpans().map((span) => span.name);
 ```
+
+`awaitly/testing` turns the finished spans into a tree for an inline snapshot. It reads them structurally, so it adds no SDK dependency:
+
+```typescript
+import { formatSpanTree, spanTree } from 'awaitly/testing';
+
+expect(formatSpanTree(exporter.getFinishedSpans())).toMatchInlineSnapshot(`
+  "run checkout ✗ CARD_DECLINED
+    step load
+    step charge ✗ CARD_DECLINED"
+`);
+
+const [root] = spanTree(exporter.getFinishedSpans()); // { name, attributes, events, status, children }
+```
+
+## See production runs on the diagram
+
+`awaitly-analyze --trace` reads OpenTelemetry spans as well as recorded events: an OTLP JSON export, or a trace fetched from Tempo (`GET /api/v2/traces/<id>`, one trace or an array of them). The analyzer matches step spans to the diagram by step name, and by `code.line.number` when two steps share one.
+
+With `--format=xstate`, the output pairs the workflow's MachineJSON with [autovisualizer](https://github.com/jagreehal/autovisualizer) `counts`: how often each step succeeded or failed, which way each decision went, and how often each compensation ran. autovisualizer draws a transition with a count of 0 as a dashed line.
+
+```bash
+awaitly-analyze src/checkout.ts --format=xstate --trace=tempo-traces.json > checkout.json
+```
+
+```html
+<auto-visualizer id="checkout"></auto-visualizer>
+<script type="module">
+  const { definition, counts } = await (await fetch('/checkout.json')).json();
+  const chart = document.getElementById('checkout');
+  chart.setAttribute('definition', JSON.stringify(definition));
+  chart.setAttribute('counts', JSON.stringify(counts));
+</script>
+```
+
+From code, `tracesFromSpans()` and `countsFromTraces()` in `awaitly-analyze` do the same.

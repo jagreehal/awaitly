@@ -271,6 +271,7 @@ npx awaitly-analyze ./workflow.ts --no-output-adjacent  # Print only
 # Output formats
 npx awaitly-analyze ./workflow.ts --format=json
 npx awaitly-analyze ./workflow.ts --format=xstate     # XState v6 MachineJSON for machineFromJSON and statechart tools (includes saga compensation states)
+npx awaitly-analyze ./workflow.ts --format=xstate --trace=spans.json  # { definition, counts }: run counts per transition from OTLP JSON or Tempo traces
 npx awaitly-analyze ./workflow.ts --format=markdown
 
 # Control outputs

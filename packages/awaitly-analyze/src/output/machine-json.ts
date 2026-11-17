@@ -441,7 +441,8 @@ function compileNode(node: StaticFlowNode, states: Record<string, MachineJSONSta
       const label = node.conditionLabel && node.conditionLabel !== "<dynamic>" ? node.conditionLabel : undefined;
       const consequent = compileBranch(node.consequent, states, ctx);
       const alternate = compileBranch(node.alternate ?? [], states, ctx);
-      return choice(ctx, states, id, { description: label ?? node.condition, meta: location(node.location) }, [
+      const meta = { ...(id !== raw ? { decisionId: raw } : {}), ...location(node.location) };
+      return choice(ctx, states, id, { description: label ?? node.condition, meta }, [
         [label ?? "true", consequent],
         [label ? `Not ${label}` : "false", alternate],
       ]);

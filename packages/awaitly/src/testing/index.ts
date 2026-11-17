@@ -1420,4 +1420,5 @@ export function formatEvents(events: WorkflowEvent<unknown>[]): string {
 // Simple Test Runner
 // =============================================================================
 
+export { spanTree, formatSpanTree, type RecordedSpan, type SpanNode } from "./spans";
 export { testWorkflow, type TestWorkflowResult, type TestWorkflowOptions, type TestStepResult } from "./test-runner";

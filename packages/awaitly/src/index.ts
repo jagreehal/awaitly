@@ -187,6 +187,7 @@ export { run } from "./core";
 // setTelemetryEnabled(false) turns them off for the whole process.
 export {
   setTelemetryEnabled,
+  annotateSpan,
   isTelemetryEnabled,
 } from "./core/opentelemetry";
 

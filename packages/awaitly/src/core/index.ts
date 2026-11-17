@@ -152,6 +152,7 @@ export const AWAITLY_TIMEOUT = "AWAITLY_TIMEOUT" as const;
  */
 export const tags = <const T extends readonly string[]>(...t: T): T => t;
 
+import type { Attributes } from "@opentelemetry/api";
 import {
   IterationLimitError,
   UnexpectedError,
@@ -166,6 +167,8 @@ import {
   resolveTelemetry,
   withAttemptSpan,
   withRunSpan,
+  inferRunName,
+  recordWorkflowEvent,
   withScopeSpan,
   withStepSpan,
 } from "./opentelemetry";
@@ -2452,6 +2455,11 @@ export type RunOptionsWithCatch<E, C = void> = {
   /** Disable automatic OpenTelemetry spans for this run. Enabled by default. */
   telemetry?: boolean | undefined;
   /**
+   * OpenTelemetry attributes for this run's span and every span inside it,
+   * nested runs included. Use for request-scoped ids: `{ 'tenant.id': id }`.
+   */
+  attributes?: Attributes | undefined;
+  /**
    * Clock for retry delays, `step.sleep`, and `step.withTimeout`.
    * Defaults to the system clock. Pass `createTestClock()` in tests.
    */
@@ -2493,6 +2501,11 @@ export type RunOptionsWithoutCatch<E, C = void> = {
   graph?: DeclaredGraph | undefined;
   /** Disable automatic OpenTelemetry spans for this run. Enabled by default. */
   telemetry?: boolean | undefined;
+  /**
+   * OpenTelemetry attributes for this run's span and every span inside it,
+   * nested runs included. Use for request-scoped ids: `{ 'tenant.id': id }`.
+   */
+  attributes?: Attributes | undefined;
   /**
    * Clock for retry delays, `step.sleep`, and `step.withTimeout`.
    * Defaults to the system clock. Pass `createTestClock()` in tests.
@@ -2970,6 +2983,7 @@ function runFn<T, E = never, C = void>(
     context?: C;
     graph?: DeclaredGraph;
     telemetry?: boolean;
+    attributes?: Attributes;
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
     /** @internal */
@@ -3031,6 +3045,7 @@ function runFn<
     context?: C;
     graph?: DeclaredGraph;
     telemetry?: boolean;
+    attributes?: Attributes;
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
     /** @internal */
@@ -3082,6 +3097,7 @@ function runFn<
     context?: C;
     graph?: DeclaredGraph;
     telemetry?: boolean;
+    attributes?: Attributes;
     /** @internal External signal for workflow-level cancellation. */
     _workflowSignal?: AbortSignal;
     /** @internal */
@@ -3124,10 +3140,11 @@ async function runFn<T, E, C = void>(
       options?: RunOptions<E, C>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ) => AsyncResult<T, any>;
-    return classicRun(
-      ({ step }) => boundFn(bindSteps(deps, step as StepCallable), { step }),
-      maybeOptions
-    );
+    const classicFn = ({ step }: { step: RunStep<E> }) =>
+      boundFn(bindSteps(deps, step as StepCallable), { step });
+    // Keep the callback's name so the run span can be named after it.
+    Object.defineProperty(classicFn, "name", { value: boundFn.name });
+    return classicRun(classicFn, maybeOptions);
   }
 
   const fn = fnOrDeps;
@@ -3141,6 +3158,7 @@ async function runFn<T, E, C = void>(
     context,
     graph,
     telemetry,
+    attributes,
     _workflowSignal,
     _traceRunSpan = true,
     clock: optionsClock,
@@ -3233,7 +3251,9 @@ async function runFn<T, E, C = void>(
       workflowName !== undefined && eventWithContext.workflowName === undefined
         ? ({ ...eventWithContext, workflowName } as WorkflowEvent<E | UnexpectedError, C>)
         : eventWithContext;
-    
+
+    recordWorkflowEvent(traceEnabled, eventWithName);
+
     // Track first successful step in the innermost race scope for winnerId
     if (eventWithName.type === "step_success") {
       // Use the stepId from the event (already generated at step start)
@@ -5357,7 +5377,9 @@ async function runFn<T, E, C = void>(
     {
       enabled: traceEnabled && _traceRunSpan,
       workflowId,
-      workflowName,
+      // Span-only: events keep the name the caller gave, or none.
+      workflowName: workflowName ?? inferRunName(fn),
+      attributes,
       signal: _workflowSignal,
     },
     execute
