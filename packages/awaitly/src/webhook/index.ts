@@ -7,6 +7,7 @@
 
 import { type Result, type AsyncResult, type RunStep, ok, err, isOk, isUnexpectedError, UnexpectedError } from "../core";
 import type { Workflow } from "../workflow/types";
+import { withIncomingContext } from "../core/opentelemetry";
 
 // =============================================================================
 // Request/Response Types
@@ -348,36 +349,32 @@ export function createWebhookHandler<
     afterResponse,
   } = config;
 
-  return async (req: WebhookRequest<TBody>): Promise<WebhookResponse> => {
-    try {
-      // Apply request middleware if provided
-      const processedReq = beforeValidation ? await beforeValidation(req) : req;
+  // Continue the caller's trace when the request carries `traceparent`.
+  return (req: WebhookRequest<TBody>): Promise<WebhookResponse> =>
+    withIncomingContext(req.headers, async () => {
+      try {
+        const processedReq = beforeValidation ? await beforeValidation(req) : req;
 
-      // Validate input
-      const validationResult = await validateInput(processedReq);
+        const validationResult = await validateInput(processedReq);
 
-      if (!isOk(validationResult)) {
-        const response = mapValidationError(validationResult.error, processedReq);
+        if (!isOk(validationResult)) {
+          const response = mapValidationError(validationResult.error, processedReq);
+          return afterResponse ? await afterResponse(response, processedReq) : response;
+        }
+
+        const args = validationResult.value;
+        const workflowResult = await workflow.run(
+          async ({ step, deps }) => workflowFn({ step, deps, args })
+        );
+
+        const response = mapResult(workflowResult, processedReq);
+
         return afterResponse ? await afterResponse(response, processedReq) : response;
+      } catch (error) {
+        const response = mapUnexpectedError(error, req);
+        return afterResponse ? await afterResponse(response, req) : response;
       }
-
-      // Execute workflow with validated input
-      const args = validationResult.value;
-      const workflowResult = await workflow.run(
-        async ({ step, deps }) => workflowFn({ step, deps, args })
-      );
-
-      // Map result to response
-      const response = mapResult(workflowResult, processedReq);
-
-      // Apply response middleware if provided
-      return afterResponse ? await afterResponse(response, processedReq) : response;
-    } catch (error) {
-      // Handle unexpected errors during request processing
-      const response = mapUnexpectedError(error, req);
-      return afterResponse ? await afterResponse(response, req) : response;
-    }
-  };
+    });
 }
 
 // =============================================================================
@@ -872,38 +869,40 @@ export function createEventHandler<
 ): EventHandler<TPayload> {
   const { validatePayload, mapResult } = config;
 
-  return async (event: EventMessage<TPayload>): Promise<EventProcessingResult> => {
-    try {
-      const validationResult = validatePayload(event);
+  // Continue the producer's trace when the message metadata carries `traceparent`.
+  return (event: EventMessage<TPayload>): Promise<EventProcessingResult> =>
+    withIncomingContext(event.metadata, async () => {
+      try {
+        const validationResult = validatePayload(event);
 
-      if (!isOk(validationResult)) {
+        if (!isOk(validationResult)) {
+          return {
+            success: false,
+            ack: true, // Don't retry validation errors
+            error: {
+              type: validationResult.error.type,
+              message: validationResult.error.message,
+              retryable: false,
+            },
+          };
+        }
+
+        const args = validationResult.value;
+        const workflowResult = await workflow.run(
+          async ({ step, deps }) => workflowFn({ step, deps, args })
+        );
+
+        return mapResult(workflowResult, event);
+      } catch (error) {
         return {
           success: false,
-          ack: true, // Don't retry validation errors
+          ack: false, // Retry unexpected errors
           error: {
-            type: validationResult.error.type,
-            message: validationResult.error.message,
-            retryable: false,
+            type: "UnexpectedError",
+            message: error instanceof Error ? error.message : String(error),
+            retryable: true,
           },
         };
       }
-
-      const args = validationResult.value;
-      const workflowResult = await workflow.run(
-        async ({ step, deps }) => workflowFn({ step, deps, args })
-      );
-
-      return mapResult(workflowResult, event);
-    } catch (error) {
-      return {
-        success: false,
-        ack: false, // Retry unexpected errors
-        error: {
-          type: "UnexpectedError",
-          message: error instanceof Error ? error.message : String(error),
-          retryable: true,
-        },
-      };
-    }
-  };
+    });
 }

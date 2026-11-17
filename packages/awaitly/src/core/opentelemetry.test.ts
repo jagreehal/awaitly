@@ -13,8 +13,13 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
-import { isTelemetryEnabled, setTelemetryEnabled } from './opentelemetry';
+import {
+  isTelemetryEnabled,
+  resetUnnamedRunWarning,
+  setTelemetryEnabled,
+} from './opentelemetry';
 import { err, ok } from '../result';
 import { run } from '../run-entry';
 import { runSaga } from '../saga-entry';
@@ -406,6 +411,54 @@ describe('automatic OpenTelemetry tracing', () => {
     // status set by instrumentation cannot be overridden afterwards.
     expect(runSpan?.status.code).toBe(0);
     expect(runSpan?.attributes['awaitly.outcome']).toBe('success');
+  });
+
+  it('names an unnamed run span after its callback, else plain "run"', async () => {
+    await run(async ({ step }) => step('plain', async () => ok('yes')));
+    await run(async function checkout({ step }) {
+      return step('plain', async () => ok('yes'));
+    });
+    await run({ load: async () => ok('yes') }, async function loadUser(s) {
+      return s.load();
+    });
+    await createWorkflow({ load: async () => ok('yes') }).run(
+      async function refund({ step, deps }) {
+        return step('load', () => deps.load());
+      },
+    );
+    await createWorkflow({ load: async () => ok('yes') }).run(
+      async ({ step, deps }) => step('load', () => deps.load()),
+    );
+    await provider.forceFlush();
+
+    const runNames = exporter
+      .getFinishedSpans()
+      .map((span) => span.name)
+      .filter((name) => name.startsWith('run'));
+
+    expect(runNames).toEqual([
+      'run',
+      'run checkout',
+      'run loadUser',
+      'run refund',
+      'run',
+    ]);
+  });
+
+  it('warns once, while an SDK is recording, when a run has no name', async () => {
+    resetUnnamedRunWarning();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await run(async () => 'named', { workflowName: 'checkout' });
+      expect(warn).not.toHaveBeenCalled();
+
+      await run(async () => 'a');
+      await run(async () => 'b');
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain("workflowName: 'checkout'");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   describe('turning tracing off for the whole process', () => {

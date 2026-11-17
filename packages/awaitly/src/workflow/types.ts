@@ -3,6 +3,7 @@
  * Pure types and interfaces; no runtime code.
  */
 
+import type { Attributes } from "@opentelemetry/api";
 import type {
   Result,
   StepFailureMeta,
@@ -172,6 +173,11 @@ export type ExecutionOptions<E, U = UnexpectedError, C = void> = {
   /** Disable automatic OpenTelemetry spans for this execution. */
   telemetry?: boolean | undefined;
   /**
+   * OpenTelemetry attributes for this run's span and every span inside it,
+   * nested runs included. Use for request-scoped ids: `{ 'tenant.id': id }`.
+   */
+  attributes?: Attributes | undefined;
+  /**
    * Error handler called when a step fails.
    * Overrides `onError` from creation-time options.
    */
@@ -322,6 +328,11 @@ export type WorkflowOptions<E, U = UnexpectedError, C = void, Errs extends reado
   onEvent?: ((event: WorkflowEvent<E | U, C>, ctx: C) => void) | undefined;
   /** Disable automatic OpenTelemetry spans for this workflow. */
   telemetry?: boolean | undefined;
+  /**
+   * OpenTelemetry attributes for this run's span and every span inside it,
+   * nested runs included. Use for request-scoped ids: `{ 'tenant.id': id }`.
+   */
+  attributes?: Attributes | undefined;
   /** Create per-run context for event correlation */
   createContext?: (() => C) | undefined;
   /** Step result cache - only steps with a `key` option are cached */

@@ -65,12 +65,13 @@ describe("bundle budgets", () => {
   it("keeps automatically instrumented run + policies within the engine ceiling", () => {
     if (!built()) return;
     // The pre-OTel ceiling was 40 KB. The OpenTelemetry API and awaitly's
-    // run/step/scope instrumentation get a 10 KB allowance. Set above the
+    // run/step/scope instrumentation get a 10 KB allowance, plus 5 KB for
+    // metrics, span events, call sites and inherited attributes. Set above the
     // measured size with room to spare: a ceiling within a few hundred bytes
     // of current turns this into a tripwire for unrelated changes.
     expect(
       minifiedSize(importProbe(rootDist, ["ok", "err", "run", "retry", "timeout", "fallback"]))
-    ).toBeLessThan(50_000);
+    ).toBeLessThan(55_000);
   }, ESBUILD_TIMEOUT_MS);
 
   it("keeps createWorkflow reachable from the root without taxing primitive users", () => {
@@ -90,8 +91,9 @@ describe("bundle budgets", () => {
       // Heavy production machinery: durable execution, persistence, saga,
       // HITL, streaming, webhook, engine. Deliberately off the root.
       durable: 150_000,
-      // Includes run(), so it carries the same bounded OTel API cost.
-      testing: 78_000,
+      // Includes run(), so it carries the same bounded OTel API cost, plus
+      // the span-tree helpers.
+      testing: 86_000,
     } as const;
 
     for (const [name, budget] of Object.entries(budgets)) {

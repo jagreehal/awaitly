@@ -14,7 +14,8 @@ import { resolve, dirname, basename, extname, join } from "path";
 import { writeFileSync, readFileSync } from "fs";
 import { analyze } from "./analyze";
 import { renderStaticMermaid, renderStaticMermaidWithTrace } from "./output/mermaid";
-import { traceFromEvents } from "./trace";
+import { runsFor, tracesFromJSON, type SpanRunTrace } from "./trace";
+import { countsFromTraces } from "./output/autovisualizer";
 import { generateTestMatrix, formatTestMatrixAsCode } from "./output/test-matrix";
 import { generatePaths } from "./path-generator";
 import { renderMultipleStaticJSON } from "./output/json";
@@ -126,8 +127,10 @@ Options:
   --doctor              Print strict diagnostics with concrete fix guidance
   --assert-diagrammable Exit non-zero if any workflow's diagram is not fully
                         deterministic (CI gate); pairs with --format=json
-  --trace=<events.json> Overlay a recorded run's executed path onto the static
-                        diagram (JSON array of workflow events)
+  --trace=<file.json>   Overlay recorded runs onto the diagram. Takes a JSON array
+                        of workflow events, or OpenTelemetry spans (OTLP JSON or a
+                        Tempo trace). With --format=xstate, outputs
+                        { definition, counts } for <auto-visualizer>
   --help, -h             Show this help message
 
 Auto-detection:
@@ -646,8 +649,12 @@ function main(): void {
 /**
  * Determine whether to use railway for this workflow, considering auto-detection.
  */
-/** Load a recorded workflow event stream and reduce it to a trace. */
-function loadTrace(path: string): import("./trace").WorkflowTrace {
+/**
+ * Load a trace file: a recorded workflow event stream, or OpenTelemetry spans
+ * (an OTLP JSON export or a trace fetched from Tempo). Spans can hold several
+ * runs; an event stream is one.
+ */
+function loadTrace(path: string): SpanRunTrace[] {
   let raw: string;
   try {
     raw = readFileSync(resolve(path), "utf8");
@@ -655,18 +662,19 @@ function loadTrace(path: string): import("./trace").WorkflowTrace {
     console.error(`Error: could not read trace file: ${path}`);
     process.exit(1);
   }
-  let events: unknown;
+  let parsed: unknown;
   try {
-    events = JSON.parse(raw);
+    parsed = JSON.parse(raw);
   } catch {
     console.error(`Error: trace file is not valid JSON: ${path}`);
     process.exit(1);
   }
-  if (!Array.isArray(events)) {
-    console.error(`Error: trace file must be a JSON array of workflow events: ${path}`);
+  const runs = tracesFromJSON(parsed);
+  if (!runs) {
+    console.error(`Error: trace file must be a JSON array of workflow events, or OpenTelemetry spans: ${path}`);
     process.exit(1);
   }
-  return traceFromEvents(events as Parameters<typeof traceFromEvents>[0]);
+  return runs;
 }
 
 function shouldUseRailway(options: CliOptions, ir: import("./types").StaticWorkflowIR): boolean {
@@ -797,7 +805,17 @@ function runAnalysis(options: CliOptions, filePath: string): void {
       });
     } else if (options.format === "xstate") {
       // One workflow: its MachineJSON object. Several: an array of them.
-      const machines = workflows.map(renderMachineJSON);
+      // With --trace, each comes with autovisualizer `counts` from the runs.
+      const runs = options.trace ? loadTrace(options.trace) : undefined;
+      const machines = workflows.map((ir) => {
+        const definition = renderMachineJSON(ir);
+        if (!runs) return definition;
+        const { counts, unmatched } = countsFromTraces(definition, runsFor(runs, ir.root.workflowName));
+        if (unmatched.length > 0) {
+          console.error(`warning: ${unmatched.length} traced step(s) had no state in ${ir.root.workflowName}: ${unmatched.join(", ")}`);
+        }
+        return { definition, counts };
+      });
       output = JSON.stringify(machines.length === 1 ? machines[0] : machines, null, 2);
     } else {
       // Render each workflow with auto-detection or explicit mode
@@ -820,7 +838,8 @@ function runAnalysis(options: CliOptions, filePath: string): void {
             })
           );
         } else if (options.trace) {
-          const trace = loadTrace(options.trace);
+          // Mermaid highlights one path: the latest run of this workflow.
+          const trace = runsFor(loadTrace(options.trace), ir.root.workflowName).at(-1) ?? { steps: [] };
           const { mermaid, unmatched } = renderStaticMermaidWithTrace(ir, trace, {
             direction,
             showKeys: options.showKeys,

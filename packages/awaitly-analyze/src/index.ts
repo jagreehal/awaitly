@@ -222,7 +222,8 @@ export {
 } from "./output/mermaid";
 
 // Runtime trace overlay (static skeleton + executed-path highlight)
-export { traceFromEvents } from "./trace";
+export { traceFromEvents, tracesFromSpans } from "./trace";
+export type { SpanRunTrace } from "./trace";
 export { startDevServer } from "./dev-server";
 export type { DevServer, DevServerOptions } from "./dev-server";
 export type {
@@ -277,6 +278,8 @@ export type {
 export { renderWorkflowDSL } from "./output/dsl";
 export { renderMachineJSON } from "./output/machine-json";
 export type { MachineJSON, MachineJSONState } from "./output/machine-json";
+export { countsFromTraces } from "./output/autovisualizer";
+export type { AutovisualizerCounts, CountsResult } from "./output/autovisualizer";
 
 // .awaitly folder write (optional DSL cache)
 export {

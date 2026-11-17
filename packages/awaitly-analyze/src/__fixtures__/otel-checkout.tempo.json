@@ -1,0 +1,1306 @@
+[
+ {
+  "trace": {
+   "resourceSpans": [
+    {
+     "resource": {
+      "attributes": [
+       {
+        "key": "service.name",
+        "value": {
+         "stringValue": "awaitly-otel-check"
+        }
+       }
+      ]
+     },
+     "scopeSpans": [
+      {
+       "scope": {
+        "name": "awaitly"
+       },
+       "spans": [
+        {
+         "traceId": "wW7ZeXKa6BgWa01LmoVR/A==",
+         "spanId": "wluwlr/cDzA=",
+         "name": "run otelCheckout",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755238000000",
+         "endTimeUnixNano": "1794908755243543625",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "abf568bb-c300-4b6d-8640-f1013cc5872b"
+           }
+          },
+          {
+           "key": "awaitly.workflow.name",
+           "value": {
+            "stringValue": "otelCheckout"
+           }
+          },
+          {
+           "key": "code.file.path",
+           "value": {
+            "stringValue": "src/__fixtures__/otel-checkout.ts"
+           }
+          },
+          {
+           "key": "code.line.number",
+           "value": {
+            "intValue": "24"
+           }
+          },
+          {
+           "key": "code.column.number",
+           "value": {
+            "intValue": "23"
+           }
+          },
+          {
+           "key": "code.function.name",
+           "value": {
+            "stringValue": "checkout"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "success"
+           }
+          }
+         ],
+         "events": [
+          {
+           "timeUnixNano": "1794908755242355750",
+           "name": "awaitly.decision",
+           "attributes": [
+            {
+             "key": "awaitly.decision.id",
+             "value": {
+              "stringValue": "needs-review"
+             }
+            },
+            {
+             "key": "awaitly.decision.branch",
+             "value": {
+              "stringValue": "else"
+             }
+            },
+            {
+             "key": "awaitly.decision.label",
+             "value": {
+              "stringValue": "total > 100"
+             }
+            }
+           ]
+          }
+         ],
+         "status": {}
+        },
+        {
+         "traceId": "wW7ZeXKa6BgWa01LmoVR/A==",
+         "spanId": "pA1qUc70T+A=",
+         "parentSpanId": "wluwlr/cDzA=",
+         "name": "step load-cart",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755241000000",
+         "endTimeUnixNano": "1794908755241543584",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "abf568bb-c300-4b6d-8640-f1013cc5872b"
+           }
+          },
+          {
+           "key": "awaitly.step.id",
+           "value": {
+            "stringValue": "load-cart"
+           }
+          },
+          {
+           "key": "awaitly.step.name",
+           "value": {
+            "stringValue": "load-cart"
+           }
+          },
+          {
+           "key": "awaitly.step.key",
+           "value": {
+            "stringValue": "load-cart"
+           }
+          },
+          {
+           "key": "code.file.path",
+           "value": {
+            "stringValue": "src/__fixtures__/otel-checkout.ts"
+           }
+          },
+          {
+           "key": "code.line.number",
+           "value": {
+            "intValue": "25"
+           }
+          },
+          {
+           "key": "code.column.number",
+           "value": {
+            "intValue": "18"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "success"
+           }
+          }
+         ],
+         "status": {}
+        },
+        {
+         "traceId": "wW7ZeXKa6BgWa01LmoVR/A==",
+         "spanId": "4SX9F/KhVbo=",
+         "parentSpanId": "wluwlr/cDzA=",
+         "name": "step charge",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755242000000",
+         "endTimeUnixNano": "1794908755242528417",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "abf568bb-c300-4b6d-8640-f1013cc5872b"
+           }
+          },
+          {
+           "key": "awaitly.step.id",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.name",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.key",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "code.file.path",
+           "value": {
+            "stringValue": "src/__fixtures__/otel-checkout.ts"
+           }
+          },
+          {
+           "key": "code.line.number",
+           "value": {
+            "intValue": "29"
+           }
+          },
+          {
+           "key": "code.column.number",
+           "value": {
+            "intValue": "20"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "success"
+           }
+          }
+         ],
+         "events": [
+          {
+           "timeUnixNano": "1794908755242432542",
+           "name": "awaitly.step.retry",
+           "attributes": [
+            {
+             "key": "awaitly.step.name",
+             "value": {
+              "stringValue": "charge"
+             }
+            },
+            {
+             "key": "awaitly.step.attempt",
+             "value": {
+              "intValue": "2"
+             }
+            },
+            {
+             "key": "awaitly.step.max_attempts",
+             "value": {
+              "intValue": "2"
+             }
+            },
+            {
+             "key": "awaitly.retry.delay_ms",
+             "value": {
+              "intValue": "0"
+             }
+            },
+            {
+             "key": "error.type",
+             "value": {
+              "stringValue": "GATEWAY_BUSY"
+             }
+            }
+           ]
+          }
+         ],
+         "status": {}
+        },
+        {
+         "traceId": "wW7ZeXKa6BgWa01LmoVR/A==",
+         "spanId": "DJDJIgW824c=",
+         "parentSpanId": "wluwlr/cDzA=",
+         "name": "step send-receipt",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755243000000",
+         "endTimeUnixNano": "1794908755243196333",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "abf568bb-c300-4b6d-8640-f1013cc5872b"
+           }
+          },
+          {
+           "key": "awaitly.step.id",
+           "value": {
+            "stringValue": "send-receipt"
+           }
+          },
+          {
+           "key": "awaitly.step.name",
+           "value": {
+            "stringValue": "send-receipt"
+           }
+          },
+          {
+           "key": "awaitly.step.key",
+           "value": {
+            "stringValue": "send-receipt"
+           }
+          },
+          {
+           "key": "code.file.path",
+           "value": {
+            "stringValue": "src/__fixtures__/otel-checkout.ts"
+           }
+          },
+          {
+           "key": "code.line.number",
+           "value": {
+            "intValue": "32"
+           }
+          },
+          {
+           "key": "code.column.number",
+           "value": {
+            "intValue": "5"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "success"
+           }
+          }
+         ],
+         "status": {}
+        },
+        {
+         "traceId": "wW7ZeXKa6BgWa01LmoVR/A==",
+         "spanId": "L6aCeNawKBc=",
+         "parentSpanId": "4SX9F/KhVbo=",
+         "name": "attempt charge",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755243000000",
+         "endTimeUnixNano": "1794908755243126750",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "abf568bb-c300-4b6d-8640-f1013cc5872b"
+           }
+          },
+          {
+           "key": "awaitly.step.id",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.name",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.attempt",
+           "value": {
+            "intValue": "1"
+           }
+          },
+          {
+           "key": "awaitly.step.max_attempts",
+           "value": {
+            "intValue": "2"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "error"
+           }
+          },
+          {
+           "key": "error.type",
+           "value": {
+            "stringValue": "GATEWAY_BUSY"
+           }
+          }
+         ],
+         "events": [
+          {
+           "timeUnixNano": "1794908755243120500",
+           "name": "exception",
+           "attributes": [
+            {
+             "key": "exception.type",
+             "value": {
+              "stringValue": "GATEWAY_BUSY"
+             }
+            }
+           ]
+          }
+         ],
+         "status": {
+          "code": "STATUS_CODE_ERROR"
+         }
+        },
+        {
+         "traceId": "wW7ZeXKa6BgWa01LmoVR/A==",
+         "spanId": "V3dDL8qUlxc=",
+         "parentSpanId": "4SX9F/KhVbo=",
+         "name": "attempt charge",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755243000000",
+         "endTimeUnixNano": "1794908755243019250",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "abf568bb-c300-4b6d-8640-f1013cc5872b"
+           }
+          },
+          {
+           "key": "awaitly.step.id",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.name",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.attempt",
+           "value": {
+            "intValue": "2"
+           }
+          },
+          {
+           "key": "awaitly.step.max_attempts",
+           "value": {
+            "intValue": "2"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "success"
+           }
+          }
+         ],
+         "status": {}
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "trace": {
+   "resourceSpans": [
+    {
+     "resource": {
+      "attributes": [
+       {
+        "key": "service.name",
+        "value": {
+         "stringValue": "awaitly-otel-check"
+        }
+       }
+      ]
+     },
+     "scopeSpans": [
+      {
+       "scope": {
+        "name": "awaitly"
+       },
+       "spans": [
+        {
+         "traceId": "qnvuHr46A+SeslkVg01xRw==",
+         "spanId": "Qwf0lOYJ4UE=",
+         "name": "run otelCheckout",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755244000000",
+         "endTimeUnixNano": "1794908755244879167",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "d422bf44-505b-4df2-8cd8-28f996fab1f6"
+           }
+          },
+          {
+           "key": "awaitly.workflow.name",
+           "value": {
+            "stringValue": "otelCheckout"
+           }
+          },
+          {
+           "key": "code.file.path",
+           "value": {
+            "stringValue": "src/__fixtures__/otel-checkout.ts"
+           }
+          },
+          {
+           "key": "code.line.number",
+           "value": {
+            "intValue": "24"
+           }
+          },
+          {
+           "key": "code.column.number",
+           "value": {
+            "intValue": "23"
+           }
+          },
+          {
+           "key": "code.function.name",
+           "value": {
+            "stringValue": "checkout"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "error"
+           }
+          },
+          {
+           "key": "error.type",
+           "value": {
+            "stringValue": "CARD_DECLINED"
+           }
+          }
+         ],
+         "events": [
+          {
+           "timeUnixNano": "1794908755244241250",
+           "name": "awaitly.decision",
+           "attributes": [
+            {
+             "key": "awaitly.decision.id",
+             "value": {
+              "stringValue": "needs-review"
+             }
+            },
+            {
+             "key": "awaitly.decision.branch",
+             "value": {
+              "stringValue": "then"
+             }
+            },
+            {
+             "key": "awaitly.decision.label",
+             "value": {
+              "stringValue": "total > 100"
+             }
+            }
+           ]
+          },
+          {
+           "timeUnixNano": "1794908755244878250",
+           "name": "exception",
+           "attributes": [
+            {
+             "key": "exception.type",
+             "value": {
+              "stringValue": "CARD_DECLINED"
+             }
+            }
+           ]
+          }
+         ],
+         "status": {
+          "code": "STATUS_CODE_ERROR"
+         }
+        },
+        {
+         "traceId": "qnvuHr46A+SeslkVg01xRw==",
+         "spanId": "WIRFEGUeAsU=",
+         "parentSpanId": "Qwf0lOYJ4UE=",
+         "name": "step charge",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755244000000",
+         "endTimeUnixNano": "1794908755244345792",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "d422bf44-505b-4df2-8cd8-28f996fab1f6"
+           }
+          },
+          {
+           "key": "awaitly.step.id",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.name",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.key",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "code.file.path",
+           "value": {
+            "stringValue": "src/__fixtures__/otel-checkout.ts"
+           }
+          },
+          {
+           "key": "code.line.number",
+           "value": {
+            "intValue": "29"
+           }
+          },
+          {
+           "key": "code.column.number",
+           "value": {
+            "intValue": "20"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "error"
+           }
+          },
+          {
+           "key": "error.type",
+           "value": {
+            "stringValue": "CARD_DECLINED"
+           }
+          }
+         ],
+         "events": [
+          {
+           "timeUnixNano": "1794908755244151875",
+           "name": "awaitly.step.retry",
+           "attributes": [
+            {
+             "key": "awaitly.step.name",
+             "value": {
+              "stringValue": "charge"
+             }
+            },
+            {
+             "key": "awaitly.step.attempt",
+             "value": {
+              "intValue": "2"
+             }
+            },
+            {
+             "key": "awaitly.step.max_attempts",
+             "value": {
+              "intValue": "2"
+             }
+            },
+            {
+             "key": "awaitly.retry.delay_ms",
+             "value": {
+              "intValue": "0"
+             }
+            },
+            {
+             "key": "error.type",
+             "value": {
+              "stringValue": "CARD_DECLINED"
+             }
+            }
+           ]
+          },
+          {
+           "timeUnixNano": "1794908755244254708",
+           "name": "awaitly.step.retries_exhausted",
+           "attributes": [
+            {
+             "key": "awaitly.step.name",
+             "value": {
+              "stringValue": "charge"
+             }
+            },
+            {
+             "key": "awaitly.step.attempt",
+             "value": {
+              "intValue": "2"
+             }
+            },
+            {
+             "key": "error.type",
+             "value": {
+              "stringValue": "CARD_DECLINED"
+             }
+            }
+           ]
+          },
+          {
+           "timeUnixNano": "1794908755244340417",
+           "name": "exception",
+           "attributes": [
+            {
+             "key": "exception.type",
+             "value": {
+              "stringValue": "CARD_DECLINED"
+             }
+            }
+           ]
+          }
+         ],
+         "status": {
+          "code": "STATUS_CODE_ERROR"
+         }
+        },
+        {
+         "traceId": "qnvuHr46A+SeslkVg01xRw==",
+         "spanId": "aCEMq0GB1pk=",
+         "parentSpanId": "WIRFEGUeAsU=",
+         "name": "attempt charge",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755244000000",
+         "endTimeUnixNano": "1794908755244032708",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "d422bf44-505b-4df2-8cd8-28f996fab1f6"
+           }
+          },
+          {
+           "key": "awaitly.step.id",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.name",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.attempt",
+           "value": {
+            "intValue": "1"
+           }
+          },
+          {
+           "key": "awaitly.step.max_attempts",
+           "value": {
+            "intValue": "2"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "error"
+           }
+          },
+          {
+           "key": "error.type",
+           "value": {
+            "stringValue": "CARD_DECLINED"
+           }
+          }
+         ],
+         "events": [
+          {
+           "timeUnixNano": "1794908755244023958",
+           "name": "exception",
+           "attributes": [
+            {
+             "key": "exception.type",
+             "value": {
+              "stringValue": "CARD_DECLINED"
+             }
+            }
+           ]
+          }
+         ],
+         "status": {
+          "code": "STATUS_CODE_ERROR"
+         }
+        },
+        {
+         "traceId": "qnvuHr46A+SeslkVg01xRw==",
+         "spanId": "cHnu248Jbvg=",
+         "parentSpanId": "Qwf0lOYJ4UE=",
+         "name": "step load-cart",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755244000000",
+         "endTimeUnixNano": "1794908755244053959",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "d422bf44-505b-4df2-8cd8-28f996fab1f6"
+           }
+          },
+          {
+           "key": "awaitly.step.id",
+           "value": {
+            "stringValue": "load-cart"
+           }
+          },
+          {
+           "key": "awaitly.step.name",
+           "value": {
+            "stringValue": "load-cart"
+           }
+          },
+          {
+           "key": "awaitly.step.key",
+           "value": {
+            "stringValue": "load-cart"
+           }
+          },
+          {
+           "key": "code.file.path",
+           "value": {
+            "stringValue": "src/__fixtures__/otel-checkout.ts"
+           }
+          },
+          {
+           "key": "code.line.number",
+           "value": {
+            "intValue": "25"
+           }
+          },
+          {
+           "key": "code.column.number",
+           "value": {
+            "intValue": "18"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "success"
+           }
+          }
+         ],
+         "status": {}
+        },
+        {
+         "traceId": "qnvuHr46A+SeslkVg01xRw==",
+         "spanId": "j6q84V8oFL8=",
+         "parentSpanId": "Qwf0lOYJ4UE=",
+         "name": "step review-order",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755244000000",
+         "endTimeUnixNano": "1794908755244087458",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "d422bf44-505b-4df2-8cd8-28f996fab1f6"
+           }
+          },
+          {
+           "key": "awaitly.step.id",
+           "value": {
+            "stringValue": "review-order"
+           }
+          },
+          {
+           "key": "awaitly.step.name",
+           "value": {
+            "stringValue": "review-order"
+           }
+          },
+          {
+           "key": "awaitly.step.key",
+           "value": {
+            "stringValue": "review-order"
+           }
+          },
+          {
+           "key": "code.file.path",
+           "value": {
+            "stringValue": "src/__fixtures__/otel-checkout.ts"
+           }
+          },
+          {
+           "key": "code.line.number",
+           "value": {
+            "intValue": "27"
+           }
+          },
+          {
+           "key": "code.column.number",
+           "value": {
+            "intValue": "7"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "success"
+           }
+          }
+         ],
+         "status": {}
+        },
+        {
+         "traceId": "qnvuHr46A+SeslkVg01xRw==",
+         "spanId": "/1WCVJqjBeI=",
+         "parentSpanId": "WIRFEGUeAsU=",
+         "name": "attempt charge",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755244000000",
+         "endTimeUnixNano": "1794908755244022042",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "d422bf44-505b-4df2-8cd8-28f996fab1f6"
+           }
+          },
+          {
+           "key": "awaitly.step.id",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.name",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.attempt",
+           "value": {
+            "intValue": "2"
+           }
+          },
+          {
+           "key": "awaitly.step.max_attempts",
+           "value": {
+            "intValue": "2"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "error"
+           }
+          },
+          {
+           "key": "error.type",
+           "value": {
+            "stringValue": "CARD_DECLINED"
+           }
+          }
+         ],
+         "events": [
+          {
+           "timeUnixNano": "1794908755244019125",
+           "name": "exception",
+           "attributes": [
+            {
+             "key": "exception.type",
+             "value": {
+              "stringValue": "CARD_DECLINED"
+             }
+            }
+           ]
+          }
+         ],
+         "status": {
+          "code": "STATUS_CODE_ERROR"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "trace": {
+   "resourceSpans": [
+    {
+     "resource": {
+      "attributes": [
+       {
+        "key": "service.name",
+        "value": {
+         "stringValue": "awaitly-otel-check"
+        }
+       }
+      ]
+     },
+     "scopeSpans": [
+      {
+       "scope": {
+        "name": "awaitly"
+       },
+       "spans": [
+        {
+         "traceId": "2VvJE5Isrc1/ELhof2XbJA==",
+         "spanId": "OHB5EmF0jKk=",
+         "parentSpanId": "vKkEHQ2m+2c=",
+         "name": "attempt charge",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755245000000",
+         "endTimeUnixNano": "1794908755245010417",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "fd063a74-4842-4baa-be3f-175d981328b3"
+           }
+          },
+          {
+           "key": "awaitly.step.id",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.name",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.attempt",
+           "value": {
+            "intValue": "1"
+           }
+          },
+          {
+           "key": "awaitly.step.max_attempts",
+           "value": {
+            "intValue": "2"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "success"
+           }
+          }
+         ],
+         "status": {}
+        },
+        {
+         "traceId": "2VvJE5Isrc1/ELhof2XbJA==",
+         "spanId": "WNaKA5nn10A=",
+         "parentSpanId": "/SfDMa2ygZQ=",
+         "name": "step send-receipt",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755245000000",
+         "endTimeUnixNano": "1794908755245054125",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "fd063a74-4842-4baa-be3f-175d981328b3"
+           }
+          },
+          {
+           "key": "awaitly.step.id",
+           "value": {
+            "stringValue": "send-receipt"
+           }
+          },
+          {
+           "key": "awaitly.step.name",
+           "value": {
+            "stringValue": "send-receipt"
+           }
+          },
+          {
+           "key": "awaitly.step.key",
+           "value": {
+            "stringValue": "send-receipt"
+           }
+          },
+          {
+           "key": "code.file.path",
+           "value": {
+            "stringValue": "src/__fixtures__/otel-checkout.ts"
+           }
+          },
+          {
+           "key": "code.line.number",
+           "value": {
+            "intValue": "32"
+           }
+          },
+          {
+           "key": "code.column.number",
+           "value": {
+            "intValue": "5"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "success"
+           }
+          }
+         ],
+         "status": {}
+        },
+        {
+         "traceId": "2VvJE5Isrc1/ELhof2XbJA==",
+         "spanId": "sMRDYQL9wZo=",
+         "parentSpanId": "/SfDMa2ygZQ=",
+         "name": "step load-cart",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755245000000",
+         "endTimeUnixNano": "1794908755245052458",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "fd063a74-4842-4baa-be3f-175d981328b3"
+           }
+          },
+          {
+           "key": "awaitly.step.id",
+           "value": {
+            "stringValue": "load-cart"
+           }
+          },
+          {
+           "key": "awaitly.step.name",
+           "value": {
+            "stringValue": "load-cart"
+           }
+          },
+          {
+           "key": "awaitly.step.key",
+           "value": {
+            "stringValue": "load-cart"
+           }
+          },
+          {
+           "key": "code.file.path",
+           "value": {
+            "stringValue": "src/__fixtures__/otel-checkout.ts"
+           }
+          },
+          {
+           "key": "code.line.number",
+           "value": {
+            "intValue": "25"
+           }
+          },
+          {
+           "key": "code.column.number",
+           "value": {
+            "intValue": "18"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "success"
+           }
+          }
+         ],
+         "status": {}
+        },
+        {
+         "traceId": "2VvJE5Isrc1/ELhof2XbJA==",
+         "spanId": "vKkEHQ2m+2c=",
+         "parentSpanId": "/SfDMa2ygZQ=",
+         "name": "step charge",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755245000000",
+         "endTimeUnixNano": "1794908755245076083",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "fd063a74-4842-4baa-be3f-175d981328b3"
+           }
+          },
+          {
+           "key": "awaitly.step.id",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.name",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "awaitly.step.key",
+           "value": {
+            "stringValue": "charge"
+           }
+          },
+          {
+           "key": "code.file.path",
+           "value": {
+            "stringValue": "src/__fixtures__/otel-checkout.ts"
+           }
+          },
+          {
+           "key": "code.line.number",
+           "value": {
+            "intValue": "29"
+           }
+          },
+          {
+           "key": "code.column.number",
+           "value": {
+            "intValue": "20"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "success"
+           }
+          }
+         ],
+         "status": {}
+        },
+        {
+         "traceId": "2VvJE5Isrc1/ELhof2XbJA==",
+         "spanId": "/SfDMa2ygZQ=",
+         "name": "run otelCheckout",
+         "kind": "SPAN_KIND_INTERNAL",
+         "startTimeUnixNano": "1794908755245000000",
+         "endTimeUnixNano": "1794908755245374833",
+         "attributes": [
+          {
+           "key": "awaitly.workflow.id",
+           "value": {
+            "stringValue": "fd063a74-4842-4baa-be3f-175d981328b3"
+           }
+          },
+          {
+           "key": "awaitly.workflow.name",
+           "value": {
+            "stringValue": "otelCheckout"
+           }
+          },
+          {
+           "key": "code.file.path",
+           "value": {
+            "stringValue": "src/__fixtures__/otel-checkout.ts"
+           }
+          },
+          {
+           "key": "code.line.number",
+           "value": {
+            "intValue": "24"
+           }
+          },
+          {
+           "key": "code.column.number",
+           "value": {
+            "intValue": "23"
+           }
+          },
+          {
+           "key": "code.function.name",
+           "value": {
+            "stringValue": "checkout"
+           }
+          },
+          {
+           "key": "awaitly.outcome",
+           "value": {
+            "stringValue": "success"
+           }
+          }
+         ],
+         "events": [
+          {
+           "timeUnixNano": "1794908755245167708",
+           "name": "awaitly.decision",
+           "attributes": [
+            {
+             "key": "awaitly.decision.id",
+             "value": {
+              "stringValue": "needs-review"
+             }
+            },
+            {
+             "key": "awaitly.decision.branch",
+             "value": {
+              "stringValue": "else"
+             }
+            },
+            {
+             "key": "awaitly.decision.label",
+             "value": {
+              "stringValue": "total > 100"
+             }
+            }
+           ]
+          }
+         ],
+         "status": {}
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ }
+]
