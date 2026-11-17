@@ -1,5 +1,39 @@
 # awaitly-analyze
 
+## 0.34.0
+
+### Minor Changes
+
+- 1d11d81: OpenTelemetry metrics, span events and call sites, plus production run counts on the analyzer diagram.
+
+  awaitly:
+
+  - Run spans take their name from `workflowName`, the `createWorkflow` name, or a named callback. An inline arrow traces as `run`, and awaitly warns once while an SDK is recording.
+  - Run and step spans carry `code.file.path`, `code.line.number`, `code.column.number` and `code.function.name` for the line that started them.
+  - With a `MeterProvider` registered, awaitly records `awaitly.workflow.duration` and `awaitly.step.duration` histograms and an `awaitly.step.retries` counter.
+  - Retries, timeouts, cache hits, skipped steps and decisions appear as span events.
+  - `attributes` on `run()`, `createWorkflow()` and `workflow.run()` applies to every span in the run, nested runs included. `annotateSpan()` sets attributes on the current span.
+  - Typed errors record an `exception` event with `exception.type` only.
+  - `createWebhookHandler()` and `createEventHandler()` continue the caller's trace from `traceparent`.
+  - `spanTree()` and `formatSpanTree()` in `awaitly/testing` give you span trees for inline snapshots.
+
+  awaitly-analyze:
+
+  - `--trace` reads OTLP JSON and Tempo traces. With `--format=xstate` it outputs `{ definition, counts }` for autovisualizer, counting each step outcome, decision branch and compensation.
+  - New exports: `tracesFromSpans` and `countsFromTraces`.
+
+- a03c4f7: Diagrams and XState output show saga rollback.
+
+  - Mermaid draws each `compensate` callback as an undo edge, in LIFO order, with the `SagaCompensationError` path. The CLI picks Mermaid for compensated sagas, and `--no-errors` hides the rollback.
+  - `--format=xstate` gives each compensation its own state. A failing step, child workflow or saga step enters the compensations recorded on the path that ran. A failed compensation lets the older ones run and ends on `compensation_failed`, matching the runtime.
+  - Loops and parallel blocks roll back through an `<id>_undo` state: send `undo:<compensation>` for each completed iteration or parallel step, then `done`. `allSettled` holds rollback until every branch settles.
+
+### Patch Changes
+
+- Updated dependencies [1d11d81]
+  - awaitly@7.1.0
+  - awaitly-visualizer@38.0.0
+
 ## 0.33.0
 
 ### Minor Changes
