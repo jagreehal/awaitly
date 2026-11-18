@@ -72,12 +72,51 @@ describe('OpenTelemetry beyond spans', () => {
     const step = spans.find((s) => s.name === 'step load');
     expect(step?.attributes['code.file.path']).toMatch(/opentelemetry-first\.test\.ts$/);
     expect(step?.attributes['code.line.number']).toBe(lineOf('load-line'));
-    expect(step?.attributes['code.function.name']).toBe('profile');
 
     const runSpan = spans.find((s) => s.name === 'run profile');
     expect(runSpan?.attributes['code.file.path']).toMatch(/opentelemetry-first\.test\.ts$/);
     // Multi-line call: V8 reports the line the call expression starts on.
     expect(runSpan?.attributes['code.line.number']).toBeLessThanOrEqual(lineOf('run-line'));
+  });
+
+  it('names the function that called a step, not the callback awaitly called', async () => {
+    const load = async () => ok('user');
+    async function loadProfile(s: { load: typeof load }) {
+      return s.load();
+    }
+    // V8 names this arrow `run.workflowName`, after the options object beside it.
+    await run({ load }, async (s) => s.load(), { workflowName: 'inline' });
+    await run({ load }, async (s) => loadProfile(s), { workflowName: 'helper' });
+
+    const [inline, helper] = (await finished()).filter((s) => s.name === 'step load');
+    expect(inline?.attributes['code.line.number']).toBeTypeOf('number');
+    expect(inline?.attributes).not.toHaveProperty('code.function.name');
+    expect(helper?.attributes['code.function.name']).toBe('loadProfile');
+  });
+
+  it('keeps the name of a function a timer calls inside the run', async () => {
+    const load = async () => ok('user');
+    await run(
+      { load },
+      (s) => new Promise((resolve) => setTimeout(function onTick() { resolve(s.load()); }, 0)),
+      { workflowName: 'timer' },
+    );
+
+    const step = (await finished()).find((s) => s.name === 'step load');
+    expect(step?.attributes['code.function.name']).toContain('onTick');
+  });
+
+  it('keeps a method name', async () => {
+    const load = async () => ok('user');
+    class Profiles {
+      async load() {
+        return run({ load }, (s) => s.load(), { workflowName: 'method' });
+      }
+    }
+    await new Profiles().load();
+
+    const runSpan = (await finished()).find((s) => s.name === 'run method');
+    expect(runSpan?.attributes['code.function.name']).toBe('Profiles.load');
   });
 
   it('records run and step durations and retries as metrics', async () => {
@@ -200,6 +239,47 @@ describe('OpenTelemetry beyond spans', () => {
     expect(step?.events).toEqual([
       expect.objectContaining({ name: 'exception', attributes: { 'exception.type': 'CARD_DECLINED' } }),
     ]);
+  });
+
+  it("records a typed error's Error cause: message and stack, still no payload", async () => {
+    const cause = new Error('550 mailbox unavailable');
+    await run(
+      async ({ step }) => step('send', async () => err({ type: 'SEND_FAILED', email: 'a@b.c', cause })),
+      { workflowName: 'mail' },
+    );
+
+    const step = (await finished()).find((s) => s.name === 'step send');
+    expect(step?.status.message).toBe('550 mailbox unavailable');
+    expect(step?.attributes['error.type']).toBe('SEND_FAILED');
+    const [event] = step?.events ?? [];
+    expect(event?.attributes).toEqual({
+      'exception.type': 'SEND_FAILED',
+      'exception.message': '550 mailbox unavailable',
+      'exception.stacktrace': cause.stack,
+    });
+    expect(JSON.stringify(step?.attributes)).not.toContain('a@b.c');
+  });
+
+  it('records what your code threw, not the UnexpectedError wrapping it', async () => {
+    class MongoServerSelectionError extends Error {
+      override name = 'MongoServerSelectionError';
+    }
+    const thrown = new MongoServerSelectionError('Server selection timed out');
+    const find = async (): Promise<string> => {
+      throw thrown;
+    };
+    await run({ find }, async (s) => s.find(), { workflowName: 'lookup' });
+
+    for (const name of ['run lookup', 'step find']) {
+      const span = (await finished()).find((s) => s.name === name);
+      expect(span?.attributes['error.type'], name).toBe('UnexpectedError');
+      expect(span?.status.message, name).toBe('Server selection timed out');
+      expect(span?.events[0]?.attributes, name).toEqual({
+        'exception.type': 'MongoServerSelectionError',
+        'exception.message': 'Server selection timed out',
+        'exception.stacktrace': thrown.stack,
+      });
+    }
   });
 
   const TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736';

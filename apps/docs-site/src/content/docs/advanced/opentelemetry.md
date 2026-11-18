@@ -149,13 +149,21 @@ awaitly records identifiers and bounded semantic fields. Result values and workf
 | `error.type` | Typed error discriminant or thrown error class |
 | `code.file.path`, `code.line.number`, `code.column.number`, `code.function.name` | The line of your code that started the run or step |
 
-Typed error payloads never reach span attributes, which keeps customer IDs, payment details, and validation input out of your tracing backend. A typed failure still records an `exception` event, carrying only `exception.type`, so your backend's exception views include it.
+Typed error payloads never reach span attributes, which keeps customer IDs, payment details, and validation input out of your tracing backend. A typed failure still records an `exception` event with its `type` as `exception.type`, so your backend's exception views include it. When the typed error carries an `Error` as `cause`, the event and the span status also get that error's message and stack:
+
+```typescript
+catch (cause) {
+  return err({ type: 'SEND_FAILED', userId, cause }); // span: SEND_FAILED, "550 mailbox unavailable", stack
+}
+```
+
+A throw becomes an `UnexpectedError`. Its span keeps `error.type: UnexpectedError`, and the `exception` event records what your code threw: its class as `exception.type`, its message, and its stack.
 
 ## Find the line that ran
 
 Run and step spans carry the OpenTelemetry `code.*` attributes for the line of your code that called them, so a slow span in Tempo or Honeycomb takes you to `checkout.ts:29`. awaitly reads the stack only when a span is recording, so an app with no SDK skips that work.
 
-Run Node with `--enable-source-maps` to map bundled code back to your source files. In minified builds, `code.function.name` shows the minified name.
+Run Node with `--enable-source-maps` to map bundled code back to your source files. In minified builds, `code.function.name` shows the minified name. A step called from the callback you pass to `run()` or `workflow.run()` records no `code.function.name`, since V8 names an inline arrow after the code around it. Call the step from a named function (`loadProfile(s)`) and the span records that name.
 
 ## Span events
 
