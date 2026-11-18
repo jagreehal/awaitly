@@ -1,5 +1,12 @@
 # awaitly-analyze
 
+## 0.34.1
+
+### Patch Changes
+
+- Updated dependencies [f645097]
+  - awaitly@7.1.1
+
 ## 0.34.0
 
 ### Minor Changes
