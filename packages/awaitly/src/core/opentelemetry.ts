@@ -156,37 +156,72 @@ function isResultLike(value: unknown): value is ResultLike {
   );
 }
 
-/**
- * Name the error for `error.type`. Unwrapping nested `.error` is bounded: this
- * runs on the failure path, where a self-referencing error object must not turn
- * one failure into a stack overflow.
- */
-function errorType(error: unknown, depth = 0): string {
-  if (error instanceof Error) return error.name;
-  if (typeof error === 'object' && error !== null) {
-    const value = error as Record<string, unknown>;
-    for (const key of ['type', '_tag', 'tag', 'code'] as const) {
-      const tag = value[key];
-      if (typeof tag === 'string' && tag.length > 0) return tag;
-    }
-    if (depth < 4 && 'error' in value) return errorType(value.error, depth + 1);
-  }
-  return typeof error;
+/** Name the error for `error.type`. */
+function errorType(error: unknown): string {
+  const failure = unwrapFailure(error);
+  if (failure instanceof Error) return failure.name;
+  return tagOf(failure) ?? typeof failure;
 }
 
-function markError(span: Span, error: unknown): void {
+function tagOf(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const value = error as Record<string, unknown>;
+  for (const key of ['type', '_tag', 'tag', 'code'] as const) {
+    const tag = value[key];
+    if (typeof tag === 'string' && tag.length > 0) return tag;
+  }
+  return undefined;
+}
+
+/**
+ * A step exits by throwing an untagged `{ error }` wrapper: the failure is
+ * inside. Depth is bounded so a self-referencing error object cannot overflow
+ * the stack on the failure path.
+ */
+function unwrapFailure(error: unknown, depth = 0): unknown {
+  if (
+    depth < 4 &&
+    typeof error === 'object' &&
+    error !== null &&
+    !(error instanceof Error) &&
+    tagOf(error) === undefined &&
+    'error' in error
+  ) {
+    return unwrapFailure((error as { error: unknown }).error, depth + 1);
+  }
+  return error;
+}
+
+/**
+ * The thrown Error behind a failure, for its message and stack. An
+ * `UnexpectedError` wraps what your code threw: its own stack starts inside
+ * awaitly, so the `cause` is the one worth showing. A typed error
+ * (`{ type: 'SEND_FAILED', cause }`) shows the Error it carries as `cause`.
+ */
+function thrownError(error: unknown): Error | undefined {
+  const cause = typeof error === 'object' && error !== null ? (error as { cause?: unknown }).cause : undefined;
+  if (error instanceof Error) {
+    return error.name === 'UnexpectedError' && cause instanceof Error ? cause : error;
+  }
+  return cause instanceof Error ? cause : undefined;
+}
+
+function markError(span: Span, wrapped: unknown): void {
+  const error = unwrapFailure(wrapped);
+  const type = errorType(error);
+  const thrown = thrownError(error);
   span.setStatus({
     code: SpanStatusCode.ERROR,
-    ...(error instanceof Error && error.message
-      ? { message: error.message }
-      : {}),
+    ...(thrown?.message ? { message: thrown.message } : {}),
   });
-  const type = errorType(error);
   span.setAttribute('error.type', type);
-  if (error instanceof Error) span.recordException(error);
-  // A typed error is still an exception to a tracing backend. Record its type
-  // only: the payload can hold customer data.
-  else span.addEvent('exception', { 'exception.type': type });
+  // A typed error's own fields can hold customer data, so only its type and an
+  // Error it carries as `cause` reach the event.
+  span.addEvent('exception', {
+    'exception.type': error instanceof Error && thrown ? thrown.name : type,
+    ...(thrown?.message ? { 'exception.message': thrown.message } : {}),
+    ...(thrown?.stack ? { 'exception.stacktrace': thrown.stack } : {}),
+  });
 }
 
 /**

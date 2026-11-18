@@ -40,6 +40,11 @@ function isOwnFrame(path: string): boolean {
 /**
  * `code.*` attributes for the first frame outside awaitly. Only called once a
  * span is known to be recording, so an untraced app never pays for the stack.
+ *
+ * A frame that awaitly called is a callback you passed in. V8 names an inline
+ * arrow after the code around it (`run.workflowName` for
+ * `run(deps, async (s) => ..., { workflowName })`), so such a frame records no
+ * `code.function.name`. A `node:` caller (a timer) is not awaitly.
  */
 export function callSite(): Attributes {
   const limit = Error.stackTraceLimit;
@@ -47,17 +52,20 @@ export function callSite(): Attributes {
   const stack = new Error().stack ?? '';
   Error.stackTraceLimit = limit;
 
-  for (const line of stack.split('\n').slice(1)) {
+  const lines = stack.split('\n').slice(1);
+  for (const [index, line] of lines.entries()) {
     const match = FRAME.exec(line.trim());
     if (!match) continue;
     const [, v8Name, jscName, path, lineNo, column] = match;
     if (!path || isOwnFrame(path)) continue;
-    const fn = (v8Name ?? jscName)?.replace(/^async\s+/, '');
+    const caller = FRAME.exec(lines[index + 1]?.trim() ?? '')?.[3];
+    const calledByAwaitly = caller !== undefined && !caller.startsWith('node:') && isOwnFrame(caller);
+    const fn = calledByAwaitly ? undefined : (v8Name ?? jscName)?.replace(/^async\s+/, '');
     return {
       'code.file.path': path.replace(/^file:\/\//, ''),
       'code.line.number': Number(lineNo),
       'code.column.number': Number(column),
-      ...(fn ? { 'code.function.name': fn } : {}),
+      ...(fn && !fn.includes('<anonymous>') ? { 'code.function.name': fn } : {}),
     };
   }
   return {};

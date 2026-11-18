@@ -57,6 +57,7 @@ Use this as a checklist when generating or editing awaitly code. Satisfy every i
 - **MUST** name every run: `createWorkflow('checkout', deps)`, `run(fn, { workflowName: 'checkout' })`, or a named function. An inline arrow traces as plain `run`.
 - Put request-scoped ids on every span in a run with `{ attributes: { 'tenant.id': id } }`. Use `annotateSpan({...})` for the current step only.
 - **MUST NOT** put payloads, emails or card numbers in attributes. Spans leave your process.
+- Pass a caught `Error` as `cause` in a typed error (`err({ type: 'SEND_FAILED', cause })`). The span's `exception` event then carries its message and stack; the typed error's other fields stay out.
 - Assert on spans in tests with `formatSpanTree(exporter.getFinishedSpans())` from `awaitly/testing`.
 - Turn spans off with `{ telemetry: false }` on one run, `setTelemetryEnabled(false)` for the process, or `AWAITLY_TELEMETRY=0` in the environment.
 
