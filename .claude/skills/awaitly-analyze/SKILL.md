@@ -35,7 +35,7 @@ Use awaitly-analyze to understand workflow structure **without execution**. Entr
 - AWS Lambda durable functions: `withDurableExecution(handler)` from `@aws/durable-execution-sdk-js` or `awaitly-durable-lambda` is discovered, including `withDurableExecution(validateEvent(schema, handler))`. `ir.root.source` is `"withDurableExecution"`, and the workflow name is the variable that holds the handler. Calls on the handler's context map to IR: `context.step`/`wait`/`waitForCallback`/`invoke`/`waitForCondition` become step nodes (`callee` is `context.<operation>`), `context.parallel` a parallel node, `context.map` a loop, and `context.runInChildContext` a named sequence. A branch that returns or throws sets `consequentExits`/`alternateExits` on its conditional.
 - A workflow value is analyzed whether it is invoked with `.run(...)` or `.runWithState(...)` — both produce the same diagram.
 - The deps-first callback receives bound steps first and the workflow context second: `run(deps, async (s) => s.loadBatch())`, or `run(deps, async (s, { step }) => step('loadBatch', ...))` for the classic `step`. Steps are named by their id in both. A step awaited inline as an argument (`s.validateUser(await s.getUser(id))`, `s.getUser((await s.getOrder(id)).userId)`) is detected and ordered before the call that consumes it.
-- **Workflow names**: `ir.root.workflowName` for a `run`/`durable.run` call comes from the enclosing function (`export function runBatch()`, `const settleInvoices = async () =>`), then a string-literal durable `id`, and only falls back to `run@file:line` for a genuinely anonymous call. Generated `*.types.ts` filenames follow that name.
+- **Workflow names**: `ir.root.workflowName` for a `run`/`durable.run` call comes from a string-literal `workflowName` option (the name its spans carry), then the enclosing function (`export function runBatch()`, `const settleInvoices = async () =>`), then a string-literal durable `id`, and only falls back to `run@file:line` for a genuinely anonymous call. Generated `*.types.ts` filenames follow that name.
 
 ### Strict mode and step IDs
 - In strict mode, agents **MUST** ensure every step call uses a **static string literal** as the first argument (ID or name). See awaitly-patterns skill.
@@ -174,6 +174,7 @@ For options (direction, showDataFlow, etc.), consult package types (`MermaidOpti
 
 - `validateStrict(ir, options)` returns a validation result; use `formatDiagnostics(result)` for human-readable output.
 - **Invariant:** Strict mode expects step calls to use a **string as the first argument** (ID or name). Legacy `step(fn, opts)` or missing step IDs trigger diagnostics. For full rule list and options, consult package types (`StrictValidationResult`, `StrictRule`).
+- `unnamed-trace` (slug `workflow-unnamed-trace`) warns when a workflow's OpenTelemetry span will be a bare `run`: `const checkout = createWorkflow(deps)` or an inline `run()` callback with no `workflowName`. `ir.root.unnamedTrace` holds the call form to name, and the diagnostic's `fix` gives the exact call. Runs with `telemetry: false` stay quiet.
 
 ---
 

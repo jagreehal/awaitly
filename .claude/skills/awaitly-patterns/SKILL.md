@@ -54,7 +54,8 @@ Use this as a checklist when generating or editing awaitly code. Satisfy every i
 - awaitly opens OpenTelemetry spans for every `run`, `step`, retry attempt, and `step.all`/`step.race` scope. Register a provider at startup and the spans appear.
 - **MUST NOT** wrap the workflow callback or a step function in `trace()` (autotel), `startActiveSpan()`, or any other span helper. awaitly already opened that span, so a wrapper reports the same call twice.
 - **MUST** put your own spans inside the step body when you want detail below the step.
-- **MUST** name every run: `createWorkflow('checkout', deps)`, `run(fn, { workflowName: 'checkout' })`, or a named function. An inline arrow traces as plain `run`.
+- **MUST** name every run: `createWorkflow('checkout', deps)`, `run(fn, { workflowName: 'checkout' })`, or a named function. An inline arrow traces as plain `run`, and so does `const checkout = createWorkflow(deps)`: the runtime never sees the variable name. `awaitly-analyze --doctor` flags these runs.
+- Call steps from a named helper to get `code.function.name` on the step span. Await the helper (`async (s) => { await loadProfile(s); }`) so the name survives an `await` inside it.
 - Put request-scoped ids on every span in a run with `{ attributes: { 'tenant.id': id } }`. Use `annotateSpan({...})` for the current step only.
 - **MUST NOT** put payloads, emails or card numbers in attributes. Spans leave your process.
 - Pass a caught `Error` as `cause` in a typed error (`err({ type: 'SEND_FAILED', cause })`). The span's `exception` event then carries its message and stack; the typed error's other fields stay out.

@@ -53,16 +53,17 @@ describe('spine cross-surface parity', () => {
     for (const code of analyzerCodes) {
       expect(isAwaitlySlug(code)).toBe(true);
     }
-    // The analyzer's diagnostics map onto the core spine slugs plus two
-    // analyzer-only slugs for control flow whose condition/iterable cannot
-    // be read statically. These have no ESLint counterpart: deciding
-    // readability needs the analyzer's expression derivation.
+    // The analyzer's diagnostics map onto the core spine slugs plus
+    // analyzer-only slugs: control flow whose condition/iterable cannot be
+    // read statically, and a workflow named only by the code around it.
+    // These have no ESLint counterpart: they need the analyzer's derivation.
     const expectedAnalyzerCodes = new Set([
       'step-require-id',
       'result-require-handling',
       'workflow-options-position',
       'workflow-unreadable-condition',
       'workflow-unreadable-iterable',
+      'workflow-unnamed-trace',
     ]);
     expectSetEqual(analyzerCodes, expectedAnalyzerCodes, 'analyzer strict codes');
   });

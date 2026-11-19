@@ -44,7 +44,13 @@ function isOwnFrame(path: string): boolean {
  * A frame that awaitly called is a callback you passed in. V8 names an inline
  * arrow after the code around it (`run.workflowName` for
  * `run(deps, async (s) => ..., { workflowName })`), so such a frame records no
- * `code.function.name`. A `node:` caller (a timer) is not awaitly.
+ * `code.function.name`.
+ *
+ * The caller is the first frame below that is your code or awaitly's: `node:`
+ * frames (a timer, `nextTick`, the microtask queue resuming an `await`) and
+ * built-ins like `Array.map (<anonymous>)` are skipped. After an `await`, V8's
+ * async frames still lead back to whoever awaited, so a resumed callback is
+ * still seen as awaitly's.
  */
 export function callSite(): Attributes {
   const limit = Error.stackTraceLimit;
@@ -58,8 +64,12 @@ export function callSite(): Attributes {
     if (!match) continue;
     const [, v8Name, jscName, path, lineNo, column] = match;
     if (!path || isOwnFrame(path)) continue;
-    const caller = FRAME.exec(lines[index + 1]?.trim() ?? '')?.[3];
-    const calledByAwaitly = caller !== undefined && !caller.startsWith('node:') && isOwnFrame(caller);
+    let caller: string | undefined;
+    for (let below = index + 1; below < lines.length && caller === undefined; below++) {
+      const belowPath = FRAME.exec(lines[below]!.trim())?.[3];
+      if (belowPath !== undefined && !belowPath.startsWith('node:')) caller = belowPath;
+    }
+    const calledByAwaitly = caller !== undefined && isOwnFrame(caller);
     const fn = calledByAwaitly ? undefined : (v8Name ?? jscName)?.replace(/^async\s+/, '');
     return {
       'code.file.path': path.replace(/^file:\/\//, ''),

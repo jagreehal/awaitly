@@ -35,6 +35,7 @@ export const AWAITLY_SLUGS = {
   "workflow-no-dynamic-import": "workflow-no-dynamic-import",
   "workflow-unreadable-condition": "workflow-unreadable-condition",
   "workflow-unreadable-iterable": "workflow-unreadable-iterable",
+  "workflow-unnamed-trace": "workflow-unnamed-trace",
 
   // --- result-* ---
   "result-no-floating": "result-no-floating",
@@ -108,6 +109,7 @@ export function isAwaitlySlug(value: string): value is AwaitlySlug {
 /** All slugs as an array. */
 // Object.keys returns string[] — cast is safe because AWAITLY_SLUGS is `as const`
 // and the module's keys are never mutated.
-export const ALL_SLUGS: readonly AwaitlySlug[] = Object.keys(
+// Pure, so a bundle that only formats a docs URL leaves the slug table out.
+export const ALL_SLUGS: readonly AwaitlySlug[] = /* @__PURE__ */ Object.keys(
   AWAITLY_SLUGS
 ) as AwaitlySlug[];

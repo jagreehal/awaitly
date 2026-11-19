@@ -12,6 +12,7 @@ import type { SourceFile, Node, CallExpression } from "ts-morph";
 import { loadTsMorph } from "../ts-morph-loader";
 
 import type { AnalyzerOptions } from "./shared";
+import type { UnnamedTraceForm } from "../types";
 import { DURABLE_MODULES } from "./durable";
 
 export interface WorkflowCallInfo {
@@ -30,6 +31,13 @@ export interface WorkflowCallInfo {
   callbackFunction: Node | undefined;
   variableDeclaration: Node | undefined;
   source: "createWorkflow" | "createSagaWorkflow" | "runSaga" | "run" | "withDurableExecution";
+  /**
+   * The runtime cannot name this workflow, so its OpenTelemetry span is just
+   * `run`: the name above came from the code around it, which only static
+   * analysis can see. Holds the call form to name. For `createWorkflow(deps)`
+   * it is only a candidate until an invocation passes an anonymous callback.
+   */
+  unnamedTrace?: UnnamedTraceForm;
 }
 
 /**
@@ -218,16 +226,16 @@ export function findWorkflowCalls(sourceFile: SourceFile, opts: Required<Analyze
 
           // Deps may be written inline or passed as an identifier; resolve to
           // the literal so dependency extraction sees the same shape either way.
+          // Options read through `as const` / `satisfies`, like the runtime sees them.
+          const options = args[isDepsFirst ? 1 : 2];
+          const optionsLiteral = options && unwrapExpression(options);
+          if (optionsLiteral && Node.isObjectLiteralExpression(optionsLiteral)) {
+            optionsObject = optionsLiteral;
+          }
           if (isDepsFirst) {
             depsObject = resolveToObjectLiteral(args[0], sourceFile);
-            if (args.length >= 2 && args[1] && Node.isObjectLiteralExpression(args[1])) {
-              optionsObject = args[1];
-            }
           } else {
             depsObject = resolveToObjectLiteral(args[1], sourceFile) ?? (args.length >= 2 ? args[1] : undefined);
-            if (args.length >= 3 && args[2] && Node.isObjectLiteralExpression(args[2])) {
-              optionsObject = args[2];
-            }
           }
 
           workflows.push({
@@ -239,6 +247,8 @@ export function findWorkflowCalls(sourceFile: SourceFile, opts: Required<Analyze
           callbackFunction: undefined,
           variableDeclaration,
           source: "createWorkflow",
+          // Telemetry is decided per invocation: see invocationTraced.
+          ...(isDepsFirst ? { unnamedTrace: "createWorkflow(deps)" as const } : {}),
         });
         }
       }
@@ -389,7 +399,10 @@ export function findWorkflowCalls(sourceFile: SourceFile, opts: Required<Analyze
       // only bare run() calls
       const isNamespaceCall = Node.isPropertyAccessExpression(callee) && isNamespaceOrDefaultImport;
       if (isImported && !isShadowed && (isNamespaceCall || isDurableRunCall || !Node.isPropertyAccessExpression(callee))) {
-        const args = node.getArguments();
+        // `run(deps, (async (s) => ...))` is the same call: read syntax through
+        // parentheses and assertions, but types from the argument as written.
+        const rawArgs = node.getArguments();
+        const args = rawArgs.map(unwrapExpression);
         const line = node.getStartLineNumber();
         const filePath = sourceFile.getFilePath();
         const fileName = filePath.includes("/")
@@ -397,30 +410,39 @@ export function findWorkflowCalls(sourceFile: SourceFile, opts: Required<Analyze
           : filePath;
 
         // Deps-first form: run(deps, fn, options?) — the callback is the
-        // SECOND argument and the first is the deps object. Discriminate by
-        // the second arg being a function: legacy run(cb, options) has an
-        // object literal (options) there, never a function.
+        // SECOND argument and the first is the deps object. The runtime picks
+        // the form by whether the first argument is a function; a callback
+        // passed by identifier (`run(deps, handler)`) is read from its type.
+        // Only the deps-first form takes three arguments, typed or not.
         const isDepsFirstForm =
-          args.length >= 2 &&
-          args[1] !== undefined &&
-          (Node.isArrowFunction(args[1]) || Node.isFunctionExpression(args[1])) &&
-          !Node.isArrowFunction(args[0]) &&
-          !Node.isFunctionExpression(args[0]);
+          args.length >= 3 ||
+          (args.length === 2 && !isFunctionArg(rawArgs[0]) && isFunctionArg(rawArgs[1]));
 
         const runOptionsObject = isDepsFirstForm ? args[2] : undefined;
+        const callbackFunction = isDepsFirstForm ? args[1] : args[0];
+        // run(fn, options) puts options second; durable.run always has an id.
+        const traceOptions = isDepsFirstForm ? args[2] : args[1];
+
+        const workflowNameOption = readWorkflowName(traceOptions);
+        const unnamedForm: UnnamedTraceForm | undefined = isDurableRunCall || telemetryOff(traceOptions)
+          ? undefined
+          : workflowNameOption === ""
+            ? "workflowName: ''"
+            : workflowNameOption === undefined && isAnonymousFunction(callbackFunction)
+              ? isDepsFirstForm ? "run(deps, fn)" : "run(fn)"
+              : undefined;
 
         workflows.push({
-          name: deriveRunWorkflowName(
-            node,
-            runOptionsObject,
-            `run@${fileName}:${line}`
-          ),
+          name:
+            (workflowNameOption || undefined) ??
+            deriveRunWorkflowName(node, runOptionsObject, `run@${fileName}:${line}`),
           callExpression: node,
           depsObject: isDepsFirstForm ? args[0] : undefined,
           optionsObject: runOptionsObject,
-          callbackFunction: isDepsFirstForm ? args[1] : args[0],
+          callbackFunction,
           variableDeclaration: undefined,
           source: "run",
+          ...(unnamedForm ? { unnamedTrace: unnamedForm } : {}),
         });
       }
     }
@@ -749,6 +771,127 @@ function isDescendantOf(node: Node, potentialAncestor: Node): boolean {
 }
 
 /**
+ * What an options object sets `key` to, read the way the runtime reads it: the
+ * value's expression, `undefined` when unset (or set to `undefined`), or `null`
+ * when it can't be known statically (a variable options object, a spread that
+ * may override it, an unresolved computed key).
+ */
+function readOption(options: Node | undefined, key: string): Node | undefined | null {
+  const { Node: N } = loadTsMorph();
+  if (options === undefined) return undefined;
+  options = unwrapExpression(options);
+  if (isUndefined(options)) return undefined;
+  if (!N.isObjectLiteralExpression(options)) return null;
+  let value: Node | undefined | null = undefined;
+  for (const prop of options.getProperties()) {
+    const name = N.isSpreadAssignment(prop) ? null : propertyKey(prop.getNameNode());
+    if (name === null) {
+      value = null;
+    } else if (name === key) {
+      const raw = N.isPropertyAssignment(prop) ? prop.getInitializer() : undefined;
+      const init = raw && unwrapExpression(raw);
+      value = init === undefined ? null : isUndefined(init) ? undefined : init;
+    }
+  }
+  return value;
+}
+
+/** The `workflowName` a run passes: the literal (spaces kept, `''` included), unset, or `null` for unknown. */
+function readWorkflowName(options: Node | undefined): string | undefined | null {
+  const { Node: N } = loadTsMorph();
+  const value = readOption(options, "workflowName");
+  if (!value) return value;
+  return N.isStringLiteral(value) || N.isNoSubstitutionTemplateLiteral(value)
+    ? value.getLiteralValue()
+    : null;
+}
+
+/** `telemetry: false`: the run emits no span, so its name doesn't matter. */
+function telemetryOff(options: Node | undefined): boolean {
+  const { Node: N } = loadTsMorph();
+  const value = readOption(options, "telemetry");
+  return !!value && N.isFalseLiteral(value);
+}
+
+/**
+ * Whether a `workflow.run(fn, config?)` call emits a run span. As at runtime,
+ * the call's own `telemetry` wins and the workflow's applies only when the
+ * call leaves it unset (`config?.telemetry ?? options?.telemetry`).
+ */
+export function invocationTraced(
+  workflowOptions: Node | undefined,
+  invocation: WorkflowInvocation
+): boolean {
+  const { Node: N } = loadTsMorph();
+  const call = invocation.callExpression;
+  const args = N.isCallExpression(call) ? call.getArguments() : [];
+  const at = invocation.callbackArg ? args.indexOf(invocation.callbackArg) : -1;
+  const own = at === -1 ? undefined : readOption(args[at + 1], "telemetry");
+  const value = own === undefined ? readOption(workflowOptions, "telemetry") : own;
+  return !(value && N.isFalseLiteral(value));
+}
+
+/** An argument as the runtime sees it: without parentheses, `as`, `satisfies`, `<T>` or `!`. */
+function unwrapExpression(node: Node): Node {
+  const { Node: N } = loadTsMorph();
+  let current = node;
+  while (
+    N.isParenthesizedExpression(current) ||
+    N.isAsExpression(current) ||
+    N.isSatisfiesExpression(current) ||
+    N.isTypeAssertion(current) ||
+    N.isNonNullExpression(current)
+  ) {
+    current = current.getExpression();
+  }
+  return current;
+}
+
+/** The `undefined` identifier: an option set to it, or left out, is the same to the runtime. */
+function isUndefined(node: Node): boolean {
+  const { Node: N } = loadTsMorph();
+  return N.isIdentifier(node) && node.getText() === "undefined";
+}
+
+/** A property's key as the runtime sees it, or `null` when it is computed from something not literal. */
+function propertyKey(nameNode: Node): string | null {
+  const { Node: N } = loadTsMorph();
+  const key = N.isComputedPropertyName(nameNode) ? nameNode.getExpression() : nameNode;
+  if (N.isStringLiteral(key) || N.isNoSubstitutionTemplateLiteral(key)) return key.getLiteralValue();
+  return N.isComputedPropertyName(nameNode) ? null : key.getText();
+}
+
+/**
+ * Whether a `run()` argument is a function: written inline, or typed as one.
+ * Takes the argument as written, so `handler as Handler` keeps its asserted type.
+ */
+function isFunctionArg(arg: Node | undefined): boolean {
+  const { Node: N } = loadTsMorph();
+  if (arg === undefined) return false;
+  const inner = unwrapExpression(arg);
+  if (N.isArrowFunction(inner) || N.isFunctionExpression(inner)) return true;
+  try {
+    return arg.getType().getCallSignatures().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * An inline callback with no name of its own. The runtime names a run after
+ * its callback (`fn.name`), which is empty for these: V8's inferred stack-frame
+ * name is not `fn.name`. A callback passed by identifier usually has a name.
+ */
+export function isAnonymousFunction(node: Node | undefined): boolean {
+  const { Node: N } = loadTsMorph();
+  const callback = node && unwrapExpression(node);
+  return (
+    callback !== undefined &&
+    (N.isArrowFunction(callback) || (N.isFunctionExpression(callback) && !callback.getName()))
+  );
+}
+
+/**
  * Human name for a deps-first `run()` / `durable.run()` workflow.
  *
  * `run@file:line` is a coordinate, not a name: it churns when a line moves and
@@ -772,8 +915,13 @@ function deriveRunWorkflowName(
 
   for (let current: Node | undefined = node.getParent(); current; current = current.getParent()) {
     // function runBatch() { ... } / class method
-    if (N.isFunctionDeclaration(current) || N.isMethodDeclaration(current)) {
+    if (N.isFunctionDeclaration(current)) {
       const name = current.getName();
+      if (name) return name;
+    }
+    // A method's key without its quotes: `"customer's checkout"() {}` is customer's checkout.
+    if (N.isMethodDeclaration(current)) {
+      const name = propertyKey(current.getNameNode());
       if (name) return name;
     }
     // const settleInvoices = async () => { ... }

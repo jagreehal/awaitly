@@ -46,6 +46,8 @@ import { analyzeDurableOperation } from "./durable";
 import {
   findWorkflowCalls,
   findWorkflowInvocations,
+  isAnonymousFunction,
+  invocationTraced,
   type WorkflowCallInfo,
 } from "./discovery";
 import {
@@ -430,6 +432,7 @@ function analyzeWorkflowCall(
   // For run() and runSaga(), the callback is already in callbackFunction
   const children: StaticFlowNode[] = [];
   let callbackForReturnType: Node | undefined;
+  let unnamedTrace = workflowInfo.unnamedTrace;
 
   if (source === "withDurableExecution") {
     callbackForReturnType = workflowInfo.callbackFunction;
@@ -480,6 +483,17 @@ function analyzeWorkflowCall(
   } else {
     // For createWorkflow and createSagaWorkflow, find invocations
     const invocations = findWorkflowInvocations(workflowInfo, sourceFile);
+    // An unnamed workflow still traces by name when its run callback has one,
+    // and a run with telemetry off emits no span to name.
+    if (
+      !invocations.some(
+        (invocation) =>
+          isAnonymousFunction(invocation.callbackArg) &&
+          invocationTraced(optionsObject, invocation)
+      )
+    ) {
+      unnamedTrace = undefined;
+    }
     if (invocations.length > 0 && invocations[0].callbackArg) {
       callbackForReturnType = invocations[0].callbackArg;
     }
@@ -511,6 +525,7 @@ function analyzeWorkflowCall(
     location: opts.includeLocations ? getLocation(callExpression) : undefined,
     strict: workflowStrict.strict,
     declaredErrors: workflowStrict.declaredErrors,
+    ...(unnamedTrace ? { unnamedTrace } : {}),
   };
 
   // Best-effort: workflow callback return type (inline callback or callback-by-identifier).
