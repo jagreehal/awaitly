@@ -117,7 +117,7 @@ await sdk.shutdown();
 
 | Span | Created for |
 | --- | --- |
-| `run <workflow>` | `run()` and `workflow.run()`. The name comes from `run(fn, { workflowName: 'checkout' })`, `createWorkflow('checkout', deps)`, or else a named callback (`run(async function checkout() {...})`). An inline arrow gives plain `run`, and awaitly warns once while an SDK is recording. Minifiers rename functions, so pass `workflowName` in minified builds |
+| `run <workflow>` | `run()` and `workflow.run()`. The name comes from `run(fn, { workflowName: 'checkout' })`, `createWorkflow('checkout', deps)`, or else a named callback (`run(async function checkout() {...})`). An inline arrow gives plain `run`, and awaitly warns once while an SDK is recording. The variable you assign to doesn't count: `const checkout = createWorkflow(deps)` traces as `run`, since the runtime never sees `checkout`. `awaitly-analyze --doctor` flags these runs and suggests the name to pass. Minifiers rename functions, so pass `workflowName` in minified builds |
 | `step <name>` | Steps, including the error-mapping variants |
 | `attempt <name>` | Each physical attempt, once retry is configured |
 | `parallel <name>` | `step.all()` |
@@ -163,7 +163,7 @@ A throw becomes an `UnexpectedError`. Its span keeps `error.type: UnexpectedErro
 
 Run and step spans carry the OpenTelemetry `code.*` attributes for the line of your code that called them, so a slow span in Tempo or Honeycomb takes you to `checkout.ts:29`. awaitly reads the stack only when a span is recording, so an app with no SDK skips that work.
 
-Run Node with `--enable-source-maps` to map bundled code back to your source files. In minified builds, `code.function.name` shows the minified name. A step called from the callback you pass to `run()` or `workflow.run()` records no `code.function.name`, since V8 names an inline arrow after the code around it. Call the step from a named function (`loadProfile(s)`) and the span records that name.
+Run Node with `--enable-source-maps` to map bundled code back to your source files. In minified builds, `code.function.name` shows the minified name. A step called from the callback you pass to `run()` or `workflow.run()` records no `code.function.name`, since V8 names an inline arrow after the code around it. Call the step from a named function (`loadProfile(s)`) and the span records that name, also after an `await` inside it, as long as the callback awaits the helper (`async (s) => { await loadProfile(s); }`). A callback that only returns the helper's promise (`async (s) => loadProfile(s)`) drops out of V8's async stack, so a step after an `await` in the helper records no name.
 
 ## Span events
 

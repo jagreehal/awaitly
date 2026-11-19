@@ -57,7 +57,8 @@ export type StrictRule =
   | "unlabelled-conditional"
   | "unlabelled-loop"
   | "parallel-missing-errors"
-  | "loop-missing-collect";
+  | "loop-missing-collect"
+  | "unnamed-trace";
 
 /**
  * Result of strict mode validation.
@@ -120,6 +121,7 @@ export const STRICT_RULE_TO_SLUG: Record<StrictRule, AwaitlySlug> = {
   "parallel-missing-errors": "result-require-handling",
   // Missing `collect` is fundamentally a Result-handling gap inside a loop.
   "loop-missing-collect": "result-require-handling",
+  "unnamed-trace": "workflow-unnamed-trace",
 };
 
 function createDiagnostic(input: {
@@ -153,6 +155,8 @@ export function validateStrict(
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const diagnostics: StrictDiagnostic[] = [];
 
+  if (ir.root.unnamedTrace) diagnostics.push(unnamedTraceDiagnostic(ir.root));
+
   // Collect all steps and validate each
   validateNodes(ir.root.children, opts, diagnostics);
 
@@ -169,6 +173,35 @@ export function validateStrict(
     errors,
     warnings,
   };
+}
+
+/**
+ * The diagrams call this workflow by the variable or function around it, but
+ * the runtime cannot see that code, so its traces are a bare `run` span.
+ */
+function unnamedTraceDiagnostic(root: StaticWorkflowIR["root"]): StrictDiagnostic {
+  const known = root.workflowName !== "anonymous" && !root.workflowName.startsWith("run@");
+  const name = known ? root.workflowName : "checkout";
+  // A valid single-quoted literal for any name: JSON escapes line breaks and
+  // backslashes; then `"` needs no escape and `'` does.
+  const literal = `'${JSON.stringify(name).slice(1, -1).replace(/\\"/g, '"').replace(/'/g, "\\'")}'`;
+  const fix = {
+    "createWorkflow(deps)": `Name it where it is created: createWorkflow(${literal}, deps)`,
+    "run(fn)": `Pass the name: run(fn, { workflowName: ${literal} }), or pass a named function`,
+    "run(deps, fn)": `Pass the name: run(deps, fn, { workflowName: ${literal} }), or pass a named function`,
+    // An empty name wins over the callback's own name, so naming the callback can't help.
+    "workflowName: ''": `Replace workflowName: '' with workflowName: ${literal}, or remove it and pass a named function`,
+  }[root.unnamedTrace ?? "run(deps, fn)"];
+  return createDiagnostic({
+    rule: "unnamed-trace",
+    severity: "warning",
+    message: known
+      ? `Workflow "${name}" traces as a bare "run" span: the runtime can't see the name "${name}"`
+      : `Workflow traces as a bare "run" span`,
+    fix,
+    location: root.location,
+    nodeId: root.id,
+  });
 }
 
 /**

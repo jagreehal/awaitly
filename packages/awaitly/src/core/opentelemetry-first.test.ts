@@ -94,6 +94,68 @@ describe('OpenTelemetry beyond spans', () => {
     expect(helper?.attributes['code.function.name']).toBe('loadProfile');
   });
 
+  it('leaves the inline callback unnamed for a step after an await, in concurrent runs', async () => {
+    const tick = () => new Promise((resolve) => setTimeout(resolve, Math.random() * 5));
+    const find = async () => { await tick(); return ok('user'); };
+    const send = async () => { await tick(); return ok(undefined); };
+    const sendTo = () =>
+      run({ find, send }, async (s) => {
+        await s.find();
+        await s.send(); // send-line
+      }, { workflowName: 'send_user' });
+
+    for (let round = 0; round < 10; round++) {
+      await run(async () => { await Promise.all([sendTo(), sendTo(), sendTo(), sendTo(), sendTo()]); }, { workflowName: 'batch' });
+    }
+
+    const source = (await import('node:fs')).readFileSync(new URL(import.meta.url), 'utf8').split('\n');
+    const sendLine = source.findIndex((l) => l.includes('// send-line')) + 1;
+    const sends = (await finished()).filter((s) => s.name === 'step send');
+    expect(sends).toHaveLength(50);
+    for (const span of sends) {
+      expect(span.attributes['code.file.path']).toMatch(/opentelemetry-first\.test\.ts$/);
+      expect(span.attributes['code.line.number']).toBe(sendLine);
+      expect(span.attributes).not.toHaveProperty('code.function.name');
+    }
+  });
+
+  it('names a helper that calls a step after an await', async () => {
+    const load = async () => ok('user');
+    async function loadProfile(s: { load: typeof load }) {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      return s.load();
+    }
+    // Awaited, so the callback stays in V8's async frames between the helper and awaitly.
+    await run({ load }, async (s) => { await loadProfile(s); }, { workflowName: 'helper' });
+
+    const step = (await finished()).find((s) => s.name === 'step load');
+    expect(step?.attributes['code.function.name']).toBe('loadProfile');
+  });
+
+  it('keeps the name of a function process.nextTick calls inside the run', async () => {
+    const load = async () => ok('user');
+    await run(
+      { load },
+      (s) => new Promise((resolve) => process.nextTick(function onTick() { resolve(s.load()); })),
+      { workflowName: 'tick' },
+    );
+
+    const step = (await finished()).find((s) => s.name === 'step load');
+    expect(step?.attributes['code.function.name']).toBe('onTick');
+  });
+
+  it('keeps the name of a function a built-in calls, like Array.map', async () => {
+    const load = async () => ok('user');
+    function loadEach(s: { load: typeof load }) {
+      return s.load();
+    }
+    await run({ load }, async (s) => { await Promise.all([s].map(loadEach)); }, { workflowName: 'map' });
+
+    const step = (await finished()).find((s) => s.name === 'step load');
+    expect(step?.attributes['code.function.name']).toBe('loadEach');
+  });
+
   it('keeps the name of a function a timer calls inside the run', async () => {
     const load = async () => ok('user');
     await run(

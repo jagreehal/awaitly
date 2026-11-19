@@ -470,6 +470,9 @@ export type StaticFlowNode =
  * `description` and `markdown` are only set for `createWorkflow` / `createSagaWorkflow`
  * (from options or deps). They are undefined for `run()` / `runSaga()`.
  */
+/** A call form whose traces are a bare `run` span, as the fix should name it. */
+export type UnnamedTraceForm = "createWorkflow(deps)" | "run(fn)" | "run(deps, fn)" | "workflowName: ''";
+
 export interface StaticWorkflowNode extends StaticBaseNode {
   type: "workflow";
   /** Name of the workflow (from variable name or file name) */
@@ -498,6 +501,11 @@ export interface StaticWorkflowNode extends StaticBaseNode {
   jsdocExample?: string;
   /** Whether strict mode is enabled for this workflow */
   strict?: boolean;
+  /**
+   * The runtime cannot name this workflow, so its OpenTelemetry span is just
+   * `run`. Holds the call form that needs the name.
+   */
+  unnamedTrace?: UnnamedTraceForm;
   /** Declared errors for the workflow (strict mode contract) */
   declaredErrors?: string[];
   /** Inferred return type of the workflow callback (from type checker) */
