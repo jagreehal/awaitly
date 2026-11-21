@@ -76,7 +76,7 @@
     "@standard-schema/spec": "1.1.0",
     "@types/node": "25.9.3",
     "awaitly": "workspace:^",
-    "esbuild": "0.28.1",
+    "esbuild": "0.28.2",
     "eslint-plugin-awaitly": "workspace:^",
     "tsgo": "npm:typescript@7.0.2",
     "tsup": "8.5.1",
