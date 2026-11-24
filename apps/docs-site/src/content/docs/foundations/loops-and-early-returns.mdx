@@ -59,7 +59,7 @@ const result = await run({ getTile }, async (s) => {
     if (tile.type === 'city') damaged++;
   }
   return damaged;
-});
+}, { workflowName: 'countDamage' });
 ```
 
 ## Reusing an earlier value
@@ -73,7 +73,7 @@ const result = await run({ fetchOrder, applyDiscount, charge }, async (s) => {
   const payment = await s.charge(discounted);
 
   return { orderId: order.id, saved: order.total - discounted, payment };
-});
+}, { workflowName: 'checkout' });
 ```
 
 The return value can use `order` after later steps finish. Variables remove the need for an accumulator that carries values between steps.
@@ -92,7 +92,7 @@ const result = await run({ loadUser, readCache, compute, writeCache }, async (s)
   const computed = await s.compute(user);
   await s.writeCache(user.id, computed);
   return computed;
-});
+}, { workflowName: 'loadReport' });
 ```
 
 The caller receives one `Result` for the cached and computed paths.
@@ -130,7 +130,7 @@ const result = await run({ findUser, checkAccess }, async (s) => {
 
   if (user.role === 'admin') return user;
   return s.checkAccess(user.teamId);
-});
+}, { workflowName: 'checkAccess' });
 // Result<User | Access, NotFound | Forbidden | UnexpectedError>
 ```
 

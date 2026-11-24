@@ -17,10 +17,11 @@ import type {
   Expression,
   FunctionDeclaration,
   FunctionExpression,
-  Identifier,
   MemberExpression,
   Node,
 } from 'estree';
+
+import { findVariable, isImportOf } from './bindings.js';
 
 /** Modules whose `withDurableExecution` marks a durable handler. */
 const DURABLE_MODULES = new Set(['@aws/durable-execution-sdk-js', 'awaitly-durable-lambda']);
@@ -63,47 +64,6 @@ export function isFunctionNode(node: Node): node is FunctionNode {
     node.type === 'FunctionDeclaration' ||
     node.type === 'FunctionExpression'
   );
-}
-
-function findVariable(sourceCode: SourceCode, node: Identifier): Scope.Variable | undefined {
-  let scope: Scope.Scope | null = sourceCode.getScope(node);
-  while (scope) {
-    const variable = scope.set.get(node.name);
-    if (variable) return variable;
-    scope = scope.upper;
-  }
-  return undefined;
-}
-
-/** Whether `callee` is the export `name`, imported (named or via namespace) from one of `modules`. */
-function isImportOf(callee: Node, name: string, modules: ReadonlySet<string>, sourceCode: SourceCode): boolean {
-  if (callee.type === 'Identifier') {
-    const def = findVariable(sourceCode, callee)?.defs[0];
-    return (
-      def?.type === 'ImportBinding' &&
-      def.node.type === 'ImportSpecifier' &&
-      def.node.imported.type === 'Identifier' &&
-      def.node.imported.name === name &&
-      def.parent.type === 'ImportDeclaration' &&
-      modules.has(String(def.parent.source.value))
-    );
-  }
-  if (
-    callee.type === 'MemberExpression' &&
-    !callee.computed &&
-    callee.property.type === 'Identifier' &&
-    callee.property.name === name &&
-    callee.object.type === 'Identifier'
-  ) {
-    const def = findVariable(sourceCode, callee.object)?.defs[0];
-    return (
-      def?.type === 'ImportBinding' &&
-      def.node.type === 'ImportNamespaceSpecifier' &&
-      def.parent.type === 'ImportDeclaration' &&
-      modules.has(String(def.parent.source.value))
-    );
-  }
-  return false;
 }
 
 /** Whether `callee` is `withDurableExecution` imported from a durable SDK module. */
@@ -249,4 +209,4 @@ export function enclosingStepFunction(node: Node, sourceCode: SourceCode): Funct
   return undefined;
 }
 
-export { findVariable, parentOf };
+export { parentOf };

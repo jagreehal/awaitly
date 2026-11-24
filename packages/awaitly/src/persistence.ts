@@ -6,6 +6,7 @@
  */
 
 import type { Result } from "./core";
+import { markRestored } from "./core/failure-origin";
 import type { StepCache } from "./workflow";
 
 // =============================================================================
@@ -420,6 +421,7 @@ export function serializeThrown(value: unknown): SerializedCause {
 export function deserializeCauseNew(serialized: SerializedCause): unknown {
   if (serialized.type === "error") {
     const error = new Error(serialized.message);
+    markRestored(error);
     error.name = serialized.name;
     if (serialized.stack) {
       error.stack = serialized.stack;

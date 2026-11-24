@@ -106,15 +106,15 @@ for (const slug of ALL_SLUGS) {
 
 ## Error shape
 
-Every awaitly-system error carries three readonly fields populated from the slug spine, in addition to its existing `_tag`, `message`, and (where applicable) `cause`.
+Every awaitly-system error carries three readonly fields populated from the slug spine, in addition to its existing `type`, `message`, and (where applicable) `cause`.
 
 ```typescript
 interface AwaitlySystemErrorShape {
-  readonly _tag: string;        // existing — class-name discriminant
-  readonly code: AwaitlySlug;   // new — canonical slug
+  readonly type: string;        // existing: class-name discriminant
+  readonly code: AwaitlySlug;   // new: canonical slug
   readonly message: string;     // existing
-  readonly hint: string;        // new — one-line "do X instead"
-  readonly docsUrl: string;     // new — `jagreehal.github.io/awaitly/rules/#${code}`
+  readonly hint: string;        // new: one-line "do X instead"
+  readonly docsUrl: string;     // new: `jagreehal.github.io/awaitly/rules/#${code}`
   readonly cause?: unknown;     // existing on UnexpectedError
 }
 ```

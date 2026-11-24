@@ -16,6 +16,7 @@ const CANONICAL_LINT_SLUGS = [
   'workflow-callback-shape',
   'workflow-no-callable-form',
   'workflow-no-dynamic-import',
+  'workflow-unnamed-trace',
   'result-no-floating',
   'result-require-handling',
   'result-no-double-wrap',

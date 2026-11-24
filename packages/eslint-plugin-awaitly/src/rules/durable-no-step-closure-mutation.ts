@@ -1,6 +1,7 @@
 import type { Rule, Scope } from 'eslint';
 import type { AssignmentExpression, Node, Pattern, UpdateExpression } from 'estree';
-import { enclosingStepFunction, findVariable } from '../durable-context.js';
+import { findVariable } from '../bindings.js';
+import { enclosingStepFunction } from '../durable-context.js';
 
 /** The variable at the root of an assignment target: `x`, `x.y`, `x[i].z`. */
 function rootIdentifier(target: Pattern | Node): Node | undefined {

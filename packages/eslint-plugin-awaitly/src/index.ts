@@ -19,6 +19,7 @@ import resultNoManualPropagation from './rules/result-no-manual-propagation.js';
 import resultNoDirectOkErr from './rules/result-no-direct-ok-err.js';
 import workflowNoCallableForm from './rules/workflow-no-callable-form.js';
 import workflowCallbackShape from './rules/workflow-callback-shape.js';
+import workflowUnnamedTrace from './rules/workflow-unnamed-trace.js';
 import errorCheckUnexpectedFirst from './rules/error-check-unexpected-first.js';
 import errorRequireDiscriminant from './rules/error-require-discriminant.js';
 import errorPreferMatch from './rules/error-prefer-match.js';
@@ -44,6 +45,7 @@ const rules = {
   'workflow-callback-shape': workflowCallbackShape,
   'workflow-no-callable-form': workflowNoCallableForm,
   'workflow-no-dynamic-import': noDynamicImport,
+  'workflow-unnamed-trace': workflowUnnamedTrace,
   // Diagrammability: steer raw control flow onto first-class constructs so
   // the static diagram stays deterministic.
   // result-*
@@ -103,11 +105,12 @@ const configs: Record<string, Linter.Config[]> = {
         'awaitly/result-no-direct-ok-err': 'error',
         'awaitly/workflow-no-callable-form': 'error',
         'awaitly/workflow-callback-shape': 'error',
+        'awaitly/workflow-unnamed-trace': 'warn',
         'awaitly/error-prefer-match': 'warn',
         ...durableRules,
         // 'awaitly/error-check-unexpected-first': 'warn',
         // ^ deliberately opt-in. The rule uses heuristic AST matching to
-        //   flag `if (result.error._tag === ...)` without an
+        //   flag `if (result.error.type === ...)` without an
         //   `isUnexpectedError(result.error)` guard — false positives are
         //   inevitable on patterns we didn't anticipate, so it's not in
         //   `recommended` or `recommended-strict`. Enable it explicitly if
@@ -147,6 +150,7 @@ const configs: Record<string, Linter.Config[]> = {
         "awaitly/result-no-direct-ok-err": "error",
         "awaitly/workflow-no-callable-form": "error",
         "awaitly/workflow-callback-shape": "error",
+        "awaitly/workflow-unnamed-trace": "error",
         "awaitly/error-require-discriminant": "error",
         "awaitly/error-prefer-match": "error",
         ...Object.fromEntries(Object.keys(durableRules).map((name) => [name, "error"])),

@@ -172,6 +172,21 @@ import {
   withScopeSpan,
   withStepSpan,
 } from "./opentelemetry";
+import { exitTo, metaForEvent, metaOf, rememberRemap, rememberThrow } from "./failure-origin";
+import {
+  STEP_TIMEOUT_MARKER,
+  causeOf,
+  createEarlyExit,
+  getStepTimeoutMeta,
+  isEarlyExit,
+  isStepTimeoutError,
+  type EarlyExit,
+  type StepFailureMeta,
+  type StepTimeoutError,
+  type StepTimeoutMarkerMeta,
+} from "./step-failure";
+
+export * from "./step-failure";
 
 export { bindSteps, type BoundSteps } from "./bound-steps";
 export {
@@ -1083,75 +1098,6 @@ export type TimeoutOptions<TErr = unknown> = {
    */
   onTimeout?: TimeoutBehavior<TErr>;
 };
-
-/**
- * Standard timeout error type.
- */
-export type StepTimeoutError = {
-  type: "STEP_TIMEOUT";
-  stepName?: string;
-  stepKey?: string;
-  timeoutMs: number;
-  attempt?: number;
-};
-
-/**
- * Symbol used to mark any error (including custom errors) as a timeout error.
- * This allows detection of timeout errors even when users provide custom error payloads.
- */
-export const STEP_TIMEOUT_MARKER: unique symbol = Symbol.for("step_timeout_marker");
-
-/**
- * Metadata attached to timeout-marked errors.
- */
-export type StepTimeoutMarkerMeta = {
-  timeoutMs: number;
-  stepName?: string;
-  stepKey?: string;
-  attempt?: number;
-};
-
-/**
- * Type guard to check if an error is a StepTimeoutError.
- * This checks both the standard type field AND the timeout marker symbol,
- * so custom errors provided via timeout.error are also detected.
- */
-export function isStepTimeoutError(e: unknown): e is StepTimeoutError {
-  if (typeof e !== "object" || e === null) {
-    return false;
-  }
-  // Check for standard type field
-  if ((e as StepTimeoutError).type === "STEP_TIMEOUT") {
-    return true;
-  }
-  // Check for timeout marker (custom errors)
-  return STEP_TIMEOUT_MARKER in e;
-}
-
-/**
- * Get timeout metadata from a timeout error (works with both standard and custom errors).
- * Returns undefined if the error is not a timeout error.
- */
-export function getStepTimeoutMeta(e: unknown): StepTimeoutMarkerMeta | undefined {
-  if (typeof e !== "object" || e === null) {
-    return undefined;
-  }
-  // Check for standard type field first
-  if ((e as StepTimeoutError).type === "STEP_TIMEOUT") {
-    const err = e as StepTimeoutError;
-    return {
-      timeoutMs: err.timeoutMs,
-      stepName: err.stepName,
-      stepKey: err.stepKey,
-      attempt: err.attempt,
-    };
-  }
-  // Check for timeout marker (custom errors)
-  if (STEP_TIMEOUT_MARKER in e) {
-    return (e as Record<symbol, StepTimeoutMarkerMeta>)[STEP_TIMEOUT_MARKER];
-  }
-  return undefined;
-}
 
 // =============================================================================
 // RunStep Interface
@@ -2538,57 +2484,6 @@ export function scopedStepKey(id: string, scope: string | undefined): string {
 }
 
 /**
- * Symbol used to identify early exit throws.
- * Exported for the caching layer in workflow.ts.
- * @internal
- */
-export const EARLY_EXIT_SYMBOL: unique symbol = Symbol("early-exit");
-
-/**
- * Metadata about how a step failed.
- * @internal
- */
-export type StepFailureMeta =
-  | { origin: "result"; resultCause?: unknown }
-  | { origin: "throw"; thrown: unknown }
-  | { origin: "fallback"; fallbackUsed: true; fallbackReason: string };
-
-/**
- * Early exit object thrown to short-circuit workflow execution.
- * @internal
- */
-export type EarlyExit<E> = {
-  [EARLY_EXIT_SYMBOL]: true;
-  error: E;
-  meta: StepFailureMeta;
-};
-
-/**
- * Create an early exit throw object.
- * Used by the caching layer to synthesize early exits for cached errors.
- * @internal
- */
-export function createEarlyExit<E>(error: E, meta: StepFailureMeta): EarlyExit<E> {
-  return {
-    [EARLY_EXIT_SYMBOL]: true,
-    error,
-    meta,
-  };
-}
-
-/**
- * Type guard for early exit objects.
- * @internal
- */
-export function isEarlyExit<E>(e: unknown): e is EarlyExit<E> {
-  return (
-    typeof e === "object" &&
-    e !== null &&
-    (e as Record<PropertyKey, unknown>)[EARLY_EXIT_SYMBOL] === true
-  );
-}
-
-/**
  * Symbol to mark exceptions thrown by catchUnexpected mappers.
  * These should propagate without being re-processed.
  * @internal
@@ -3757,10 +3652,8 @@ async function runFn<T, E, C = void>(
           // At this point lastResult must be an error result (we only reach here on error)
           const errorResult = lastResult as Err<StepE, StepC>;
           const totalDurationMs = performance.now() - overallStartTime;
-          const wrappedError = wrapForStep(errorResult.error, {
-            origin: "result",
-            resultCause: errorResult.cause,
-          });
+          const failureMeta = metaOf(errorResult);
+          const wrappedError = wrapForStep(errorResult.error, failureMeta);
           emitEvent({
             type: "step_error",
             workflowId,
@@ -3784,15 +3677,12 @@ async function runFn<T, E, C = void>(
               ts: Date.now(),
               durationMs: totalDurationMs,
               result: errorResult,
-              meta: { origin: "result", resultCause: errorResult.cause },
+              meta: metaForEvent(failureMeta),
               ...(stepMetadata && { metadata: stepMetadata }),
             });
           }
           onError?.(wrappedError as unknown as E, stepName, context);
-          throw earlyExit(wrappedError as unknown as E, {
-            origin: "result",
-            resultCause: errorResult.cause,
-          });
+          throw earlyExit(wrappedError as unknown as E, failureMeta);
           };
           return traceStep(stepId, stepKey, stepName, executeStep);
         })();
@@ -3838,7 +3728,7 @@ async function runFn<T, E, C = void>(
               try {
                 return ok(await operation());
               } catch (cause) {
-                return errAny(mapToError(cause), { cause });
+                return rememberThrow(errAny(mapToError(cause), { cause }), cause);
               }
             },
             {
@@ -3997,10 +3887,11 @@ async function runFn<T, E, C = void>(
             const durationMs = performance.now() - startTime;
             // For fromResult, the cause is the original result.error (what got mapped)
             // This is analogous to step.try using thrown exception as cause
-            const wrappedError = wrapForStep(mapped, {
+            const meta: StepFailureMeta = rememberRemap(result, {
               origin: "result",
               resultCause: result.error,
             });
+            const wrappedError = wrapForStep(mapped, meta);
             emitEvent({
               type: "step_error",
               workflowId,
@@ -4021,14 +3912,11 @@ async function runFn<T, E, C = void>(
                 ts: Date.now(),
                 durationMs,
                 result: errAny(mapped, { cause: result.error }),
-                meta: { origin: "result", resultCause: result.error },
+                meta: metaForEvent(meta),
               });
             }
             onError?.(wrappedError as unknown as E, stepName, context);
-            throw earlyExit(wrappedError as unknown as E, {
-              origin: "result",
-              resultCause: result.error,
-            });
+            throw earlyExit(wrappedError as unknown as E, meta);
           }
         };
         return traceStep(stepId, stepKey, stepName, executeStep);
@@ -4263,10 +4151,7 @@ async function runFn<T, E, C = void>(
 
             if (!result.ok) {
               onError?.(result.error as unknown as E, name, context);
-              throw earlyExit(result.error as unknown as E, {
-                origin: "result",
-                resultCause: result.cause,
-              });
+              throw earlyExit(result.error as unknown as E, metaOf(result));
             }
 
             return result.value;
@@ -4369,10 +4254,7 @@ async function runFn<T, E, C = void>(
             for (const { key, result } of results) {
               if (!result.ok) {
                 onError?.(result.error as unknown as E, key, context);
-                throw earlyExit(result.error as unknown as E, {
-                  origin: "result",
-                  resultCause: result.cause,
-                });
+                throw earlyExit(result.error as unknown as E, metaOf(result));
               }
               output[key] = result.value;
             }
@@ -4437,10 +4319,7 @@ async function runFn<T, E, C = void>(
 
             if (!result.ok) {
               onError?.(result.error as unknown as E, name, context);
-              throw earlyExit(result.error as unknown as E, {
-                origin: "result",
-                resultCause: result.cause,
-              });
+              throw earlyExit(result.error as unknown as E, metaOf(result));
             }
 
             return result.value;
@@ -4840,10 +4719,8 @@ async function runFn<T, E, C = void>(
             } else {
               // Fallback also failed
               const durationMs = performance.now() - startTime;
-              const wrappedError = wrapForStep(fallbackResultFromThrow.error, {
-                origin: "result",
-                resultCause: fallbackResultFromThrow.cause,
-              });
+              const failureMeta = metaOf(fallbackResultFromThrow);
+              const wrappedError = wrapForStep(fallbackResultFromThrow.error, failureMeta);
               emitEvent({
                 type: "step_error",
                 workflowId,
@@ -4863,14 +4740,11 @@ async function runFn<T, E, C = void>(
                   ts: Date.now(),
                   durationMs,
                   result: fallbackResultFromThrow,
-                  meta: { origin: "result", resultCause: fallbackResultFromThrow.cause },
+                  meta: metaForEvent(failureMeta),
                 });
               }
               onError?.(wrappedError as unknown as E, stepName, context);
-              throw earlyExit(wrappedError as unknown as E, {
-                origin: "result",
-                resultCause: fallbackResultFromThrow.cause,
-              });
+              throw earlyExit(wrappedError as unknown as E, failureMeta);
             }
           }
 
@@ -4906,10 +4780,8 @@ async function runFn<T, E, C = void>(
           // If `on` is specified and doesn't match, earlyExit with primary error (no fallback)
           if (options.on !== undefined && options.on !== primaryError) {
             const durationMs = performance.now() - startTime;
-            const wrappedError = wrapForStep(primaryError, {
-              origin: "result",
-              resultCause: primaryResult.cause,
-            });
+            const failureMeta = metaOf(primaryResult);
+            const wrappedError = wrapForStep(primaryError, failureMeta);
             emitEvent({
               type: "step_error",
               workflowId,
@@ -4929,14 +4801,11 @@ async function runFn<T, E, C = void>(
                 ts: Date.now(),
                 durationMs,
                 result: primaryResult,
-                meta: { origin: "result", resultCause: primaryResult.cause },
+                meta: metaForEvent(failureMeta),
               });
             }
             onError?.(wrappedError as unknown as E, stepName, context);
-            throw earlyExit(wrappedError as unknown as E, {
-              origin: "result",
-              resultCause: primaryResult.cause,
-            });
+            throw earlyExit(wrappedError as unknown as E, failureMeta);
           }
 
           // Run fallback
@@ -5018,10 +4887,8 @@ async function runFn<T, E, C = void>(
 
           // Fallback also returned an error
           const durationMs = performance.now() - startTime;
-          const wrappedError = wrapForStep(fallbackResult.error, {
-            origin: "result",
-            resultCause: fallbackResult.cause,
-          });
+          const failureMeta = metaOf(fallbackResult);
+          const wrappedError = wrapForStep(fallbackResult.error, failureMeta);
           emitEvent({
             type: "step_error",
             workflowId,
@@ -5041,14 +4908,11 @@ async function runFn<T, E, C = void>(
               ts: Date.now(),
               durationMs,
               result: fallbackResult,
-              meta: { origin: "result", resultCause: fallbackResult.cause },
+              meta: metaForEvent(failureMeta),
             });
           }
           onError?.(wrappedError as unknown as E, stepName, context);
-          throw earlyExit(wrappedError as unknown as E, {
-            origin: "result",
-            resultCause: fallbackResult.cause,
-          });
+          throw earlyExit(wrappedError as unknown as E, failureMeta);
         };
         return traceStep(stepId, stepKey, stepName, executeStep);
       };
@@ -5142,10 +5006,8 @@ async function runFn<T, E, C = void>(
           if (!acquireResult.ok) {
             // Acquire failed — no release needed
             const durationMs = performance.now() - startTime;
-            const wrappedError = wrapForStep(acquireResult.error, {
-              origin: "result",
-              resultCause: acquireResult.cause,
-            });
+            const failureMeta = metaOf(acquireResult);
+            const wrappedError = wrapForStep(acquireResult.error, failureMeta);
             emitEvent({
               type: "step_error",
               workflowId,
@@ -5165,14 +5027,11 @@ async function runFn<T, E, C = void>(
                 ts: Date.now(),
                 durationMs,
                 result: acquireResult,
-                meta: { origin: "result", resultCause: acquireResult.cause },
+                meta: metaForEvent(failureMeta),
               });
             }
             onError?.(wrappedError as unknown as E, stepName, context);
-            throw earlyExit(wrappedError as unknown as E, {
-              origin: "result",
-              resultCause: acquireResult.cause,
-            });
+            throw earlyExit(wrappedError as unknown as E, failureMeta);
           }
 
           const resource = acquireResult.value;
@@ -5274,10 +5133,8 @@ async function runFn<T, E, C = void>(
 
           // Use returned an error
           const durationMs = performance.now() - startTime;
-          const wrappedError = wrapForStep(result.error, {
-            origin: "result",
-            resultCause: result.cause,
-          });
+          const failureMeta = metaOf(result);
+          const wrappedError = wrapForStep(result.error, failureMeta);
           emitEvent({
             type: "step_error",
             workflowId,
@@ -5297,14 +5154,11 @@ async function runFn<T, E, C = void>(
               ts: Date.now(),
               durationMs,
               result,
-              meta: { origin: "result", resultCause: result.cause },
+              meta: metaForEvent(failureMeta),
             });
           }
           onError?.(wrappedError as unknown as E, stepName, context);
-          throw earlyExit(wrappedError as unknown as E, {
-            origin: "result",
-            resultCause: result.cause,
-          });
+          throw earlyExit(wrappedError as unknown as E, failureMeta);
         };
         return traceStep(stepId, stepKey, stepName, executeStep);
       };
@@ -5343,14 +5197,7 @@ async function runFn<T, E, C = void>(
       }
 
       if (isEarlyExitE(error)) {
-        // Extract original cause from early exit metadata
-        const originalCause = error.meta.origin === "throw"
-          ? error.meta.thrown
-          : error.meta.origin === "result"
-            ? error.meta.resultCause
-            : undefined;
-
-        return errAny(error.error, { cause: originalCause });
+        return exitTo(error, errAny(error.error, { cause: causeOf(error.meta) }));
       }
 
       // A stream the workflow was reading failed. `reader.read()` models that as
@@ -5366,7 +5213,7 @@ async function runFn<T, E, C = void>(
 
       const mapped = effectiveCatchUnexpected(error);
       onError?.(mapped as E, "unexpected", context);
-      return errAny(mapped, { cause: error });
+      return rememberThrow(errAny(mapped, { cause: error }), error);
     }
   };
 

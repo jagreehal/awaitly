@@ -53,12 +53,12 @@ const result = await run({ getUser, getOrders }, async (s) => {
   const user = await s.getUser('1');         // User, not Result<User, ...>
   const orders = await s.getOrders(user.id); // Order[], not Result<Order[], ...>
   return { user, orders };
-});
+}, { workflowName: 'loadOrders' });
 ```
 
 Inside the callback there are no Results and no error checks, only values. The
 property names (`getUser`, `getOrders`) become the step names used in diagrams and
-traces, so you never write an id by hand.
+traces, so you never write an id by hand. `workflowName` names the run in those traces.
 
 ## Errors exit early
 
@@ -69,7 +69,7 @@ const result = await run({ getUser, getOrders }, async (s) => {
   const user = await s.getUser('999');       // returns err({ type: 'NOT_FOUND' }) — stops here
   const orders = await s.getOrders(user.id); // never runs
   return { user, orders };
-});
+}, { workflowName: 'loadOrders' });
 
 result.ok;    // false
 result.error; // { type: 'NOT_FOUND' }

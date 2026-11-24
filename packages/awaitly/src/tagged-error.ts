@@ -42,6 +42,18 @@ export interface TaggedErrorOptions {
 }
 
 /**
+ * Marks awaitly's own UnexpectedError: a wrapper around a thrown value. Its name
+ * can't identify it, since users may pick the same tag. Shared across bundles.
+ * @internal
+ */
+export const WRAPS_THROWN: unique symbol = /* @__PURE__ */ Symbol.for("awaitly.wrapsThrown");
+
+/** @internal */
+export function wrapsThrown(error: unknown): error is Error {
+  return error instanceof Error && WRAPS_THROWN in error;
+}
+
+/**
  * Options for TaggedError factory with type-safe message callback.
  */
 export interface TaggedErrorCreateOptions<Props extends Record<string, unknown>> {
@@ -58,6 +70,8 @@ export interface TaggedErrorCreateOptions<Props extends Record<string, unknown>>
    * Required when `slug` is set.
    */
   hint?: string;
+  /** @internal */
+  [WRAPS_THROWN]?: true;
 }
 
 /**
@@ -83,6 +97,13 @@ export interface TaggedErrorBase extends Error {
 }
 
 /**
+ * Shared by every copy of this module. Each public entry is bundled on its own,
+ * so a TaggedError made by `awaitly` is not an instance of the base class
+ * inside `awaitly/durable`.
+ */
+const TAGGED_ERROR_BRAND: unique symbol = /* @__PURE__ */ Symbol.for("awaitly.TaggedError");
+
+/**
  * Internal base class for instanceof checks.
  * All TaggedError-created classes extend this.
  * @internal
@@ -91,6 +112,11 @@ class InternalTaggedErrorBase extends Error implements TaggedErrorBase {
   readonly type!: string;
   /** @deprecated Use `type`. */
   readonly _tag!: string;
+
+  /** On the prototype, so it never shows up in an instance's own keys. */
+  get [TAGGED_ERROR_BRAND](): true {
+    return true;
+  }
 
   /**
    * The shape this error takes on the wire.
@@ -229,7 +255,7 @@ function TaggedError<Tag extends string, Props extends Record<string, unknown>>(
   options?: TaggedErrorCreateOptions<Props>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): any {
-  return class extends InternalTaggedErrorBase {
+  const TaggedClass = class extends InternalTaggedErrorBase {
     override readonly type: Tag = tag;
     /** @deprecated Use `type`. */
     override readonly _tag: Tag = tag;
@@ -336,11 +362,19 @@ function TaggedError<Tag extends string, Props extends Record<string, unknown>>(
       }
     }
   };
+  if (options?.[WRAPS_THROWN]) {
+    Object.defineProperty(TaggedClass.prototype, WRAPS_THROWN, { value: true });
+  }
+  return TaggedClass;
+}
+
+function isTaggedErrorInstance(value: unknown): value is TaggedErrorBase {
+  return value instanceof Error && TAGGED_ERROR_BRAND in value;
 }
 
 // Add Symbol.hasInstance so `instanceof TaggedError` works
 Object.defineProperty(TaggedError, Symbol.hasInstance, {
-  value: (instance: unknown): boolean => instance instanceof InternalTaggedErrorBase,
+  value: isTaggedErrorInstance,
 });
 
 /**
@@ -361,7 +395,7 @@ namespace TaggedError {
    * TaggedError instances (created via the factory) pass this guard.
    */
   export function isTaggedError(value: unknown): value is TaggedErrorBase {
-    return value instanceof InternalTaggedErrorBase;
+    return isTaggedErrorInstance(value);
   }
 
   /**
@@ -372,7 +406,7 @@ namespace TaggedError {
    * @remarks When to use: You want compile-time enforcement that every tagged variant is handled.
    *
    * @param error - The tagged error to match
-   * @param handlers - Object mapping _tag values to handler functions
+   * @param handlers - Object mapping type values to handler functions
    * @returns The return value of the matched handler
    *
    * @example
@@ -408,12 +442,12 @@ namespace TaggedError {
    * TaggedError.matchPartial(
    *   error,
    *   { NotFoundError: maybeHandle },  // maybeHandle might be undefined
-   *   (e) => e._tag  // e correctly includes NotFoundError
+   *   (e) => e.type  // e correctly includes NotFoundError
    * );
    * ```
    *
    * @param error - The tagged error to match
-   * @param handlers - Partial object mapping _tag values to handler functions
+   * @param handlers - Partial object mapping type values to handler functions
    * @param otherwise - Fallback handler for unmatched variants
    * @returns The return value of the matched handler or fallback
    *

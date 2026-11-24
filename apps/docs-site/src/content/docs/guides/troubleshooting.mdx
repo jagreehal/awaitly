@@ -230,7 +230,7 @@ async function readConfig(path: string) {
   return ok(path);
 }
 
-const result = await run({ readConfig }, async (s) => s.readConfig('/etc/app'));
+const result = await run({ readConfig }, async (s) => s.readConfig('/etc/app'), { workflowName: 'readConfig' });
 
 if (!result.ok) {
   console.log(result.error.type);        // 'UnexpectedError'

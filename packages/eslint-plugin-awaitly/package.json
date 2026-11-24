@@ -50,6 +50,11 @@
   "peerDependencies": {
     "eslint": ">=10.4.1"
   },
+  "peerDependenciesMeta": {
+    "eslint": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/eslint": "9.6.1",
     "@types/estree": "1.0.9",

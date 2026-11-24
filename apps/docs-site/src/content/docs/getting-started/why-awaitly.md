@@ -45,7 +45,7 @@ Checking `result.ok` after every call gets old fast. Pass your deps to `run()` o
 const result = await run({ getUser, getOrder }, async (s) => {
   const user = await s.getUser(id);
   return s.getOrder(user.id);
-});
+}, { workflowName: 'loadOrder' });
 ```
 
 Add `getPaymentMethod` to deps and TypeScript widens the error union. Remove a step and the union narrows. You do not maintain that list by hand.

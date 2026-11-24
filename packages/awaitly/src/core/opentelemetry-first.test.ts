@@ -3,7 +3,7 @@
  * events, inherited attributes, typed-error exception events, incoming trace
  * context, and the span-tree test helper.
  */
-import { context, metrics, propagation, trace, type Attributes } from '@opentelemetry/api';
+import { context, metrics, propagation, SpanStatusCode, trace, type Attributes } from '@opentelemetry/api';
 import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
 import { W3CTraceContextPropagator } from '@opentelemetry/core';
 import {
@@ -291,35 +291,16 @@ describe('OpenTelemetry beyond spans', () => {
     expect(spans.find((s) => s.name === 'run parent')?.attributes['payment.provider']).toBeUndefined();
   });
 
-  it('records a typed error as an exception event carrying only its type', async () => {
+  it('records a typed error as ERROR and its type, with no exception event', async () => {
     await run(
       async ({ step }) => step('charge', async () => err({ type: 'CARD_DECLINED', card: '4242' })),
       { workflowName: 'checkout' },
     );
 
     const step = (await finished()).find((s) => s.name === 'step charge');
-    expect(step?.events).toEqual([
-      expect.objectContaining({ name: 'exception', attributes: { 'exception.type': 'CARD_DECLINED' } }),
-    ]);
-  });
-
-  it("records a typed error's Error cause: message and stack, still no payload", async () => {
-    const cause = new Error('550 mailbox unavailable');
-    await run(
-      async ({ step }) => step('send', async () => err({ type: 'SEND_FAILED', email: 'a@b.c', cause })),
-      { workflowName: 'mail' },
-    );
-
-    const step = (await finished()).find((s) => s.name === 'step send');
-    expect(step?.status.message).toBe('550 mailbox unavailable');
-    expect(step?.attributes['error.type']).toBe('SEND_FAILED');
-    const [event] = step?.events ?? [];
-    expect(event?.attributes).toEqual({
-      'exception.type': 'SEND_FAILED',
-      'exception.message': '550 mailbox unavailable',
-      'exception.stacktrace': cause.stack,
-    });
-    expect(JSON.stringify(step?.attributes)).not.toContain('a@b.c');
+    expect(step?.status).toEqual({ code: SpanStatusCode.ERROR });
+    expect(step?.attributes['error.type']).toBe('CARD_DECLINED');
+    expect(step?.events).toEqual([]);
   });
 
   it('records what your code threw, not the UnexpectedError wrapping it', async () => {

@@ -39,7 +39,9 @@ import {
   type ForEachRunOptions,
 } from "../core";
 import { isDepResultShaped, type StepCallable } from "../core/bound-steps";
+import { carryOrigin, rememberSkipped, rememberThrow } from "../core/failure-origin";
 import { inferRunName, recordWorkflowEvent, resolveTelemetry, withCompensationSpan, withRunSpan } from "../core/opentelemetry";
+import { causeOf } from "../core/step-failure";
 
 import type {
   StreamStore,
@@ -588,7 +590,7 @@ export function createWorkflow<
         });
         if (!shouldRunResult) {
           const skipCause = new Error("Workflow skipped by shouldRun hook");
-          return err(catchUnexpected(skipCause), { cause: skipCause }) as Result<T, E | ExtraE | U>;
+          return rememberSkipped(err(catchUnexpected(skipCause), { cause: skipCause })) as Result<T, E | ExtraE | U>;
         }
       } catch (thrown) {
         const hookDuration = performance.now() - hookStartTime;
@@ -601,7 +603,7 @@ export function createWorkflow<
           error: thrown as E,
         });
         // Hook threw - map through catchUnexpected
-        return err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | ExtraE | U>;
+        return rememberThrow(err(catchUnexpected(thrown), { cause: thrown }), thrown) as Result<T, E | ExtraE | U>;
       }
     }
 
@@ -621,7 +623,7 @@ export function createWorkflow<
         });
         if (!beforeStartResult) {
           const skipCause = new Error("Workflow skipped by onBeforeStart hook");
-          return err(catchUnexpected(skipCause), { cause: skipCause }) as Result<T, E | ExtraE | U>;
+          return rememberSkipped(err(catchUnexpected(skipCause), { cause: skipCause })) as Result<T, E | ExtraE | U>;
         }
       } catch (thrown) {
         const hookDuration = performance.now() - hookStartTime;
@@ -633,7 +635,7 @@ export function createWorkflow<
           durationMs: hookDuration,
           error: thrown as E,
         });
-        return err(catchUnexpected(thrown), { cause: thrown }) as Result<T, E | ExtraE | U>;
+        return rememberThrow(err(catchUnexpected(thrown), { cause: thrown }), thrown) as Result<T, E | ExtraE | U>;
       }
     }
 
@@ -971,14 +973,7 @@ export function createWorkflow<
           // Cache error results with full metadata if key provided and this is an early exit
           if (key && isEarlyExit(thrown)) {
             const exit = thrown as EarlyExit<StepE>;
-            // Extract original cause from metadata for preservation
-            const originalCause =
-              exit.meta.origin === "result"
-                ? exit.meta.resultCause
-                : exit.meta.origin === "throw"
-                  ? exit.meta.thrown
-                  : undefined;
-            const errorResult = encodeCachedError(exit.error, exit.meta, originalCause);
+            const errorResult = encodeCachedError(exit.error, exit.meta, causeOf(exit.meta));
             if (cache) {
               cache.set(key, errorResult, ttl ? { ttl } : undefined);
             }
@@ -1047,13 +1042,7 @@ export function createWorkflow<
         } catch (thrown) {
           if (isEarlyExit(thrown)) {
             const exit = thrown as EarlyExit<Err>;
-            const originalCause =
-              exit.meta.origin === "result"
-                ? exit.meta.resultCause
-                : exit.meta.origin === "throw"
-                  ? exit.meta.thrown
-                  : undefined;
-            const errorResult = encodeCachedError(exit.error, exit.meta, originalCause);
+            const errorResult = encodeCachedError(exit.error, exit.meta, causeOf(exit.meta));
             if (cache) {
               cache.set(key, errorResult, ttl ? { ttl } : undefined);
             }
@@ -1114,13 +1103,7 @@ export function createWorkflow<
         } catch (thrown) {
           if (isEarlyExit(thrown)) {
             const exit = thrown as EarlyExit<Err>;
-            const originalCause =
-              exit.meta.origin === "result"
-                ? exit.meta.resultCause
-                : exit.meta.origin === "throw"
-                  ? exit.meta.thrown
-                  : undefined;
-            const errorResult = encodeCachedError(exit.error, exit.meta, originalCause);
+            const errorResult = encodeCachedError(exit.error, exit.meta, causeOf(exit.meta));
             if (cache) {
               cache.set(key, errorResult, ttl ? { ttl } : undefined);
             }
@@ -1186,13 +1169,7 @@ export function createWorkflow<
         } catch (thrown) {
           if (isEarlyExit(thrown)) {
             const exit = thrown as EarlyExit<E>;
-            const originalCause =
-              exit.meta.origin === "result"
-                ? exit.meta.resultCause
-                : exit.meta.origin === "throw"
-                  ? exit.meta.thrown
-                  : undefined;
-            const errorResult = encodeCachedError(exit.error, exit.meta, originalCause);
+            const errorResult = encodeCachedError(exit.error, exit.meta, causeOf(exit.meta));
             if (cache) {
               cache.set(key, errorResult);
             }
@@ -1248,13 +1225,7 @@ export function createWorkflow<
         } catch (thrown) {
           if (isEarlyExit(thrown)) {
             const exit = thrown as EarlyExit<E>;
-            const originalCause =
-              exit.meta.origin === "result"
-                ? exit.meta.resultCause
-                : exit.meta.origin === "throw"
-                  ? exit.meta.thrown
-                  : undefined;
-            const errorResult = encodeCachedError(exit.error, exit.meta, originalCause);
+            const errorResult = encodeCachedError(exit.error, exit.meta, causeOf(exit.meta));
             if (cache) cache.set(key, errorResult);
             await callOnAfterStepHook(key, errorResult, exit.meta);
           }
@@ -2072,7 +2043,10 @@ export function createWorkflow<
           originalError: result.error,
           compensationErrors,
         };
-        result = errAny(sagaError as unknown as E | ExtraE | U, { cause: result.cause }) as typeof result;
+        result = carryOrigin(
+          result,
+          errAny(sagaError as unknown as E | ExtraE | U, { cause: result.cause })
+        ) as typeof result;
       }
     }
 

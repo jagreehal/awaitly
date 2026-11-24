@@ -37,7 +37,7 @@
  * to their own TaggedError subclasses.
  */
 
-import { TaggedError } from "./tagged-error";
+import { TaggedError, WRAPS_THROWN } from "./tagged-error";
 
 // =============================================================================
 // Error Factory
@@ -374,6 +374,7 @@ export class CompensationError extends /* @__PURE__ */ TaggedError("Compensation
  * ```
  */
 export class UnexpectedError extends /* @__PURE__ */ TaggedError("UnexpectedError", {
+  [WRAPS_THROWN]: true,
   slug: "runtime-unexpected",
   hint: "An unexpected exception escaped a step. Inspect cause; consider returning a typed Result instead of throwing.",
   message: (p: {

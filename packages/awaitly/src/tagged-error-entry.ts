@@ -14,7 +14,7 @@
  * }) {}
  *
  * const error = new UserNotFound({ userId: '123' });
- * error._tag // 'UserNotFound'
+ * error.type // 'UserNotFound'
  * error.userId // '123'
  * ```
  */
