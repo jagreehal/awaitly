@@ -1,5 +1,21 @@
 # awaitly
 
+## 7.2.0
+
+### Minor Changes
+
+- 69d0f90: `awaitly-analyze --doctor` flags runs whose OpenTelemetry span will be a bare `run`, such as `const checkout = createWorkflow(deps)` or an inline `run()` callback, and gives you the exact call to name them. The new `workflow-unnamed-trace` slug links to the rule. The analyzer names a run after its `workflowName` option, so diagram trace counts match your spans.
+
+  Step spans keep `code.function.name` for named helpers that call a step after an `await`, and for functions that `process.nextTick` or `Array.map` call.
+
+  Bundlers now drop the slug table when you only import `ok` and `err`, which halves the minified size of `awaitly/result` for that import.
+
+- 41189c0: Typed errors keep their messages and fields out of spans. A `TaggedError` records ERROR status and `error.type`, plus the message and stack of the `Error` it carries as `cause`. Spans add an `exception` event when something threw, including a throw that `step.try` or `catchUnexpected` maps to a typed error.
+
+  `instanceof TaggedError` recognizes errors across `awaitly`, `awaitly/durable` and `awaitly/testing`. Failed `runSaga` results carry `cause`.
+
+  The lint rule `awaitly/workflow-unnamed-trace` flags runs that trace as a bare `run`, in ESLint and oxlint.
+
 ## 7.1.1
 
 ### Patch Changes
