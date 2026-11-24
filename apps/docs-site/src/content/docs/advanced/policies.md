@@ -38,7 +38,8 @@ const result = await run(
     await s.charge(amount);
     await s.notify(to);
     return ok(undefined);
-  }
+  },
+  { workflowName: 'checkout' }
 );
 
 // Same wrappers in a workflow deps object

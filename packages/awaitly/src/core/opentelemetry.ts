@@ -14,7 +14,9 @@ import {
   type TextMapGetter,
   type Tracer,
 } from '@opentelemetry/api';
+import { wrapsThrown } from '../tagged-error';
 import { callSite } from './call-site';
+import { errorOf, explain, type FailedResult, type Failure } from './failure-origin';
 import type { WorkflowEvent } from './index';
 
 /**
@@ -145,7 +147,7 @@ export function annotateSpan(attributes: Attributes): void {
 
 type ResultLike =
   | { readonly ok: true; readonly value: unknown }
-  | { readonly ok: false; readonly error: unknown };
+  | FailedResult;
 
 function isResultLike(value: unknown): value is ResultLike {
   return (
@@ -156,11 +158,18 @@ function isResultLike(value: unknown): value is ResultLike {
   );
 }
 
-/** Name the error for `error.type`. */
+/**
+ * Name the error for `error.type`. Total, like everything below that reads a
+ * user's error: a getter or Proxy that throws must not change the outcome.
+ */
 function errorType(error: unknown): string {
-  const failure = unwrapFailure(error);
-  if (failure instanceof Error) return failure.name;
-  return tagOf(failure) ?? typeof failure;
+  const failure = errorOf({ threw: error });
+  try {
+    const name = failure instanceof Error ? failure.name : tagOf(failure);
+    return typeof name === 'string' ? name : typeof failure;
+  } catch {
+    return typeof failure;
+  }
 }
 
 function tagOf(error: unknown): string | undefined {
@@ -173,55 +182,30 @@ function tagOf(error: unknown): string | undefined {
   return undefined;
 }
 
-/**
- * A step exits by throwing an untagged `{ error }` wrapper: the failure is
- * inside. Depth is bounded so a self-referencing error object cannot overflow
- * the stack on the failure path.
- */
-function unwrapFailure(error: unknown, depth = 0): unknown {
-  if (
-    depth < 4 &&
-    typeof error === 'object' &&
-    error !== null &&
-    !(error instanceof Error) &&
-    tagOf(error) === undefined &&
-    'error' in error
-  ) {
-    return unwrapFailure((error as { error: unknown }).error, depth + 1);
-  }
-  return error;
-}
-
-/**
- * The thrown Error behind a failure, for its message and stack. An
- * `UnexpectedError` wraps what your code threw: its own stack starts inside
- * awaitly, so the `cause` is the one worth showing. A typed error
- * (`{ type: 'SEND_FAILED', cause }`) shows the Error it carries as `cause`.
- */
-function thrownError(error: unknown): Error | undefined {
-  const cause = typeof error === 'object' && error !== null ? (error as { cause?: unknown }).cause : undefined;
-  if (error instanceof Error) {
-    return error.name === 'UnexpectedError' && cause instanceof Error ? cause : error;
-  }
-  return cause instanceof Error ? cause : undefined;
-}
-
-function markError(span: Span, wrapped: unknown): void {
-  const error = unwrapFailure(wrapped);
+/** Mark the span failed and return its `error.type`. */
+function markError(span: Span, failure: Failure): string {
+  const error = errorOf(failure);
   const type = errorType(error);
-  const thrown = thrownError(error);
-  span.setStatus({
-    code: SpanStatusCode.ERROR,
-    ...(thrown?.message ? { message: thrown.message } : {}),
-  });
+  span.setStatus({ code: SpanStatusCode.ERROR });
   span.setAttribute('error.type', type);
-  // A typed error's own fields can hold customer data, so only its type and an
-  // Error it carries as `cause` reach the event.
-  span.addEvent('exception', {
-    'exception.type': error instanceof Error && thrown ? thrown.name : type,
-    ...(thrown?.message ? { 'exception.message': thrown.message } : {}),
-    ...(thrown?.stack ? { 'exception.stacktrace': thrown.stack } : {}),
-  });
+  try {
+    const { source, exception, thrown } = explain(failure);
+    const message = source?.message;
+    const stack = source?.stack;
+    if (message) span.setStatus({ code: SpanStatusCode.ERROR, message });
+    // A typed error with no thrown cause is an outcome your code planned for: an
+    // exception event would open an issue in the backend's error tracking.
+    if (exception) {
+      span.addEvent('exception', {
+        'exception.type': thrown && wrapsThrown(error) ? errorType(thrown) : type,
+        ...(message ? { 'exception.message': message } : {}),
+        ...(stack ? { 'exception.stacktrace': stack } : {}),
+      });
+    }
+  } catch {
+    // The error can't be read: the span keeps its status and type.
+  }
+  return type;
 }
 
 /**
@@ -234,20 +218,16 @@ function markError(span: Span, wrapped: unknown): void {
 function markOutcome(
   span: Span,
   signal: AbortSignal | undefined,
-  outcome: 'success' | 'error',
-  error?: unknown,
+  failure?: Failure,
 ): Attributes {
   if (signal?.aborted) {
     span.setAttribute('awaitly.outcome', 'cancelled');
     return { 'awaitly.outcome': 'cancelled' };
   }
 
-  span.setAttribute('awaitly.outcome', outcome);
-  if (outcome === 'error') {
-    markError(span, error);
-    return { 'awaitly.outcome': outcome, 'error.type': errorType(error) };
-  }
-  return { 'awaitly.outcome': outcome };
+  span.setAttribute('awaitly.outcome', failure ? 'error' : 'success');
+  if (!failure) return { 'awaitly.outcome': 'success' };
+  return { 'awaitly.outcome': 'error', 'error.type': markError(span, failure) };
 }
 
 type SpanDetails = {
@@ -256,9 +236,19 @@ type SpanDetails = {
   signal?: AbortSignal | undefined;
 };
 
+function failureIn<T>(value: T, outcomeOf: (value: T) => ResultLike | undefined): Failure | undefined {
+  try {
+    const result = outcomeOf(value);
+    return result && !result.ok ? { returned: result } : undefined;
+  } catch {
+    // Not readable as a Result, so not known to have failed.
+    return undefined;
+  }
+}
+
 type SpanOptions<T> = {
   /** Read a returned value as success or failure; without it, returning is success. */
-  outcomeOf?: (value: T) => { ok: boolean; error?: unknown };
+  outcomeOf?: (value: T) => ResultLike | undefined;
   /** Record the caller's file and line as `code.*` attributes. */
   recordCallSite?: boolean;
   /** Record the duration in this histogram, with these attributes plus the outcome. */
@@ -292,16 +282,10 @@ function withSpan<T>(
       let outcome: Attributes = {};
       try {
         const value = await operation();
-        const result = outcomeOf?.(value);
-        outcome = markOutcome(
-          span,
-          details.signal,
-          result === undefined || result.ok ? 'success' : 'error',
-          result?.error,
-        );
+        outcome = markOutcome(span, details.signal, outcomeOf && failureIn(value, outcomeOf));
         return value;
       } catch (error) {
-        outcome = markOutcome(span, details.signal, 'error', error);
+        outcome = markOutcome(span, details.signal, { threw: error });
         throw error;
       } finally {
         span.end();
@@ -317,7 +301,7 @@ function withSpan<T>(
 }
 
 const RESULT_OUTCOME: SpanOptions<ResultLike> = {
-  outcomeOf: (value) => (value.ok ? { ok: true } : { ok: false, error: value.error }),
+  outcomeOf: (value) => value,
 };
 
 /**
@@ -344,6 +328,7 @@ function warnUnnamedRun(): void {
   console.warn(
     "[awaitly] A run was traced without a name, so its span is just 'run'. " +
       "Name it: run(fn, { workflowName: 'checkout' }), " +
+      "run(deps, fn, { workflowName: 'checkout' }), " +
       "createWorkflow('checkout', deps), or pass a named function.",
   );
 }
@@ -628,10 +613,10 @@ export function withEngineJobSpan<T>(
     async (span) => {
       try {
         const value = await operation();
-        markOutcome(span, details.signal, 'success');
+        markOutcome(span, details.signal);
         return value;
       } catch (error) {
-        markOutcome(span, details.signal, 'error', error);
+        markOutcome(span, details.signal, { threw: error });
         throw error;
       } finally {
         span.end();
@@ -664,10 +649,7 @@ export function withCompensationSpan<T>(
     },
     operation,
     {
-      outcomeOf: (value) =>
-        isResultLike(value) && !value.ok
-          ? { ok: false, error: value.error }
-          : { ok: true },
+      outcomeOf: (value) => (isResultLike(value) ? value : undefined),
     },
   );
 }

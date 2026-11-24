@@ -108,7 +108,7 @@ const result = await run({ getUser, getPosts }, async (s) => {
   const user = await s.getUser('1');
   const posts = await s.getPosts(user.id);
   return { user, posts };
-});
+}, { workflowName: 'loadUserPosts' });
 
 // result.error: { type: 'NOT_FOUND' } | { type: 'POSTS_FAILED' } | UnexpectedError
 ```
@@ -153,7 +153,7 @@ const result = await run({ getUser, getPosts }, async (s, { step }) => {
   });
 
   return { user, posts, profile };
-});
+}, { workflowName: 'loadProfile' });
 ```
 
 ## Quick Comparison

@@ -32,7 +32,8 @@ const result = await run(
       timeout: { ms: 5000 }, // tier 3
     });
     return { user, orders };
-  }
+  },
+  { workflowName: 'loadOrders' }
 );
 
 match(result, {
@@ -74,7 +75,7 @@ const result = await run({ fetchUser, chargeCard }, async (s) => {
   const user = await s.fetchUser('1');
   const charge = await s.chargeCard(user.id, 100);
   return { user, charge };
-});
+}, { workflowName: 'checkout' });
 // result.error is: { type: 'NOT_FOUND' } | { type: 'CARD_DECLINED' } | UnexpectedError
 ```
 
@@ -100,7 +101,7 @@ arrive as `UnexpectedError`. Convert functions to `Result` one at a time.
 ```typescript
 const parseConfig = async (raw: string) => JSON.parse(raw) as { port: number };
 
-const result = await run({ parseConfig }, async (s) => s.parseConfig(raw));
+const result = await run({ parseConfig }, async (s) => s.parseConfig(raw), { workflowName: 'parseConfig' });
 // result.error is UnexpectedError, with the SyntaxError on .cause
 ```
 
@@ -183,7 +184,8 @@ import { run, retry } from 'awaitly';
 
 const result = await run(
   { fetchApi: retry(fetchUnreliableAPI, { attempts: 3, backoff: 'exponential', delay: 100 }) },
-  async (s) => s.fetchApi()
+  async (s) => s.fetchApi(),
+  { workflowName: 'fetchApi' }
 );
 ```
 
@@ -211,7 +213,7 @@ Same three tiers. Per dependency:
 ```typescript
 import { run, timeout } from 'awaitly';
 
-const result = await run({ slowOp: timeout(slowOperation, 5000) }, async (s) => s.slowOp());
+const result = await run({ slowOp: timeout(slowOperation, 5000) }, async (s) => s.slowOp(), { workflowName: 'slowOp' });
 // error union gains TimeoutError
 ```
 
@@ -231,7 +233,8 @@ import { run, fallback } from 'awaitly';
 
 const result = await run(
   { sendEmail: fallback(sendEmail, () => ({ queued: true })) },
-  async (s) => s.sendEmail(user.id)
+  async (s) => s.sendEmail(user.id),
+  { workflowName: 'sendEmail' }
 );
 // sendEmail's errors are consumed, so they never reach result.error
 ```
@@ -248,7 +251,7 @@ const result = await run({ fetchUser, fetchApi }, async (s, { step }) => {
     retry: { attempts: 3, backoff: 'exponential', initialDelay: 100 },
   });
   return data;
-});
+}, { workflowName: 'loadData' });
 ```
 
 Inside a workflow the same options live on `step`, plus the `step.retry(id, fn, opts)`
@@ -267,7 +270,7 @@ helper. See [Retries & Timeouts](guides/retries-timeouts/).
 { ms: 2000, onTimeout: 'disconnect' }
 
 // Custom error handler
-{ ms: 5000, onTimeout: ({ name, ms }) => ({ _tag: 'Timeout', name, ms }) }
+{ ms: 5000, onTimeout: ({ name, ms }) => ({ type: 'Timeout', name, ms }) }
 ```
 
 ## Do several things at once

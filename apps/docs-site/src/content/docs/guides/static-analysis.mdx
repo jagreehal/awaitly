@@ -144,6 +144,7 @@ export const checkout = (cartId: string) =>
       const receipt = await steps.sendReceipt(cart.email);
       return { kind: 'paid' as const, cart, payment, receipt };
     },
+    { workflowName: 'checkout' },
   );
 ```
 

@@ -117,7 +117,7 @@ await sdk.shutdown();
 
 | Span | Created for |
 | --- | --- |
-| `run <workflow>` | `run()` and `workflow.run()`. The name comes from `run(fn, { workflowName: 'checkout' })`, `createWorkflow('checkout', deps)`, or else a named callback (`run(async function checkout() {...})`). An inline arrow gives plain `run`, and awaitly warns once while an SDK is recording. The variable you assign to doesn't count: `const checkout = createWorkflow(deps)` traces as `run`, since the runtime never sees `checkout`. `awaitly-analyze --doctor` flags these runs and suggests the name to pass. Minifiers rename functions, so pass `workflowName` in minified builds |
+| `run <workflow>` | `run()` and `workflow.run()`. The name comes from `run(fn, { workflowName: 'checkout' })`, `run(deps, fn, { workflowName: 'checkout' })`, `createWorkflow('checkout', deps)`, or else a named callback (`run(async function checkout() {...})`). An inline arrow gives plain `run`, and awaitly warns once while an SDK is recording. The variable you assign to doesn't count: `const checkout = createWorkflow(deps)` traces as `run`, since the runtime never sees `checkout`. `awaitly-analyze --doctor` flags these runs and suggests the name to pass, and the `awaitly/workflow-unnamed-trace` lint rule flags them in ESLint or oxlint. Minifiers rename functions, so pass `workflowName` in minified builds |
 | `step <name>` | Steps, including the error-mapping variants |
 | `attempt <name>` | Each physical attempt, once retry is configured |
 | `parallel <name>` | `step.all()` |
@@ -127,7 +127,7 @@ await sdk.shutdown();
 | `compensate <name>` | Saga rollback actions |
 | `engine process <workflow>` | One queued workflow the engine picks up |
 
-Span status stays UNSET on success, because the OpenTelemetry spec reserves OK for the application and instrumentation cannot be overridden once it sets a status. Read `awaitly.outcome` instead. Failures set ERROR, and a cancelled operation records `cancelled` without marking the span failed.
+Span status stays UNSET on success, because the OpenTelemetry spec reserves OK for the application and instrumentation cannot be overridden once it sets a status. Read `awaitly.outcome` instead. Spans you open yourself can set OK. Failures set ERROR, and a cancelled operation records `cancelled` without marking the span failed.
 
 ## Attributes
 
@@ -149,7 +149,9 @@ awaitly records identifiers and bounded semantic fields. Result values and workf
 | `error.type` | Typed error discriminant or thrown error class |
 | `code.file.path`, `code.line.number`, `code.column.number`, `code.function.name` | The line of your code that started the run or step |
 
-Typed error payloads never reach span attributes, which keeps customer IDs, payment details, and validation input out of your tracing backend. A typed failure still records an `exception` event with its `type` as `exception.type`, so your backend's exception views include it. When the typed error carries an `Error` as `cause`, the event and the span status also get that error's message and stack:
+Typed error payloads stay out of spans, which keeps customer IDs, payment details, and validation input out of your tracing backend. That covers a `TaggedError`'s message and stack too, since a message callback puts its fields into words. A typed failure sets ERROR status and `error.type`.
+
+A typed failure with no cause is an outcome your code planned for, so it records no `exception` event and error tracking stays quiet. When the typed error carries an `Error` as `cause`, something threw: the span records an `exception` event with the typed error's `type` as `exception.type`, and the event and the span status get the cause's message and stack:
 
 ```typescript
 catch (cause) {
@@ -157,7 +159,9 @@ catch (cause) {
 }
 ```
 
-A throw becomes an `UnexpectedError`. Its span keeps `error.type: UnexpectedError`, and the `exception` event records what your code threw: its class as `exception.type`, its message, and its stack.
+A throw becomes an `UnexpectedError`. Its span keeps `error.type: UnexpectedError`, and the `exception` event records what your code threw: its class as `exception.type`, its message, and its stack. A thrown `TaggedError` records its type alone.
+
+When `step.try` or `catchUnexpected` maps a throw to a typed error, the span keeps the typed error's `type` and records the message and stack of what was thrown.
 
 ## Find the line that ran
 

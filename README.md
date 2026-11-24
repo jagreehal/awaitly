@@ -121,7 +121,7 @@ const result = await run({ getOrder, getUser, charge }, async (s) => {
   const user = await s.getUser(order.userId); // same
   const payment = await s.charge(order.total); // same
   return payment;
-});
+}, { workflowName: 'checkout' });
 // result.error: { type: 'ORDER_NOT_FOUND' } | { type: 'USER_NOT_FOUND' } | { type: 'CHARGE_DECLINED' } | UnexpectedError
 ```
 
@@ -893,7 +893,7 @@ import { run } from 'awaitly';
 
 const result = await run({ fetchUser }, async (s) => {
   return s.fetchUser(userId);
-});
+}, { workflowName: 'loadUser' });
 ```
 
 The explicit callback-only form exists for dynamic dependencies or when you're building abstractions and want manual control of the error union:

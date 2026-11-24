@@ -1,6 +1,7 @@
 import type { Rule } from 'eslint';
 import type { CallExpression, NewExpression, Node } from 'estree';
-import { durableZoneAt, findVariable } from '../durable-context.js';
+import { findVariable } from '../bindings.js';
+import { durableZoneAt } from '../durable-context.js';
 
 /** `<object>.<property>()` calls that return a different value on every run. */
 const NONDETERMINISTIC_MEMBERS: Record<string, ReadonlySet<string>> = {

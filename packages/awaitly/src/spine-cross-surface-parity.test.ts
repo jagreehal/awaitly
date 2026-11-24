@@ -23,6 +23,7 @@ const EXPECTED_LINT_SLUGS = new Set([
   'workflow-callback-shape',
   'workflow-no-callable-form',
   'workflow-no-dynamic-import',
+  'workflow-unnamed-trace',
   'result-no-floating',
   'result-require-handling',
   'result-no-double-wrap',
@@ -54,9 +55,8 @@ describe('spine cross-surface parity', () => {
       expect(isAwaitlySlug(code)).toBe(true);
     }
     // The analyzer's diagnostics map onto the core spine slugs plus
-    // analyzer-only slugs: control flow whose condition/iterable cannot be
-    // read statically, and a workflow named only by the code around it.
-    // These have no ESLint counterpart: they need the analyzer's derivation.
+    // analyzer-only slugs for control flow whose condition/iterable cannot be
+    // read statically.
     const expectedAnalyzerCodes = new Set([
       'step-require-id',
       'result-require-handling',

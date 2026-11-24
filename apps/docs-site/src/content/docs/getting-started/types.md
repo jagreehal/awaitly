@@ -81,7 +81,7 @@ but the Result is stripped off:
 await run({ getUser }, async (s) => {
   const user = await s.getUser('1');
   //    ^? User        — not Result<User, { type: 'NOT_FOUND' }>
-});
+}, { workflowName: 'loadUser' });
 ```
 
 The `{ type: 'NOT_FOUND' }` didn't vanish. It moved to the **outer** result type. That is the
@@ -140,7 +140,7 @@ const getUser = async (id: string): AsyncResult<User, { type: 'NOT_FOUND' }> => 
 const result = await run({ getUser, slugify }, async (s) => {
   const user = await s.getUser('1');
   return s.slugify(user.name);
-});
+}, { workflowName: 'slugForUser' });
 //    ^? Result<string, { type: 'NOT_FOUND' } | UnexpectedError>
 ```
 

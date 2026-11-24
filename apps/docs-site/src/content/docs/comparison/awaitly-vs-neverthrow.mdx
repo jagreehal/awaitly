@@ -424,7 +424,7 @@ const fetchUser = async (id: number): AsyncResult<User, { type: 'NOT_FOUND' }> =
 const result = await run({ parseId, fetchUser }, async (s) => {
   const id = await s.parseId('42');
   return s.fetchUser(id);
-});
+}, { workflowName: 'loadUser' });
 /*
 Output:
 { ok: true, value: { id: 42, name: 'Alice' } }
@@ -665,7 +665,7 @@ const result = await run({ parseId, fetchUser, sendEmail }, async (s) => {
   const user = await s.fetchUser(id);
   await s.sendEmail(user.email);
   return user;
-});
+}, { workflowName: 'notifyUser' });
 
 // Errors short-circuit automatically, no special syntax required,
 // and result.error is inferred from the deps
@@ -731,7 +731,7 @@ const result = await run({ fetchUser, sendEmail, chargeCard }, async (s) => {
   await s.chargeCard(99.99);
   await s.sendEmail(user.email);
   return user;
-});
+}, { workflowName: 'checkout' });
 
 // result.error is: { type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' } | { type: 'PAYMENT_DECLINED' } | UnexpectedError
 ```

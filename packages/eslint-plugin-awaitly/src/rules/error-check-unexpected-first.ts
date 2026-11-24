@@ -43,7 +43,7 @@ const rule: Rule.RuleModule = {
     schema: [],
     messages: {
       checkUnexpectedFirst:
-        'Check isUnexpectedError(result.error) before matching on result.error._tag / .type. Without it, library/SDK bugs are silently treated as typed errors.',
+        'Check isUnexpectedError(result.error) before matching on result.error.type, so errors a library or SDK throws get their own branch.',
     },
   },
   create(context) {

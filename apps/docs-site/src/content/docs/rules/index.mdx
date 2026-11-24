@@ -160,9 +160,15 @@ Canonical awaitly slug: workflow-unreadable-iterable
 
 ### `workflow-unnamed-trace` \{#workflow-unnamed-trace\}
 
-Canonical awaitly slug: workflow-unnamed-trace
+Require a name on every run() and createWorkflow(), so its OpenTelemetry span is not a bare "run".
 
+- **ESLint rule:** `awaitly/workflow-unnamed-trace`
 - **Analyzer:** `awaitly-analyze --doctor` strict rules `unnamed-trace`
+
+```text
+This run traces as a bare 'run' span. Pass { workflowName: '...' } after the callback, or a named function.
+This workflow traces as a bare 'run' span: the runtime cannot see the variable name. Pass the name first: createWorkflow('checkout', deps).
+```
 
 ## `result-*`
 
@@ -230,7 +236,7 @@ When matching on result.error tags, check isUnexpectedError(result.error) first 
 - **ESLint rule:** `awaitly/error-check-unexpected-first`
 
 ```text
-Check isUnexpectedError(result.error) before matching on result.error._tag / .type. Without it, library/SDK bugs are silently treated as typed errors.
+Check isUnexpectedError(result.error) before matching on result.error.type, so errors a library or SDK throws get their own branch.
 ```
 
 ### `error-require-discriminant` \{#error-require-discriminant\}

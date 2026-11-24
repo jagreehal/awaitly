@@ -39,7 +39,6 @@
 
 import {
   ok,
-  err,
   errAny,
   type Result,
   type AsyncResult,
@@ -51,6 +50,8 @@ import {
   type CompensationAction as CoreCompensationAction,
 } from "./core";
 import { isDepResultShaped } from "./core/bound-steps";
+import { exitTo, metaOf, rememberThrow } from "./core/failure-origin";
+import { causeOf } from "./core/step-failure";
 import {
   resolveTelemetry,
   withCompensationSpan,
@@ -268,10 +269,7 @@ export async function runSaga<T, E>(
         }
         return result.value;
       }
-      throw createEarlyExit(result.error as unknown as E, {
-        origin: "result",
-        resultCause: result.cause,
-      });
+      throw createEarlyExit(result.error as unknown as E, metaOf(result));
     };
     return withSagaStepSpan(
       { enabled: telemetry, sagaId, stepName: name },
@@ -331,6 +329,10 @@ export async function runSaga<T, E>(
       const originalError = isEarlyExit(thrown)
         ? (thrown as EarlyExit<E>).error
         : thrown;
+      const fail = <F>(error: F) =>
+        isEarlyExit(thrown)
+          ? exitTo(thrown, errAny(error, { cause: causeOf(thrown.meta) }))
+          : rememberThrow(errAny(error, { cause: thrown }), thrown);
 
       emit({ type: "saga_error", sagaId, ts: Date.now(), durationMs, error: originalError });
 
@@ -400,15 +402,15 @@ export async function runSaga<T, E>(
         };
         options?.onError?.(sagaError);
         if (options?.throwOnCompensationFailure) throw sagaError;
-        return err(sagaError);
+        return fail(sagaError);
       }
 
       options?.onError?.(originalError as E);
 
       if (!isEarlyExit(thrown)) {
-        return err(new UnexpectedError({ cause: thrown }));
+        return fail(new UnexpectedError({ cause: thrown }));
       }
-      return errAny(originalError as E);
+      return fail(originalError as E);
     }
   };
 

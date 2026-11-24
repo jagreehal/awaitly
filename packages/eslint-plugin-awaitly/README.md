@@ -33,7 +33,41 @@ export default [
 
 `recommended-strict` is the same rule set as `recommended`, but upgrades `awaitly/result-require-handling` from `warn` to `error`.
 
+### oxlint
+
+oxlint loads the plugin through `jsPlugins`. List the rules you want:
+
+```ts
+// oxlint.config.ts
+import { defineConfig } from 'oxlint';
+
+export default defineConfig({
+  jsPlugins: ['eslint-plugin-awaitly'],
+  rules: {
+    'awaitly/workflow-unnamed-trace': 'error',
+    'awaitly/step-require-id': 'error',
+  },
+});
+```
+
 ## Rules
+
+### `awaitly/workflow-unnamed-trace` (warn)
+
+Requires a name on every `run()` and `createWorkflow()` imported from `awaitly`, so its OpenTelemetry span is `run loadUser`. The rule works in CI, where no tracer is recording.
+
+```typescript
+// BAD - traces as a bare 'run'
+run({ getUser }, async (s) => s.getUser(id));
+createWorkflow({ getUser }).run(async ({ steps }) => steps.getUser(id));
+
+// GOOD
+run({ getUser }, async (s) => s.getUser(id), { workflowName: 'loadUser' });
+run({ getUser }, async function loadUser(s) { return s.getUser(id); });
+createWorkflow('loadUser', { getUser });
+```
+
+The rule checks a workflow when the same file creates and runs it.
 
 ### `awaitly/step-require-id` (error)
 

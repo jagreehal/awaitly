@@ -101,7 +101,7 @@ The value returned by `createWorkflow` is a workflow object with a single **`.ru
 
 ## run()
 
-`run(deps, fn)` is the same deps-first idea without a name attached. Error types are
+`run(deps, fn)` is the same deps-first idea, with the name in its options. Error types are
 inferred exactly as they are for `createWorkflow`. You do not supply type parameters:
 
 ```typescript
@@ -111,7 +111,7 @@ const result = await run({ fetchUser, sendEmail }, async (s) => {
   const user = await s.fetchUser('1');
   await s.sendEmail(user.email);
   return user;
-});
+}, { workflowName: 'welcomeUser' });
 // result.error is: { type: 'NOT_FOUND' } | { type: 'EMAIL_FAILED' } | UnexpectedError
 ```
 
