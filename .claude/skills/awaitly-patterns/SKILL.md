@@ -8,7 +8,7 @@ user-invocable: true
 
 **This document defines the supported patterns for using awaitly. Avoid inventing alternatives.** awaitly stays in `async/await` — no generators, no method chains, no DSL.
 
-Workflows are sequential unless explicitly composed using step concurrency helpers (`step.all`, `step.map`, `step.race`). `allAsync()` is the underlying Result combinator and should typically be executed inside a step.
+Workflows are sequential unless explicitly composed using step concurrency helpers (`step.all`, `step.map`, `step.allSettled`, `step.race`). `allAsync()` is the underlying Result combinator and should typically be executed inside a step.
 
 **Execution is only via `workflow.run()`.** There is no callable form (`workflow(fn)` or `workflow(args, fn)`). Use closures for workflow input (e.g. `userId` in scope).
 
@@ -36,7 +36,8 @@ Use this as a checklist when generating or editing awaitly code. Satisfy every i
 ### Async discipline
 - **MUST** wrap all async work in `step()` or a step helper.
 - **MUST NOT** use bare `await deps.fn()` inside workflow callbacks. Replace with `await step('id', () => deps.fn())`.
-- **MUST NOT** wrap `step()` calls in `try/catch`. Use `step.try()` for throw-to-typed conversion.
+- **MUST NOT** wrap `step()` calls or bound steps (`s.getUser(id)`) in `try/catch`: the catch swallows the failure and the run returns `ok`. Use `step.try()` for throw-to-typed conversion.
+- To keep every failure instead of stopping at the first, **MUST** use `step.allSettled('checks', { name: () => checkName(n), age: () => checkAge(a) })`, which resolves to `{ values, errors }`. Pass operations that must succeed to the `run` deps and keep the checks out of them. A check that throws still ends the run. To end the run on one kept error, pass it to a dep that returns it: `await s.failOnOutage(errors.find((e) => e.type === 'FRAUD_UNAVAILABLE'))`, where `failOnOutage = async (o: Outage | undefined): AsyncResult<void, Outage> => o ? err(o) : ok(undefined)`.
 
 ### Step identity
 - The first argument to every step **MUST** be a **static string literal** (e.g. `step('getUser', ...)`).
@@ -48,10 +49,10 @@ Use this as a checklist when generating or editing awaitly code. Satisfy every i
 - **MUST** access the original thrown value via `e.cause` inside the `UnexpectedError` arm.
 
 ### Concurrency inside workflows
-- **MUST NOT** use `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows. Replace with `step.all`, `step.map`, or `step.race` (consult types).
+- **MUST NOT** use `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows. Replace with `step.all`, `step.map`, `step.allSettled`, or `step.race` (consult types).
 
 ### Telemetry
-- awaitly opens OpenTelemetry spans for every `run`, `step`, retry attempt, and `step.all`/`step.race` scope. Register a provider at startup and the spans appear.
+- awaitly opens OpenTelemetry spans for every `run`, `step`, retry attempt, and `step.all`/`step.allSettled`/`step.race` scope. Register a provider at startup and the spans appear.
 - **MUST NOT** wrap the workflow callback or a step function in `trace()` (autotel), `startActiveSpan()`, or any other span helper. awaitly already opened that span, so a wrapper reports the same call twice.
 - **MUST** put your own spans inside the step body when you want detail below the step.
 - **MUST** name every run: `createWorkflow('checkout', deps)`, `run(fn, { workflowName: 'checkout' })`, `run(deps, fn, { workflowName: 'checkout' })`, or a named function. An inline arrow traces as plain `run`, and so does `const checkout = createWorkflow(deps)`: the runtime never sees the variable name. `awaitly-analyze --doctor` and the lint rule `awaitly/workflow-unnamed-trace` (ESLint or oxlint) flag these runs.
@@ -300,7 +301,7 @@ If you need per-item error handling in a loop, use `step.forEach()` with error c
 | `step(promise)` when using retries/caching | Thunk form: `step('id', () => deps.fn(args))`. |
 | Bare `await deps.fn()` (or any async without step) | `await step('id', () => deps.fn())`. |
 | Manual `if (!result.ok)` after calling deps directly | Call through step; step() short-circuits on Err. |
-| `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows | `step.all`, `step.map`, or `step.race`. See Concurrency section. |
+| `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows | `step.all`, `step.map`, `step.allSettled`, or `step.race`. See Concurrency section. |
 | `throw` in deps | Return `err()` instead, or wrap with `step.try(id, fn, { error: { type: 'TYPED_ERROR' } })`. |
 | `try/catch` around step() | Remove try/catch; errors propagate to workflow result. Use `step.try()` only for converting throws to typed errors. |
 
@@ -610,6 +611,7 @@ const result = await processOrder.run(async ({ step, deps }) => {
 
 | Need | Use | Example |
 |------|-----|---------|
+| Keep every failure | `step.allSettled(name, shape, opts?)` | `step.allSettled('checks', { name: () => checkName(n), age: () => checkAge(a) })` → `{ values, errors }` |
 | Result error remapping | `step.fromResult(id, fn, opts)` | `step.fromResult('callApi', () => callApi(), { onError: (e) => ... })` |
 | Null/undefined → typed error | `step.fromNullable(id, fn, onNull)` | `step.fromNullable('lookup', () => map.get(id), () => ({ type: 'NOT_FOUND' }))` |
 | Retries (as primary verb) | `step.retry(id, fn, opts)` | `step.retry('fetch', () => deps.fn(), { attempts: 3 })` |
@@ -704,10 +706,11 @@ Manual `for` loops with dynamic keys like `${item.id}`:
 
 1. **`step.all(name, { key: () => op(), ... })`** — object form, named keys.
 2. **`step.map(id, items, mapper)`** — parallel over array.
-3. **`step.all(name, () => allAsync([...]))`** — array form when you need a tuple of heterogeneous results.
-4. **`allAsync([...])`** — ONLY inside a step callback.
+3. **`step.allSettled(name, { key: () => op(), ... })`** — run every operation and keep every failure.
+4. **`step.all(name, () => allAsync([...]))`** — array form when you need a tuple of heterogeneous results.
+5. **`allAsync([...])`** — ONLY inside a step callback.
 
-**MUST NOT** use `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows. Replace with `step.all`, `step.map`, or `step.race`.
+**MUST NOT** use `Promise.all`, `Promise.race`, or `Promise.allSettled` inside workflows. Replace with `step.all`, `step.map`, `step.allSettled`, or `step.race`.
 
 **Object form** (named keys):
 
@@ -734,7 +737,20 @@ const [user1, user2] = await step.all('Fetch users', () =>
 const users = await step.map('fetchUsers', userIds, (id) => deps.getUser(id));
 ```
 
+**Keep every failure** (each operation is a step named `checks.name`, `checks.age`):
+
+```typescript
+const { values, errors } = await step.allSettled('checks', {
+  name: () => deps.checkName(input.name),
+  age: () => deps.checkAge(input.age),
+});
+return { allowed: errors.length === 0, blockers: errors.map((e) => e.type) };
+```
+
+`errors` is in declaration order, typed as the union the operations can return. `values` is keyed and partial. A check called through `createWorkflow` deps is in the deps, so its error is also in the workflow union and needs an arm. In a raw loop, pass `{ key: 'group:' + id }` as the third argument.
+
 `step.all` and `step.map` only use the workflow cache when you pass an explicit `key`; without a key they do not cache by step id.
+`step.allSettled` caches and checkpoints each operation under its step id, like `step()`.
 
 ---
 

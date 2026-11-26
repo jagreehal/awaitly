@@ -377,4 +377,22 @@ describe('OpenTelemetry beyond spans', () => {
         step charge ✗ CARD_DECLINED"
     `);
   });
+
+  it('gives each step.allSettled operation a span, inside a scope that succeeds', async () => {
+    await run(
+      async ({ step }) =>
+        step.allSettled('checks', {
+          name: async () => ok('Ada'),
+          age: async () => err({ type: 'TOO_YOUNG' }),
+        }),
+      { workflowName: 'preview' },
+    );
+
+    expect(formatSpanTree(await finished())).toMatchInlineSnapshot(`
+      "run preview
+        allSettled checks
+          step checks.name
+          step checks.age ✗ TOO_YOUNG"
+    `);
+  });
 });

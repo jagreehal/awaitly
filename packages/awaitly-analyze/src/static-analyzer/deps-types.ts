@@ -316,6 +316,16 @@ export function attachWorkflowRefsFromDeps(root: StaticWorkflowNode): number {
   return marked;
 }
 
+/** Error names the function at `node` can return, or none when types are unavailable. */
+export function errorNamesOfFunction(node: Node): string[] {
+  try {
+    const checker = node.getSourceFile().getProject().getTypeChecker().compilerObject as ts.TypeChecker;
+    return extractErrorNamesFromFunctionType(node.getType().compilerType, checker);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * When step.errors is not explicitly set but errorTypeInfo has been resolved,
  * populate step.errors from errorTypeInfo.display by splitting union types.

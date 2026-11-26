@@ -15,7 +15,7 @@ import { extname } from "path";
 
 // Type-only imports - erased at compile time, no runtime dependency
 // These provide type checking without creating a runtime dependency on ts-morph
-import type { SourceFile, Project, Node } from "ts-morph";
+import type { SourceFile, Project, Node, ObjectLiteralElementLike } from "ts-morph";
 import type * as ts from "typescript";
 import { loadTsMorph, loadTypescript } from "../ts-morph-loader";
 import { deriveIdFromExpression } from "../derive-id";
@@ -81,6 +81,7 @@ import {
   extractErrorTypes,
   inferErrorsFromErrorTypeInfo,
   inferErrorsFromDependencies,
+  errorNamesOfFunction,
   attachWorkflowRefsFromDeps,
   inferStepIOFromInnerCall,
 } from "./deps-types";
@@ -2243,6 +2244,49 @@ function analyzeStepFromResultCall(
 // Parallel/Race Analysis
 // =============================================================================
 
+/** Each `step.allSettled` operation is a step named `name.key`, the id it runs under. */
+function analyzeCollectedOperation(
+  prop: ObjectLiteralElementLike,
+  groupName: string,
+  opts: Required<AnalyzerOptions>,
+  warnings: AnalysisWarning[],
+  stats: AnalysisStats,
+  sagaContext: SagaContext,
+  context: AnalysisContext
+): StaticFlowNode | undefined {
+  const { Node } = loadTsMorph();
+  if (Node.isSpreadAssignment(prop)) return undefined;
+  const key = prop.getName().replace(/^(['"])(.*)\1$/, "$2");
+  const fn = Node.isPropertyAssignment(prop) ? prop.getInitializer() : prop;
+  if (!fn) return undefined;
+
+  const step: StaticStepNode = tryExtractImplicitStep(fn, opts, stats) ?? {
+    id: generateId(),
+    type: "step",
+    stepId: "",
+    location: opts.includeLocations ? getLocation(fn) : undefined,
+  };
+  const isSingleCall = step.callee !== undefined;
+  if (isSingleCall) step.depSource = extractFunctionName(step.callee!);
+  else stats.totalSteps++;
+  step.stepId = `${groupName}.${key}`;
+  step.name = key;
+  step.errors = [];
+  step.errorsSource = "explicit";
+  step.collectedErrors = errorNamesOfFunction(fn);
+
+  // Steps inside a longer operation can still end the workflow.
+  const body =
+    Node.isArrowFunction(fn) || Node.isFunctionExpression(fn) || Node.isMethodDeclaration(fn)
+      ? fn.getBody()
+      : undefined;
+  const nested =
+    isSingleCall || !body ? [] : analyzeNode(body, opts, warnings, stats, sagaContext, context);
+  return nested.length === 0
+    ? step
+    : ({ id: generateId(), type: "sequence", children: [...nested, step] } as StaticSequenceNode);
+}
+
 function analyzeParallelCall(
   node: Node,
   args: Node[],
@@ -2276,6 +2320,16 @@ function analyzeParallelCall(
     parallelNode.name = Node.isStringLiteral(nameArg) ? nameArg.getLiteralValue() : nameArg.getText();
     const operationsNode = args[1];
     const props = operationsNode.getProperties();
+    if (mode === "allSettled") {
+      parallelNode.collectsErrors = true;
+      for (const prop of props) {
+        const child = analyzeCollectedOperation(
+          prop, parallelNode.name, opts, warnings, stats, sagaContext, context
+        );
+        if (child) parallelNode.children.push(child);
+      }
+      return parallelNode;
+    }
     for (let branchIndex = 0; branchIndex < props.length; branchIndex++) {
       const prop = props[branchIndex];
       if (Node.isPropertyAssignment(prop)) {

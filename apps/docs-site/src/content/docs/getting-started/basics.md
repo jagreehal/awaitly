@@ -143,6 +143,77 @@ switch (result.error.type) {
 Pass `isUnexpectedError` the error, never the whole `Result`. `isUnexpectedError(result)`
 takes `unknown`, so it compiles, and it returns `false` on every call.
 
+## Collecting every failure
+
+`run()` stops at the first error. A form validator or a preflight check wants the
+full list. `step.allSettled` runs the checks in parallel and keeps every failure:
+
+```typescript
+const checkName = async (name: string): AsyncResult<void, { type: 'NAME_REQUIRED' }> =>
+  name ? ok(undefined) : err({ type: 'NAME_REQUIRED' });
+
+const checkAge = async (age: number): AsyncResult<void, { type: 'TOO_YOUNG'; minimum: number }> =>
+  age >= 18 ? ok(undefined) : err({ type: 'TOO_YOUNG', minimum: 18 });
+
+const result = await run({ getUser }, async (s, { step }) => {
+  const user = await s.getUser('1'); // NOT_FOUND still exits the run
+  const { errors } = await step.allSettled('checks', {
+    name: () => checkName(user.name),
+    age: () => checkAge(user.age),
+  });
+  // errors: ({ type: 'NAME_REQUIRED' } | { type: 'TOO_YOUNG'; minimum: number })[]
+  return { allowed: errors.length === 0, blockers: errors.map((e) => e.type) };
+}, { workflowName: 'previewSignup' });
+//    ^? Result<{ allowed: boolean; blockers: ... }, { type: 'NOT_FOUND' } | UnexpectedError>
+```
+
+`errors` comes back in the order you wrote the checks, and `values` holds what
+succeeded, by key. Kept errors stay out of the run's error union, so `match` asks
+for no arms you cannot reach. Pass the operations that must succeed to `run()`, and
+call the checks inside `step.allSettled`.
+
+Each check is a step, named `checks.name` and `checks.age`, so it shows up in
+diagrams and traces. A check that throws still ends the run with `UnexpectedError`:
+a crash is never counted as a failed check.
+
+### When one of them should end the run
+
+A check can fail in two ways: the rule said no, or a system it needs is down. Keep the
+first and exit on the second by handing it to an operation in `run()`'s deps:
+
+```typescript
+type Outage = { type: 'FRAUD_UNAVAILABLE' };
+
+const screen = async (userId: string): AsyncResult<void, Outage | { type: 'FRAUD_SUSPECTED' }> =>
+  userId === '1' ? err({ type: 'FRAUD_UNAVAILABLE' }) : ok(undefined);
+
+const failOnOutage = async (outage: Outage | undefined): AsyncResult<void, Outage> =>
+  outage ? err(outage) : ok(undefined);
+
+const result = await run({ getUser, failOnOutage }, async (s, { step }) => {
+  const user = await s.getUser('1');
+  const { errors } = await step.allSettled('checks', {
+    age: () => checkAge(user.age),
+    fraud: () => screen(user.id),
+  });
+  await s.failOnOutage(errors.find((e) => e.type === 'FRAUD_UNAVAILABLE'));
+  return { blockers: errors.map((e) => e.type) };
+}, { workflowName: 'previewSignup' });
+//    ^? error: { type: 'NOT_FOUND' } | { type: 'FRAUD_UNAVAILABLE' } | UnexpectedError
+```
+
+The deps stay the list of everything that can end the run, so `FRAUD_UNAVAILABLE` is in
+the union, `FRAUD_SUSPECTED` is kept, and the exit is a step you can see in the diagram.
+
+Outside a run, `partition` splits a list of Results the same way:
+
+```typescript
+import { partition } from 'awaitly';
+
+const { errors } = partition([await checkName(''), await checkAge(17)]);
+errors.map((e) => e.type); // ['NAME_REQUIRED', 'TOO_YOUNG']
+```
+
 ## Next
 
 `run()` is for one-off composition. When you want a workflow you can name, test,

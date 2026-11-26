@@ -24,7 +24,8 @@
  *   `all` fails fast: a branch error leaves at once and rolls back. `allSettled`
  *   waits: a branch error ends only its region (in `<region>_failed`), and
  *   once all regions finish, a built-in `@xstate.stateIn` guard sends the
- *   machine to rollback if any region failed, else on.
+ *   machine to rollback if any region failed, else on. `step.allSettled` keeps
+ *   its errors: a failed check ends in `<region>_kept` and the machine goes on.
  * - race → a state with one `race:<n>` event per racer, so you pick the winner.
  * - if / step.if / switch → a state with one event per branch.
  * - loop → `iterate` into the body, back to the loop state, `done` to leave.
@@ -88,6 +89,8 @@ interface Ctx {
   parallelHub: string | undefined;
   /** Inside an `allSettled` region: a step error ends the region and rollback waits for the join. */
   deferUndo: boolean;
+  /** Final state of the `step.allSettled` region being compiled: a kept error ends only the region. */
+  keepIn: string | undefined;
   /** Top-level states: compensations live here so entering one never re-enters a parallel state. */
   root: Record<string, MachineJSONState>;
 }
@@ -307,16 +310,19 @@ function compileNode(node: StaticFlowNode, states: Record<string, MachineJSONSta
       const id = stateId(ctx, raw);
       for (const error of node.errors ?? []) ctx.errors.add(error);
       const src = node.depSource ?? (node.callee ? extractFunctionName(node.callee) : raw);
-      return invoking(ctx, states, id, src || raw, {
+      const fragment = invoking(ctx, states, id, src || raw, {
         ...(node.description ? { description: node.description } : {}),
         meta: {
           ...(id !== raw ? { stepId: raw } : {}),
           ...(node.callee ? { callee: node.callee } : {}),
           ...(node.key && node.key !== "<dynamic>" ? { key: node.key } : {}),
           ...(node.errors?.length ? { errors: node.errors } : {}),
+          ...(node.collectedErrors?.length ? { collectedErrors: node.collectedErrors } : {}),
           ...location(node.location),
         },
       });
+      if (node.collectedErrors && ctx.keepIn) states[id]!.invoke!.onError = ref(ctx.keepIn);
+      return fragment;
     }
     case "saga-step": {
       const raw = stepStateId(node);
@@ -352,7 +358,7 @@ function compileNode(node: StaticFlowNode, states: Record<string, MachineJSONSta
     case "parallel": {
       const id = stateId(ctx, node.name ?? `parallel_${++ctx.counter}`);
       if (node.children.length === 0) return choice(ctx, states, id, { description: "Parallel", meta: location(node.location) }, []);
-      const settled = node.mode === "allSettled";
+      const settled = node.mode === "allSettled" && !node.collectsErrors;
       const regions = dict<MachineJSONState>();
       const regionFailures: string[] = [];
       const outerFailed = ctx.failed;
@@ -371,12 +377,16 @@ function compileNode(node: StaticFlowNode, states: Record<string, MachineJSONSta
         const inner = dict<MachineJSONState>();
         // allSettled: a branch error ends only this region; the outcome is decided once all have finished.
         const failedId = settled ? stateId(ctx, `${regionId}_failed`) : outerFailed;
+        const outerKeep = ctx.keepIn;
+        ctx.keepIn = node.collectsErrors ? stateId(ctx, `${regionId}_kept`) : undefined;
         ctx.failed = failedId;
         ctx.compensationTop = hub ?? before;
         ctx.deferUndo = outerDefer || settled;
         const branch = compileNode(child, inner, ctx);
         ctx.failed = outerFailed;
         ctx.deferUndo = outerDefer;
+        if (ctx.keepIn) inner[ctx.keepIn] = { id: ctx.keepIn, type: "final" };
+        ctx.keepIn = outerKeep;
         inner[finalId] = { id: finalId, type: "final" };
         if (settled) {
           inner[failedId] = { id: failedId, type: "final" };
@@ -389,7 +399,7 @@ function compileNode(node: StaticFlowNode, states: Record<string, MachineJSONSta
       states[id] = {
         id,
         type: "parallel",
-        description: settled ? "Parallel (allSettled)" : "Parallel",
+        description: node.mode === "allSettled" ? "Parallel (allSettled)" : "Parallel",
         states: regions,
         on,
         meta: location(node.location),
@@ -544,6 +554,7 @@ export function renderMachineJSON(ir: StaticWorkflowIR): MachineJSON {
     afterFailure: new Map(),
     parallelHub: undefined,
     deferUndo: false,
+    keepIn: undefined,
     root: dict(),
   };
   ctx.done = stateId(ctx, "done");

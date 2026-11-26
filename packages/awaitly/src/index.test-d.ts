@@ -2276,3 +2276,40 @@ async function _testStringErrorsRejectedAtWorkflowEdges() {
     { catchUnexpected: () => ({ type: "NETWORK" }) }
   );
 }
+
+async function _testStepAllSettledKeepsErrorsOutOfTheRunUnion() {
+  const getUser = async (): AsyncResult<{ name: string }, Tag<"NOT_FOUND">> => ok({ name: "" });
+  const checkName = async (): AsyncResult<string, Tag<"NAME_REQUIRED">> => ok("");
+  const checkAge = async (): AsyncResult<number, { type: "TOO_YOUNG"; minimum: number }> => ok(1);
+
+  const result = await run({ getUser }, async (s, { step }) => {
+    await s.getUser();
+    const { values, errors } = await step.allSettled("checks", {
+      name: () => checkName(),
+      age: () => checkAge(),
+    });
+    expectType<(Tag<"NAME_REQUIRED"> | { type: "TOO_YOUNG"; minimum: number })[]>(errors);
+    expectType<{ name?: string; age?: number }>(values);
+    // operations are thunks, and return Results
+    expectError(step.allSettled("checks", { name: checkName() }));
+    expectError(step.allSettled("checks", { name: async () => "plain" }));
+    return errors.length;
+  });
+  if (!result.ok) expectType<Tag<"NOT_FOUND"> | UnexpectedError>(result.error);
+
+  // A kept error ends the run through a dep that returns it; only that error joins the union.
+  const screen = async (): AsyncResult<void, Tag<"OUTAGE"> | Tag<"RULE">> => ok(undefined);
+  const failOnOutage = async (outage: Tag<"OUTAGE"> | undefined): AsyncResult<void, Tag<"OUTAGE">> =>
+    outage ? err(outage) : ok(undefined);
+  const exiting = await run({ getUser, failOnOutage }, async (s, { step }) => {
+    const { errors } = await step.allSettled("checks", { fraud: () => screen() });
+    await s.failOnOutage(errors.find((e) => e.type === "OUTAGE"));
+    return errors;
+  });
+  if (!exiting.ok) expectType<Tag<"NOT_FOUND"> | Tag<"OUTAGE"> | UnexpectedError>(exiting.error);
+
+  // Without a dep that declares it, the error would escape the union.
+  await run({ getUser }, async (_s, { step }) => {
+    expectError(await step("outage", () => err({ type: "OUTAGE" })));
+  });
+}

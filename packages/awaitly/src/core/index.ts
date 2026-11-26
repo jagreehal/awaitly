@@ -1339,6 +1339,35 @@ export interface RunStep<E = unknown> {
   };
 
   /**
+   * Run every operation in parallel and keep every failure.
+   *
+   * Each operation is a step with the id `name.key`. An `err` it returns goes
+   * into `errors` (in declaration order) and the run continues, so these errors
+   * stay out of the run's own error union. An operation that throws still ends
+   * the run, once every operation has finished.
+   *
+   * @param name - Name for this group, and the prefix of each step id
+   * @param operations - Object of thunks returning Results
+   * @param options.key - Replaces `name` in the step cache keys, for a group inside a raw loop
+   *
+   * @example
+   * ```typescript
+   * const { values, errors } = await step.allSettled('checks', {
+   *   name: () => checkName(user.name),
+   *   age: () => checkAge(user.age),
+   * });
+   * return { allowed: errors.length === 0, blockers: errors.map((e) => e.type) };
+   * ```
+   */
+  allSettled: <
+    TOperations extends Record<string, () => MaybeAsyncResult<unknown, unknown>>
+  >(
+    name: string,
+    operations: TOperations,
+    options?: { key?: string }
+  ) => Promise<AllSettledSteps<TOperations>>;
+
+  /**
    * Execute a race operation (anyAsync) with scope events for visualization.
    *
    * This wraps the operation with scope_start and scope_end events, enabling
@@ -1900,6 +1929,23 @@ export interface RunStep<E = unknown> {
 // =============================================================================
 // Parallel Types
 // =============================================================================
+
+/** The step call `step.allSettled` runs each operation through. @internal */
+export type SettledStepRunner = (
+  id: string,
+  operation: () => AsyncResult<unknown, unknown>,
+  options: StepOptions
+) => Promise<unknown>;
+
+/** What `step.allSettled` resolves to: the values that succeeded by key, and every failure. */
+export type AllSettledSteps<
+  TOperations extends Record<string, () => MaybeAsyncResult<unknown, unknown>>
+> = {
+  values: {
+    [K in keyof TOperations]?: ExtractValue<Awaited<ReturnType<TOperations[K]>>>;
+  };
+  errors: ExtractError<Awaited<ReturnType<TOperations[keyof TOperations]>>>[];
+};
 
 /**
  * Operation descriptor for canonical parallel form.
@@ -4268,6 +4314,90 @@ async function runFn<T, E, C = void>(
         };
         return traceScope(scopeId, name, "parallel", executeScope);
       }
+
+      // step.allSettled: run every operation as its own step and keep the errors.
+      // `runStep` is the workflow layer's cached step, so each operation is
+      // cached and checkpointed on its own.
+      stepFn.allSettled = ((
+        name: string,
+        operations: Record<string, () => MaybeAsyncResult<unknown, unknown>>,
+        options?: { key?: string },
+        runStep: SettledStepRunner = stepFn
+      ): Promise<{ values: Record<string, unknown>; errors: unknown[] }> => {
+        if (typeof name !== "string" || name.length === 0) {
+          throw new TypeError(
+            "step.allSettled(name, ...): first argument must be a string (step name). Example: step.allSettled('checks', { name: () => checkName(n), age: () => checkAge(a) })"
+          );
+        }
+        if (!operations || typeof operations !== "object" || Array.isArray(operations)) {
+          throw new TypeError("step.allSettled(name, ...): second argument must be an object of operations.");
+        }
+        const scopeId = `scope_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+        const settle = async (key: string) => {
+          let nestedExit: unknown;
+          try {
+            const value = await runStep(
+              `${name}.${key}`,
+              async () => {
+                try {
+                  return await operations[key]();
+                } catch (thrown) {
+                  if (!isEarlyExitE(thrown)) throw thrown;
+                  // A step inside the operation exited. Recorded as a throw, so a
+                  // replay from the cache does not read it as a returned err.
+                  nestedExit = thrown;
+                  throw earlyExit(thrown.error, { origin: "throw", thrown });
+                }
+              },
+              options?.key === undefined ? {} : { key: `${options.key}.${key}` }
+            );
+            return { key, value };
+          } catch (thrown) {
+            if (isEarlyExitE(thrown) && thrown.meta.origin === "result") {
+              return { key, error: thrown.error };
+            }
+            return { key, fatal: nestedExit ?? thrown };
+          }
+        };
+
+        return traceScope(scopeId, name, "allSettled", async () => {
+          const startTime = performance.now();
+          activeScopeStack.push({ scopeId, type: "allSettled" });
+          emitEvent({
+            type: "scope_start",
+            workflowId,
+            scopeId,
+            scopeType: "allSettled",
+            name,
+            ts: Date.now(),
+          });
+
+          let outcomes: Awaited<ReturnType<typeof settle>>[];
+          try {
+            outcomes = await Promise.all(Object.keys(operations).map(settle));
+          } finally {
+            const idx = activeScopeStack.findIndex(s => s.scopeId === scopeId);
+            if (idx !== -1) activeScopeStack.splice(idx, 1);
+            emitEvent({
+              type: "scope_end",
+              workflowId,
+              scopeId,
+              ts: Date.now(),
+              durationMs: performance.now() - startTime,
+            });
+          }
+
+          const values: Record<string, unknown> = {};
+          const errors: unknown[] = [];
+          for (const outcome of outcomes) {
+            if ("fatal" in outcome) throw outcome.fatal;
+            if ("error" in outcome) errors.push(outcome.error);
+            else values[outcome.key] = outcome.value;
+          }
+          return { values, errors };
+        });
+      }) as unknown as RunStep<E>["allSettled"];
 
       // step.race: Execute a race operation with scope events
       stepFn.race = <T, StepE>(
@@ -6806,10 +6936,13 @@ export function allSettled<const T extends readonly Result<unknown, unknown>[]>(
  * fetchErrors.forEach(error => logError(error));
  * ```
  */
-export function partition<T, E>(  results: readonly Result<T, E>[]
-): { values: T[]; errors: E[] } {
-  const values: T[] = [];
-  const errors: E[] = [];
+export function partition<R extends Result<unknown, unknown>>(
+  results: readonly R[]
+): { values: ExtractValue<R>[]; errors: ExtractError<R>[] };
+export function partition<T, E>(results: readonly Result<T, E>[]): { values: T[]; errors: E[] };
+export function partition(results: readonly Result<unknown, unknown>[]): { values: unknown[]; errors: unknown[] } {
+  const values: unknown[] = [];
+  const errors: unknown[] = [];
 
   for (const result of results) {
     if (result.ok) {

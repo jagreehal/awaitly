@@ -14,7 +14,7 @@ import { stepNamesAt } from '../detect-step.js';
  * GOOD: return step(() => fetchUser());
  */
 
-const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'race', 'all', 'map', 'withFallback', 'withResource', 'workflow']);
+const STEP_METHODS = new Set(['step', 'try', 'retry', 'withTimeout', 'fromResult', 'race', 'all', 'allSettled', 'map', 'withFallback', 'withResource', 'workflow']);
 
 function isStepCall(node: CallExpression, context: Rule.RuleContext): boolean {
   const { callee } = node;

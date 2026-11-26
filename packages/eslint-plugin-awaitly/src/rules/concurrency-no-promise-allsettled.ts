@@ -5,10 +5,10 @@ import { isInsideWorkflowCallback } from '../detect-step.js';
 const rule: Rule.RuleModule = {
   meta: {
     type: 'problem',
-    docs: { description: 'Disallow Promise.allSettled in workflows; use step.map.', recommended: true },
+    docs: { description: 'Disallow Promise.allSettled in workflows; use step.allSettled.', recommended: true },
     schema: [],
     messages: {
-      noPromiseAllSettled: 'Use step.map() instead of Promise.allSettled() inside workflows.',
+      noPromiseAllSettled: 'Use step.allSettled() instead of Promise.allSettled() inside workflows.',
     },
   },
   create(context) {

@@ -37,6 +37,7 @@ import {
   type ForEachScopeHolder,
   type ForEachItemOptions,
   type ForEachRunOptions,
+  type SettledStepRunner,
 } from "../core";
 import { isDepResultShaped, type StepCallable } from "../core/bound-steps";
 import { carryOrigin, rememberSkipped, rememberThrow } from "../core/failure-origin";
@@ -1959,6 +1960,19 @@ export function createWorkflow<
             : { ...options, key: undefined as string | undefined };
         return cachedStepFn(id, async () => ok(await realStep.all(id, shape)), opts) as Promise<unknown>;
       };
+      // Every operation goes through the cached step, so each keeps its own cache entry and checkpoint.
+      cachedStepFn.allSettled = ((name: string, operations: never, options?: { key?: string }) =>
+        (realStep.allSettled as unknown as (
+          name: string,
+          operations: never,
+          options: { key?: string } | undefined,
+          runStep: SettledStepRunner
+        ) => Promise<unknown>)(
+          name,
+          operations,
+          options,
+          cachedStepFn as unknown as SettledStepRunner
+        )) as unknown as RunStep<E>["allSettled"];
       // Match core: step.map() passes { key: options?.key }, so omitted key = no cache (core never caches by id for map)
       cachedStepFn.map = (
         id: string,

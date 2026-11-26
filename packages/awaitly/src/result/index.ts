@@ -570,8 +570,18 @@ export type MatchResult<H> = {
   [K in keyof H]: H[K] extends (...args: never[]) => infer R ? R : never;
 }[keyof H];
 
-/** Rejects arms that name no member of the union (`NOPE: () => ...`). */
-type NoExtraArms<H, S> = { [K in keyof H]: K extends keyof S ? H[K] : never };
+/**
+ * Rejects arms that name no member of the union (`NOPE: () => ...`). The
+ * rejected arm's expected type is a sentence, so the compiler error names the
+ * arm and says what to do with it.
+ */
+type NoExtraArms<H, S> = {
+  [K in keyof H]: K extends keyof S
+    ? H[K]
+    : ((error: never, cause?: never) => unknown) & {
+        readonly [M in `match: this Result has no "${K & string}" error. Remove the "${K & string}" arm.`]: never;
+      };
+};
 
 // Two-arm form (ok/err catch-all), curried and direct
 export function match<T, E, H extends MatchHandlers<T, E>>(handlers: H & NoExtraArms<H, MatchHandlers<T, E>>): (r: Result<T, E>) => MatchResult<H>;
@@ -922,11 +932,18 @@ export async function allSettledAsync<
 
 /**
  * Partitions Results into { values, errors }.
+ *
+ * Results with different error types combine into one union, so
+ * `partition([await checkName(n), await checkAge(a)])` types `errors` as
+ * every failure either check can return.
  */
-export function partition<T, E>(  results: readonly Result<T, E>[]
-): { values: T[]; errors: E[] } {
-  const values: T[] = [];
-  const errors: E[] = [];
+export function partition<R extends Result<unknown, unknown>>(
+  results: readonly R[]
+): { values: ExtractValue<R>[]; errors: ExtractError<R>[] };
+export function partition<T, E>(results: readonly Result<T, E>[]): { values: T[]; errors: E[] };
+export function partition(results: readonly Result<unknown, unknown>[]): { values: unknown[]; errors: unknown[] } {
+  const values: unknown[] = [];
+  const errors: unknown[] = [];
   for (const r of results) {
     if (r.ok) values.push(r.value);
     else errors.push(r.error);

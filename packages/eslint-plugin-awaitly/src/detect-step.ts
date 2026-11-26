@@ -1,5 +1,6 @@
 import type { SourceCode, Scope } from 'eslint';
-import { staticPropertyName, workflowContextParam } from './workflow-context.js';
+import { findVariable } from './bindings.js';
+import { boundStepsParam, isDepsFirstRunCallback, staticPropertyName, workflowContextParam } from './workflow-context.js';
 import type {
   ArrowFunctionExpression,
   CallExpression,
@@ -88,9 +89,37 @@ export function stepNamesAt(node: Node, sourceCode: SourceCode): ReadonlySet<str
   return names;
 }
 
-/** Concurrency advice is actionable when a context step binding is visible. */
+/**
+ * Concurrency advice is actionable when a context step binding is visible, or
+ * inside deps-first `run(deps, fn)`, whose second parameter offers `step`.
+ */
 export function isInsideWorkflowCallback(node: Node, sourceCode: SourceCode): boolean {
-  return workflowStepBindings(node, sourceCode).size > 0;
+  if (workflowStepBindings(node, sourceCode).size > 0) return true;
+  let scope: Scope.Scope | null = sourceCode.getScope(node);
+  while (scope) {
+    if (isFunctionNode(scope.block) && isDepsFirstRunCallback(scope.block)) return true;
+    scope = scope.upper;
+  }
+  return false;
+}
+
+/**
+ * Whether a call runs a bound step of deps-first `run(deps, fn)`:
+ * `s.getUser(id)` for `(s) => ...`, or `getUser(id)` for `({ getUser }) => ...`.
+ * Resolved through the scope, so a shadowing local is left alone.
+ */
+export function isBoundStepCall(node: CallExpression, sourceCode: SourceCode): boolean {
+  const callee = node.callee;
+  const viaObject = callee.type === 'MemberExpression';
+  const id = viaObject ? callee.object : callee;
+  if (id.type !== 'Identifier') return false;
+  const def = findVariable(sourceCode, id)?.defs[0];
+  if (def?.type !== 'Parameter' || !isFunctionNode(def.node)) return false;
+  const param = boundStepsParam(def.node);
+  if (!param || param.type !== (viaObject ? 'Identifier' : 'ObjectPattern')) return false;
+  const [start, end] = param.range ?? [0, -1];
+  const [nameStart, nameEnd] = def.name.range ?? [-1, -1];
+  return start <= nameStart && nameEnd <= end;
 }
 
 /** Dependency aliases, with the same canonical-name compatibility as step. */

@@ -2037,6 +2037,18 @@ describe("partition() - split results", () => {
     expect(values).toEqual([]);
     expect(errors).toEqual(["a", "b"]);
   });
+
+  it("combines different error types into one union", () => {
+    const name: Result<void, { type: "NAME_REQUIRED" }> = err({ type: "NAME_REQUIRED" });
+    const age: Result<number, { type: "TOO_YOUNG"; minimum: number }> = err({ type: "TOO_YOUNG", minimum: 18 });
+
+    const { values, errors } = partition([name, age]);
+    const typedErrors: ({ type: "NAME_REQUIRED" } | { type: "TOO_YOUNG"; minimum: number })[] = errors;
+    const typedValues: (void | number)[] = values;
+
+    expect(typedErrors.map((e) => e.type)).toEqual(["NAME_REQUIRED", "TOO_YOUNG"]);
+    expect(typedValues).toEqual([]);
+  });
 });
 
 describe("zip() - combine two Results", () => {

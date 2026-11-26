@@ -1,9 +1,10 @@
 import type { Rule } from 'eslint';
 import type { CallExpression, Node, TryStatement } from 'estree';
-import { stepNamesAt } from '../detect-step.js';
+import { isBoundStepCall, stepNamesAt } from '../detect-step.js';
 
 /**
- * Recursively walks `node` looking for a `step(...)` or `step.X(...)` call.
+ * Recursively walks `node` looking for a `step(...)` or `step.X(...)` call,
+ * or a bound step of deps-first `run(deps, (s) => ...)` such as `s.getUser()`.
  *
  * Uses a generic property iteration rather than a hand-rolled child list so
  * arbitrary AST shapes (statement bodies, expression operands, switch cases,
@@ -12,6 +13,7 @@ import { stepNamesAt } from '../detect-step.js';
 function hasStepCall(node: Node, context: Rule.RuleContext): boolean {
   if (node.type === 'CallExpression') {
     const call = node as CallExpression;
+    if (isBoundStepCall(call, context.sourceCode)) return true;
     const stepNames = stepNamesAt(call, context.sourceCode);
     if (call.callee.type === 'Identifier' && stepNames.has(call.callee.name)) return true;
     if (
@@ -54,7 +56,7 @@ const rule: Rule.RuleModule = {
     schema: [],
     messages: {
       wrapStepTry:
-        'Do not wrap step() in try/catch. Use step.try() with explicit error mapping.',
+        "Do not wrap a step in try/catch: the catch swallows the step's failure and the workflow carries on. Use step.try() with explicit error mapping, or call the operation directly and read its Result.",
     },
   },
   create(context) {

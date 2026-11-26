@@ -97,6 +97,12 @@ export interface StaticStepNode extends StaticBaseNode {
   errors?: string[];
   /** How errors were determined: explicit (from step options) or inferred (from Result type) */
   errorsSource?: "explicit" | "inferred";
+  /**
+   * Set on an operation of `step.allSettled`: the errors it returns are kept and
+   * the workflow continues, so they are absent from `errors`. Empty when the
+   * error names could not be read.
+   */
+  collectedErrors?: string[];
   /** Output key for data flow (writes to ctx[out]) */
   out?: string;
   /** Keys read via ctx.ref() inside this step */
@@ -238,6 +244,8 @@ export interface StaticParallelNode extends StaticBaseNode {
    * - 'allSettled': Collects all results (allSettledAsync)
    */
   mode: "all" | "allSettled";
+  /** `step.allSettled`: a failed branch is kept and the workflow continues past the join. */
+  collectsErrors?: boolean;
   /** The function used (e.g., "allAsync", "allSettledAsync", "step.parallel") */
   callee?: string;
 }
