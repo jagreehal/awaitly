@@ -117,3 +117,4 @@ tsup.config.bundled_*.mjs
 .stryker-tmp/
 packages/*/reports/
 reports/
+.pnpm-store/

@@ -122,6 +122,7 @@ await sdk.shutdown();
 | `attempt <name>` | Each physical attempt, once retry is configured |
 | `parallel <name>` | `step.all()` |
 | `race <name>` | `step.race()` |
+| `allSettled <name>` | `step.allSettled()`, with one `step <name>.<key>` span per operation |
 | `saga` | Low-level `runSaga()` |
 | `saga step <name>` | Low-level saga steps |
 | `compensate <name>` | Saga rollback actions |

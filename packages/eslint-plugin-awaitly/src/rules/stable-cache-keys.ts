@@ -22,7 +22,7 @@ import { stepNamesAt } from '../detect-step.js';
 
 const STEP_METHODS = new Set([
   'step', 'try', 'retry', 'withTimeout', 'fromResult',
-  'all', 'map', 'race', 'sleep',
+  'all', 'allSettled', 'map', 'race', 'sleep',
   'withFallback', 'withResource', 'workflow',
 ]);
 

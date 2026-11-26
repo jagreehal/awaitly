@@ -29,8 +29,11 @@ describe('concurrency rules are scoped to workflows', () => {
     it(`${rule} sees the second context parameter in deps-first run`, () => {
       expect(verify(`run({ load }, async (s, { step: execute }) => { await ${call}; });`, rule)).toHaveLength(1);
     });
-    it(`${rule} does not confuse a dependency named step with context`, () => {
-      expect(verify(`run({ step: load }, async ({ step: execute }) => { await ${call}; });`, rule)).toHaveLength(0);
+    it(`${rule} flags it inside deps-first run with bound steps only`, () => {
+      expect(verify(`run({ load }, async (s) => { await ${call}; });`, rule)).toHaveLength(1);
+    });
+    it(`${rule} flags it once when a dependency is named step`, () => {
+      expect(verify(`run({ step: load }, async ({ step: execute }) => { await ${call}; });`, rule)).toHaveLength(1);
     });
     it(`${rule} flags it inside a workflow callback`, () => {
       const code = `run(async ({ step, deps: d }) => { await ${call}; });`;

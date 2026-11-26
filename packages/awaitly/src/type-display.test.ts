@@ -80,3 +80,39 @@ describe("step.withTimeout", () => {
     expect(displayedTypeOf("timeoutResult")).toContain('"API_TIMEOUT"');
   });
 });
+
+describe("match compiler errors", () => {
+  // The source lives in memory: a real fixture with this error would fail the project type-check.
+  const file = path.join(path.dirname(fixture), "match-stale-arm.ts");
+  const source = `
+    import { match, type Result } from "../index";
+    declare const r: Result<number, { type: "A" }>;
+    export const out = match(r, { ok: () => 0, A: () => 1, GONE: (e) => 2 });
+  `;
+  const options: ts.CompilerOptions = {
+    strict: true,
+    target: ts.ScriptTarget.ESNext,
+    module: ts.ModuleKind.Preserve,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    skipLibCheck: true,
+    noEmit: true,
+  };
+  const host = ts.createCompilerHost(options);
+  const read = host.getSourceFile.bind(host);
+  host.fileExists = (f) => f === file || ts.sys.fileExists(f);
+  host.readFile = (f) => (f === file ? source : ts.sys.readFile(f));
+  host.getSourceFile = (f, languageVersion, ...rest) =>
+    f === file ? ts.createSourceFile(f, source, languageVersion, true) : read(f, languageVersion, ...rest);
+  const program = ts.createProgram([file], options, host);
+  const messages = ts
+    .getPreEmitDiagnostics(program, program.getSourceFile(file))
+    .map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
+
+  it("names an arm the Result cannot produce and says to remove it", () => {
+    expect(messages.join("\n")).toContain('match: this Result has no \\"GONE\\" error. Remove the \\"GONE\\" arm.');
+  });
+
+  it("reports the stale arm once, with no implicit-any noise on its parameter", () => {
+    expect(messages).toHaveLength(1);
+  });
+});

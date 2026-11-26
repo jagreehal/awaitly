@@ -133,6 +133,13 @@ describe('no-floating-result', () => {
       expect(messages[0].message).toContain('step.map');
     });
 
+    it('reports floating step.allSettled(), whose errors would be lost', () => {
+      const code = `step.allSettled('checks', { age: () => checkAge(1) });`;
+      const messages = linter.verify(code, config);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].message).toContain('step.allSettled');
+    });
+
     it('reports floating step.workflow()', () => {
       const code = `step.workflow('child-call', () => childWorkflow.run(async ({ step }) => step('x', () => ok(1))));`;
       const messages = linter.verify(code, config);

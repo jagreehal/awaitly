@@ -66,7 +66,7 @@ Disallow wrapping step calls in try/catch; prefer step.try().
 - **ESLint rule:** `awaitly/step-no-try-catch-wrap`
 
 ```text
-Do not wrap step() in try/catch. Use step.try() with explicit error mapping.
+Do not wrap a step in try/catch: the catch swallows the step's failure and the workflow carries on. Use step.try() with explicit error mapping, or call the operation directly and read its Result.
 ```
 
 ### `step-no-deps-bypass` \{#step-no-deps-bypass\}
@@ -297,12 +297,12 @@ Use step.race() instead of Promise.race() inside workflows.
 
 ### `concurrency-no-promise-allsettled` \{#concurrency-no-promise-allsettled\}
 
-Disallow Promise.allSettled in workflows; use step.map.
+Disallow Promise.allSettled in workflows; use step.allSettled.
 
 - **ESLint rule:** `awaitly/concurrency-no-promise-allsettled`
 
 ```text
-Use step.map() instead of Promise.allSettled() inside workflows.
+Use step.allSettled() instead of Promise.allSettled() inside workflows.
 ```
 
 ## `durable-*`

@@ -95,7 +95,12 @@ export function renderRailwayMermaid(
       nodeId = generateShortId(label, usedIds);
     }
     const errors = getStepErrors(node, includeInferred);
-    return { node, label, shortId: nodeId, errors };
+    // A step.allSettled operation carries on past the errors it keeps
+    // Edge labels end at "|", so pipes in kept names become "/"
+    const kept = node.type === "step" && node.collectedErrors?.length
+      ? ` or ${node.collectedErrors.join(" / ")}`
+      : "";
+    return { node, label, shortId: nodeId, errors, okLabel: escapeLabel(`ok${kept}`).replace(/\|/g, "/") };
   });
 
   const lines: string[] = [];
@@ -109,12 +114,12 @@ export function renderRailwayMermaid(
     const next = stepEntries[i + 1];
     if (next) {
       lines.push(
-        `  ${current.shortId}["${escapeLabel(current.label)}"] -->|ok| ${next.shortId}["${escapeLabel(next.label)}"]`,
+        `  ${current.shortId}["${escapeLabel(current.label)}"] -->|${current.okLabel}| ${next.shortId}["${escapeLabel(next.label)}"]`,
       );
     } else {
       // Last step connects to Done
       lines.push(
-        `  ${current.shortId}["${escapeLabel(current.label)}"] -->|ok| Done((Success))`,
+        `  ${current.shortId}["${escapeLabel(current.label)}"] -->|${current.okLabel}| Done((Success))`,
       );
     }
   }

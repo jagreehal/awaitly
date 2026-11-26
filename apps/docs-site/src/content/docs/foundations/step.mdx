@@ -700,6 +700,7 @@ Workflow diagram and generated docs show:
 
 | Variant | Use when |
 |---------|----------|
+| `step.allSettled(id, shape)` | Run every operation and keep every failure: `{ values, errors }` |
 | `step.fromResult(id, fn, opts)` | Need to transform Result errors |
 | `step.fromNullable(id, fn, onNull)` | Convert null/undefined to typed error |
 | `step.retry(id, fn, opts)` | Want retry as the primary verb (vs option on step) |

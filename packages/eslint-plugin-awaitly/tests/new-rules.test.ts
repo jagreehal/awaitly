@@ -38,6 +38,26 @@ describe('new slug rules', () => {
       const good = `async function x() { try { JSON.parse('{}'); } catch {} }`;
       expect(verify(good, { 'awaitly/step-no-try-catch-wrap': 'error' })).toHaveLength(0);
     });
+    it('flags try/catch around a bound step in deps-first run', () => {
+      const bad = `run({ getUser }, async (s) => { try { await s.getUser('1'); } catch {} });`;
+      expect(verify(bad, { 'awaitly/step-no-try-catch-wrap': 'error' })).toHaveLength(1);
+    });
+    it('flags try/catch around a destructured bound step', () => {
+      const bad = `run({ getUser }, async ({ getUser }) => { try { await getUser('1'); } catch {} });`;
+      expect(verify(bad, { 'awaitly/step-no-try-catch-wrap': 'error' })).toHaveLength(1);
+    });
+    it('leaves a direct operation call inside try/catch alone', () => {
+      const good = `run({ getUser }, async (s) => { try { await audit('1'); } catch {} return s.getUser('1'); });`;
+      expect(verify(good, { 'awaitly/step-no-try-catch-wrap': 'error' })).toHaveLength(0);
+    });
+    it('respects a local that shadows the bound steps parameter', () => {
+      const good = `run({ getUser }, async (s) => { { const s = client; try { await s.getUser('1'); } catch {} } });`;
+      expect(verify(good, { 'awaitly/step-no-try-catch-wrap': 'error' })).toHaveLength(0);
+    });
+    it('does not treat the context parameter as bound steps', () => {
+      const good = `run({ getUser }, async (s, ctx) => { try { await ctx.log('x'); } catch {} });`;
+      expect(verify(good, { 'awaitly/step-no-try-catch-wrap': 'error' })).toHaveLength(0);
+    });
   });
 
   describe('concurrency-no-promise-*', () => {

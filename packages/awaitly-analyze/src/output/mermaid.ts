@@ -885,9 +885,13 @@ function renderParallelNode(
       });
     }
 
-    // Connect branch end to join
+    // Connect branch end to join; a step.allSettled branch says which errors it keeps
+    const last = child.type === "sequence" ? child.children.at(-1) : child;
+    const kept = last?.type === "step" && last.collectedErrors?.length
+      ? `keeps ${last.collectedErrors.join(", ")}`
+      : undefined;
     for (const lastId of branchResult.lastNodeIds) {
-      context.edges.push({ from: lastId, to: joinId });
+      context.edges.push({ from: lastId, to: joinId, ...(kept && { label: kept }) });
     }
   }
 

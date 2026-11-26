@@ -26,7 +26,7 @@ import { stepNamesAt } from '../detect-step.js';
  */
 
 // Step helper methods that require string (id/name) as first argument
-const STEP_HELPER_METHODS = ['sleep', 'retry', 'withTimeout', 'try', 'fromResult', 'race', 'all', 'map', 'withFallback', 'withResource', 'workflow'];
+const STEP_HELPER_METHODS = ['sleep', 'retry', 'withTimeout', 'try', 'fromResult', 'race', 'all', 'allSettled', 'map', 'withFallback', 'withResource', 'workflow'];
 
 /** Saga context param names that may receive step/tryStep (common in createSagaWorkflow / runSaga callbacks). */
 const SAGA_CONTEXT_NAMES = ['saga', 'ctx', 'sagaContext', 's'];

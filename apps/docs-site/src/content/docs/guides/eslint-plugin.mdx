@@ -326,7 +326,7 @@ Replace `Promise.race` with `step.race()`.
 
 **Severity**: error
 
-Replace `Promise.allSettled` with `step.map()` (which collects per-item Results without fail-fast).
+Replace `Promise.allSettled` with `step.allSettled()`, which keeps every failure.
 
 ### `error-*`, boundary handling
 
