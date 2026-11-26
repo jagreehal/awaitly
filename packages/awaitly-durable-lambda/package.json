@@ -1,6 +1,6 @@
 {
   "name": "awaitly-durable-lambda",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "type": "module",
   "description": "Drop-in, typed handler facade over the AWS Lambda durable execution SDK, for awaitly Result-returning steps",
   "main": "./dist/index.cjs",
