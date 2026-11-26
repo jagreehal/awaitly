@@ -1,5 +1,12 @@
 # awaitly-durable-lambda
 
+## 4.0.0
+
+### Patch Changes
+
+- Updated dependencies [ed057ea]
+  - awaitly@7.3.0
+
 ## 3.0.0
 
 ### Patch Changes
